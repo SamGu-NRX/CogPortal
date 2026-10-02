@@ -4,30 +4,29 @@
 
 `cogworks report` prints a local report that already exists. It takes one optional path; with none, it reads the most recently modified `local_*.json` under `.cogbench/reports/` in the directory the command was run in. It is the only way to read a run's numbers again after the terminal that produced them has gone.
 
-It is the smallest command on the platform. It loads no benchmark, resolves no portal, sends nothing, and writes nothing. It works offline, and it works on a machine where the benchmark package was never installed. Everything it prints comes out of one JSON file.
+It is the smallest command on the platform. It loads no benchmark, resolves no portal, sends nothing, and writes nothing. It works offline and on a machine where the benchmark package was never installed. Everything it prints comes out of one JSON file. `cogworks --help` lists it as "show a saved local report" (`python/cogbench/src/cogbench/cli.py:101`).
 
-It is also the only command that reads a file the student can point at, which is where most of its edge cases come from. See [`glossary.md`](../glossary.md) for *report id* and *self-reported*, and [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md#self-reported) for what those words commit the platform to.
+See [`glossary.md`](../glossary.md) for *report id* and *self-reported*, and [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md#self-reported) for what those words commit the platform to.
 
 ## The simple case
 
-A student who ran `cogworks run --benchmark audio-identification` an hour ago types `cogworks report`:
+A student who ran `cogworks test --benchmark language-search` earlier types `cogworks report`. This output was printed by the candidate tree from a hand-written report file:
 
 ```
-audio-identification v1 · LOCAL · SELF-REPORTED
-Identification score: 0.6562
-Clean top-1: 0.812
-Noisy top-1: 0.500
-Short clip top-1: 0.438
-Median identify time: 0.042 s
-Chance: 0.021
-Trivial baseline: 0.062
-commit: 4f2a19c (dirty)
-note: 3 of 48 queries returned no candidate.
+language-search v2 · LOCAL TEST · SELF-REPORTED
+This smoke test scored only the small test cases. `cogworks run --benchmark language-search` scores the full practice set.
+Text MRR: 0.6123
+Chance MRR: 0.010
+Median query time: 0.042 s
+commit: 0123456 (dirty)
+note: one note.
 ```
 
-Exit 0. The first line is fixed: `"{} v{} · LOCAL · SELF-REPORTED"` with the benchmark id and the benchmark version (`python/cogbench/src/cogbench/cli.py:191`). The two words after the middle dots are the platform's promise about the whole rest of the output, and they are there so that a number a student's own machine produced is never mistaken for one the portal observed.
+Exit 0. The first line is `"{} v{} · {} · SELF-REPORTED"` with the benchmark id, its version, and which command made the report: `LOCAL RUN`, `LOCAL TEST`, or plain `LOCAL` for a report that predates the field (`python/cogbench/src/cogbench/cli.py:214`, `:230`). The smoke-test sentence appears only for a `test` report (`cli.py:233`), so a small-case number is not read as a full run.
 
-Each metric prints as its label, its value, and its unit when it has one. The primary metric prints at four decimals or at its own precision, whichever is more, while every supporting metric keeps the precision recorded in the report (`python/cogbench/src/cogbench/cli.py:193`). That is why the first number above has one more place than the ones under it: teams differ in the fourth place, and the CLI was rounding to three where the portal showed four (`python/cogbench/src/cogbench/runner.py:176`). A metric that carries no unit but whose key ends in `_seconds` is printed with `s` after it, because a local run records no unit at all and the key is the only remaining evidence that the value is a duration (`python/cogbench/src/cogbench/cli.py:195`). The commit line prints only when the report carries a SHA, showing the first seven characters with `(dirty)` after it when the working tree had uncommitted changes. Diagnostics follow, one per line, each prefixed `note: `.
+The primary metric prints at four decimals or its own precision, whichever is more; the others keep their recorded precision (`cli.py:240`). A metric with no unit whose key ends in `_seconds` gets an `s`, because a local run records no unit and the key is the only evidence the value is a duration (`cli.py:245`). The commit line appears only when the report carries a SHA, with `(dirty)` when the tree had uncommitted changes. Each diagnostic line follows as `note: `.
+
+`Chance MRR` above is a floor, a property of the dataset. The report file records that (`"role": "floor"`), and the terminal prints it exactly like the score above it (`cli.py:239`).
 
 Running it twice prints the same thing twice. Nothing is recorded, and the file is not touched.
 
@@ -38,94 +37,94 @@ stateDiagram-v2
     [*] --> resolving : cogworks report [path]
     resolving --> refused : no path given and no reports found (exit 2)
     resolving --> reading : a path, or the newest saved report
-    reading --> refused : the file is missing or will not parse (exit 2)
+    reading --> refused : the file is missing or does not parse (exit 2)
+    reading --> crashed : valid JSON missing a field (traceback, exit 1)
     reading --> refused : Ctrl+C (exit 130)
     reading --> printed : the file loaded (exit 0)
     printed --> [*]
     refused --> [*]
+    crashed --> [*]
 ```
 
 ### Asking
 
-The working directory is read once, before anything else, for the same reason every command reads it once: a benchmark plugin may change it (`python/cogbench/src/cogbench/cli.py:648`). `report` loads no plugin, so it is only inheriting the rule.
+The working directory is read once, before anything else (`cli.py:1156`); `report` loads no plugin, so it only inherits the rule.
 
-With a path argument, that path is expanded and resolved and nothing else is consulted. With none, `.cogbench/reports/` under the working directory is globbed for `local_*.json` and the results are sorted by modification time, newest last (`python/cogbench/src/cogbench/storage.py:28`).
+With a path argument, that path is expanded and resolved and nothing else is consulted. With none, `.cogbench/reports/` is globbed for `local_*.json`, symlinks and non-files are ignored, and the newest by modification time wins (`python/cogbench/src/cogbench/storage.py:101`).
 
 ### Answered without work
 
-One way out before the file is opened: no path given, and no reports directory or no matching files in it. That raises a `ContractError` carrying "No local reports found. Run `cogworks run` first." which reaches the student on stderr with the usual `cogworks: ` prefix, exit 2 (`python/cogbench/src/cogbench/cli.py:212`).
-
-Nothing is written and nothing is sent on that path, or on any other path through this command.
+One way out before a file is opened: no path given and no matching report. That is "No local reports found. Run `cogworks run` first." on stderr with the `cogworks: ` prefix, exit 2 (`cli.py:259`). Nothing is written or sent on this path or any other.
 
 ### The work begins
 
-There is no such moment. `report` reads one file and prints. Abandoning it at any instant leaves the machine exactly as it was, which is true of only this command and [`cogworks status`](status.md). Unlike `status`, it does not even make a request.
+There is no such moment. `report` reads one file and prints. Abandoning it leaves the machine as it was. The same holds for [`cogworks status`](status.md), but `report` does not even make a request.
 
 ### While it works
 
-Nothing is displayed. There is no spinner, because there is no search: the whole command is one `read_text` and a loop over metrics. On a report of any realistic size it is over before a frame could be drawn.
+Nothing is displayed. The command is one file read and a loop over metrics.
 
 ### How it ends
 
-The lines above to stdout, then exit 0. A failure prints one `cogworks: {message}` line to stderr and exits 2. There is no summary line, no path, and no report id, so a student looking at the output cannot tell which of their saved reports they are reading. `cogworks run` prints "saved: {path}" when it finishes (`python/cogbench/src/cogbench/cli.py:688`); `cogworks report` prints no such line.
+The lines above go to stdout, then exit 0. A handled failure is one `cogworks: {message}` line on stderr and exit 2. There is no path, no report id and no count in the output, so a student cannot tell which of several saved reports they are reading. `cogworks run` prints "saved: {path}"; `cogworks report` prints nothing like it.
 
 ## Modifiers
 
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | No effect. No account, no device token, no portal. A signed-out student, a team member, and an instructor all get identical output from the same file. | No effect. |
-| Where your team and repository stand | Only through the directory. `.cogbench/reports/` is resolved against the working directory, so running this one level down from where `cogworks run` ran finds nothing and prints the "No local reports found" sentence, which sends the student to re-run rather than to change directory. The team, the repository, and the portal are never consulted. | No effect. |
-| Which week's benchmark | No effect on the ask, and no way to express it. `report` takes no `--benchmark` and does not filter by one, so a student with Week 1 and Week 3 reports in one directory gets whichever file was modified last. The benchmark id appears in the output, at the start of the first line, only after the choice has already been made. | No effect. |
-| Practice or leaderboard | No effect. A local report is self-reported and can never reach the leaderboard, whatever it says. Promotion is about a hosted run. See [`foundations/the-run.md`](../foundations/the-run.md). | No effect. |
-| Flags, options, and where you are typing | One positional path, described in `--help` as "saved report file to show (uses the latest report when omitted)" (`python/cogbench/src/cogbench/cli.py:93`), and nothing else. There is no `--json`, even though `_print_report` takes an `as_json` argument and `cogworks run --json` uses it (`python/cogbench/src/cogbench/cli.py:187`, `:686`), so a saved report can only be printed as text by this command. Output is stdout with no colour and no width detection, so a pipe and a terminal get identical bytes. | No effect. |
+| Who you are | No effect. No account, token or portal. Everyone gets identical output from the same file. | No effect. |
+| Where your team and repository stand | Only through the directory. Running one level below where `cogworks run` ran finds nothing and prints "No local reports found", which sends the student to run again rather than to change directory. | No effect. |
+| Which week's benchmark | No way to choose one. There is no `--benchmark`, so with Week 1 and Week 3 reports in one directory the newest file wins and the benchmark id shows only after the choice. | No effect. |
+| Practice or leaderboard | No effect. A local report is self-reported and never reaches the leaderboard. See [`foundations/the-run.md`](../foundations/the-run.md). | No effect. |
+| Flags, options, and where you are typing | One positional path, "saved report file to show (uses the latest report when omitted)" (`cli.py:105`), and nothing else. No `--json`, although the printer supports it and `run --json` uses it (`cli.py:226`). Output has no colour and no width detection. | No effect. |
 
 ## Cancel and interrupt
 
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
-| You stop it yourself | Ctrl+C prints `cogworks: interrupted` on stderr and exits 130. Nothing was going to be written. | The same. The file is opened read-only and the process leaves nothing behind. |
-| You do something else mid-way | No effect. There is no lock and no shared state; two `cogworks report` runs are independent. | No effect. |
-| A teammate acts at the same time | A teammate's run happens on their own machine and writes to their own `.cogbench/reports/`. Nothing a teammate does changes what this command finds. | No effect. |
-| The network or the portal fails | No effect. Nothing is sent. This command is identical with the network unplugged. | No effect. |
-| The page or the process goes away | Closing the terminal kills the command with nothing half-written. | The same. |
-| The thing being measured changes | A `cogworks run` finishing a moment earlier changes which file is newest, so two invocations a second apart can print two different reports with nothing saying the answer moved. Editing the repository changes nothing: the report is a record of a run that already happened, and it carries its own commit. | A `cogworks run` in another terminal writing a report mid-read cannot affect this one; the newest file was already chosen. |
-| The platform refuses or credit runs out | Not applicable. `report` spends nothing and asks permission for nothing. | No effect. |
+| You stop it yourself | Ctrl+C prints `cogworks: interrupted` and exits 130. | The same. |
+| You do something else mid-way | No effect. No lock and no shared state. | No effect. |
+| A teammate acts at the same time | A teammate's runs write to their own machine. | No effect. |
+| The network or the portal fails | No effect. Nothing is sent. | No effect. |
+| The page or the process goes away | Closing the terminal leaves nothing half-written. | The same. |
+| The thing being measured changes | A `cogworks run` finishing a moment earlier changes which file is newest, so two invocations a second apart can print two different reports with nothing saying the answer moved. | A report written mid-read cannot affect this one; the file was already chosen. |
+| The platform refuses or credit runs out | Not applicable. | No effect. |
 
 ## Interactions with other systems
 
-**Who may do this.** Anyone with the file. There is no gate of any kind, and a report handed to another student prints the same way on their machine.
+**Who may do this.** Anyone with the file. A report handed to another student prints the same way on their machine.
 
-**The team owns it.** The report names a repository and a commit, never a person. The GitHub login only enters the picture when a report is uploaded by `cogworks sync`, and that is the syncing student's, not the report's.
+**The team owns it.** The report names a repository and a commit, never a person. A login enters only when `cogworks sync` uploads it, and that is the syncing student's.
 
-**Credit.** None spent, none reported, and no quota is visible from here.
+**Credit.** None spent, none reported.
 
-**What the portal claims.** Nothing. Every line is the student's own machine reporting on itself, which is exactly what `LOCAL · SELF-REPORTED` on the first line says. See [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+**What the portal claims.** Nothing. `SELF-REPORTED` on the first line says the student's machine produced every number. See [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
-**What the benchmark supplied.** Not shown. The "supplied" disclosure is built during discovery and does not travel in a saved report's wire shape, so this command cannot show it even though the run that produced the numbers knew it. See [`cross-cutting/what-the-benchmark-supplied.md`](../cross-cutting/what-the-benchmark-supplied.md).
+**What the benchmark supplied.** Not shown. The disclosure is built during discovery and is not part of a saved report. See [`cross-cutting/what-the-benchmark-supplied.md`](../cross-cutting/what-the-benchmark-supplied.md).
 
-**Live updates and reconnection.** None. There is no session and no stream.
+**Live updates and reconnection.** None.
 
-**Discord.** Nothing is posted, and nothing about the team's Discord channel is read.
+**Discord.** Nothing is posted or read.
 
-**Configuration.** None applies. `COGPORTAL_URL`, `COGBENCH_CONFIG`, and the saved active portal are all ignored, because no portal is resolved.
+**Configuration.** None applies. No portal is resolved.
 
 ## Edge cases
 
-- **The newest report wins by modification time, not by run time.** `latest_report` sorts on `st_mtime` (`python/cogbench/src/cogbench/storage.py:28`), so anything that rewrites or copies an older file makes it the answer. The report also carries `startedAt` and `finishedAt`, and neither is consulted.
-- **A missing file gives a Python message.** An explicit path that does not exist raises `FileNotFoundError`, which is an `OSError` and therefore caught, so the student reads `cogworks: [Errno 2] No such file or directory: '/...'` and exits 2. That is a Python sentence, not one written for a reader, and it is the most likely way to reach this command wrongly.
-- **A file that is valid JSON but not a local report gives a traceback.** `LocalReport.from_json` reads its required fields by subscript, and `KeyError` is not in the caught tuple at `cli.py:720`, so a hosted run's JSON or a hand-written file produces a stack trace. Malformed JSON is different: `JSONDecodeError` is a `ValueError`, which is caught, so that case exits 2 with a Python message instead. Two shapes of the same mistake, two different failures.
-- **Floors print exactly like scores.** `Metric.from_wire` reads `key`, `label`, `value`, `unit`, `higherIsBetter`, `primary`, `precision`, and `help`, and drops `role` and `relatesTo` (`python/cogbench/src/cogbench/models.py:101`). `_print_report` then prints every metric as one identical line. A student reading a Week 3 report cannot tell "Chance MRR", which is a property of the dataset, from "Text MRR", which is their score. The primary metric is not labelled as primary either; its extra decimal place is the only tell, and a supporting metric that happens to declare four decimals would look the same. The run page makes both distinctions; the terminal makes neither.
-- **A report from outside a worktree loses its provenance silently.** The commit line prints only when the report carries a SHA (`python/cogbench/src/cogbench/cli.py:201`). A run in a directory where `git rev-parse HEAD` failed saves a report with no SHA, so nothing on screen says which code produced the numbers, and the `dirty` flag it does carry is never reached.
-- **Diagnostics are already trimmed on disk, and one note can be several lines.** When the report is created, each note is split at sentence boundaries so that no line exceeds the 240 character wire limit, and a single sentence longer than that falls back to word wrapping (`python/cogbench/src/cogbench/models.py:12`). The resulting lines are then flattened and the first 32 kept (`python/cogbench/src/cogbench/models.py:168`), so the cap counts lines rather than notes and one long note can use several of the 32. Before this, each note was cut at 240 characters mid-word and 32 notes were kept. `report` prints one `note: ` line per surviving line, so a note that was split reads as two entries with nothing saying they were one.
-- **The weight files a run used are on disk and never shown.** A saved report carries `weightsUsed`, written by `to_wire` and read back by `from_json` (`python/cogbench/src/cogbench/models.py:193`, `:223`), but `_print_report` has no line for it (`python/cogbench/src/cogbench/cli.py:187`). So the file a student can open names the weights, and the command that reads that file for them does not. What is done with those files is [`sync.md`](sync.md).
-- **The benchmark version is printed and never checked.** A report from an older benchmark version prints normally, with the version in the first line and nothing saying it no longer matches what is installed.
+- **Newest by modification time, not by run time.** Copying or touching an older file makes it the answer; `startedAt` and `finishedAt` in the file are not consulted (`storage.py:113`).
+- **A missing file gives a Python message.** `cogworks: [Errno 2] No such file or directory: '/...'`, exit 2. Seen locally from the candidate tree.
+- **Bad JSON and incomplete JSON fail differently.** A file that is not JSON gives `cogworks: Expecting value: line 1 column 1 (char 0)`, exit 2. A file that is valid JSON but lacks a required field, such as a hosted run's JSON or `{}`, raises `KeyError` outside the caught tuple (`python/cogbench/src/cogbench/models.py:303`, `cli.py:1361`) and prints a traceback with exit 1, an exit code the CLI is not supposed to have. Both seen locally from the candidate tree.
+- **Weight receipts are validated even though they are not printed.** A report whose `weightsUploaded` names a path it did not score, or lacks a digest, is refused with that reason (`models.py:242`), so a hand-edited weight list makes the scores unreadable here too.
+- **A `command` value other than `test` or `run` is refused** with "command must be one of 'test', 'run', not {value}" rather than guessed (`models.py:340`).
+- **Notes are already trimmed on disk.** Each note is split at sentence boundaries to fit the 240 character wire limit, and the 32-line cap reserves one line per note before spending spare lines on continuations (`models.py:180`). `report` prints one `note:` line per stored line, so a split note reads as two.
+- **The weight files a run used are in the file and never shown.** `weightsUsed` and `weightsUploaded` survive in the JSON; the printer has no line for them (`cli.py:226`). What happens to them is [`sync.md`](sync.md).
+- **The benchmark version is printed and never checked** against what is installed.
+- **On the candidate's setup-page CLI** (`40d31a2`, `apps/portal/src/lib/benchmark-packages.ts:40`) the first line is always plain `LOCAL` and there is no smoke-test sentence, because that CLI neither writes nor prints the command.
 
 ## Open questions and verification
 
-- No `--json` flag, confirmed at `python/cogbench/src/cogbench/cli.py:89` where the subparser is given only a positional `path`, and at `:697` where `_print_report` is called without the `as_json` argument. `cogworks run --json` can emit JSON for a report it just made; nothing can emit JSON for a report already on disk. Worth treating as a gap rather than a decision, since the support is present and unreachable.
-- A valid-JSON file that is not a local report produces a traceback rather than a sentence. Same cause as the `KeyError` gap noted in [`status.md`](status.md#open-questions-and-verification), and the same one-line fix. Worth treating as a bug.
-- There is no way to ask for the newest report of a particular benchmark. Whether students keep more than one benchmark's reports in one directory was not established.
-- Whether anything scripts against this output was not established, which matters for both the missing `--json` and the unmarked primary metric.
-- Nothing here was run. The sample above is assembled from `_print_report`'s format strings and Week 1's metric labels (`benchmarks/week1/audio_identification_benchmark/plugins.py:38`), not from a real file. **Unverified.**
+- The `KeyError` traceback and exit 1 were reproduced locally from the candidate tree with a `{}` file (B-34).
+- Floors still print as scores although the role now survives in the file (B-26).
+- No `--json` and no way to ask for the newest report of one benchmark. Whether students keep several benchmarks' reports in one directory is not established.
+- Hosted beta (`4984730`) differs only in which CLI its setup page installs (`b6bbffb`, beta `apps/portal/src/lib/benchmark-packages.ts:41`), which prints `LOCAL RUN` and `LOCAL TEST` like this tree.
 
-Verified against Cog\*Portal commit `5a74e74`.
+Read against Cog\*Portal commit `2ff32fa`.

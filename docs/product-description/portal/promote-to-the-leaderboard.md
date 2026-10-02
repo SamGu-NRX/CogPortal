@@ -1,44 +1,26 @@
 # Promoting a run
 
-## What this document owns
-
-Two acts, on two routes.
-
-**Promotion** starts an official evaluation from a succeeded practice candidate. It reserves official capacity while running and counts against the three-evaluation limit only when completed.
-
-**Publication** makes a succeeded official run the team's single public entry on the leaderboard. It is offered on `/runs/:runId` in the `PUBLISH` panel, it costs nothing, and it can be changed as often as the team likes.
-
-This document owns promotion and publication. [Credit and quota](../cross-cutting/credit-and-quota.md) owns when evaluations count.
-
-[`start-a-practice-run.md`](start-a-practice-run.md) owns the practice run that becomes the candidate. [`watching-a-run.md`](watching-a-run.md) owns the official run while it works, and the console's own layout. [`the-run-page.md`](the-run-page.md) owns everything else on `/runs/:runId`. [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md) owns the credit rules in full; this document says only what a student sees.
-
 ## Summary
 
-The platform permits ten completed hosted practice evaluations and three completed official evaluations per benchmark version. Failed executions use no quota.
+Two acts take a team's work from practice to public.
 
-Promotion is the bridge, and it is deliberately not a rerun. The official run copies the practice run's whole record, changes its mode, its attempt number, and its dataset version, and reuses the artifact the practice run already prepared, so the same commit is scored against different inputs rather than built again from scratch (`apps/portal/worker/services/run-actions.ts:368`). Under Modal a missing prepared artifact is a refusal rather than a rebuild: "The prepared hosted artifact is unavailable. Verify the commit again." (`run-actions.ts:361`).
+**Promotion** starts an official execution of a succeeded practice run's commit against hidden inputs. It is offered once per practice run, it reserves official capacity while it runs, and it counts as one of three official attempts per benchmark version only if it completes.
 
-Publication is separate and reversible. A team has exactly one public entry per benchmark version, stored as a single row keyed on team, benchmark, and version, and publishing a different official run overwrites it (`run-actions.ts:437`).
+**Publication** makes a succeeded official run the team's one public entry on that benchmark version's leaderboard. It starts nothing, costs nothing, and can be moved to another official run whenever the team likes.
 
-Neither happens automatically. Nothing on the platform promotes a good practice run, and nothing publishes a good official run. Both are explicit acts behind a two-step button.
+This document owns both acts. [`start-a-practice-run.md`](start-a-practice-run.md) owns the practice run, [`watching-a-run.md`](watching-a-run.md) owns the official run while it works, [`the-run-page.md`](the-run-page.md) owns the rest of `/runs/:runId`, and [credit and quota](../cross-cutting/credit-and-quota.md) owns when an attempt counts.
 
-Promotion starts another evaluation. If it fails, Retry can start another official execution in the same view without repeating practice. Publication selects an existing eligible result and remains free.
+Promotion is reached from the Runs page (`/dashboard`), from a practice run's page, from its console, and from Discord. Publication is reached from an official run's page, its console, and Discord; the Runs page only shows the result once it is public.
 
 ## The simple case
 
-A practice run succeeds. The dashboard grows a block under the start controls: a kicker reading `Candidate ready` in verify green, then "RUN 3F82 scored 0.6412 on main · 4f2a91c", and beside it a button reading "Promote to official". Under it, one line: "Runs the same commit against hidden inputs. Logs are suppressed." (`apps/portal/src/routes/DashboardPage.tsx:404`).
+A practice run succeeds. On the Runs page its lead card grows a block labeled "Ready to promote" with the sentence "Promoting scores this same commit once against the hidden set, with its logs kept back. It would use official attempt {n} of 3." (`apps/portal/src/routes/DashboardPage.tsx:521`) and a button, "Promote to official". When the candidate is not the latest run, the same block stands on its own with a margin note: "There's no undo once an official attempt starts, so it's worth reading what the practice run found first." (`:316`).
 
-The student presses it. The button does not fire; it re-labels itself "Confirm, uses attempt 1 of 3" and waits. Pressing again promotes; waiting four seconds disarms it, so "an abandoned first click can't fire later" (`apps/portal/src/components/ConfirmButton.tsx:6`).
+The student presses the button. It does not fire; it re-labels itself "Confirm, uses attempt {n} of 3" (`:560`) and a thin line drains along its bottom edge for four seconds. A second press promotes; Escape or waiting disarms it, so "an abandoned first click can't fire later" (`apps/portal/src/components/ConfirmButton.tsx:12`).
 
-The server checks current repository write access, candidate eligibility, active execution and official capacity. Before admission, the recorded repository ID must match the team's connected repository. Modal promotion also requires a prepared artifact reference. A reference alone does not prove that Modal can still restore the snapshot; provider restoration and browser acceptance remain unverified.
+The server admits an official execution and the Runs page shows it as "Running now" with "logs kept back". When it succeeds, its own page offers a "Publish" section: "You can switch to another successful official run at any time, at no cost." and a button "Publish to leaderboard" that arms to "Confirm, make this the public result" (`apps/portal/src/routes/RunDetailPage.tsx:722`, `:728`, `:729`). After publishing, the section is titled "Published" and reads "This result is your team's public entry. See it on the leaderboard." (`:709`, `:711`). Observed locally on fixture data in `/tmp/cogshots/matched/pairs/b-run-official-desk.png`.
 
-The run page also names the saved commit and hidden official inputs before confirmation, with the remaining official capacity beside it. Its legacy wording and punctuation differ from the dashboard; final copy is part of the pending browser integration.
-
-When that official run succeeds, its page offers publication as the team's public result and explains that switching results is free. A two-step button confirms the selection. After publication, the panel identifies the selected result and links to the leaderboard.
-
-The dashboard's `PUBLISHED RESULT` panel then shows the number at 4xl in serif, its label, `· attempt #1 · 4f2a91c`, and two links, `View run` and `Leaderboard`. Before that it reads "Nothing published yet. Promote a successful practice run, then select the official result you want public." (`DashboardPage.tsx:199`).
-
-The console does the same two things from Discord, as buttons in its right-hand column. Both are drawn in detector red rather than the neutral outline the other actions get (`RunConsole.tsx:365`), which is the only place in the platform where the consequential actions are visually separated from the cheap ones.
+The Runs page then says "It's your team's result on the leaderboard." under that run (`DashboardPage.tsx:454`), links "See the leaderboard", and lists it under "On the leaderboard" in the reference facts with "Open the run" and "Leaderboard" links (`:858`). Observed locally in `pairs/b-dashboard-desk.png`.
 
 ## The ask, event by event
 
@@ -46,144 +28,128 @@ The console does the same two things from Discord, as buttons in its right-hand 
 stateDiagram-v2
     [*] --> candidate : a practice run succeeded
     candidate --> armed : "Promote to official" pressed once
-    armed --> candidate : four seconds pass, the button disarms
-    armed --> refused : quota, active run, artifact, or permission
+    armed --> candidate : four seconds, or Escape
+    armed --> refused : capacity, active run, source, or saved environment
     armed --> running : official execution admitted
-    running --> official_done : completed, quota increases
-    running --> official_failed : failed, no quota used
-    official_failed --> running : Retry admitted for the same source and mode
-
+    running --> official_done : completed, one attempt counts
+    running --> official_failed : failed, nothing counts
+    official_failed --> running : Retry from the console
     official_done --> published : "Publish to leaderboard" confirmed
-    published --> published : a different official run is published instead
+    published --> published : another official run is published instead
     refused --> candidate
 ```
 
 ### Asking
 
-Both acts capture one thing: a run id. Promotion takes the practice run's id, publication takes the official run's id, and neither carries any other choice. There is no note, no label, and no way to promote a commit that is not already a succeeded practice run.
+Both acts carry one thing: a run id. Promotion takes a practice run's id; publication takes an official run's id. There is no note, no label, and no way to promote a commit that is not already a succeeded hosted practice run.
 
-The dashboard and physical run page use two-step confirmation; the console opens a modal. Each confirmation must name the action and its consequence. The legacy labels differed in punctuation and cost wording, which the pending browser integration must recheck.
+The Runs page offers only the newest succeeded practice run that has a primary metric (`DashboardPage.tsx:179`, `apps/portal/worker/routes/dashboard.ts:77`). Any other practice run is promoted from its own page.
 
-Publication's confirm label is "Confirm, make this the public result" (`apps/portal/src/routes/RunDetailPage.tsx:340`), and the console's is "Publish 4f2a91c to the public leaderboard?".
+The confirmations name the cost before the second press:
 
-Neither act captures who pressed it in anything the team can read. The run records `createdByUserId` on its surface, which the console prints as `@login`, and that is the whole of the attribution. `RUN LOG` shows an official run with an attempt number and no author.
+- Runs page and run page: "Confirm, uses attempt {n} of 3" (`DashboardPage.tsx:560`, `RunDetailPage.tsx:647`).
+- Console: a dialog headed "Promote to official" with "Use official attempt {n} of 3 for {benchmark} at {sha7}?" and a button "Use attempt {n} of 3" (`apps/portal/src/components/RunConsole.tsx:274`, `:292`).
+- Discord: "Use an official attempt?" with "This scores the same commit on the hidden set and spends one official attempt. It reuses the environment this run already built, so nothing reinstalls." (`apps/discord-bot/src/commands.ts:558`, `:559`).
+- Publication on the console: "Publish {sha7} to the public leaderboard?" (`RunConsole.tsx:276`); in Discord: "This becomes the team's public leaderboard entry. You can replace it later with another official result." (`commands.ts:568`).
+
+The number is the next completed attempt. Every confirmation says the attempt is used; only the run page's margin note says a failure doesn't use one: "Official attempts are shared by the whole team, 3 per benchmark version, and an attempt that fails doesn't use one up." (`RunDetailPage.tsx:611`).
 
 ### Answered without work
 
-Promotion refuses when current permission, candidate eligibility, benchmark version, required prepared artifact reference or capacity is unavailable. The server returns the reason.
+The pages hide the control and say why when the server would refuse:
 
-A succeeded hosted practice candidate is required. Another active execution blocks admission, and three completed official evaluations exhaust the version's quota. A missing prepared artifact reference requires a fresh candidate.
+- **Already promoted.** A practice run is promoted once (`apps/portal/worker/db/schema.ts:412`). Its page reads "This run was promoted to official attempt #{n}, which reruns {sha7} against the hidden inputs." with "Open attempt #{n}" (`RunDetailPage.tsx:631`, `:758`); the Runs page labels it "Promoted" with "A run is promoted once, so the next official attempt starts from a new practice run." (`DashboardPage.tsx:518`). Promoting again returns that attempt and spends nothing (`apps/portal/worker/services/run-actions.ts:167`). Observed locally in `pairs/b-run-success-desk.png`.
+- **The promoted attempt failed.** The label becomes "Can't be promoted" with "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote." (`apps/portal/worker/services/run-eligibility.ts:115`), and a link to the failed attempt. That attempt can be retried from its console, which the sentence does not mention.
+- **A run from before consoles existed.** "This run is from before runs had a console, so it can't be promoted. Start a new practice run to create a candidate." (`run-eligibility.ts:105`).
+- **A run from another repository.** The source refusal replaces the control.
+- **A saved environment that cannot be reused.** One of "The saved environment can't be matched to the connected repository.", "The saved environment doesn't match this run's source and artifact.", or "The saved environment isn't compatible with this benchmark's current execution contract." (`run-eligibility.ts:35`, `:53`, `:59`), among others. Promotion never rebuilds; a missing environment means a new practice run.
+- **No attempts left.** The Runs page disables the button and says "All 3 official attempts on this version are used." (`DashboardPage.tsx:520`). The run page disables it and says "All official attempts are used for this benchmark version. Your existing successful official runs can still be selected for the leaderboard." (`RunDetailPage.tsx:665`). The run page also keeps the button disabled until the quota has loaded (`:655`).
 
-A failed official execution does not require a new practice candidate merely to try again. Use Retry for that failure. Repeated promotion is not the recovery action; the current official execution remains attached to the same view.
+The server makes the same checks in order: current GitHub write access, the run is a succeeded practice run ("Only a succeeded hosted run can be promoted.", `run-actions.ts:402`), its source, an existing promotion, an active benchmark version ("That benchmark version is not active.", `:158`), the saved environment, no active run, and capacity ("The official-attempt quota is exhausted.", `:421`). A refusal appears under the button pressed (`DashboardPage.tsx:570`, `RunDetailPage.tsx:677`); when the reason cannot be read, the run page says "The promotion couldn't be started. Try again." and the console says "That action could not be completed." (`apps/portal/src/routes/RunSurfacePage.tsx:66`).
 
-Publication has two: "Only a succeeded official run can be published." (`run-actions.ts:426`) and "Run not found.". It also refuses a run the leaderboard can't rank, one scored under an older scorer or without the measure the board ranks, by name (`rankingRefusal` in `worker/services/run-eligibility.ts`). The run page and the console both carry that sentence in place of the Publish control, so a student reads it before confirming anything, and the team's existing public entry is untouched. It also runs the same live GitHub write-access check that promotion does (`run-actions.ts:416`), so the three permission sentences apply to it as well.
-
-When the client cannot read a reason it substitutes one: "The promotion couldn't be started. Try again." on the run page (`RunDetailPage.tsx:308`), and "That action could not be completed." on the console (`apps/portal/src/routes/RunSurfacePage.tsx:56`).
-
-The run page's placement of that message has its own history. It used to sit in the failure block, which renders only when `run.failure` is set, while promotion is offered only for a run that succeeded: "the two never rendered together, so a refused promotion showed a button that stopped spinning and nothing else" (`RunDetailPage.tsx:299`). It now sits directly under the button that failed.
-
-Two exhausted-quota states are not refusals but absences. On the run page, once the quota has loaded and is spent, the button is disabled and a sentence appears: "All official attempts are used for this benchmark version. Your existing successful official runs can still be selected for the leaderboard." (`RunDetailPage.tsx:294`). On the dashboard the button is disabled and the line under it reads only "All official attempts are used." (`DashboardPage.tsx:403`), which says less and does not mention the way forward.
+Publication refuses with "Only a succeeded official run can be published." (`run-actions.ts:488`), "This attempt was refunded, so its findings can't be published. Choose another official run." (`:487`), the source refusal, and "This run used different scoring rules and can't appear in the current ranking." (`:502`) when the benchmark's scorer version has moved since the run. The run page shows publication errors under its button, or "The result couldn't be published. Try again." (`RunDetailPage.tsx:737`).
 
 ### The work begins
 
-Promotion admits an official execution and reserves capacity until it ends. It does not spend quota at admission or on entering evaluation. A failed dispatch leaves a failed historical record and uses no quota.
+**Promotion.** The official run is written as a copy of the practice run with its mode, status, dataset, scorer and runtime versions replaced, its log cleared, and its saved environment kept (`run-actions.ts:429`). The insert re-counts completed and active official runs itself, so two teammates cannot both take the last attempt (`apps/portal/worker/services/run-accounting.ts:90`). Its phase rows go in the same batch. Nothing is spent yet.
 
-> Technical note: the guarded run insertion and its phase records share a transaction. No runtime attempt-claim allocation remains. See `apps/portal/worker/services/run-actions.ts`.
+**Publication.** One upsert into the selections table keyed on team, benchmark and version (`run-actions.ts:505`). There is nothing to undo; the next publication overwrites it.
 
-For publication, the moment is an upsert into `leaderboardSelections` keyed on team, benchmark, and version (`run-actions.ts:428`). There is nothing to undo, because the next publication overwrites the same row.
-
-Both acts publish the run surface as their last step (`run-actions.ts:411` and `:445`), which is what moves the console's stage strip and the Discord message. That happens after the durable writes, so a surface publish that failed would leave the promotion done and the console briefly stale.
+Both acts then republish the affected consoles, which moves the console's stage strip and the team's Discord message (`run-actions.ts:470`, `:530`).
 
 ### While it works
 
-Promotion is one request and then a run. The button shows its busy state; the dashboard and the run queries are invalidated on success (`apps/portal/src/lib/queries.ts:439`). From there the official run is watched exactly like a practice run, with two differences: its log is never written, and the live line reads "Hidden evaluation; logs are suppressed." See [`watching-a-run.md`](watching-a-run.md).
+Promotion is one request and then a run. The run page sends the student to the new official run's page (`RunDetailPage.tsx:651`); the Runs page stays and shows the official run as its live lead card. The official run is watched like a practice run, with "Hidden evaluation; logs are suppressed." in place of the polling note (`RunDetailPage.tsx:277`).
 
-Publication is one request with no run behind it. It invalidates the dashboard, the run, and the leaderboard (`queries.ts:455`), so the change is visible on all three by the time the button stops spinning.
+Publication is one request. It refreshes the Runs page, run pages and single-benchmark leaderboards (`apps/portal/src/lib/queries.ts:507`), but not the Vision Overall board, which can show the previous selection for up to 30 seconds in the same tab.
 
 ### How it ends
 
-A completed official evaluation counts once, including a valid low or partial result. A failed official execution uses no quota and stays failed. Signed late findings may be retained as history, but cannot make that failure publishable.
+A completed official run counts once, whatever it scored. A failed one counts nothing and stays failed; its page says "A failed official attempt doesn't use up one of your team's attempts." (`RunDetailPage.tsx:196`). Retry on its console starts another official execution of the same commit and saved environment without a new practice run ([the run](../foundations/the-run.md#retry)).
 
-Retry keeps the same view, source, configuration and mode. It starts a distinct execution and leaves the old failure in history. Current access and saved inputs must still be valid. To run changed code, create a new candidate.
-
-A published run ends by changing what every other team sees. The leaderboard entry carries the team name, the commit, the primary metric, the supporting metrics, and the completion time, and never a person's name or a per-person number. See [`the-leaderboard.md`](the-leaderboard.md).
-
-Nothing announces a publication to the cohort. The entry appears on the leaderboard the next time anyone loads it, the team's own dashboard panel turns green, and no message is posted anywhere.
+A published run changes what everyone sees on the leaderboard: the team name, its description, the primary metric, the supporting metrics, the commit and completion time, never a person ([the leaderboard](the-leaderboard.md)). Nothing announces it to the cohort.
 
 ## Modifiers
 
-The act is the same everywhere; what changes is the wording, the confirmation style, and how much the surface knows before it offers the button.
-
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | Both acts require current GitHub write access on the connected repository, checked live on every call (`run-actions.ts:79`, `run-actions.ts:416`), with the same three sentences as starting a run. The browser applies no role check, so every team member sees both buttons. There is no instructor override and no approval step: any member can spend the team's scarce attempts alone. | No effect within the request. A permission removed on GitHub a moment later does not reach the answer in flight. |
-| Where your team and repository stand | Retry rechecks the recorded repository identity, current access and exact saved source. Promotion also checks the recorded repository ID against the team's connected repository before admission. | An admitted execution retains its recorded source; later requests recheck eligibility. |
-| Which week's benchmark | Attempts are counted per team, per benchmark, and per benchmark version (`apps/portal/worker/routes/dashboard.ts:53`), so three attempts on Week 1 and three on Week 2 are separate budgets. Publication is per benchmark version too, so a team has one public entry per version rather than one overall. | A version bump between reading the page and pressing the button is refused with "That benchmark version is not active." (`run-actions.ts:119`). |
-| Practice or leaderboard | This is the modifier. Promotion is the only path from one to the other, and it is one-way: an official run cannot be demoted, and a practice run can never appear on the leaderboard. The dataset changes with it, from `practice-v1` to the benchmark's own official dataset version (`run-actions.ts:382`). | The mode of a run never changes. Promoting creates a second run; the practice run stays exactly as it was, on its own page, still readable. |
-| Flags, options, and where you are typing | Three surfaces offer promotion and they differ only in wording and confirmation style: the dashboard arms in place, the run page also arms in place, and the console opens a modal. Publication is offered on the run page and the console, and never on the dashboard, whose `PUBLISHED RESULT` panel is read-only. | No effect. |
+| Who you are | Both acts need current GitHub write access, checked live (`run-actions.ts:118`), except on the development fixture repository, which skips the check (`:122`). Every team member sees the controls. There is no approval step: any member can spend the team's attempts alone. | No effect within the request. |
+| Where your team and repository stand | A run from a repository the team has left is refused by source, and its page says so instead of offering the control. Promotion also needs the saved environment to match the connected repository's id. | An admitted official run keeps its recorded source. |
+| Which week's benchmark | Attempts and publication are per benchmark and version, so Recognition, Clustering, Language and Audio each have three attempts and one public entry. Vision Overall is computed from the Recognition and Clustering entries ([the leaderboard](the-leaderboard.md#what-the-overall-standings-actually-require)). | A version deactivated between reading and pressing is refused with "That benchmark version is not active." |
+| Practice or leaderboard | Promotion is the only path from practice to official, and it is one-way. The dataset changes from `practice-v1` to the benchmark's official version. A self-reported local report can never be promoted; the Runs page labels those "Self-reported, not promotable" (`DashboardPage.tsx:284`). | The practice run is unchanged and keeps its page and log. |
+| Flags, options, and where you are typing | Runs page and run page arm a button in place; the console and Discord open a confirmation. The console offers promotion without checking capacity and says "Use an official attempt" when none is left (`RunConsole.tsx:291`); the server refuses. | No effect. |
 
 ## Cancel and interrupt
 
-Dismissing an armed confirmation starts nothing. Once admitted, the execution survives closing the page.
-
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
-| You stop it yourself | An armed button disarms itself after four seconds and can be left alone (`ConfirmButton.tsx:39`). The console's modal closes on `Close`, Escape, or a backdrop click. Nothing is recorded either way. | There is no cancel once the request is sent, and no way to stop an official run afterwards. `cancelled` exists in the enums and is written by nothing. |
-| You do something else mid-way | Leaving an armed button starts nothing. | The admitted execution continues. Only a completed evaluation adds to used quota. |
-| A teammate acts at the same time | A previously displayed action may be stale. | The server permits one initial official execution on the view and one Retry successor per failed execution. Replaying a Retry request does not choose a newer failure. |
-| The network or the portal fails | An unsent request starts nothing. | A lost response can hide an admitted execution. Reload the view to read its current state; the original Retry target is safe to replay. |
-| The page or the process goes away | Reloading loses an armed confirmation. | The execution remains recorded independently of the browser. Failure uses no quota. |
-| The thing being measured changes | The candidate is a run, and a run is about a fixed commit. A push does not invalidate a candidate; it just means the candidate is no longer the newest code, and nothing on the page says so. | A benchmark version bump does not disturb a running official run. It does reset the quota for the new version and orphan the old version's public entry. |
-| The platform refuses or credit runs out | The server refuses admission at the completed-evaluation limit or while another execution is active. | Completion counts once; failure does not count. |
+| You stop it yourself | An armed button disarms after four seconds or on Escape (`ConfirmButton.tsx:71`, `:83`). The console dialog closes on "Close", Escape or a backdrop click (`RunConsole.tsx:576`). Nothing is recorded. | There is no cancel. An official run cannot be stopped once admitted. |
+| You do something else mid-way | Leaving an armed button starts nothing. | The official run continues; only completion counts. |
+| A teammate acts at the same time | A teammate's run makes promotion refuse with `active_run_exists`. Two promotions of one practice run return the same attempt. Two promotions of different runs race at the insert; one wins the last attempt. | A teammate publishing a different official run replaces the selection; the last write wins and nothing tells the other. |
+| The network or the portal fails | An unsent request starts nothing. | A lost response can hide an admitted run. Reloading shows it as the active run; pressing promote again returns it. |
+| The page or the process goes away | Reloading loses an armed confirmation. | The official run is recorded independently of the browser. |
+| The thing being measured changes | A push does not invalidate a candidate; the candidate is a commit. Nothing says it is no longer the newest code. | A version change does not stop the official run. Selections stay keyed to their version, and a scorer-version change hides older selections from the board. |
+| The platform refuses or credit runs out | Admission refuses at three completed (plus active) official runs, or while another run is active. | Completion counts once; failure does not count. |
 
 ## Interactions with other systems
 
-**Who may do this.** Any team member with current GitHub write access. There is no second signature, no instructor approval, and no per-person allowance. One member can spend all three attempts in an afternoon and nothing warns the others.
+**Who may do this.** Any team member with current GitHub write access, or any member of a team on the development fixture repository, which skips the check. No second signature and no per-person allowance.
 
-**The team owns it.** The attempt, the official run, and the public entry are all the team's. The leaderboard entry carries the team name and never a person's, which is the platform's hardest rule.
+**The team owns it.** The attempt, the official run and the public entry are the team's. The console records who started the console; the leaderboard names no person.
 
-**Credit.** Three completed official evaluations per team and benchmark version. Low and valid partial results count; failed executions do not. See [credit and quota](../cross-cutting/credit-and-quota.md).
+**Credit.** Three completed official evaluations per team, benchmark and version. Publication is free. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
-**What the portal claims.** An official number is a hosted measurement against inputs the team never sees, which is why it is the only kind that may be public. A self-reported local report can never be promoted, and the dashboard's panel says so in its aside: `SELF-REPORTED · NOT PROMOTABLE` (`DashboardPage.tsx:208`). See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+**What the portal claims.** An official number is a hosted measurement on inputs the team never sees, which is why only it may be public. The run page and Runs page call a selected run public; the leaderboard decides separately whether to show it (edge cases below).
 
-**What the benchmark supplied.** The official dataset version is the benchmark's, and it is recorded on the run rather than inferred. The metric labels, precisions, and help text on the leaderboard entry are the benchmark's too.
+**What the benchmark supplied.** The official dataset version is recorded on the run. The metric labels and precisions shown on the leaderboard are the benchmark's.
 
-**Live updates and reconnection.** A promotion publishes the run surface immediately (`run-actions.ts:411`), so the console and the Discord message both move to the `Official` stage within one tick. Publication publishes the surface as well (`run-actions.ts:445`). See [`watching-a-run.md`](watching-a-run.md).
+**Live updates and reconnection.** Both acts republish the console, so the console and the Discord message move within one update. The run page and Runs page refresh their own queries on success.
 
-**Discord.** Both acts can be performed from the console reached through Discord, and both update the team's channel message. The bot's own reply after a promotion links to the surface, not to the run page.
+**Discord.** Both acts are available from Discord's run actions and from the Activity, through the same server action. See [`../discord/commands.md`](../discord/commands.md).
 
-**Configuration.** The official limit remains three. There is no refund cap.
+**Configuration.** The official limit is `OFFICIAL_LIMIT = 3` (`packages/contracts/src/schema.ts:1520`). The portal reads it; the Discord bot writes "of 3" itself ([B-35](../bug-triage.md)).
 
 ## Edge cases
 
-- **The run page can offer a promotion it knows will fail.** The button is disabled by `!!quota && quota.officialUsed >= quota.officialLimit` (`RunDetailPage.tsx:280`), and the quota comes from a query that is enabled only once the run record has arrived. On first load the quota is undefined, so the guard is false, the button is enabled, and a click on an exhausted team is refused by the server. The same expression makes the legacy confirm label name attempt one for a team that has used two.
-- **The legacy confirm labels disagree in punctuation.** The earlier source used a comma on the dashboard and an em dash on the run page. The latter violates `docs/design/voice.md`; final copy still needs browser verification.
-- **The legacy publish blurb also used an em dash.** This was a separate voice violation in `RunDetailPage.tsx:334`, not a quota rule. Recheck the integrated copy.
-- **Recovery targets the failed execution.** Retry preserves its source and mode. A later failure needs its own Retry request rather than a replay of the older request.
-- **The dashboard promotes the newest succeeded practice run, not the best one.** `latestCandidate` is the first succeeded practice run in a list ordered by creation time descending (`dashboard.ts:99`), so a team whose newest practice run scored worse than an earlier one is offered the worse number by default. The run page is the only way to promote a specific run.
-- **Publication is not offered on the dashboard.** `PUBLISHED RESULT` shows the current entry and links to it, and the only control that changes it is on an official run's own page.
-- **Switching the public entry is free and silent.** The upsert overwrites the previous selection with no confirmation beyond the button's own arm, no record of what was public before, and no notice to the rest of the team.
-- **A published run's page says so and offers no way to unpublish.** The panel becomes `PUBLISHED` and reads "This result is your team's public entry."; there is no control to withdraw it, only to publish a different official run.
-- **Promotion inherits the parent's whole row.** The official run is written as `{...parent}` with a handful of fields overridden (`run-actions.ts:368`), so anything on the practice run that is not explicitly reset travels with it.
-- **An offered action cannot bypass quota.** Admission checks capacity before dispatch. The earlier console offered promotion even when capacity was exhausted; its final action list and confirmation still need integrated browser verification.
-- **Promotion is refused while a practice run is in flight,** including one started by a teammate seconds earlier, because official and practice share the same one-at-a-time lock.
-- **Official numbering follows completed evaluations.** Failed executions can share the next attempt number; their physical records remain distinct.
-- **The practice run keeps its own page and its own log** after promotion. The official run's page is where the hidden-split number lives; the practice page is where the log for that same commit lives, and nothing on either links to the other.
-- **`PUBLISHED RESULT` shows the metric at a fixed precision from the metric itself** and never the supporting numbers, so the dashboard's public figure and the leaderboard row can look different at a glance while describing the same run.
-- **The candidate block disappears while a run is active,** because the whole `START A RUN` panel is replaced by `CURRENT RUN`. A team watching an official run cannot see or reach the promote control for a different candidate until it finishes.
-- **A team can publish an official run from an older benchmark version and keep it,** because selections are keyed by version. The dashboard only ever shows the selection for the version it is currently displaying, so an entry for an older version becomes invisible from the team's own dashboard.
+- **The Runs page offers the newest candidate, not the best.** It also skips a succeeded practice run with no primary metric (`DashboardPage.tsx:179`), so such a run is promotable only from its own page.
+- **A refused attempt points at the costlier path.** After a failed official attempt, both pages say to start a new practice run, while Retry on the attempt's console would try the same commit again for nothing.
+- **The run page reads the active version's quota.** Its quota comes from the Runs page payload for the run's benchmark id, which is the highest active version (`RunDetailPage.tsx:70`, `dashboard.ts:37`). For a run on an older version the label names the wrong attempt and the server refuses with "That benchmark version is not active."; for a benchmark with no active version the payload fails and the button stays disabled with no sentence.
+- **"Published" can be false on the board.** The run page's "Published" and the Runs page's "On the leaderboard" read the selection row (`apps/portal/worker/http/serializers.ts:229`, `dashboard.ts:110`). The leaderboard additionally drops a selection whose scorer version is no longer the catalog's (`apps/portal/worker/services/leaderboard.ts:58`) or whose run has no primary metric (`:79`). Migration `0044_week2_recognition_v2.sql` moved Recognition's scorer within version 2, which hid every earlier Recognition selection while the teams' own pages still said it was public, and their spent attempts stayed spent.
+- **A Week 3 run that withheld its overall ranks by `text_mrr`.** The run's primary becomes `text_mrr` (`apps/runner-modal/src/cogworks_runner/modal_app.py:2051`); it can be promoted and published, and the board sorts every entry by its own primary value without checking the key ([the leaderboard](the-leaderboard.md#edge-cases)).
+- **Publication is not on the Runs page.** It shows the public result and links to it; only an official run's page, console or Discord can change it.
+- **Switching the public entry is silent.** The upsert overwrites with no record of what was public before and no notice to teammates. There is no unpublish, only publishing another run.
+- **Promotion copies the parent row.** Anything not explicitly reset travels with it (`run-actions.ts:430`).
+- **The practice and official runs link to each other.** The official run's readings note names "the practice run this attempt was promoted from" with a link (`RunDetailPage.tsx:552`); the practice run links to its attempt.
 
 ## Open questions and verification
 
-- `RunDetailPage` enables the promote button while the quota query is in flight (`RunDetailPage.tsx:280`), so a first click on an exhausted team is answered by the server rather than by the disabled state, and the confirm label can name the wrong attempt number. Worth treating as a bug. **Unverified.**
-- The run page's confirm label contains an em dash, and so does the publish blurb (`RunDetailPage.tsx:277`, `:334`). Both violate `docs/design/voice.md`. The dashboard's equivalent label uses a comma. Carried to triage.
-- The dashboard's exhausted line, "All official attempts are used.", omits the sentence the run page adds about existing official runs still being selectable. Whether that is deliberate brevity or an oversight was not established.
-- Promoting the newest rather than the best candidate is a product decision the code does not explain. Worth confirming it is intended.
-- Same-console Retry and the historical page's link to the current console were exercised locally for PR #20, not on a deployed portal.
+- The failed-attempt refusal tells the student to start a new practice run instead of retrying the attempt (`run-eligibility.ts:115`). Carried to triage.
+- The console and Discord offer promotion with no attempts left and let the server refuse (`apps/portal/worker/services/run-surfaces.ts:353`). Carried to triage.
+- A selection hidden by a scorer-version change, or with no primary metric, is still called public on the team's own pages. Carried to triage.
+- Every confirmation says an attempt is used without saying a failure costs nothing. Whether that is acceptable shorthand is a copy decision.
+- Nothing warns teammates before one member spends a shared attempt, and nothing the team reads records who did.
+- No promotion or publication was observed on a hosted build. The fixture screenshots show the promoted and published states, not the transitions.
+- Hosted beta (`4984730`) differs: the server path is the same, the pages are not. Beta's Runs page shows a "PUBLISHED RESULT" panel and a "Candidate ready" label and says "All official attempts are used." (beta `apps/portal/src/routes/DashboardPage.tsx:222`, `:536`, `:583`) where the candidate uses "On the leaderboard", "Ready to promote" and "All 3 official attempts on this version are used." (`DashboardPage.tsx:858`, `:514`, `:520`). Beta's console confirmation hardcodes "of 3" and shows an em dash when no attempt is left (beta `apps/portal/src/components/RunConsole.tsx:271`); the candidate reads `OFFICIAL_LIMIT` and says "an official attempt" (`RunConsole.tsx:274`).
+- Local `17d26d9` differs: a run without the catalog's ranked measure (`overall` for Language) cannot be published (`run-eligibility.ts:154-168` at `17d26d9`). On the local fixture build, an official run with only its `overall` row removed showed the refusal sentence in place of Publish, and the API answered `409 not_selectable` ([checkpoint](../verification/checkpoint-17d26d9.md)). The partial result was synthetic, not produced by a benchmark.
 
-- Nothing warns a team that one member is about to spend a shared official attempt, and nothing records who spent it in a place the team can read. Whether that matters was not established.
-- Final console confirmation wording has not been checked on a deployed portal.
-
-- A refresh failure after admission can leave the browser briefly stale without undoing the execution. Reopening the view must show its current execution.
-
-Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged layout references remain from the earlier draft. Browser integration remains unverified.
+Read against Cog\*Portal commit `2ff32fa`. Local fixture observations are named where used.

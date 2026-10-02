@@ -1,541 +1,835 @@
 # Bug triage
 
-Every defect and inconsistency the feature documents raised, in their bodies and in their "Open questions and verification" sections, deduplicated by root cause and written up so the product team can decide each one without re-reading the documents.
+This file collects every defect and inconsistency the feature documents raised, in their bodies and in their "Open questions and verification" sections. Entries are deduplicated by root cause and written so the product team can decide each one without re-reading the documents. Each entry's **Status** line names the build its evidence belongs to and how it was obtained. A repair in source is not an observation of the repair.
 
-Each entry was read from the Cog\*Portal source and its tests at commit `f74e087`, plus the uncommitted work in flight on 2026-09-03. That drafting pass opened no browser, deployed no bot and started no hosted run.
+## Sources and evidence levels
 
-**Some entries have since been confirmed, corrected or repaired**, from browser passes at `c2af396`, `37b1972` and `49f6a98` and a frozen process diagnosis. Those carry a **Status** line naming the revision the observation belongs to. An entry with no Status line is still unconfirmed, and a repair in source is not the same as an observation of the repair.
+Three builds matter, and the status table has a column for each:
+
+- **`2ff32fa`, the source and UI candidate.** What the documents describe; the State column is judged here.
+- **`4984730`, the earlier hosted beta.** Pre-redesign. It shares every server, runner and contract file with `2ff32fa` except `apps/portal/worker/routes/team.ts`, one comment in `run-actions.ts`, and `python/cogbench/src/cogbench/pipeline.py`.
+- **`ed2b194`, the deployed redesigned beta.** `2ff32fa` merged with `4984730`, so it has the redesign plus #46, #53 and CLI pin `b6bbffb`. It is live as Worker version `0b452503-80b8-44bc-b60d-a04a38cc5175`, the runner is unchanged at Modal v44 from `4984730`, and all eight CI lanes pass. A Deployed cell of "as candidate" means the deployed build behaves as `2ff32fa` for that entry.
+
+A fourth commit, `cbd8266`, is a local repair branch on `ed2b194` for B-13 and B-14. It has been reviewed and tested, its B-13 recovery path was accepted locally on fixture data, and it is not deployed.
+
+Each Status line names its evidence:
+
+- **Code read at `2ff32fa`.** The default. It settles what the code does, not that a student has seen it.
+- **Local fixture.** Screenshots, clips and the native Sol pass of the redesign on seeded data, labelled Simulated (`/tmp/cogshots/matched/pairs/`, `CogPortal-qa-video-20260930/outputs/beta-qa/`, including `final-2ff32fa/`). They prove a screen renders a state.
+- **Hosted beta.** Two Recognition practice runs on `SamGu-NRX/week2_capstone@29f9cf94`: `run_f5fc5babe5` failed in Evaluate before beta's `468655c`, and its one Retry, `run_f93ba19397`, succeeded at 0.925 with persisted D1 proof. They prove that hosted path and nothing about Audio, Clustering, Language, promotion, the CLI or Discord.
+- **Sol's reliability pass.** Confirmed B-13 and B-14. The same reliability work confirmed the B-55 403 loop as preexisting.
+- **Deployed `ed2b194`.** The combined local acceptance (`beta-qa/ed2b194-acceptance.md`, fixture data) and one real hosted Language run, `run_d11b5e5e2e`, with a real CLI `check`, `run` and `sync` (`beta-qa/live-language-ed2b194/README.md`). That run confirmed B-68. Its 7 m 37 s Install showed progress throughout and finished; it is not evidence of a stuck run.
+- **Sol audit.** A fresh read-only check of the claims behind the high entries and every "fixed in candidate" verdict. It confirmed them, and narrowed B-45, B-48 and B-68, which now say what it found.
+
+Files under `combined-ed2b194-*` in the QA folder come from a combined build that is neither of the two above. This file does not use them.
 
 ## Summary
 
-Around a hundred and twenty items were raised across the document set. After merging by root cause they come to 46 entries: 18 high, 18 medium, 10 low. Two more were added later from the Helium passes at `49f6a98` (B-42, B-43), both high, both since repaired, which makes 48. The ordering inside each severity band is by how early a first-time student would meet the problem, walking the real path: sign in, join a cohort, connect a fork, work the setup guide, link a device, run `cogworks check`, run locally, sync, start a hosted run, read the run page, promote, and use Discord alongside all of it.
+75 entries. In the `2ff32fa` source, 8 high, 31 medium and 19 low are open, and 17 are closed (16 fixed, one superseded). Deployed `ed2b194` also fixes B-44 and B-47, which leaves 6 high open there. B-13 and B-14 are repaired on `cbd8266` and await deployment. The 2026-09 set's worst problems, the sign-in dead end, the rewritten run history, the hash seed, the truncated Week 3 sentence and the back-button account leak, are fixed in source. Most of what remains open lives where two parts of the product meet: the runner and the run page, the setup page and the CLI it installs, the consent screen and the Discord bot. Little of it shows in the fixture screenshots, because the fixture provider scripts a tidy failure with a log, installs nothing and never runs a real search.
 
-Three clusters account for most of the high entries.
+**Does the experience make sense?** The student path does: sign in, cohort, team, setup, run, read, promote, publish, now one decision per screen, and the run page leads with a sentence as the brief asks. Four places are more complicated than they need to be:
 
-**The platform breaks its own honesty rules in five places.** It is built on the rule that it only claims what it observed, and enforces that rule with tests. Yet Week 1 runs student code under a randomized hash seed while a test written to prevent exactly that quietly excludes the image it was meant to guard (B-01); the "supplied" disclosure that the code says a run page shows reaches nothing but `--json` (B-04); a repository swap rewrites what earlier run pages claim about the past (B-06); Discord's confirmation dialog says a hosted practice run spends nothing while the quota counts it (B-09b); and the admin console prints a usage number that can exceed its own maximum, because the numerator and the denominator count different things (B-09c). None of these is cosmetic. Each makes the product assert something it cannot support.
+- **Recovering from a failed run takes two pages that disagree.** The run page says "Your code raised an exception" and sends the student to reproduce locally. Retry lives only on the console, behind a corner link, and the console calls the same failure "Submission stopped during evaluation" (`final-2ff32fa/retry-final.txt`). The hosted beta recovery that worked, `run_f5fc5babe5` to `run_f93ba19397`, needed exactly that detour, and a student following the run page's advice would have reproduced the platform's own crash locally as theirs (B-44, B-45, B-46).
+- **"Used" means three things.** The Runs page counts completed attempts, the console and Discord count completed plus active, and the admin page sums every benchmark. Promotion has four confirmation styles across the Runs page, run page, console and Discord, and only one says a failure costs nothing.
+- **Instructors start in the student flow.** Staff without a team are sent to join a cohort (B-48), a co-instructor added to the roster sees an empty workspace until assigned team by team (B-66), and a TA's view stops at two counts per team with nothing to open.
+- **Discord asks more than it says.** Linking takes five hops with an unstated team prerequisite, the consent screen understates what `/cog` can do (B-49), the bind prompt understates what will post (B-57), and every portal error becomes "I couldn't reach Cog\*Portal just now" (B-19).
 
-**A student can get stuck, or silently lose a result, in four ways, all early.** Signing in leaves them on the page they started from (B-00). Linking a device before joining a team burns ten minutes of silence and destroys the code (B-02). There is no control anywhere that lets a student leave a team, so a mis-join needs the team creator or an instructor (B-07). Uploaded weights are keyed to a commit, so syncing and then pushing silently un-supplies them with no message anywhere (B-08). And the Week 3 sentence that explains all of this arrives truncated mid-word, because it is longer than the field that carries it (B-09a).
+On the two design critiques raised during review: "The scorer didn't write a finding for this run" is honest copy that exposes a benchmark gap, filed as B-68. The longer Runs page keeps its next action findable: at 390×844 "Run practice benchmark" sits about 584 CSS px down, inside the first screen (`pairs/b-dashboard-mob.png`, local fixture), though it falls below the fold on a 667 px phone. The added length is a "For reference" footer that repeats the quota and leaderboard state already shown above it. That is a trim, not a defect.
 
-**The order of operations wastes the student's time in two commands.** `cogworks run --live` validates its two preconditions after the discovery search, which the 2026 corpus measures at up to ninety seconds (B-05), and `cogworks check --update-setup` silently drops the flag when the check does not pass (B-16).
+### Next repairs and evidence gaps
 
-A fourth pattern runs through the low band and is cheap to fix: five hardcoded copies of the official-attempt limit, and four em dashes in user-facing strings that `docs/design/voice.md` bans outright, one of which the style guide uses as its own worked example of what not to write.
+In order of user-visible impact on the deployed build. B-13 and B-14 (repaired on `cbd8266`; B-13's recovery path accepted locally on fixture data; not deployed) and B-68 (producer repair owned by Opus worker `0e3d690b` on benchmark pin `94c7e64`) are already in hand and are not repeated. Items 1, 2 and 5 are assigned for repair, item 3 is a separate finite repair, and item 4 is under investigation. Each describes the behavior wanted and where it lives today.
 
-Four entries describe work that landed during the drafting pass and may already have moved again: B-08, B-09, B-09a, and B-30. Read the source before acting on them.
+1. **Make an evaluation failure say only what the runner knows, and carry where it happened (B-45, B-46, B-11).** Today a platform crash reads "Your code raised an exception" with one line, no location and no log, and Retry is a page away, on a console that names the failure differently. This is what made B-44 cost an afternoon. `apps/runner-modal/src/cogworks_runner/modal_app.py:941`, `:1740`, `:2005-2038`, `:2318-2327`; `packages/contracts/src/failures.ts:87-96`; `apps/portal/worker/routes/runner-events.ts:247-260`; `apps/portal/src/routes/RunDetailPage.tsx:96-123`. Product call on the wording; fix for the detail.
+2. **Make the Discord consent state what the link authorizes (B-49).** `apps/portal/src/routes/ConnectionsPage.tsx:84`, `:111` say Cog can't start an official evaluation; `apps/discord-bot/src/commands.ts:557-571` and `apps/portal/worker/rpc.ts:94-102` let `/cog` promote and publish. A trust-language break on a consent screen, on every build.
+3. **Stop retrying a channel that answers 403 (B-55).** A finite follow-up, not a new retry framework: record the refusal and stop that surface's delivery. `apps/portal/worker/realtime/run-surface-hub.ts:163-176`; `apps/portal/worker/services/discord-messages.ts:278`, `:292-297`.
+4. **One board, one measure (B-50).** A withheld Language run would be ranked by `text_mrr` among other teams' `overall`. `apps/portal/worker/services/leaderboard.ts:78`, `:108-112`. Product call. Evidence gap: the live run was fully bound, so a withheld run on `ed2b194` is still needed to observe it. Local `17d26d9` refuses publication of a run without the ranked measure; seen with a synthetic partial result ([checkpoint](verification/checkpoint-17d26d9.md)).
+5. **Send staff without a team to `/admin` (B-48).** `apps/portal/src/App.tsx:34-38`, `:129-136`; `apps/portal/src/components/UserMenu.tsx:218-221`. The first thing every instructor and TA meets. Read from code; persistent instructor writes are still unobserved. Local `17d26d9` routes them to `/admin`; seen on the local fixture build ([checkpoint](verification/checkpoint-17d26d9.md)).
 
-| ID | Title | Severity | Area | Decision needed |
-| --- | --- | --- | --- | --- |
-| B-00 | A successful GitHub sign-in leaves the student on the marketing page | high | portal | fix |
-| B-00a | A partial GitHub outage silently shortens the repository list | high | portal | fix |
-| B-01 | Week 1 scores student code under a randomized hash seed, and the guard test cannot see it | high | sandbox | fix |
-| B-02 | Linking a device before joining a team destroys the code after ten silent minutes | high | terminal, portal | fix |
-| B-04 | The "supplied" disclosure never reaches the hosted run page | high | sandbox, portal | fix |
-| B-05 | `cogworks run --live` checks its preconditions after the ninety-second search | high | terminal | fix |
-| B-06 | Changing the repository rewrites what every earlier run page claims | high | portal | fix |
-| B-07 | Nothing lets a student leave a team, and only the creator can let them out | high | portal | product call |
-| B-08 | Uploaded weights are keyed to a commit, and nothing tells the student that | high | terminal, sandbox | product call |
-| B-09 | The weight upload has a fifteen-second timeout and a two-hundred-megabyte ceiling | high | terminal | fix |
-| B-09a | The Week 3 withheld sentence is cut off mid-word before the student reads it | high | sandbox | fix |
-| B-09b | Discord tells a student a hosted practice run is free | high | discord | fix |
-| B-09c | The admin console counts quota differently from the quota | high | portal | fix |
-| B-10 | `cogworks check` can exit 0 on a repository `cogworks run` refuses | high | terminal | fix |
-| B-11 | Week 2 never attributes a timeout, so a killed run receives the wrong failure explanation | high | sandbox | fix |
-| B-12 | `/cog view:connect` for an already-linked student is a dead end | high | discord | fix |
-| B-13 | An interrupted `--live` run leaves the session running and the team's bubble frozen forever | high | terminal, discord | fix |
-| B-14 | One member's expired GitHub token blanks the team's process panel for thirty minutes | high | portal | fix |
-| B-03 | Two gates disagree about which team members Discord serves | medium | discord | fix |
-| B-15 | Re-linking a device accumulates live tokens that nothing revokes | medium | terminal, portal | fix |
-| B-16 | `check --update-setup` is silently ignored when the check does not pass | medium | terminal | fix |
-| B-17 | The two longest paragraphs in `cogworks check` are the two that are not wrapped | medium | terminal | fix |
-| B-18 | The most ordinary failure verdict has no next step | medium | terminal | fix |
-| B-19 | The Discord bot replaces every actionable portal error with one generic sentence | medium | discord | fix |
-| B-20 | The live run surface is unreachable from the portal and has no way out | medium | portal | product call |
-| B-21 | A plugin version mismatch is reported to the student as missing benchmark data | medium | sandbox | fix |
-| B-22 | The evaluation progress counter never moves | medium | sandbox, portal | fix |
-| B-23 | Promote is clickable while the quota is still loading | medium | portal | fix |
-| B-24 | The refund cap is bypassed when Modal dispatch fails | medium | portal | superseded by recovery policy |
-| B-25 | The Week 3 timeout message is Week 1's copy, about songs | medium | sandbox | fix |
-| B-26 | Floors print as ordinary scores in the terminal | medium | terminal | fix |
-| B-27 | A batch of live events applies partially and reports failure | medium | portal | fix |
-| B-28 | The connections page polls forever while no device is linked | medium | portal | fix |
-| B-29 | A member added from the team page gets write access the portal never checked | medium | portal | fix |
-| B-30 | Co-author credit reaches half the process panel | medium | portal | fix |
-| B-31 | Inactive benchmarks are publicly listed and their leaderboard tabs are clickable | medium | portal | fix |
-| B-32 | The device has two different names | low | terminal, portal | fix |
-| B-33 | `--json` output is interleaved with a plain-text line | low | terminal | fix |
-| B-34 | A malformed response gives a traceback instead of a sentence | low | terminal | fix |
-| B-35 | The official-attempt limit is hardcoded in five places | low | portal, discord | fix |
-| B-36 | Four user-facing strings use em dashes, which the voice guide bans | low | portal, discord | fix |
-| B-37 | `cancelled` is a status nothing can ever produce | low | portal | product call |
-| B-38 | Four dead code paths and one tautological test | low | discord, portal | fix |
-| B-39 | Revoking a device and unlinking Discord have no confirmation | low | portal | fix |
-| B-40 | The rail marks every stage done as soon as a result is published | low | discord | fix |
-| B-41 | Small copy and consistency slips | low | portal, terminal | fix |
+Remaining evidence gaps, with commands, are in [`verification/README.md`](verification/README.md#evidence-gaps): a withheld Language run, hosted Audio and Clustering, official promotion and publication, a fresh setup from the page's lines alone, the deployed lost-heartbeat repair, instructor writes, Discord and the Activity, and physical phones.
+
+## Status table
+
+| ID | Title | Severity | State | Hosted beta `4984730` | Deployed `ed2b194` | Area | Decision |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B-07 | Nothing lets a student leave a team, and only a team admin can let them out | high | open | same | as candidate | portal | product call |
+| B-08 | Uploaded weights are keyed to a commit, and nothing tells the student that | high | open | same | as candidate | terminal, sandbox | product call |
+| B-11 | Week 2 never attributes a timeout, so a killed run receives the wrong failure explanation | high | open, assigned for repair | same | as candidate | sandbox | fix |
+| B-13 | An interrupted `--live` run leaves the session running and the team's bubble frozen forever | high | open, repaired on `cbd8266`, not deployed | same | same; repair on `cbd8266` | terminal, discord | fix |
+| B-44 | A Week 2 recognition run crashes when a describe step returns None for a faceless photo | high | fixed on deployed `ed2b194`; open in `2ff32fa` source | fixed | fixed (`468655c`) | sandbox, terminal | fix |
+| B-45 | Every evaluation failure is told as "Your code raised an exception", including the platform's own | high | open, assigned for repair | same | as candidate | sandbox, portal | product call |
+| B-47 | The candidate's setup page installs a CLI older than the candidate, whose link consent says scores are never sent | high | fixed on deployed `ed2b194`; open in `2ff32fa` source | fixed | fixed (pin `b6bbffb`) | portal, terminal | fix |
+| B-49 | The Discord consent copy says Cog cannot start an official evaluation; `/cog` can | high | open in `2ff32fa`; Connections copy changed in `17d26d9`, seen locally | same | as candidate | portal, discord | product call |
+| B-02 | Linking a device before joining a team leaves the terminal polling silently | medium | open | same | as candidate | terminal, portal | fix |
+| B-04 | The "supplied" disclosure never reaches the hosted run page | medium | open | same | as candidate | sandbox, portal | product call |
+| B-14 | A caller-specific GitHub failure is cached as the team's history for thirty minutes | medium | open, repaired on `cbd8266`, not deployed | differs: guards cache write | cache write guarded (`610e04a`) | portal | fix |
+| B-16 | `check --update-setup` is silently ignored when the check does not pass | medium | open | same | as candidate | terminal | fix |
+| B-19 | The Discord bot replaces every actionable portal error with one generic sentence | medium | open | same | as candidate | discord | fix |
+| B-21 | A plugin version mismatch is reported to the student as missing benchmark data | medium | open | same | as candidate | sandbox | fix |
+| B-22 | The evaluation progress counter never moves | medium | open | same | as candidate | sandbox, portal, terminal | fix |
+| B-25 | The Week 3 timeout message is Week 1's copy, about songs | medium | open | same | as candidate | sandbox | fix |
+| B-26 | Floors print as ordinary scores in the terminal | medium | open | same | as candidate | terminal | fix |
+| B-27 | A batch of live events applies partially and reports failure | medium | open | same | as candidate | portal | fix |
+| B-28 | The connections page polls forever while no device is linked | medium | open | same | as candidate | portal | fix |
+| B-29 | A member added from the team page or the admin console gets write access the portal never checked | medium | open | same | as candidate | portal | fix |
+| B-46 | A failed hosted run carries one line: no exception class, no location, no log, none of the team's prints | medium | open, assigned for repair | same | as candidate | sandbox, portal | fix |
+| B-48 | Staff without a team are routed into student onboarding and cannot reach Connections | medium | open in `2ff32fa`; routing fixed in `17d26d9`, seen locally | same | as candidate | portal | fix |
+| B-50 | The leaderboard and team pages rank runs with different primary metrics together | medium | open in `2ff32fa`; publication refused in `17d26d9`, seen locally | differs: no list heading | as candidate | portal, discord | product call |
+| B-51 | Team pages call a result public while the leaderboard hides it, and its attempts stay spent | medium | open | not checked | as candidate | portal | fix |
+| B-52 | A board resolves `?benchmark=` to the highest version even when it is inactive | medium | open | same | as candidate | portal | fix |
+| B-53 | The admin page says "No hosted runs yet" for a team whose every run failed | medium | open | same | as candidate | portal | fix |
+| B-54 | A refused concurrent hosted start leaves a run-less console record that breaks `/cog` home and the Activity for the team | medium | open | same | as candidate | portal, discord | fix |
+| B-55 | A channel the bot can no longer write is retried every two seconds forever | medium | open, separate finite repair | same | same; 403 loop confirmed | discord | fix |
+| B-56 | The Discord leaderboard shows one arbitrary board and never marks the student's team | medium | open | same | as candidate | discord | fix |
+| B-57 | The bind prompt says only shared local runs will post; every hosted run posts | medium | open | same | as candidate | discord | product call |
+| B-58 | A signed-out browser loses the run a Discord or Activity link pointed at | medium | open | same | as candidate | portal, discord | fix |
+| B-59 | A `run --live` report names weights it never uploads, failing the next hosted run at that commit | medium | open | same | as candidate | terminal, portal | product call |
+| B-60 | A prepare killed for time or memory is reported as a dependency install failure | medium | open | same | as candidate | sandbox | fix |
+| B-61 | A refusal's notes reach the browser and are never drawn | medium | open | same | as candidate | portal | fix |
+| B-62 | The E-OUTPUT card promises checks that do not run | medium | open | same | as candidate | sandbox, portal | fix |
+| B-64 | Discord and the console put a student's login beside a score | medium | open | same | as candidate | discord, portal | product call |
+| B-65 | A team creator with only GitHub write access loses settings on first save, which can leave the team with no admin | medium | open | same | as candidate | portal | product call |
+| B-66 | The staff roster promises a co-instructor "the same view"; they get an empty TA workspace | medium | open in `2ff32fa`; copy fixed in `17d26d9`, seen locally | differs: no promise copy | as candidate | portal | fix |
+| B-68 | A clean Language run opens by saying the scorer wrote no finding | medium | open, producer repair active elsewhere | differs: says it below the metrics | confirmed live, `run_d11b5e5e2e` | portal, sandbox | product call |
+| B-03 | Two gates disagree about which team members Discord serves | low | latent | same | as candidate | discord | fix |
+| B-09b | Hosted practice confirmations say every run uses quota; only completed runs do | low | narrowed | same | as candidate | discord, portal | fix |
+| B-12 | `/cog view:connect` for an already-linked student is a dead end | low | open | same | as candidate | discord | fix |
+| B-15 | Re-linking a device accumulates live tokens that nothing revokes | low | narrowed | same | as candidate | terminal, portal | fix |
+| B-17 | The longest paragraphs in `cogworks check` are not wrapped | low | narrowed | same | as candidate | terminal | fix |
+| B-18 | The most ordinary failure verdict has no next step | low | open | same | as candidate | terminal | product call |
+| B-30 | Churn events record one author while the rest of the process panel credits co-authors | low | narrowed | same | as candidate | portal | fix |
+| B-31 | Unreleased benchmarks' titles and summaries are public | low | narrowed | same | as candidate | portal | product call |
+| B-32 | The device has two different names | low | open | same | as candidate | terminal, portal | fix |
+| B-33 | `--json` output is followed by a plain-text line | low | open | same | as candidate | terminal | fix |
+| B-34 | A malformed response or file gives a traceback instead of a sentence | low | open | same | as candidate | terminal | fix |
+| B-35 | The official-attempt limit is still hardcoded in the Discord bot | low | narrowed | differs: console also hardcodes | as candidate | discord | fix |
+| B-37 | `cancelled` is a status nothing can ever produce | low | open | same | as candidate | portal | product call |
+| B-38 | Four dead code paths and one tautological test | low | open | same | as candidate | discord, portal | fix |
+| B-41 | Small copy and consistency slips | low | narrowed | differs: two bullets open | as candidate | portal, discord | fix |
+| B-63 | The setup page calls a CLI report from the student's machine "Verified" | low | open | same | as candidate | portal | product call |
+| B-67 | An official attempt does not say which synced weights it scored with | low | open; source re-read: promotion copies the line, an official Retry drops it; not observed | same | as candidate | sandbox, portal | fix |
+| B-69 | Small behavior slips in the redesign | low | open | not checked | as candidate | portal, discord, sandbox, terminal | fix |
+| B-70 | Small copy slips in the redesign | low | open | not checked | as candidate | portal, terminal | fix |
+| B-00 | A successful GitHub sign-in leaves the student on the marketing page | n/a | fixed in candidate | fixed | as candidate | portal | none |
+| B-00a | A partial GitHub outage silently shortens the repository list | n/a | fixed in candidate | fixed | as candidate | portal | none |
+| B-01 | Week 1 scores student code under a randomized hash seed, and the guard test cannot see it | n/a | fixed in candidate | fixed | as candidate | sandbox | none |
+| B-05 | `cogworks run --live` checks its preconditions after the ninety-second search | n/a | fixed in candidate | fixed | as candidate | terminal | none |
+| B-06 | Changing the repository rewrites what every earlier run page claims | n/a | fixed in candidate | fixed | as candidate | portal | none |
+| B-09 | The weight upload has a fifteen-second timeout and a two-hundred-megabyte ceiling | n/a | fixed in candidate | fixed | as candidate | terminal | none |
+| B-09a | The Week 3 withheld sentence is cut off mid-word before the student reads it | n/a | fixed in candidate | fixed | as candidate | sandbox | none |
+| B-09c | The admin console counts quota differently from the quota | n/a | fixed in candidate | fixed | as candidate | portal | none |
+| B-10 | `cogworks check` can exit 0 on a repository `cogworks run` refuses | n/a | fixed in candidate | fixed | as candidate | terminal | none |
+| B-20 | The live run surface is unreachable from the portal and has no way out | n/a | fixed in candidate | differs: header nav only | as candidate | portal | none |
+| B-23 | Promote is clickable while the quota is still loading | n/a | fixed in candidate | fixed | as candidate | portal | none |
+| B-36 | Four user-facing strings use em dashes, which the voice guide bans | n/a | fixed in candidate | differs: console em dash | as candidate | portal, discord | none |
+| B-39 | Revoking a device and unlinking Discord have no confirmation | n/a | fixed in candidate | differs: one-press revoke | as candidate | portal | none |
+| B-40 | The rail marks every stage done as soon as a result is published | n/a | fixed in candidate | fixed | as candidate | discord | none |
+| B-42 | A run with no overall score shows none of the evidence it does have | n/a | fixed in candidate | fixed | as candidate | portal | none |
+| B-43 | The back button restores a previous account's page | n/a | fixed in candidate | fixed | as candidate | portal | none |
+| B-24 | The refund cap is bypassed when Modal dispatch fails | n/a | superseded | same | as candidate | portal | none |
 
 ## High
 
-### B-00: A successful GitHub sign-in leaves the student on the marketing page
+### B-07: Nothing lets a student leave a team, and only a team admin can let them out
 
-- **Where the user meets it:** Every student, once, on their very first action. They sign in with GitHub and land back on the landing page instead of on the next step.
-- **What happens / what was expected:** The GitHub callback returns the student to `/`, and the landing page only forwards them onward when a pending connection return happens to be stored. So a first-time student, who has none, reads the marketing page again and has to find and press "Open Dashboard" to continue. The sign-in route itself does the opposite for the same state: if a signed-in student opens `/signin`, it computes the next unfinished stage and sends them there. Expected: the two agree, and signing in advances the student.
-- **Reproduce:** With an account that has never signed in to this portal, complete GitHub sign-in from `/signin` and note where the browser lands.
-- **Why (from the code):** `callbackURL: "/"` at `apps/portal/worker/routes/github.ts:72`; the landing page forwards only on a stored return at `apps/portal/src/routes/Landing.tsx:22`; the sign-in route's own redirect is at `apps/portal/src/routes/SignInPage.tsx:22`.
-- **Severity:** `high`. It is the first thing every student does, and the product answers a completed action by showing them the page they started on.
-- **Decision needed:** `fix`. Point the callback at the stage resolver the sign-in route already uses.
-- **Raised by:** [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification)
-
-### B-00a: A partial GitHub outage silently shortens the repository list
-
-- **Where the user meets it:** A student opening the Start path during a GitHub incident sees fewer repositories than they have, or none, and is told there are none.
-- **What happens / what was expected:** A failure fetching one installation's repositories is caught and returned as an empty list, so the student gets a 200 and possibly the "No repositories are visible yet." card. That directly contradicts the deliberate loud failure one layer up, whose comment says an empty success "told the student their fork was missing during a GitHub outage." Expected: the same loud failure, for the same stated reason.
-- **Reproduce:** Make one installation's repository listing fail while another succeeds, then open `/connect`.
-- **Why (from the code):** `apps/portal/worker/github/client.ts:207` swallows the per-installation error; the loud path it contradicts is `apps/portal/worker/routes/github.ts:120`.
-- **Severity:** `high`. It sends a student to re-fork a repository they already have, and the codebase already decided this exact question the other way.
-- **Decision needed:** `fix`.
-- **Fixed on `fix/demo-readiness`:** the per-installation catch is gone, so the failure reaches the loud path it contradicted (`apps/portal/worker/github/client.ts:209`). Covered by two route-level tests that drive the real client against a stubbed 401 and 500 (`apps/portal/test/github-connect.test.ts`).
-- **Raised by:** [`portal/connect-a-repository.md`](portal/connect-a-repository.md#open-questions-and-verification)
-
-### B-01: Week 1 scores student code under a randomized hash seed, and the guard test cannot see it
-
-- **Where the user meets it:** A Week 1 team runs the same commit twice and gets two different scores, with nothing on either run page suggesting the platform did anything differently.
-- **What happens / what was expected:** `week2_image` and `week3_image` both set `PYTHONHASHSEED=0`, with a measured reason: one team's text score moved between 0.8188 and 0.8335 across three seeds. `week1_image` sets `PYTHONPATH` and `MPLBACKEND` and not the seed, so Week 1 student code runs unpinned. Expected: every image that executes student code pins the seed, which is what the guard test's docstring says is required.
-- **Reproduce:** Start two hosted practice runs on the same Week 1 commit and compare the primary metric. A repository whose result depends on set or dict iteration order is needed to see it; the CLI pins the seed locally, so the difference only appears hosted.
-- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:282` against `:168` and `:227`. The test meant to catch it, `apps/runner-modal/tests/test_prepare_rungs.py:224`, filters `.env` blocks to those containing `MPLBACKEND` with an embedded newline. It was written to exclude the controller image, but the controller image never calls `.env` at all, so the filter excludes `week1_image` instead. Three blocks exist, the assertion expects two, and it passes.
-- **Severity:** `high`. It makes a published number irreproducible, and the test that exists to prevent it reports success.
-- **Decision needed:** `fix`. Add the seed to `week1_image` and rewrite the test's filter to select images by what they are rather than by a whitespace heuristic.
-- **Raised by:** [`sandbox/prepare.md`](sandbox/prepare.md#open-questions-and-verification)
-
-### B-02: Linking a device before joining a team destroys the code after ten silent minutes
-
-- **Where the user meets it:** A student who finds the CLI before finishing the browser flow runs `cogworks link`, opens the URL, and is bounced somewhere else. The terminal keeps waiting.
-- **What happens / what was expected:** `POST /v1/cli/device/approve` requires a team, so the stage gate redirects the browser to `/join` or `/connect` and the approval never happens. The browser side names the loss (`apps/portal/src/components/DroppedLinkNotice.tsx:23`); the terminal is told nothing and polls for the full ten minutes before printing "The device link expired before it was approved." Expected: the terminal learns the code was dropped, or the approval page holds the code across the gate.
-- **Reproduce:** Sign in with a fresh account, do not join a cohort or team, run `cogworks link --portal <origin>`, open the URL, and watch both halves.
-- **Why (from the code):** `apps/portal/worker/routes/connections.ts:171` calls `requireTeam` on approve. `python/cogbench/src/cogbench/client.py:78` polls until `expiresAt` with no way to learn the code was consumed or dropped.
-- **Severity:** `high`. Ten minutes of a student's time, no information, and `link` is one of the first commands they run.
-- **Status:** *partly disproved, 2026-09-10, device pass at `49f6a98`.* The authorization is **not** destroyed. A fresh account was bounced to `/join`, joined a team, reopened the **original** approval URL and the waiting CLI completed, exit 0. What is lost is the browser's route back to that page, not the code. The silent terminal is still real and still unfixed: nothing tells it the browser went elsewhere. The title and the destroyed-code premise are wrong and the comments that repeated them in `DroppedLinkNotice.tsx` and `lib/pending-return.ts` were corrected at `0d53687`. Keep this open for the terminal half.
-- **Decision needed:** `fix`. Half of this is already fixed on the browser side; the terminal needs the other half, which is a distinguishable poll response for a dropped code.
-- **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification)
-
-### B-04: The "supplied" disclosure never reaches the hosted run page
-
-- **Where the user meets it:** A student reads a hosted run page and cannot tell whether their score was computed with resources the benchmark handed their code, such as GloVe vectors or an id-to-name table over the enrolled songs.
-- **What happens / what was expected:** The disclosure is built during discovery and written into the sandbox's discovery file. Nothing on the wire between the sandbox and the portal carries it: the refusal reader takes only the verdict, and the wiring reader takes only stage, function, received, and returned. Searching `apps/portal/src` and `packages/contracts/src` for the word finds nothing. Expected: the code comment says outright that a run page shows this under "supplied", and the terminal does show it.
-- **Reproduce:** Run `cogworks check` on a Week 3 repository and read the supplied lines, then start a hosted run on the same commit and compare the run page.
-- **Why (from the code):** `python/cogbench/src/cogbench/resolve.py:271` states the claim; `apps/runner-modal/src/cogworks_runner/modal_app.py` `_refusal_from` and `_collect_wiring` do not carry it, and no contract field exists for it.
-- **Severity:** `high`. A score computed with a benchmark-supplied resource is a different claim from one computed without it, which is the platform's own stated reason for building the disclosure. Hosted numbers are the ones that reach a leaderboard.
-- **Decision needed:** `fix`. Add the field to the wiring contract and render it, or delete the comment and accept that only the local report discloses it.
-- **Raised by:** [`cross-cutting/what-the-benchmark-supplied.md`](cross-cutting/what-the-benchmark-supplied.md#open-questions-and-verification), [`sandbox/discovery.md`](sandbox/discovery.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
-
-### B-05: `cogworks run --live` checks its preconditions after the ninety-second search
-
-- **Where the user meets it:** A student runs `cogworks run --benchmark <id> --live`, waits through the whole discovery search, and is then told they cannot use `--live`.
-- **What happens / what was expected:** `_submission_for` runs first, then `_start_live_run`. Both of the live preconditions ("This portal is not linked. Run `cogworks link` first." and "Live sharing requires a committed GitHub repository.") are checked after the expensive part, and nothing is saved when they fail. Expected: an argument that cannot work is refused before any work.
-- **Reproduce:** In an unlinked checkout of a repository whose search is slow, run `cogworks run --benchmark <id> --live` and time it to the error.
-- **Why (from the code):** `python/cogbench/src/cogbench/cli.py:617` runs the search; `:620` starts the live session. The search cost is measured in `python/cogbench/src/cogbench/progress.py`, where one 2026 repository resolves in 3962 pairings over about ninety seconds.
-- **Severity:** `high`. Pure ordering, entirely wasted time, and it happens on the command a student runs most.
-- **Decision needed:** `fix`. Resolve the portal, the token, and the repository state before loading the benchmark.
-- **Raised by:** [`terminal/run.md`](terminal/run.md#open-questions-and-verification)
-
-### B-06: Changing the repository rewrites what every earlier run page claims
-
-- **Where the user meets it:** A team switches the connected repository. Every run page from before the switch now shows the new repository's name above the old repository's commit.
-- **What happens / what was expected:** The run detail serializer builds its repository block from the team row rather than from the run's own `repositoryId`. Expected: a run describes the repository it actually ran against, which is what the confirmation "history stays with the team" implies is being preserved.
-- **Reproduce:** Run a practice benchmark, note the run page's repository and SHA, change the repository from the team page, then reopen the run page.
-- **Why (from the code):** `apps/portal/worker/http/serializers.ts:125`.
-- **Severity:** `high`. Silently wrong about the past, in the one place a student goes to understand a result, and the pairing of a name with a foreign SHA is actively misleading.
-- **Decision needed:** `fix`. Serialize from the run's own repository reference.
-- **Raised by:** [`foundations/the-team-and-the-repository.md`](foundations/the-team-and-the-repository.md#open-questions-and-verification), [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification)
-
-### B-07: Nothing lets a student leave a team, and only the creator can let them out
-
-- **Where the user meets it:** A student joins the wrong team, or is added to one by mistake, and finds no way out.
-- **What happens / what was expected:** No control anywhere in the product removes a member from their own team. `DELETE /team/members/:login` is admin-only and refuses the admin, so a creator cannot leave at all and a member can only be let out by their creator. The unique index on `team_members.userId` means one team at a time. Meanwhile one error sentence assumes the student can act: "You're on a team in your current cohort. Leave it before joining a different cohort."
+- **Where the user meets it:** A student joins the wrong team, or is added to one by mistake, and finds no way out. A staff member without a team who follows the onboarding path (B-48) walks into the same door.
+- **What happens / what was expected:** No control or route on any surface removes a member from their own team. Removal is admin-only and refuses an admin, so a stored admin can be removed by nobody, and the admin console now hides Remove on admin rows. The unique index on `team_members.userId` allows one team at a time. The worker still says "Leave it before joining a different cohort.", but `/join` now redirects anyone with a cohort, so the interface never shows it. Expected: a way out, with its consequence stated.
 - **Reproduce:** Join a team, then look for any way to leave it in the portal, the CLI, or Discord.
-- **Why (from the code):** `apps/portal/worker/db/schema.ts:192` (the unique index), `apps/portal/worker/routes/team-membership.ts:294` (the admin refusal), `apps/portal/worker/routes/cohorts.ts:34` (the sentence that assumes otherwise).
+- **Why (from the code):** `apps/portal/worker/db/schema.ts:196` (the unique index); `apps/portal/worker/routes/team-membership.ts:282-318` ("A team admin can't be removed." at `:304`); `apps/portal/worker/routes/admin.ts:442-447`; `apps/portal/src/routes/AdminPage.tsx:527-530`; `apps/portal/worker/routes/cohorts.ts:38`; `apps/portal/src/routes/JoinPage.tsx:21-23`.
 - **Severity:** `high`. A one-way door that needs an instructor to open, on a platform whose users are seventeen and will make this mistake.
-- **Decision needed:** `product call`. Either add a leave control with a stated consequence, or change the cohort sentence so it does not promise something that does not exist. The first costs a confirm dialog and a decision about what happens to the team's history; the second costs one string and leaves the door shut.
+- **Decision needed:** `product call`. Add a leave control with a stated consequence and a rule for the team's history, or keep the door shut and delete the unreachable cohort sentence.
 - **Raised by:** [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification), [`foundations/the-team-and-the-repository.md`](foundations/the-team-and-the-repository.md#open-questions-and-verification), [`portal/join-or-make-a-team.md`](portal/join-or-make-a-team.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Retitled from "only the creator" because removal checks the stored admin role, not who created the team. Same on beta.
 
 ### B-08: Uploaded weights are keyed to a commit, and nothing tells the student that
 
 - **Where the user meets it:** A Week 3 team follows the platform's own advice, syncs their weights, pushes one more commit, starts a hosted run, and gets a withheld overall again with no explanation.
-- **What happens / what was expected:** Weights are stored under `weights/{repository}/{commit}/{path}` and a hosted run lists only the ones filed under its own commit, so a sync is bound to the exact revision the local run used. The Week 3 diagnostic that sends teams down this path now says "Keep the weights your training run produces out of git. Then run `cogworks run` locally and `cogworks sync`; the hosted run will fetch the weights the local run used." Nothing in that sentence, on the dashboard, or on the run page mentions the commit. Expected: either the student is told, or the pairing survives a commit that did not touch the weights.
+- **What happens / what was expected:** A hosted run fetches only weights recorded by a local report at its own commit. Storage keys are now content-addressed (`weight-objects/{repo}/{sha}/{sha256}/{path}`), digest-checked in prepare, capped at 100 MiB and filtered by benchmark, and still bound to the commit. When weights are supplied the run page says "{paths} from your local run at {shortSha}"; when a push un-supplies them, nothing is said, and the Week 3 diagnostic that sends teams down this path names no commit. Expected: either the student is told, or the pairing survives a commit that did not touch the weights.
 - **Reproduce:** Run locally, sync, commit anything, push, start a hosted run, and compare the metrics with a hosted run at the synced commit.
-- **Why (from the code):** `apps/portal/worker/services/weights.ts` (`weightPrefix`, `listWeights`); the job is built from that list at `apps/portal/worker/execution/runner.ts:61`; the advice is `weights_diagnostic` in `benchmarks/week3/language_search_benchmark/roles.py`.
+- **Why (from the code):** `apps/portal/worker/services/weights.ts:125-132`; `apps/portal/worker/services/local-reports.ts:319-345` (filters on the sha at `:340`); `apps/portal/worker/execution/runner.ts:345-352`; `apps/portal/src/routes/RunDetailPage.tsx:177-180`; the advice is `benchmarks/week3/language_search_benchmark/roles.py:917-932` at the pinned `94c7e64f`.
 - **Severity:** `high`. The failure is silent, it looks identical to never having synced, and it lands on the one week that depends on this path.
 - **Decision needed:** `product call`. Saying so in the diagnostic is one sentence. Making the pairing survive a commit means keying on something other than the revision, which weakens the guarantee that the weights match the code that produced them.
 - **Raised by:** [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification), [`sandbox/prepare.md`](sandbox/prepare.md#open-questions-and-verification)
-
-### B-09: The weight upload has a fifteen-second timeout and a two-hundred-megabyte ceiling
-
-- **Where the user meets it:** A student syncs a real training checkpoint. The command sits silent, then fails.
-- **What happens / what was expected:** The portal accepts a weight file up to 200 MiB and enforces that twice. The CLI reads the file into memory whole and sends it as one `PUT` with a 15 second timeout, no retry, and no progress output. Expected: two numbers that can both be true at once. A file anywhere near the ceiling cannot transfer inside the timeout on an ordinary connection, and nothing is on screen while it tries.
-- **Reproduce:** Sync a report naming an untracked weight file of a few hundred megabytes and time it.
-- **Why (from the code):** `MAX_WEIGHT_BYTES` in `packages/contracts/src/protocol.ts`, enforced in `apps/portal/worker/services/weights.ts`; the client's timeout and whole-file read are in `python/cogbench/src/cogbench/client.py:158`.
-- **Severity:** `high`. It affects exactly the students the feature was built for, and the failure is a long silence followed by an error.
-- **Decision needed:** `fix`. Stream the upload, set a timeout proportional to the ceiling, and print a line per file. Whether a real Week 3 checkpoint approaches 200 MiB was not measured, and this entry should not pretend otherwise.
-- **Raised by:** [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification)
-
-### B-09a: The Week 3 withheld sentence is cut off mid-word before the student reads it
-
-- **Where the user meets it:** A Week 3 team whose image side did not bind opens their run page. The first sentence, set large, stops in the middle of a word.
-- **What happens / what was expected:** Diagnostics are capped at 240 characters each, and the withheld sentence is inserted at position zero so it leads the page. The current no-save-call form runs to 366 characters and the common form to 311, losing 126 and 71 characters respectively, cutting inside the copyable command each one ends with. Expected: the sentence a benchmark writes to lead a run page fits the field that carries it.
-- **Reproduce:** Start a hosted Week 3 run on a repository with no trained weights and read the finding.
-- **Why (from the code):** the 240-character cap is applied where diagnostics are assembled (`apps/runner-modal/src/cogworks_runner/modal_app.py:2334`) and again in the wire schema; the sentences are built in `weights_diagnostic` in `benchmarks/week3/language_search_benchmark/roles.py` and at `plugins.py:563`.
-- **Severity:** `high`. It is the most important sentence Week 3 produces, it is the one the platform's own design says should lead, and it arrives truncated.
-- **Decision needed:** `fix`. Either raise the cap for the leading diagnostic or shorten the sentence. In flight: the sentence grew during this pass, which is what pushed it past the limit.
-- **Raised by:** [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification)
-
-### B-09b: Discord tells a student a hosted practice run is free
-
-- **Where the user meets it:** A student reads the hosted verification confirmation in Discord. A completed evaluation counts toward practice quota; a failure does not.
-- **What happens / what was expected:** The earlier confirmation called hosted practice free without qualification. Completed hosted evaluations count toward quota. The confirmation must state that consequence without implying that admission or failure uses quota.
-- **Reproduce:** Run `/cog`, choose "Verify hosted", read the confirmation, and compare the dashboard's practice counter before and after.
-- **Why (from the code):** The earlier confirmation was in `apps/discord-bot/src/commands.ts:514`. Current usage comes from completed executions in `apps/portal/worker/services/run-accounting.ts`.
-- **Severity:** `high`. A confirmation dialog that misstates the cost of the thing it is confirming, on the surface where the student is least able to see the counter.
-- **Status:** The earlier source repair remains unverified in a guild. Recheck its confirmation against the completed-only policy at `a0e8eac`.
-- **Decision needed:** `fix`.
-- **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
-
-### B-09c: The admin console counts quota differently from the quota
-
-- **Where the user meets it:** An instructor opens the admin page and reads a team's usage as "11/10".
-- **What happens / what was expected:** The admin overview counts completed practice and official evaluations across all benchmarks and versions. The limits it prints them against are per team per benchmark version. A team with six completed evaluations in Recognition and five in Clustering displays eleven against a limit of ten. Expected: numerator and denominator measure the same thing. The denominators are also hardcoded, which is B-35.
-- **Reproduce:** Give one team runs on two benchmarks in the same week and open `/admin`.
-- **Why (from the code):** `apps/portal/worker/routes/admin.ts:76` and `:80` count without grouping; the limits are applied per benchmark version at `apps/portal/worker/services/run-actions.ts:206` and `:347`.
-- **Severity:** `high`. It is the first number an instructor reads about a team, it can exceed its own maximum, and an instructor acting on it would draw the wrong conclusion about who is stuck.
-- **Status:** *repaired in source, with a regression test.* The overview presents counts without a per-benchmark denominator, and a published score now names its benchmark and version. `apps/portal/test/admin-members.test.ts` builds a team across three benchmark/version scopes whose totals exceed any single limit. Observed only in tests; no instructor console pass has been run.
-- **Decision needed:** `fix`.
-- **Raised by:** [`portal/admin.md`](portal/admin.md#open-questions-and-verification)
-
-### B-10: `cogworks check` can exit 0 on a repository `cogworks run` refuses
-
-- **Where the user meets it:** A student runs `cogworks check`, is told their code is wired up and ready, runs the command the report ends with, and is told nothing here can be scored.
-- **What happens / what was expected:** With an installed submission entry point and a benchmark that has no discovery spec, `_check` leaves `submissionLoadable` true and prints "Your submission is registered as an installed package, so it was used as is.", while `_submission_for` deliberately ignores entry points and raises "Nothing in this repository could be scored yet." Expected: the two agree, which is exactly what `_submission_for`'s own docstring says must hold.
-- **Reproduce:** In a checkout with a submission package pip-installed from a different week's repository, run `cogworks check` then `cogworks run` for a benchmark with no discovery spec.
-- **Why (from the code):** `python/cogbench/src/cogbench/cli.py:351` never runs in that branch; `:281` raises. The docstring naming this as the thing that must not happen is at `:253`.
-- **Severity:** `high`. It is the specific lie the code was restructured to prevent, and a student who hits it has been told two contradictory things by one tool.
-- **Decision needed:** `fix`. Make `_check` apply the same file-wins rule `_submission_for` uses.
-- **Fixed on `fix/demo-readiness`:** both commands read one decision, `_scoreable` (`python/cogbench/src/cogbench/cli.py:323`), and an installed entry point is reported without being counted as readiness. Covered by `python/cogbench/tests/test_cli_readiness.py`.
-- **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa` by two clusters. Same on beta.
 
 ### B-11: Week 2 never attributes a timeout, so a killed run receives the wrong failure explanation
 
-- **Where the user meets it:** A Week 2 team's official run is killed at the fifteen-minute ceiling. They are shown a generic evaluation failure with a truncated stderr tail. The failure uses no quota.
-- **What happens / what was expected:** `_evaluate_week1` and `_evaluate_week3` record a start time and call `_timed_out` before falling through to `student_runtime`. `_evaluate_v2` and `_evaluate` do neither, so a SIGKILL at the budget is reported as an ordinary runtime failure. Expected: the same attribution every other lane performs, which exists specifically to give the student the timeout message with its advice about work that grows with the catalog.
+- **Where the user meets it:** A Week 2 team's run is killed at the fifteen-minute ceiling. They are shown a generic evaluation failure. The failure uses no quota.
+- **What happens / what was expected:** `_evaluate_v2` records no start time and never calls `_timed_out`, so both vision benchmarks report a kill at 900 s as E-RUNTIME "Your code raised an exception" (B-45). The Week 1 and Week 3 lanes attribute the limit and give the timeout advice. Expected: the same attribution in every lane.
 - **Reproduce:** Submit a Week 2 repository whose evaluation exceeds 900 seconds and read the failure card.
-- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py` `_evaluate_v2` and `_evaluate` against `_evaluate_week1` and `_evaluate_week3`; `_timed_out` is the function they skip. `apps/runner-modal/tests/test_limit_attribution.py` asserts every `_evaluate*` path classifies both limits, which is worth re-reading, because either the test or the code is wrong.
-- **Severity:** `high`. Neither outcome uses quota, but the student is denied the one message that would tell them what to change.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:1728-1740` against `:1796`/`:1815` and `:1878`/`:1896`; both vision benchmarks route to `_evaluate_v2` at `:2237` and `:2254`. `apps/runner-modal/tests/test_limit_attribution.py` covers only the exception classifier, which is why it passes.
+- **Severity:** `high`. The student is told their code raised when it ran out of time, and is denied the one message that says what to change.
 - **Decision needed:** `fix`.
 - **Raised by:** [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification)
-
-### B-12: `/cog view:connect` for an already-linked student is a dead end
-
-- **Where the user meets it:** A student who has already linked Discord picks "Connect account" from the `/cog` menu, and gets a card telling them to do something in the portal with no way to reach it.
-- **What happens / what was expected:** The already-linked branch returns the home view without passing the portal origin, so the home view falls into its no-origin branch: a single "Refresh" button, no "Open Cog\*Portal" link. When the student is also teamless, the card reads "Choose your team's repository in Cog\*Portal" while offering nothing that goes there. Expected: the link is present, as it is on every other path to the same card.
-- **Reproduce:** Link Discord, do not join a team, then run `/cog view:connect`.
-- **Why (from the code):** `apps/discord-bot/src/commands.ts:235` omits the fifth argument; the no-origin branch is at `:106`.
-- **Severity:** `high`. A dead end whose own text names the action it will not let the student take.
-- **Decision needed:** `fix`. One argument.
-- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta. The release owner has assigned the repair; nothing has changed in source yet.
 
 ### B-13: An interrupted `--live` run leaves the session running and the team's bubble frozen forever
 
-- **Where the user meets it:** A student kills a `cogworks run --live`, or their laptop sleeps. The bubble in the team channel stays on a live loader indefinitely, and teammates see a run that never finishes.
-- **What happens / what was expected:** A hard kill sends no terminal event. Nothing sweeps `local_run_sessions`; the maintenance cron covers hosted runs only. Expected: an abandoned local session ages out the way a stale hosted run does.
-- **Reproduce:** Start `cogworks run --benchmark <id> --live`, `kill -9` the process, and watch the channel.
-- **Why (from the code):** `apps/portal/worker/execution/maintenance.ts:53` selects only from `runs`. The CLI's own Ctrl+C path does send a failure event, so this is specifically about kills the process cannot catch.
-- **Severity:** `high`. It is visible to the whole team, it is permanent, and the student who caused it has no way to clear it.
+- **Where the user meets it:** A student kills a `cogworks run --live`, closes the terminal, or their laptop sleeps. The bubble in the team channel stays on a live loader indefinitely.
+- **What happens / what was expected:** Ctrl+C, uncaught exceptions and failures during the search now send a failed event, because the session opens before the search. `kill -9` and a closed window send nothing, and nothing sweeps `local_run_sessions`. A second route: a commit made during a live run makes the portal refuse the completed event as a mismatch, and the CLI never sends another terminal event, so that session also stays running. While a session stays running, the hub re-edits its frozen bubble every 2 s indefinitely, on the bot token all teams share. Expected: an abandoned local session ages out the way a stale hosted run does.
+- **Reproduce:** Start `cogworks run --benchmark <id> --live` and close the terminal window. For the second route, commit while the run is going.
+- **Why (from the code):** `apps/portal/worker/execution/maintenance.ts:43-61` selects only from `runs`; `apps/portal/worker/routes/local-runs.ts:139-148` (only an event moves a session off running) and `:108-115` (the mismatch refusal); `python/cogbench/src/cogbench/cli.py:966-968`, `:1356-1368`; `apps/portal/worker/realtime/run-surface-hub.ts:178`.
+- **Severity:** `high`. It is visible to the whole team, permanent, the student who caused it cannot clear it, and each one is an endless edit loop on a shared token.
 - **Decision needed:** `fix`. Age out a local session with no event for some multiple of the two-second heartbeat.
 - **Raised by:** [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification), [`cross-cutting/live-updates.md`](cross-cutting/live-updates.md#open-questions-and-verification)
+- **Status:** open, repair active elsewhere. Confirmed by Sol's reliability pass (local live runs stay `running` after the CLI heartbeat stops). Source repair on `cbd8266` (`683d7ea`, `3a08b61`, `25d4bdc`, `cbd8266`, on top of deployed `ed2b194`): a silent live run is shown as lost contact on the web console and in `/cog`, and a late result is still delivered if its first publication fails. Reviewed and tested, website consumer included; not deployed, and native local runtime QA and the cache/liveness PR publication are in progress. Do not start a second implementation. Byte-identical on beta. Local acceptance on `cbd8266` passed with limits (`beta-qa/cbd8266-recovery-acceptance.md`). One disposable session, `localrun_48f82c0a6d27ed4330d1dcf5c8396a99`, was driven through the real local start and event endpoints. It showed "Lost contact · evaluating" with no progress bar and `aria-busy=false`. A real heartbeat restored live progress without a refresh, and a late completed report turned the console to "Bench clear", which a refresh kept. The "Run again" dialog handed focus back correctly, and nothing overflowed at 390 and 768 px. Limits: the result was a declared fixture, not student code. Lost contact was reached by aging timestamps and refreshing, not by a natural two-minute silence. No Discord bubble, Activity or hosted run was involved. Dark Reader recolored the stills, so they show state and layout, not palette. Still not deployed.
 
-### B-14: One member's expired GitHub token blanks the team's process panel for thirty minutes
+### B-44: A Week 2 recognition run crashes when a describe step returns None for a faceless photo
 
-- **Where the user meets it:** A team opens the team page and is told their commit history could not be read, for half an hour, because one teammate opened the page first.
-- **What happens / what was expected:** The process signals are cached per team for thirty minutes, but computing them uses the GitHub token of whoever asked. A caller with no token or an expired one produces the fetch-failure state, and that state is what gets cached for everybody. Expected: a failure that belongs to one caller's credentials is not cached as a fact about the team.
-- **Reproduce:** Have a member whose GitHub token has expired open `/team`, then have the creator open it within thirty minutes.
-- **Why (from the code):** `apps/portal/worker/routes/team.ts:276` reads the cache; `:295` takes the token from the caller; `:199` sets the thirty-minute window.
-- **Severity:** `high`. It presents a credential problem as an observation about the team, which is the class of claim this platform is most careful about elsewhere.
-- **Decision needed:** `fix`. Do not cache a fetch failure, or cache it separately from a successful reading.
-- **Raised by:** [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification)
+- **Where the user meets it:** A Week 2 Recognition team's hosted practice run, or `cogworks run --benchmark vision-recognition` locally, when the team's describe step returns `None` for a photo with no face.
+- **What happens / what was expected:** The search binds the describe step on fixture photos that all have faces. Replaying it, cogbench's own pipeline reads element k of every per-item answer and raises "'NoneType' object is not subscriptable" on the first faceless photo. Hosted, the run fails E-RUNTIME at Evaluate and is told as the team's fault (B-45). Locally, the CLI prints NO RESULT with "ContractError: Student adapter execution failed: 'NoneType' object is not subscriptable". Expected: `None` reaches the benchmark, which reads it as no face.
+- **Reproduce:** Hosted practice run of `SamGu-NRX/week2_capstone@29f9cf94` on vision-recognition v2.
+- **Why (from the code):** `python/cogbench/src/cogbench/pipeline.py:834` (`row[candidate.element]` for every row); the local wrap is `python/cogbench/src/cogbench/runner.py:236-237`. Beta `468655c` passes `None` through (beta `pipeline.py:834-841`).
+- **Severity:** `high`. A correct Week 2 submission fails every hosted run that meets a faceless photo, and the team is blamed for it.
+- **Decision needed:** `fix`. Port `468655c` and its tests.
+- **Raised by:** [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification), [`foundations/the-run.md`](foundations/the-run.md#open-questions-and-verification), [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`sandbox/discovery.md`](sandbox/discovery.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification), [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification)
+- **Status:** fixed on deployed `ed2b194`; open in the `2ff32fa` source. Hosted beta run `run_f5fc5babe5` failed (`hosted-run_f5fc5babe5/result.json`, `failed-dom.txt`); its Retry `run_f93ba19397`, after beta `468655c`, succeeded at 0.925 with the D1 row persisted (lead's record). That success proves only the hosted Recognition practice path. The local CLI path is read from code. Still present in the `2ff32fa` source; fixed on deployed `ed2b194`, which merges `468655c`.
+
+### B-45: Every evaluation failure is told as "Your code raised an exception", including the platform's own
+
+- **Where the user meets it:** The run page after any hosted failure in Evaluate.
+- **What happens / what was expected:** Once the evaluate script has imported team code, an exception becomes `student_runtime`, titled "Your code raised an exception", with local reproduction as the next step. Weeks 1 and 3 test for a timeout first; the Week 2 lane does not, so a killed vision run is also told this way (B-11). The platform's second search and pipeline replay run inside the region marked as student-owned, so B-44 was told as the team's fault. The runner cannot tell whose frame raised, because student code can forge frames, so this is a decision about wording and ownership; prepare already uses neutral wording ("This run did not reach scoring"). Two related slips: the console says "Submission stopped during evaluation" for the failure the run page titles "Your code raised an exception" (`07-contact.png` at `8052b12`; `final-2ff32fa/retry-final.txt` at `2ff32fa`, local fixture), and Retry, "Runs the same commit again.", is offered for every failed execution although `failures.ts` marks E-RUNTIME, E-CONTRACT and others `retryable: false`.
+- **Reproduce:** B-44 on `2ff32fa`, or beta run `run_f5fc5babe5`.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:941`, `:972`, `:993`, `:1008` set the owner to the student before loading; `_discovered_factory` (`:847-894`) runs inside that region; the mapping is at `:1670`, `:1740`, `:1826`, `:1907`. Copy at `packages/contracts/src/failures.ts:87-96`, card at `apps/portal/src/components/FailureCard.tsx:65-124`. The neutral contrast is `apps/runner-modal/tests/test_prepare_attribution.py:165-183`. `retryRun` in `apps/portal/worker/services/run-actions.ts` has no retryable check.
+- **Severity:** `high`. It assigns a fault the platform cannot observe, on the most common hosted failure.
+- **Decision needed:** `product call`. Choose the claim the copy makes (for example "The evaluation raised an exception" plus where), and whether Retry stays offered for categories the catalog calls non-retryable.
+- **Raised by:** [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification), [`sandbox/discovery.md`](sandbox/discovery.md#open-questions-and-verification), [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification), [`foundations/the-run.md`](foundations/the-run.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification), [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification)
+- **Status:** open. Observed on hosted beta (`hosted-run_f5fc5babe5/failed-dom.txt`, E-RUNTIME · Evaluate); the runner and contracts are byte-identical at `2ff32fa`. Same on beta. The release owner has assigned the repair; nothing has changed in source yet.
+
+### B-47: The candidate's setup page installs a CLI older than the candidate, whose link consent says scores are never sent
+
+- **Where the user meets it:** Setup step 2, "Install the CogWorks tool", then `cogworks link`.
+- **What happens / what was expected:** The candidate pins the CLI at `40d31a2`, seven `python/cogbench/src` commits behind `2ff32fa`. That CLI's link consent says it sends "never source, paths, logs, predictions, scores, or environment variables", yet `sync` and `run --live` send scores. Its reports carry no command, so they print plain LOCAL and `test` results are not marked as smoke. Check names `submission.py` when `benchmark_adapter.py` resolved. It also lacks two private-copy discovery fixes, so a module that writes a cache at import can come back not_read. Expected: the pin moves with the candidate. Neither build serves TestPyPI 0.1.0.
+- **Reproduce:** Run the candidate Setup's install line in a fresh environment, then `cogworks link --portal <origin> --no-browser`.
+- **Why (from the code):** `apps/portal/src/lib/benchmark-packages.ts:40-41`; `git log --no-merges 40d31a2..2ff32fa -- python/cogbench/src` lists seven commits, including `b30a93e`, `ff54625`, `2aa05a8`, `deb8ef3`, `a08b58f`.
+- **Severity:** `high`. The first consent every student reads is false about scores, and the installed discovery is older than the one scoring them.
+- **Decision needed:** `fix`. Move the pin to a commit in the candidate's own history.
+- **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`terminal/check.md`](terminal/check.md#open-questions-and-verification), [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`terminal/report.md`](terminal/report.md#open-questions-and-verification), [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification)
+- **Status:** open. The pin is visible in the local fixture `pairs/a-setup-desk.png`; the consent text is read from code at `40d31a2`. Beta moved its own pin (`cc9cd3f`, then `4984730` to `b6bbffb`). Fixed on deployed `ed2b194`: Setup shows pin `b6bbffb` (`beta-qa/ed2b194-acceptance.md`), and the live Language CLI pass used source equal to it.
+
+### B-49: The Discord consent copy says Cog cannot start an official evaluation; `/cog` can
+
+- **Where the user meets it:** The Connections page, while confirming a Discord link.
+- **What happens / what was expected:** The panel reads "Cog receives neither source code nor your GitHub token, and it can't start an official evaluation.", and the lede says neither Discord nor the CLI "can submit an official result". Once linked, `/cog` and the Activity offer "Promote to official", which spends an attempt, and "Publish to leaderboard", and the portal performs both. Expected: consent copy states what the link authorizes.
+- **Reproduce:** Link Discord, read the panel, then promote a run from `/cog`.
+- **Why (from the code):** `apps/portal/src/routes/ConnectionsPage.tsx:84`, `:111` against `apps/discord-bot/src/commands.ts:557-571` and `apps/portal/worker/rpc.ts:94-102`.
+- **Severity:** `high`. A consent screen that understates what it grants breaks the trust rule at the moment it matters most.
+- **Decision needed:** `product call`. Say that Discord can promote and publish, or remove those actions from Discord.
+- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta (beta `ConnectionsPage.tsx:71`, `:95`). The release owner has assigned the repair; nothing has changed in source yet.
+- **Status, local `17d26d9` (2026-10-02):** the Connections copy now states the grant (`ConnectionsPage.tsx:113`, `:251` at `17d26d9`). On the local fixture build the page read "Cog can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you." Not observed: the Discord link confirmation panel, and `/cog` promoting or publishing ([checkpoint](verification/checkpoint-17d26d9.md)).
 
 ## Medium
 
-### B-03: Two gates disagree about which team members Discord serves
+### B-02: Linking a device before joining a team leaves the terminal polling silently
 
-- **Where the user meets it:** Nobody, today. This is a latent divergence, filed because the two halves are one screen apart and the day a fourth role exists it becomes B-03 as originally written: a permanent dead end whose message says the portal is unreachable.
-- **What happens / what was expected:** `getDiscordTeamStatus` accepts any membership row, so the bot proceeds as though any member has a team. The `home` view then calls `getRunSurface`, which resolves the actor through `discordRunActor` and throws 403 "Current write access to the team repository is required." for any role outside `admin`, `maintain`, `write`. The bot's error handler turns that into "I couldn't reach Cog\*Portal just now." Expected: one answer to "may this member use Discord".
-- **Why it is not reachable now:** `teamRole` maps GitHub `read` and `triage` to null and refuses the join, and a demoted admin is rewritten to `write` rather than to something lower (`apps/portal/worker/github/permissions.ts:3`, `apps/portal/worker/routes/team.ts:165`). No write path can store a role outside the three the actor check allows. The break would also be narrower than a total lockout: only `home` calls `getRunSurface`, so leaderboard, benchmarks, and local notes would still render.
-- **Why (from the code):** `apps/portal/worker/services/discord.ts:154` against `apps/portal/worker/services/run-actions.ts:68`; the collapse is at `apps/discord-bot/src/index.ts:46`.
-- **Severity:** `medium`, downgraded from high after the role gate was traced. Two components disagree about the same rule, and nothing fails a build if one changes.
-- **Decision needed:** `fix`. Make the Discord status check use the same role predicate the actor check uses, so the two cannot drift.
-- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification), [`foundations/the-team-and-the-repository.md`](foundations/the-team-and-the-repository.md#open-questions-and-verification)
+- **Where the user meets it:** A student who finds the CLI before finishing the browser flow runs `cogworks link`, opens the URL, and is bounced to `/join` or `/connect`. The terminal keeps waiting.
+- **What happens / what was expected:** Approval requires a team, so the stage gate redirects the browser. The code survives, and `/join` and `/connect` show "Your device link is on hold". That notice tells the student to run `cogworks link --portal ...` again, which starts a second code while the first terminal keeps polling; reopening the original URL is the recovery that works. The terminal hears nothing for up to ten minutes. Expected: the terminal learns the browser went elsewhere, and the notice points back at the original URL.
+- **Reproduce:** Sign in with a fresh account, do not join a team, run `cogworks link --portal <origin>`, open the URL, and watch both halves.
+- **Why (from the code):** `apps/portal/worker/routes/connections.ts:171` (approve requires a team); `python/cogbench/src/cogbench/client.py:80-90` (no dropped state); `apps/portal/src/components/DroppedLinkNotice.tsx:27-31`; `apps/portal/src/lib/pending-return.ts:31-40`.
+- **Severity:** `medium`, down from high. Ten silent minutes, recoverable by reopening the original URL.
+- **Decision needed:** `fix`. A distinguishable poll response for a code waiting on a team, and a notice that sends the student back to the original URL.
+- **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Retitled after the device pass at `49f6a98` showed the code is not destroyed: a fresh account joined a team, reopened the original URL, and the waiting CLI completed. Terminal half same on beta.
 
-### B-15: Re-linking a device accumulates live tokens that nothing revokes
+### B-04: The "supplied" disclosure never reaches the hosted run page
 
-- **Where the user meets it:** After a few dropped link attempts, the connections page lists three or four identical `CogWorks CLI` devices and the student cannot tell which one their terminal holds.
-- **What happens / what was expected:** Every completed handshake inserts a new device row. Nothing revokes the previous one, and each survives its full sixty-day life. Expected: re-linking the same machine replaces its token, or the list distinguishes them.
-- **Why (from the code):** `apps/portal/worker/routes/connections.ts:259` inserts unconditionally. The name defaults to `CogWorks CLI` for every one.
-- **Severity:** `medium`. Recoverable by revoking all of them and linking again, but the student has to guess.
+- **Where the user meets it:** A student reads a hosted run page and cannot tell whether their score used resources the benchmark handed their code, such as GloVe vectors or an id-to-name table over the enrolled songs.
+- **What happens / what was expected:** Discovery still builds the supplied rows, and they reach only `cogworks check --json`. Neither sandbox reader carries them and the wire contract has no field. The comment that promised a run page would show them was rewritten in `da36ac8`, so the code no longer contradicts itself, and the gap remains. The only "supplied" line on a hosted run page is the synced-weights line, which is the team's own file.
+- **Reproduce:** Run `cogworks check` on a Week 3 repository and read the supplied lines, then start a hosted run on the same commit and compare the run page.
+- **Why (from the code):** `python/cogbench/src/cogbench/resolve.py:628-633`; `python/cogbench/src/cogbench/cli.py:786`, `:795`; `apps/runner-modal/src/cogworks_runner/modal_app.py:1042-1099` (`_refusal_from`) and `:1609-1642` (`_collect_wiring`); `packages/contracts/src/protocol.ts:158-189`; `apps/portal/src/routes/RunDetailPage.tsx:177-181`.
+- **Severity:** `medium`, down from high now the false claim is gone. Hosted numbers reach the leaderboard, and a score made with a supplied resource is a different claim.
+- **Decision needed:** `product call`. Add the field and render it, or decide hosted pages do not disclose and say so in the code.
+- **Raised by:** [`cross-cutting/what-the-benchmark-supplied.md`](cross-cutting/what-the-benchmark-supplied.md#open-questions-and-verification), [`sandbox/discovery.md`](sandbox/discovery.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-14: A caller-specific GitHub failure is cached as the team's history for thirty minutes
+
+- **Where the user meets it:** A team opens the team page and is told their history could not be read, for half an hour, because one teammate's request failed first.
+- **What happens / what was expected:** Only GitHub history is cached now; runs are re-read on every request, and a GitHub 401 is never stored. Still stored team-wide for thirty minutes: a caller with no token stores `fetch_failed`, and a `not_found` or `rate_limited` answer under one caller's token is stored the same way. The footer "History checked {time ago}" is the only hint. Expected: a failure tied to one caller is not cached as a fact about the team.
+- **Reproduce:** Have a member with no stored GitHub token open `/team`, then have another member open it within thirty minutes.
+- **Why (from the code):** `apps/portal/worker/routes/team.ts:284-296` (no token stores `fetch_failed`; 401 skipped at `:292-296`) and `:258-274` (served to the team for thirty minutes); the 401 test is `process-signals.test.ts:656`; narrowed in `83d7e14`.
+- **Severity:** `medium`, down from high, because the common expired-token case is no longer stored.
 - **Decision needed:** `fix`.
-- **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification)
+- **Raised by:** [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification)
+- **Status:** open, repair active elsewhere. Confirmed by Sol's reliability pass (caller-token lookup failure poisoning shared history). Source repair on `cbd8266` (`45fd963`, `1b00e6d`): a failure that belongs to one caller is no longer stored as the team's history, and only history GitHub actually returned is stored. Reviewed and tested; not deployed. Beta differs: on the candidate a failed insert into `team_process_signals` throws out of `GET /api/v1/team/process` and the whole panel shows its error card (`team.ts:306-314`); beta `610e04a` (#46) catches it and still returns the fetched history (beta `team.ts:307-318`), and that test was not carried to the candidate.
 
 ### B-16: `check --update-setup` is silently ignored when the check does not pass
 
-- **Where the user meets it:** A student copies the exact command from the setup page, the check reports a problem, and the setup guide never advances. Nothing says the flag was dropped.
-- **What happens / what was expected:** The update is gated on the check exiting 0, with no else branch. Expected: either the flag reports that it did nothing, or the steps that did pass are recorded.
-- **Why (from the code):** `python/cogbench/src/cogbench/cli.py:612`.
-- **Severity:** `medium`. Confusing at exactly the moment a student is already stuck, but recoverable by fixing the underlying problem.
+- **Where the user meets it:** A student copies the exact command from the setup page, the check reports a problem, and the setup guide never advances.
+- **What happens / what was expected:** The update is gated on the check exiting 0, with no else branch. Setup step 5 now says "If the box doesn't tick, the reason is in your terminal.", but the terminal says nothing about the dropped flag. The pinned CLI `40d31a2` has the same gate. Expected: the flag reports that it did nothing, or the steps that passed are recorded.
+- **Why (from the code):** `python/cogbench/src/cogbench/cli.py:1166-1172`; `apps/portal/src/lib/setup-progress.ts:165` (the setup command carries the flag); `apps/portal/src/routes/SetupPage.tsx:255`.
+- **Severity:** `medium`. Confusing at the moment a student is already stuck, but recoverable.
 - **Decision needed:** `fix`. One sentence on stderr would be enough.
 - **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification), [`portal/setup.md`](portal/setup.md#open-questions-and-verification)
-
-### B-17: The two longest paragraphs in `cogworks check` are the two that are not wrapped
-
-- **Where the user meets it:** A failing check on a narrow terminal breaks mid-package-name in the one part of the report the student is meant to read carefully.
-- **What happens / what was expected:** The gap note is wrapped to 78 columns; the verdict headline and next step are appended as single lines. The `could_not_look` headline is about 220 characters. Expected: `_wrapped` applies to them, for the reason its own docstring gives.
-- **Why (from the code):** `python/cogbench/src/cogbench/report.py:269` and `:274`; the wrapper and its rationale are at `:40`.
-- **Severity:** `medium`. Cosmetic, but it lands on every failing check.
-- **Decision needed:** `fix`.
-- **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
-
-### B-18: The most ordinary failure verdict has no next step
-
-- **Where the user meets it:** A student on a fully provisioned machine gets a `not_wired` verdict and no line telling them what to do.
-- **What happens / what was expected:** The next step is produced only when a skipped module names a missing package; otherwise it is empty. `report.py`'s stated contract is "either you are ready, or here is the single next thing." Expected: the contract holds, or the report says explicitly that the next step is theirs to find.
-- **Why (from the code):** `python/cogbench/src/cogbench/resolve.py:1928` returns `""`; the contract is stated at `python/cogbench/src/cogbench/report.py:9`.
-- **Severity:** `medium`. The headline still names the hand-off that failed, which is the actionable part, so this is a missing signpost rather than a missing diagnosis.
-- **Decision needed:** `fix`. The honest line here may be that the next step is to read the trace, which is a sentence the platform is allowed to write.
-- **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-19: The Discord bot replaces every actionable portal error with one generic sentence
 
-- **Where the user meets it:** Anything that goes wrong in Discord reads as "I couldn't reach Cog\*Portal just now."
-- **What happens / what was expected:** The bot's error handler collapses every thrown error. The messages it discards include the bot-permissions instruction, "That channel already belongs to {name}.", "A team creator or maintainer needs to choose the team channel.", and "The official-attempt quota is exhausted." The Discord Activity surfaces the same errors verbatim, so the two surfaces disagree about what the student is told. Expected: an error the portal wrote for a reader reaches the reader.
-- **Why (from the code):** `apps/discord-bot/src/index.ts:46` and `:138`; the Activity's behavior is at `apps/portal/src/activity-main.tsx:54`.
-- **Severity:** `medium`. It is the root cause behind B-03 and behind several smaller confusions, and it makes the bot untriageable from a student report.
-- **Decision needed:** `fix`. Pass through the portal's message for known error codes and keep the generic sentence for transport failures, which is what it was written for.
+- **Where the user meets it:** Anything that goes wrong in Discord reads as "I couldn't reach Cog\*Portal just now. Nothing changed. Try again in a moment."
+- **What happens / what was expected:** The bot's error handler collapses every thrown error. The lost sentences include the bot-permissions instruction, "That channel already belongs to {name}.", "The official-attempt quota is exhausted.", and now the GitHub checks every Discord mutation makes: "Sign in to GitHub on Cog\*Portal before changing a run." and "GitHub access expired. Sign in to Cog\*Portal again." The Activity shows the same errors verbatim. Expected: an error the portal wrote for a reader reaches the reader.
+- **Why (from the code):** `apps/discord-bot/src/index.ts:38-47`, `:129-139`; sources at `apps/portal/worker/services/run-actions.ts:125`, `:135`, `:258`, `:421`, `:712` and `apps/portal/worker/services/discord.ts:124`, `:218`, `:225`; the Activity at `apps/portal/src/activity-main.tsx:54-62`.
+- **Severity:** `medium`. It hides every actionable refusal and makes the bot untriageable from a student report.
+- **Decision needed:** `fix`. Pass through the portal's message for known error codes and keep the generic sentence for transport failures.
 - **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification), [`cross-cutting/refusals-and-disclosure.md`](cross-cutting/refusals-and-disclosure.md#open-questions-and-verification)
-
-### B-20: The live run surface is unreachable from the portal and has no way out
-
-- **Where the user meets it:** A student who arrives at `/run-surfaces/{id}` from Discord or the CLI finishes reading and finds no navigation anywhere on the page.
-- **What happens / what was expected:** Nothing in the portal links to the route; only the Activity's separate entry point constructs the URL. The success state has no link out at all, and "Back to dashboard" exists only in the error branch. Expected: a page a student can reach is a page they can leave.
-- **Why (from the code):** `apps/portal/src/routes/RunSurfacePage.tsx:27`.
-- **Severity:** `medium`. The browser back button works, so it is a dead end only in the sense that the page offers nothing.
-- **Decision needed:** `product call`. Either link the surface from the dashboard's run list and give it navigation, or accept that it is an embedded view and give it navigation anyway.
-- **Raised by:** [`portal/watching-a-run.md`](portal/watching-a-run.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-21: A plugin version mismatch is reported to the student as missing benchmark data
 
-- **Where the user meets it:** A run fails with "Benchmark data is not ready" and an explanation about a data bundle that could not be downloaded or did not match its checksum, when the real problem is that the deployed plugin and the run job disagree about a version.
-- **What happens / what was expected:** The contract check raises the mismatch under the `data_download` category, which maps to that copy. Expected: `contract_invalid` or `provider`, either of which is true.
-- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:926`; the copy is in `packages/contracts/src/failures.ts`. `apps/runner-modal/tests/test_preflight_dispatch.py:402` documents this drift being seen in production.
-- **Severity:** `medium`. The failure uses no quota either way, so nothing is lost but the student's and the instructor's time chasing the wrong thing.
+- **Where the user meets it:** A run fails with "Benchmark data is not ready" when the deployed plugin and the run job disagree about a version.
+- **What happens / what was expected:** The contract check raises the mismatch as `data_download`, so the run page says E-DATA "Benchmark data is not ready", the live console says "The hosted runner could not finish", and Discord says "Runner unavailable": three accounts of one failure. `data_download` is also the category when the team's own synced weight cannot be fetched, where the copy about a reviewed checksum describes a student file (B-69). Expected: `contract_invalid` or `provider`.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:1273-1280`, `:1575`; `packages/contracts/src/failures.ts:41-49`; `apps/portal/worker/services/run-surfaces.ts:72`; `apps/portal/src/components/RunConsole.tsx:52`; `apps/portal/worker/services/discord-messages.ts:96`.
+- **Severity:** `medium`. No quota is lost, only the student's and instructor's time chasing the wrong thing.
 - **Decision needed:** `fix`.
 - **Raised by:** [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification), [`foundations/the-run.md`](foundations/the-run.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-22: The evaluation progress counter never moves
 
 - **Where the user meets it:** Watching a run, the student sees "0 of N cases" for the whole of the longest phase, then N of N.
-- **What happens / what was expected:** The sandbox reports zero at the start, the heartbeat repeats zero, and the only other value is the terminal one. The wire field carries `unit: "cases"`, which implies per-case reporting the sandbox never provides. The CLI's local run does the same thing. Expected: either real progress, or no counter, since a bar that does not move reads as a hang.
-- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:2293` and `:2294`; `python/cogbench/src/cogbench/runner.py:84`.
-- **Severity:** `medium`. It is the phase most likely to make a student think the platform has stopped, which is the exact failure the CLI's own progress module was written to prevent.
+- **What happens / what was expected:** The sandbox reports zero at the start, the heartbeat repeats zero, and the only other value is the terminal one. The CLI's local run does the same. Only the console shows counts; the run page shows none. Expected: real progress, or no counter, since a bar that does not move reads as a hang.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:2246-2258`; `python/cogbench/src/cogbench/runner.py:231`, `:245`; `python/cogbench/src/cogbench/cli.py:835`; rendered at `apps/portal/src/components/RunConsole.tsx:390-407`.
+- **Severity:** `medium`. It is the phase most likely to make a student think the platform has stopped.
 - **Decision needed:** `fix`.
 - **Raised by:** [`portal/watching-a-run.md`](portal/watching-a-run.md#open-questions-and-verification), [`cross-cutting/live-updates.md`](cross-cutting/live-updates.md#open-questions-and-verification), [`terminal/run.md`](terminal/run.md#open-questions-and-verification)
-
-### B-23: Promote is clickable while the quota is still loading
-
-- **Where the user meets it:** A student opens a run page, clicks "Promote to official" before the dashboard query resolves, and gets a server error instead of a disabled button.
-- **What happens / what was expected:** The disabled state is gated on the quota having loaded, so an undefined quota leaves the button enabled. Expected: pending is treated as unknown and the button waits.
-- **Why (from the code):** `apps/portal/src/routes/RunDetailPage.tsx:280`.
-- **Severity:** `medium`. The server refuses correctly, so nothing is spent; the student sees an error that was avoidable.
-- **Decision needed:** `fix`.
-- **Raised by:** [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification)
-
-### B-24: The refund cap is bypassed when Modal dispatch fails
-
-- **Status:** superseded by accepted recovery policy at `a0e8eac`. Failed executions use no quota, and the refund cap and runtime attempt ledger have been removed. No cap repair is required. This retires the old policy question, not a browser verification item.
-- **Raised by:** [credit and quota](cross-cutting/credit-and-quota.md).
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-25: The Week 3 timeout message is Week 1's copy, about songs
 
-- **Where the user meets it:** A `language-search` team times out and reads advice about enrolling every song and a database that grows with the catalog. Week 3 has captions, descriptors, and image ids.
-- **What happens / what was expected:** The two messages are byte-identical. Expected: Week 3's message describes Week 3's work.
-- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:1917` against `:1996`.
-- **Severity:** `medium`. The general advice still applies, so it is not wrong so much as addressed to somebody else, which undermines trust in the rest of the failure card.
+- **Where the user meets it:** A `language-search` team times out and reads advice about enrolling every song.
+- **What happens / what was expected:** The two messages are byte-identical. In the redesign the wrong sentence is the open detail and the correct Week 3 advice is the Next step directly beneath it. Expected: Week 3's message describes Week 3's work.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:1816-1825` against `:1897-1906`; the correct action is `packages/contracts/src/failures.ts:200-203`; layout at `apps/portal/src/components/FailureCard.tsx:105-120`.
+- **Severity:** `medium`. Addressed to somebody else, which undermines the rest of the card.
 - **Decision needed:** `fix`.
 - **Raised by:** [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-26: Floors print as ordinary scores in the terminal
 
-- **Where the user meets it:** A Week 3 student reads a local report and cannot tell "Chance MRR" from "Text MRR". Both are printed the same way.
-- **What happens / what was expected:** The metric reader drops `role` and `relatesTo`, and the local report renderer treats every metric identically with no primary marker and no floor rendering. Expected: the terminal makes the same distinction the run page does, which exists precisely because "higher is better" on a floor reads as advice to raise a number the student does not control.
-- **Why (from the code):** `python/cogbench/src/cogbench/models.py:62` (`from_wire` drops the fields), `python/cogbench/src/cogbench/cli.py:166` (`_print_report`), and `python/cogbench/src/cogbench/runner.py:167` (the local runner never sets them).
-- **Severity:** `medium`. It contradicts a rule the platform states explicitly and enforces in the browser.
+- **Where the user meets it:** A Week 3 student reads a local report and cannot tell "Chance MRR" from "Text MRR".
+- **What happens / what was expected:** The metric role now survives in local reports and syncs (`b8ae7ce`, `99281c5`), so the portal can draw floors. `cogworks report` and `run` still print a floor as a plain row. Expected: the terminal makes the distinction the run page makes.
+- **Why (from the code):** `python/cogbench/src/cogbench/runner.py:187-192` and `python/cogbench/src/cogbench/models.py:112-113` (role recorded and read back); `python/cogbench/src/cogbench/cli.py:239-247` (the printer ignores it).
+- **Severity:** `medium`. It contradicts a rule the platform enforces in the browser.
 - **Decision needed:** `fix`.
 - **Raised by:** [`terminal/report.md`](terminal/report.md#open-questions-and-verification), [`terminal/run.md`](terminal/run.md#open-questions-and-verification)
+- **Status:** open. Reproduced locally from the candidate tree by printing a hand-written report with a floor metric. Same on beta.
 
 ### B-27: A batch of live events applies partially and reports failure
 
 - **Where the user meets it:** After a flaky `--live` run, the team's bubble holds some of the run's events and the CLI was told the batch failed.
 - **What happens / what was expected:** The batch handler loops sequentially, so a throw on event n leaves events 0 to n-1 applied and returns a 4xx. Expected: the batch is atomic, or the response says how far it got.
-- **Why (from the code):** `apps/portal/worker/routes/local-runs.ts:380`.
-- **Severity:** `medium`. The sequence guard makes a retry mostly safe, which is why this is not high, but the CLI's retry semantics depend on that accident rather than on the contract.
+- **Why (from the code):** `apps/portal/worker/routes/local-runs.ts:400-417`; throws at `:84` and `:114`.
+- **Severity:** `medium`. The sequence guard makes a retry mostly safe, by accident rather than contract.
 - **Decision needed:** `fix`.
 - **Raised by:** [`cross-cutting/live-updates.md`](cross-cutting/live-updates.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-28: The connections page polls forever while no device is linked
 
-- **Where the user meets it:** A student sitting on `/connections` during a link, which is exactly when they are told to sit there.
-- **What happens / what was expected:** The query refetches every four seconds and only stops once at least one device exists. A student who never completes a link never stops requesting. Expected: the poll backs off or stops after a bounded window.
-- **Why (from the code):** `apps/portal/src/lib/queries.ts:120`.
+- **Where the user meets it:** A student sitting on `/connections` during a link, which is where they are told to sit.
+- **What happens / what was expected:** The query refetches every four seconds until at least one device exists. Expected: the poll backs off or stops after a bounded window.
+- **Why (from the code):** `apps/portal/src/lib/queries.ts:129-137`.
 - **Severity:** `medium`. Battery and request volume rather than correctness.
 - **Decision needed:** `fix`.
 - **Raised by:** [`foundations/the-ask.md`](foundations/the-ask.md#open-questions-and-verification), [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`cross-cutting/live-updates.md`](cross-cutting/live-updates.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
-### B-29: A member added from the team page gets write access the portal never checked
+### B-29: A member added from the team page or the admin console gets write access the portal never checked
 
-- **Where the user meets it:** An admin adds a teammate from the team page. The add succeeds. The teammate is refused later, at run time, with a message about GitHub permission.
-- **What happens / what was expected:** Adding from the team page writes the `write` role unconditionally, while `POST /team/join` reads GitHub first. Expected: the same check, so the refusal arrives on the screen where the admin who can fix it is standing.
-- **Why (from the code):** `apps/portal/worker/routes/team-membership.ts:251` against `:159`; the later refusal is `apps/portal/worker/services/run-actions.ts:98`.
+- **Where the user meets it:** An admin or instructor adds a teammate. The add succeeds; the teammate is refused later, at run time, with a message about GitHub permission.
+- **What happens / what was expected:** Both add paths store the `write` role unconditionally, while `POST /team/join` reads GitHub first. Adding the fork's GitHub owner this way stores them as `write`, which is what makes B-65 a dead end. Expected: the same check, on the screen where the person who can fix it is standing.
+- **Why (from the code):** `apps/portal/worker/routes/team-membership.ts:256-262` (literal at `:261`) and `apps/portal/worker/routes/admin.ts:413`, against join at `team-membership.ts:162-177`; the later refusal is `apps/portal/worker/services/run-actions.ts:138`.
 - **Severity:** `medium`. Recoverable, but the error surfaces one screen and one person away from the fix.
 - **Decision needed:** `fix`.
 - **Raised by:** [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Retitled to include the admin console path. Same on beta.
 
-### B-30: Co-author credit reaches half the process panel
+### B-46: A failed hosted run carries one line: no exception class, no location, no log, none of the team's prints
 
-- **Where the user meets it:** On the team page, the stage rail credits both people on a paired commit while the contract-file list beside it credits only one.
-- **What happens / what was expected:** The stage footprint and ownership breadth were changed to read `Co-authored-by:` trailers; the churn event still records one author. Expected: one answer to "who wrote this commit" within one panel.
-- **Why (from the code):** `apps/portal/worker/services/process-signals.ts:249` against `:422`.
-- **Severity:** `medium`. In flight, and it looks like an unfinished edit rather than a decision.
+- **Where the user meets it:** The page of any hosted run that fails in Evaluate.
+- **What happens / what was expected:** The sandbox sends one `COG_ERROR` line capped at 500 characters, keeps only the last unindented stderr line without the exception class, writes the student log only after success, and sends no log with the failed event. The student reads "'NoneType' object is not subscriptable" with no `TypeError`, file or line, and no "Show the log", while the next step says to use "the recorded details". Expected: the class, the innermost frame, and the output a successful run would have kept.
+- **Reproduce:** A practice run whose code prints, then raises.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:1017-1020`, `:1038`, `:2005-2038` (class dropped at `:2032-2034`), `:2318-2327`; `apps/portal/worker/routes/runner-events.ts:247-260` stores no log on failure (completion does, at `:226`); `packages/contracts/src/failures.ts:92-93`.
+- **Severity:** `medium`. The student cannot learn what went wrong, which is the question the platform exists to answer.
 - **Decision needed:** `fix`.
-- **Raised by:** [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification)
+- **Raised by:** [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification), [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification)
+- **Status:** open. Observed on hosted beta in `hosted-run_f5fc5babe5/failed-dom.txt` (no log region); same code at `2ff32fa`. The fixture provider scripts a log for failed runs (`pairs/b-run-failed-desk.png`), which hides this locally. The release owner has assigned the repair; nothing has changed in source yet.
 
-### B-31: Inactive benchmarks are publicly listed and their leaderboard tabs are clickable
+### B-48: Staff without a team are routed into student onboarding and cannot reach Connections
 
-- **Where the user meets it:** Anyone, signed in or not, can read the title and summary of a week that has not opened yet, and can click into its standings.
-- **What happens / what was expected:** The catalog has no active filter and its route is unauthenticated. The leaderboard computes which tracks are available and then never disables the tab; for Vision it renders the overall standings unconditionally, firing the family query even when neither vision benchmark is active. Expected: an unreleased week is not advertised, and a tab annotated "in progress" does not respond.
-- **Why (from the code):** `apps/portal/worker/services/catalog.ts` (no filter), `apps/portal/src/routes/LeaderboardPage.tsx:60` and `:148`.
-- **Severity:** `medium`. No data leaks beyond a title and a summary, but it undercuts the instructor's control over when a week opens.
+- **Where the user meets it:** Every instructor or TA sign-in while they have no team.
+- **What happens / what was expected:** Sign-in lands on `/signin`, which replaces to `/join`, or `/connect` after a cohort. The landing button says "Continue setting up" and the account menu "Continue setup", though the header hides "Get started" from staff. "Connections" also redirects into onboarding, so staff cannot link Discord or a device without joining a team. Leaving it again needs the admin console: staff who are not a stored team admin can remove themselves there (`apps/portal/worker/routes/admin.ts:423-451`); a stored team admin, which a team's creator always is, cannot be removed by anyone (B-07). Expected: staff without a team land on `/admin`, and the menu agrees with the header.
+- **Reproduce:** Dev portal with `PLATFORM_OWNER_LOGINS` containing `owner`; `POST /api/dev/login {"login":"owner"}`; open `/signin`. It replaces to `/join`.
+- **Why (from the code):** `apps/portal/src/App.tsx:34-39` (`nextStagePath` ignores `platformRole`) and `:129-136` (`/connections` behind the team gate); `apps/portal/src/routes/SignInPage.tsx:78-80`; `apps/portal/src/routes/Landing.tsx:50-51`; `apps/portal/src/components/UserMenu.tsx:218-221`; `apps/portal/src/components/Shell.tsx:52-55`.
+- **Severity:** `medium`. Every staff member meets it on their first sign-in, and the path it offers is the student's.
+- **Decision needed:** `fix`.
+- **Raised by:** [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification), [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification), [`portal/join-or-make-a-team.md`](portal/join-or-make-a-team.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Beta's `App.tsx` is identical, so the routing is the same there. The release owner has assigned the repair; nothing has changed in source yet.
+- **Status, local `17d26d9` (2026-10-02):** routing fixed in source (`App.tsx:37-43`). On the local fixture build a synthetic teamless staff login opening `/signin`, `/dashboard` and `/setup` settled on `/admin`. A pending device link was held there with an explanation and not approved. Not observed: the account menu's wording, and linking Discord while on no team. Connections still needs a team ([checkpoint](verification/checkpoint-17d26d9.md)).
+
+### B-50: The leaderboard and team pages rank runs with different primary metrics together
+
+- **Where the user meets it:** The public Language board, the Runs page, and the Discord bubble's team-best line.
+- **What happens / what was expected:** A Week 3 run whose image side never bound gets `text_mrr` as its primary. The board takes each run's own primary and sorts by raw value, so a published withheld run ranks its Text MRR among other teams' Overall; on fixture data one commit read Overall 0.443 and Text MRR 0.772. `benchmarks.primary_metric_key` is read nowhere and promotion checks no key. The Runs list heads its column with the first run's label, so 0.75 Text MRR can sit under "Overall", and Discord can announce it as "a new team best". The run page compares like keys only. Expected: only like keys compared, or withheld runs ranked apart or not publishable.
+- **Reproduce:** Run Week 3 once with weights and once without, promote and publish the withheld run, then read Runs, the board and the bubble.
+- **Why (from the code):** `apps/portal/worker/services/leaderboard.ts:78`, `:108-112`; `apps/portal/worker/db/schema.ts:268`; `apps/runner-modal/src/cogworks_runner/modal_app.py:2051`; week3 `plugins.py:516-525` at `94c7e64f`; `apps/portal/src/components/RunList.tsx:38-40`, `:61`, `:138`; `apps/portal/worker/services/run-surfaces.ts:198-228`; contrast `apps/portal/src/routes/RunDetailPage.tsx:459-462`.
+- **Severity:** `medium`. A public order that compares two measures.
+- **Decision needed:** `product call`.
+- **Raised by:** [`portal/the-leaderboard.md`](portal/the-leaderboard.md#open-questions-and-verification), [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification), [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Board and bubble same on beta; beta's run list has no column heading. The release owner is investigating which measure each board ranks by; nothing has changed in source yet.
+- **Status, local `17d26d9` (2026-10-02):** the product call is made in source. Publication, the board and team best use the catalog's `primary_metric_key`, and a run without it cannot be published (`run-eligibility.ts:154-168` at `17d26d9`). On the local fixture build, an official run with only its `overall` row removed showed the refusal sentence in place of Publish. The API answered `409 not_selectable` and a signed-out board omitted the team ([checkpoint](verification/checkpoint-17d26d9.md)). The lead reports the stored selection was unchanged; the saved result does not record that. The partial result was synthetic. Not observed: the Runs list heading, Discord's team best, and a benchmark-produced withheld run.
+
+### B-51: Team pages call a result public while the leaderboard hides it, and its attempts stay spent
+
+- **Where the user meets it:** A team that published Recognition v2 before migration 0044, or any published run with no primary metric.
+- **What happens / what was expected:** The run page says "This result is your team's public entry. See it on the leaderboard." and the Runs page lists it under "On the leaderboard", but the board drops selections from an older scorer version and runs with no primary. Migration 0044 changed the scorer inside version 2, and attempts used under the old scorer still count, so a team at three cannot get back on. Expected: the team's pages use the board's predicate, and a scorer change is a new version or returns attempts.
+- **Reproduce:** The setup in `leaderboard-scorer-version.test.ts`, then open the selected run's page.
+- **Why (from the code):** `apps/portal/worker/http/serializers.ts:229`; `apps/portal/worker/routes/dashboard.ts:110`; `apps/portal/worker/services/leaderboard.ts:58`, `:79`; `apps/portal/migrations/0044_week2_recognition_v2.sql:20-22`; `apps/portal/worker/services/run-accounting.ts:19-26`.
+- **Severity:** `medium`. The team is told a result is public that nobody can see, and cannot replace it.
+- **Decision needed:** `fix`.
+- **Raised by:** [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification), [`portal/the-leaderboard.md`](portal/the-leaderboard.md#open-questions-and-verification), [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Beta's server is identical; its pages were not checked.
+
+### B-52: A board resolves `?benchmark=` to the highest version even when it is inactive
+
+- **Where the user meets it:** Staff stage a new benchmark version inactive before opening it, which the new-version rule invites.
+- **What happens / what was expected:** The service filters by id only and takes the highest version, so the board shows the empty inactive version with the footer "id / vN+1" and hides every published result on the active one. The page picks the active row but sends only the id. Expected: the active version's board.
+- **Reproduce:** Insert vision-recognition v3 with `active=0` while v2 is active with selections; open Vision, Recognition.
+- **Why (from the code):** `apps/portal/worker/services/leaderboard.ts:33-39`; `apps/portal/src/routes/LeaderboardPage.tsx:78-84`.
+- **Severity:** `medium`. Staging a version empties a public board.
 - **Decision needed:** `fix`.
 - **Raised by:** [`portal/the-leaderboard.md`](portal/the-leaderboard.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-53: The admin page says "No hosted runs yet" for a team whose every run failed
+
+- **Where the user meets it:** A TA scanning `/admin`.
+- **What happens / what was expected:** The label sums practice and official usage, which count completed runs only. A team stuck on repeated failures, the team most worth opening, reads as never having run and sorts with idle teams. Expected: the label counts executions, or says none completed.
+- **Reproduce:** A team with only failed hosted runs; open `/admin`.
+- **Why (from the code):** `apps/portal/src/routes/AdminPage.tsx:108-110`, `:432`, `:474-478`; `apps/portal/worker/services/run-accounting.ts:60-69`.
+- **Severity:** `medium`. It hides the teams that need help.
+- **Decision needed:** `fix`.
+- **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta (beta `AdminPage.tsx:107`).
+
+### B-54: A refused concurrent hosted start leaves a run-less console record that breaks `/cog` home and the Activity for the team
+
+- **Where the user meets it:** Two teammates start the same benchmark close together; afterwards `/cog` and the Activity stop working for the whole team.
+- **What happens / what was expected:** The start inserts the console record (the run surface) before the run, and the refusal throws without removing it. `/cog` picks that newest record, building its snapshot throws "Run surface has no run.", and the student reads "I couldn't reach Cog\*Portal just now." The Activity loads ten records with `Promise.all` and fails to open for everyone until ten newer ones exist. Expected: a refused start leaves no record.
+- **Reproduce:** Two browsers press Start on the same benchmark within the window; then run `/cog`.
+- **Why (from the code):** `apps/portal/worker/services/run-actions.ts:256` against `:300-302`, `:312-329`, `:369-375`; `apps/portal/worker/services/run-surfaces.ts:300`; `apps/portal/worker/rpc.ts:75-86`; `apps/portal/worker/routes/activity.ts:248-258`.
+- **Severity:** `medium`. One ordinary race takes Discord down for a team.
+- **Decision needed:** `fix`.
+- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification), [`discord/the-activity.md`](discord/the-activity.md#open-questions-and-verification)
+- **Status:** open; read from code only at `2ff32fa`. A focused test would settle it. Same on beta.
+
+### B-55: A channel the bot can no longer write is retried every two seconds forever
+
+- **Where the user meets it:** Course staff remove the bot's Send Messages permission or delete a team channel.
+- **What happens / what was expected:** Any later publication to that channel gets a 403, or a 404 on the repost. Only a 404 is handled; the alarm re-arms at 2 s with no cap and no status check, even for a settled run, and every failure counts against the bot token all teams share. Expected: an unwritable channel stops being retried and is reported.
+- **Reproduce:** Remove the bot's permission in a bound channel, promote a run there, and watch the worker log for `run_surface_tick_failed`.
+- **Why (from the code):** `apps/portal/worker/realtime/run-surface-hub.ts:163-176`; `apps/portal/worker/services/discord-messages.ts:278`, `:292-297`.
+- **Severity:** `medium`. One team's channel change spends the shared rate limit indefinitely.
+- **Decision needed:** `fix`.
+- **Raised by:** [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification)
+- **Status:** open. The 403 delivery loop is confirmed as preexisting in the reliability work. It is a separate, finite repair from B-13: stop retrying a surface whose channel answers 403 or 404 and record why, without a new retry framework.
+
+### B-56: The Discord leaderboard shows one arbitrary board and never marks the student's team
+
+- **Where the user meets it:** `/cog view:leaderboard`.
+- **What happens / what was expected:** The bot asks for the leaderboard with no benchmark, so the portal picks the active row with the highest version across all ids. A Week 2 student sees Recognition or Clustering, and ties are unordered. The bot bolds the student's rows, but no team id is passed, so nothing is bolded. Expected: the student's benchmark, with their team marked.
+- **Reproduce:** Two active benchmarks with results; run `/cog view:leaderboard`.
+- **Why (from the code):** `apps/portal/worker/services/leaderboard.ts:40-45`, `:105`; `apps/portal/worker/rpc.ts:32-35`; `apps/discord-bot/src/commands.ts:324-327`.
+- **Severity:** `medium`. The view answers a question the student did not ask.
+- **Decision needed:** `fix`.
+- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-57: The bind prompt says only shared local runs will post; every hosted run posts
+
+- **Where the user meets it:** A maintainer binds a team channel.
+- **What happens / what was expected:** The prompt says "Cog will post one live bubble per explicitly shared local run here". After binding, any teammate's practice run started from the dashboard, and every promotion and publication, posts or edits a bubble there, with no `--live` involved and nothing on the dashboard saying so. Expected: the prompt describes what will post.
+- **Reproduce:** Bind a channel, start a practice run from the dashboard, and watch the channel.
+- **Why (from the code):** `apps/discord-bot/src/commands.ts:433` against `apps/portal/worker/services/run-actions.ts:315-329`, `:382` and `apps/portal/worker/routes/runs.ts:27`.
+- **Severity:** `medium`. A consent sentence narrower than the behavior.
+- **Decision needed:** `product call`. Fix the prompt, or post hosted runs only when a team opts in.
+- **Raised by:** [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-58: A signed-out browser loses the run a Discord or Activity link pointed at
+
+- **Where the user meets it:** A student presses the portal link on a bubble, "Open Cog\*Portal" on `/cog`, or "See why it failed" in the Activity, and the system browser is signed out.
+- **What happens / what was expected:** The stage gate sends them to `/signin` and remembers only `/connections` paths, so after sign-in they land on their next-stage page instead of `/run-surfaces/<id>` or `/runs/<id>`. Expected: return to the linked run.
+- **Reproduce:** Sign out, press a bubble's portal link, sign in.
+- **Why (from the code):** `apps/portal/src/App.tsx:68-72`; `apps/portal/src/lib/pending-return.ts:3-7`; `apps/portal/src/routes/SignInPage.tsx:79`, `:108`; links at `apps/discord-bot/src/commands.ts:168`, `:605`, `apps/portal/worker/services/discord-messages.ts:249`, `apps/portal/src/activity-main.tsx:309-315`.
+- **Severity:** `medium`. Every Discord link to a run is lost on first use from a fresh browser.
+- **Decision needed:** `fix`.
+- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification), [`discord/the-activity.md`](discord/the-activity.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Beta's `App.tsx` and `pending-return.ts` are identical.
+
+### B-59: A `run --live` report names weights it never uploads, failing the next hosted run at that commit
+
+- **Where the user meets it:** A Week 3 team runs `cogworks run --live`, then starts a hosted run at the same commit without syncing, or after an earlier sync.
+- **What happens / what was expected:** The completed live report is stored with its weight receipts, and the newest report at a commit wins at dispatch. The hosted run fails before starting with "Required weight {path} has not been uploaded; sync the report again." No quota is used. Expected: live uploads the weights, or dispatch ignores receipts nothing uploaded, or the live run says to sync.
+- **Reproduce:** Verification item RUN-14.
+- **Why (from the code):** `apps/portal/worker/routes/local-runs.ts:116`; `apps/portal/worker/services/local-reports.ts:319-345`; `apps/portal/worker/services/weights.ts:362-370`; `apps/portal/worker/services/run-actions.ts:205-216`.
+- **Severity:** `medium`. A live run silently undoes an earlier sync.
+- **Decision needed:** `product call`. Choose which of the three behaviors is the contract.
+- **Raised by:** [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-60: A prepare killed for time or memory is reported as a dependency install failure
+
+- **Where the user meets it:** The failure card after Install.
+- **What happens / what was expected:** Prepare has no elapsed-time check, and anything unrecognized becomes `dependency_install`, so a prepare stopped at its 900 s budget or out of memory reads E-INSTALL "Dependency installation failed", with a reproduce command naming a `constraints.txt` no 2026 repository has. Discovery runs inside prepare for every 2026 repository (Install took 88 s on beta for one vision repository), so a slow search or heavy import is the likely route. Expected: the time or memory explanation the evaluate lanes give.
+- **Reproduce:** A repository with no root file whose `setup.py` or a module import sleeps past 900 s. Whether Modal reports this as a return code or an exception is unrecorded.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:1558-1584`, `:2021`; `packages/contracts/src/failures.ts:31-39`.
+- **Severity:** `medium`. The student is sent to fix dependencies that are fine.
+- **Decision needed:** `fix`.
+- **Raised by:** [`sandbox/prepare.md`](sandbox/prepare.md#open-questions-and-verification), [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-61: A refusal's notes reach the browser and are never drawn
+
+- **Where the user meets it:** The run page of a refused hosted run.
+- **What happens / what was expected:** The sandbox forwards the verdict's notes (what the search learned that the headline does not say), the worker stores them, the API serves them, and the card declares the field and renders nothing. `cogworks check` prints them. Expected: the card shows them; this is the computed-then-dropped failure the working brief warns about.
+- **Reproduce:** A not_wired repository whose `cogworks check` prints notes; compare with its hosted run page.
+- **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:1073-1077`; `packages/contracts/src/protocol.ts:139`; `apps/portal/worker/http/serializers.ts:248-256`; `apps/portal/src/components/RefusalCard.tsx:25`; `python/cogbench/src/cogbench/report.py:347-348`.
+- **Severity:** `medium`. The explanation exists and the student never sees it.
+- **Decision needed:** `fix`.
+- **Raised by:** [`cross-cutting/refusals-and-disclosure.md`](cross-cutting/refusals-and-disclosure.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-62: The E-OUTPUT card promises checks that do not run
+
+- **Where the user meets it:** Any hosted run refused for invalid output.
+- **What happens / what was expected:** The next step says "Validate your output locally with the schema check" and offers `cogworks test`; no schema check exists, and `cogworks test` scores the small cases. The explanation says extra fields and out-of-range values are rejected; the check ignores extra fields and checks no range. The vision override names out-of-range boxes, which Week 2 does not have, and the language override names checks the controller does not make. The detail sentence beside the card is exact. Expected: copy that describes the checks that run.
+- **Reproduce:** Return a NaN or a short list from a v2 adapter and read the card.
+- **Why (from the code):** `packages/contracts/src/failures.ts:119-126`, `:187`, `:210`; `apps/runner-modal/src/cogworks_runner/prediction_validation.py:194-271`, `:349-433`.
+- **Severity:** `medium`. It sends the student to a tool that does not exist.
+- **Decision needed:** `fix`.
+- **Raised by:** [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-64: Discord and the console put a student's login beside a score
+
+- **Where the user meets it:** `/cog` local notes, the team channel's run bubble, `/run-surfaces/{id}` and the Activity.
+- **What happens / what was expected:** Discord's local view leads each line with the author's login in bold before that report's score, and the bubble and console name the actor beside the primary metric. The Runs page dropped its author column because "a name beside a score reads as that student's grade", and the working brief forbids per-person numbers in any form. Expected: one answer across surfaces.
+- **Reproduce:** Sync a local report and open `/cog` local notes.
+- **Why (from the code):** `apps/discord-bot/src/commands.ts:373`; `apps/portal/worker/services/discord-messages.ts:142`; `apps/portal/src/components/RunConsole.tsx:324`, `:329-333`; contrast `apps/portal/src/components/LocalReportsTable.tsx:16`.
+- **Severity:** `medium`. It breaks a stated rule on the surfaces students see most.
+- **Decision needed:** `product call`. Drop the name next to a score, or decide an actor line is not a per-person number and say why.
+- **Raised by:** [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta (beta `RunConsole.tsx:309`).
+
+### B-65: A team creator with only GitHub write access loses settings on first save, which can leave the team with no admin
+
+- **Where the user meets it:** The team page, for a student who created the team from a teammate's fork.
+- **What happens / what was expected:** Creating a team needs only write access but stores the creator as admin, so the page shows every control. The first rename or add returns "Your GitHub permission on the team repository is no longer admin, so team settings are read-only for you." and stores them as write. Adding the fork owner also stores them as write (B-29), and the admin check reads the stored role before GitHub, so nobody can manage the team again. Expected: store the creator's real role, or let the GitHub admin claim it.
+- **Reproduce:** A creates a team from B's public fork where A has write. A adds B from the palette, then renames the team.
+- **Why (from the code):** `apps/portal/worker/routes/github.ts:195-203`; `apps/portal/worker/github/team.ts:73`; `apps/portal/worker/routes/team.ts:145-150`, `:179-188`; `apps/portal/worker/routes/team-membership.ts:261`; `apps/portal/worker/routes/admin.ts:413`.
+- **Severity:** `medium`. A team can lock itself out with two ordinary clicks; an instructor can still act.
+- **Decision needed:** `product call`.
+- **Raised by:** [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-66: The staff roster promises a co-instructor "the same view"; they get an empty TA workspace
+
+- **Where the user meets it:** The owner's Platform staff section, then the added person's `/admin`.
+- **What happens / what was expected:** The empty roster says "Owners already have access; add a GitHub login below to give someone else the same view." A rostered non-owner then sees "TA workspace" and "No teams assigned to you yet." until the owner assigns them to each team, one row at a time. The section's own note says they "see the teams assigned to them". Expected: copy that matches the access.
+- **Reproduce:** As owner, add a login to Platform staff, sign in as it, open `/admin`.
+- **Why (from the code):** `apps/portal/src/routes/AdminPage.tsx:828-829` against `:770` and `:81`; `apps/portal/worker/routes/admin.ts:298-302`.
+- **Severity:** `medium`. An instructor is told a colleague can help and the colleague sees nothing.
+- **Decision needed:** `fix`.
+- **Raised by:** [`portal/admin.md`](portal/admin.md#open-questions-and-verification)
+- **Status:** open. Roster copy visible in local fixture `pairs/b-admin-active-desk.png`; the empty workspace is read from code. Beta has the roster without the "same view" sentence.
+- **Status, local `17d26d9` (2026-10-02):** the roster note reads "Staff see only the teams assigned to them." (`AdminPage.tsx:827-828` at `17d26d9`). On the local fixture build a staff login added there saw the TA workspace with "No teams assigned to you yet.", which the note now predicts ([checkpoint](verification/checkpoint-17d26d9.md)).
+
+### B-68: A clean Language run opens by saying the scorer wrote no finding
+
+- **Where the user meets it:** The first thing on a succeeded run page, in the largest type on the page, whenever the benchmark wrote no diagnostic: "The scorer didn't write a finding for this run. Its readings are below." (`apps/portal/src/routes/RunDetailPage.tsx:494`), or the sweep variant "The scorer didn't write a sentence for this run. Its curve is below, with the readings under it." (`:493`). Both fixture runs in `pairs/b-run-success-desk.png` and `b-run-official-desk.png` open this way.
+- **What happens / what was expected:** The page treats the first benchmark diagnostic as the finding (`RunDetailPage.tsx:464`, `:483`), but no benchmark has a finding field; each writes diagnostics only when something is notable. Week 1 inserts a sentence from its catalog sweep when the sweep yields one (`benchmarks/week1/.../plugins.py:232-240`). Recognition's diagnostics are conditional on what the run got wrong (`benchmarks/week2/.../metrics.py:118-153`); the hosted beta run `run_f93ba19397` led with one. Clustering writes a stability sentence only with seed repeats and a spread at or under 0.02 (`week2/.../plugins.py:280-340`). Language writes one for failures, withheld scores and rewrite gaps (`week3/.../metrics.py:625-640`, `plugins.py:498-570`), so a clean, fully bound Language run opens with the platform describing its own plumbing. The sentence is honest, and the design rule it serves is right; what is missing is a sentence from the benchmark. Expected: every benchmark writes a lead sentence from its own metrics on every scored run, the way Week 1's sweep sentence and Recognition's cutoff sentence do, and the portal keeps its current fallback for a run with no diagnostics.
+- **A related open question, not a confirmed defect:** Week 3 appends `adapter: mapped {alias} -> {role}` to the same list after its metric notes (`plugins.py:500`, `adapters.py:183-188`). On a declared-adapter run with no other diagnostic, that line would become the finding, under the margin note "The benchmark's scorer wrote this sentence from the numbers it measured". No run has shown it; a fixture with an aliased adapter would settle it.
+- **Reproduce:** A hosted Language practice run on a repository whose image side binds and that triggers no rewrite gap. Not yet run on any build.
+- **Severity:** `medium`. It lands on the most common good outcome of the week with the least obvious result, and it replaces the instrument's sentence with an apology.
+- **Decision needed:** `product call` for the benchmark owners: whether a lead sentence is part of the plugin contract. Fix in the benchmark submodules, not in portal copy; that is a new benchmark version under the brief's versioning rule if it changes what a run reports.
+- **Raised by:** the lead's evidence review of the matched pairs; [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification).
+- **Status:** **confirmed** on deployed `ed2b194`. Hosted run `run_d11b5e5e2e` (`SamGu-NRX/Language_Module_Capstone@8789361`, succeeded, Overall 0.4126, 9 cases, 19 metrics) leads with "The scorer didn't write a sentence for this run. Its curve is below, with the readings under it." (`beta-qa/live-language-ed2b194/README.md`, `hosted-result.txt`); its local report's diagnostics are empty too. The lead was the fallback, not adapter text. The producer repair on benchmark pin `94c7e64` is owned by Opus worker `0e3d690b-079f-408d-926b-15a8e70f5d2c`; do not duplicate it. Earlier evidence: read from code at `2ff32fa` and the pinned submodules, and the empty state on local fixture data. The per-benchmark conditions above were checked in a fresh Sol audit. Beta's older page says "The scorer had no notes on this run." below the metrics instead of leading with it (beta `RunDetailPage.tsx:315`), so the redesign is what moved the absence to the top.
 
 ## Low
 
+### B-03: Two gates disagree about which team members Discord serves
+
+- **Where the user meets it:** Nobody, today. Filed because the day a fourth role exists, a member gets "I couldn't reach Cog\*Portal just now." from `home` while the rest of the bot works.
+- **What happens / what was expected:** `getDiscordTeamStatus` accepts any membership row; `getRunSurface` allows only `admin`, `maintain` and `write`. No write path can store any other role. Expected: one predicate for both.
+- **Why (from the code):** `apps/portal/worker/services/discord.ts:154-159` against `apps/portal/worker/services/run-actions.ts:78-79`; the role mapping is `apps/portal/worker/github/permissions.ts:3` and `apps/portal/worker/routes/team.ts:182-184`; the collapse is `apps/discord-bot/src/index.ts:46`.
+- **Severity:** `low`. Unreachable, and nothing fails a build if one side changes.
+- **Decision needed:** `fix`. Share the role predicate.
+- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification), [`foundations/the-team-and-the-repository.md`](foundations/the-team-and-the-repository.md#open-questions-and-verification)
+- **Status:** latent; code read at `2ff32fa`. Same on beta.
+
+### B-09b: Hosted practice confirmations say every run uses quota; only completed runs do
+
+- **Where the user meets it:** Confirming Verify hosted, Rerun or Retry in `/cog`, or a start in the console.
+- **What happens / what was expected:** Verify says "It's practice, and it uses one of this benchmark's hosted practice runs.", rerun says it "uses another", and the console says "This uses one of the team's shared practice runs." A failure uses none. The Retry confirmation says nothing about quota, though a completed retry counts. Expected: the cost stated with its condition.
+- **Why (from the code):** `apps/discord-bot/src/commands.ts:547`, `:553`, `:574`; `apps/portal/src/components/RunConsole.tsx:272`; usage counts completed executions in `apps/portal/worker/services/run-accounting.ts`.
+- **Severity:** `low`. It errs toward caution.
+- **Decision needed:** `fix`.
+- **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
+- **Status:** narrowed; code read at `2ff32fa`. Retitled because `99281c5` removed "free"; the copy now overstates the cost instead. Same on beta.
+
+### B-12: `/cog view:connect` for an already-linked student is a dead end
+
+- **Where the user meets it:** A student who has already linked Discord picks "Connect account" from `/cog`.
+- **What happens / what was expected:** The already-linked branch returns the home view without the portal origin, so it drops "Open Cog\*Portal" and the menu's portal link. Confirming a link now requires a team, so the old "Refresh"-only card that names a portal action needs a student who linked and then lost their team. Expected: the link is present, as on every other path to the card.
+- **Why (from the code):** `apps/discord-bot/src/commands.ts:239` omits the argument; the no-origin branch is `:105-109`; the team requirement is `apps/portal/worker/routes/connections.ts:59`, `:76`.
+- **Severity:** `low`, down from high. The common case loses a link, not the way forward.
+- **Decision needed:** `fix`. One argument.
+- **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-15: Re-linking a device accumulates live tokens that nothing revokes
+
+- Every completed handshake inserts a device row, and nothing revokes the previous one; each lives sixty days. The list now shows "Last used {date}" or "Linked {date}, not used yet", so the device a terminal holds can be told apart, and revoking asks first.
+- **Why:** `apps/portal/worker/routes/connections.ts:257`; `apps/portal/worker/auth/device.ts:41`; `apps/portal/src/routes/ConnectionsPage.tsx:317-326`.
+- **Severity:** `low`, down from medium. **Decision needed:** `fix`.
+- **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification)
+- **Status:** narrowed; code read at `2ff32fa`. Same on beta.
+
+### B-17: The longest paragraphs in `cogworks check` are not wrapped
+
+- The could-not-look headline is now about 105 characters, but the stall next step still runs past 200, and the new "Could not read:" and "Raised while trying:" blocks are also unwrapped.
+- **Why:** `python/cogbench/src/cogbench/report.py:344-355`; `python/cogbench/src/cogbench/verdict.py:470-474`; `python/cogbench/src/cogbench/resolve.py:3717`.
+- **Severity:** `low`. **Decision needed:** `fix`.
+- **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
+- **Status:** narrowed; rendered locally with synthetic input. Retitled because the headline is no longer one of the long ones. Same on beta.
+
+### B-18: The most ordinary failure verdict has no next step
+
+- The next step is empty when nothing is missing, and the code now calls that deliberate, while `report.py` still promises "the single next thing". The verdict's "Raised while trying:" block gives some lead.
+- **Why:** `python/cogbench/src/cogbench/resolve.py:3717-3729`; `python/cogbench/src/cogbench/report.py:6-8`; `python/cogbench/src/cogbench/verdict.py:327-330`.
+- **Severity:** `low`. **Decision needed:** `product call`. Keep the choice and correct the docstring, or write a next step that says to read the trace.
+- **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+
+### B-30: Churn events record one author while the rest of the process panel credits co-authors
+
+- Stage footprint and ownership read `Co-authored-by:` trailers; the churn event still records one `authorLogin`. The page no longer shows a churn author, so the two never disagree on screen.
+- **Why:** `apps/portal/worker/services/process-signals.ts:422-425`; `apps/portal/worker/routes/team.ts:464`; `apps/portal/src/components/ProcessPanel.tsx:478-499`.
+- **Severity:** `low`, no visible effect. **Decision needed:** `fix`. Carry co-authors or drop the field.
+- **Raised by:** [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification)
+- **Status:** narrowed; code read at `2ff32fa`. Retitled because the visible half is gone. Same on beta.
+
+### B-31: Unreleased benchmarks' titles and summaries are public
+
+- The catalog has no active filter and its route is unauthenticated. Inactive leaderboard tabs now deliberately show archive rows with "isn't calibrated for this cohort yet", so the clickable tab is design. Vision Overall still requests its board with no Vision benchmark active.
+- **Why:** `apps/portal/worker/services/catalog.ts:8-13`; `apps/portal/worker/routes/benchmarks.ts:9-12`; `apps/portal/src/routes/LeaderboardPage.tsx:121-133`, `:213-214`, `:241-283`.
+- **Severity:** `low`. **Decision needed:** `product call`. Whether an unopened week's title and summary should be public.
+- **Raised by:** [`portal/the-leaderboard.md`](portal/the-leaderboard.md#open-questions-and-verification)
+- **Status:** narrowed; code read at `2ff32fa`. Retitled to the remaining question. Same on beta.
+
 ### B-32: The device has two different names
 
-- `cogworks link` prints the machine's hostname; the portal and `cogworks status` show the name the student typed in the browser. Two names for one device, in two places a student compares.
-- **Why:** `python/cogbench/src/cogbench/cli.py:668` against `apps/portal/src/routes/ConnectionsPage.tsx:33`.
+- `cogworks link` prints the hostname; the portal and `cogworks status` show the name typed in the browser, which defaults to "CogWorks CLI" on every machine. The approval form now hints "So you can tell your machines apart in the list below."
+- **Why:** `python/cogbench/src/cogbench/cli.py:1271` against `apps/portal/src/routes/ConnectionsPage.tsx:46`, `:204`.
 - **Severity:** `low`. **Decision needed:** `fix`.
 - **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`terminal/status.md`](terminal/status.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
-### B-33: `--json` output is interleaved with a plain-text line
+### B-33: `--json` output is followed by a plain-text line
 
-- `check --json --update-setup` and `run --json --update-setup` print "setup: updated ..." to stdout after the JSON document, so the stream is no longer parseable. Every other status line in the CLI goes to stderr.
-- **Why:** `python/cogbench/src/cogbench/cli.py:158`.
-- **Severity:** `low`, because the combination is unusual. **Decision needed:** `fix`. Send it to stderr like everything else.
+- `check`, `run` and `test` with `--json --update-setup` print "setup: updated ..." to stdout after the JSON document. Every other status line goes to stderr.
+- **Why:** `python/cogbench/src/cogbench/cli.py:211`.
+- **Severity:** `low`. **Decision needed:** `fix`. Send it to stderr.
 - **Raised by:** [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
-### B-34: A malformed response gives a traceback instead of a sentence
+### B-34: A malformed response or file gives a traceback instead of a sentence
 
-- `cogworks status` reads the seven values by subscript, and `cogworks report` reads a report the same way. `KeyError` is not in the command's caught exception list, so a response or a file missing a field produces a Python stack trace. `subprocess.TimeoutExpired` from the weight-sync git check is outside it too.
-- **Why:** the caught tuple at `python/cogbench/src/cogbench/cli.py:720` covers `ContractError`, `PluginError`, `PortalError`, `OSError`, and `ValueError`.
-- **Severity:** `low`. It needs a misbehaving portal or a hand-edited file. **Decision needed:** `fix`. Add `KeyError` and `subprocess.SubprocessError` to the tuple.
+- `cogworks status` and `cogworks report` read fields by subscript, and `KeyError` is not in the caught tuple. `cogworks report` on a file holding `{}` prints `KeyError: 'reportId'` and exits 1. The sync half is gone because sync no longer calls git.
+- **Why:** `python/cogbench/src/cogbench/cli.py:1344-1353`, `:1361`; `python/cogbench/src/cogbench/models.py:303`.
+- **Severity:** `low`. **Decision needed:** `fix`. Add `KeyError` to the tuple.
 - **Raised by:** [`terminal/status.md`](terminal/status.md#open-questions-and-verification), [`terminal/report.md`](terminal/report.md#open-questions-and-verification), [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification)
+- **Status:** open; reproduced locally from the candidate tree. Same on beta.
 
-### B-35: The official-attempt limit is hardcoded in five places
+### B-35: The official-attempt limit is still hardcoded in the Discord bot
 
-- The authority is `OFFICIAL_LIMIT` in `packages/contracts/src/schema.ts:1177`. The admin page writes `/10` and `/3` literally (`apps/portal/src/routes/AdminPage.tsx:437`), the Discord bot writes "of 3" three times (`apps/discord-bot/src/commands.ts:185`, `:521`, `:524`), and the run console writes it once (`apps/portal/src/components/RunConsole.tsx:208`). The dashboard and run page read the real value, so changing the limit produces copy that disagrees with itself across surfaces. `packages/contracts/src/failures.ts` does the same with the fifteen-minute timeout.
-- **Severity:** `low` today, because the limits have not changed. **Decision needed:** `fix`.
+- The portal now reads `OFFICIAL_LIMIT` everywhere and the admin page prints no denominator. The bot still writes 3 four times, and `failures.ts` still writes "15-minute".
+- **Why:** `apps/discord-bot/src/commands.ts:189`, `:190`, `:560`, `:563`; `packages/contracts/src/failures.ts:101`.
+- **Severity:** `low`. **Decision needed:** `fix`.
 - **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification), [`portal/admin.md`](portal/admin.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
-
-### B-36: Four user-facing strings use em dashes, which the voice guide bans
-
-- `docs/design/voice.md` bans em dashes in portal copy outright, and calls the dash-as-beat the most recognizable AI-slop tell. Four strings use one anyway:
-  - `"Confirm — history stays with the team"` (`apps/portal/src/routes/TeamPage.tsx:404`). The style guide gives this exact string as its own worked example, with the corrected form `"Confirm, history stays with the team"`. The code has the version the guide rejects.
-  - `"Confirm — uses attempt N of 3"` (`apps/portal/src/routes/RunDetailPage.tsx`), while the dashboard's equivalent uses a comma.
-  - `"No CogPortal account with that GitHub login yet — they need to sign in once first."` (`apps/portal/worker/routes/team-membership.ts:226`).
-  - `"I couldn't make a connection link just now. Nothing changed—try again in a moment."` and the same construction in the bot's generic error (`apps/discord-bot/src/commands.ts:236`, `apps/discord-bot/src/index.ts:46`).
-- **Severity:** `low`. **Decision needed:** `fix`. Four commas.
-- **Raised by:** [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification), [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
+- **Status:** narrowed; code read at `2ff32fa`. Beta's console also hardcodes it (beta `RunConsole.tsx:271`).
 
 ### B-37: `cancelled` is a status nothing can ever produce
 
-- It is in the database enum, the contract enum, the terminal-status set, the surface projection, and the run console's status chip. No code path writes it and there is no cancel endpoint. A student looking for a way to stop a run finds none, and the phase rail can never reach that state.
-- **Why:** `apps/portal/worker/db/schema.ts:294` declares it; nothing sets it.
-- **Severity:** `low`. **Decision needed:** `product call`. Either add cancellation, which several surfaces are already drawn for, or remove the status so the code stops implying a feature that does not exist.
+- No code writes it and there is no cancel endpoint, yet the redesign added copy for it ("Cancelled {ago}."). The rail draws it as pending and the console as stopped.
+- **Why:** `packages/contracts/src/schema.ts:35`, `:40`; `apps/portal/worker/db/schema.ts:328`; readers at `apps/portal/src/routes/DashboardPage.tsx:457`, `apps/portal/src/components/RunConsole.tsx:80`, `:87`, `:96`, `apps/portal/worker/services/discord-messages.ts:213`, `packages/discord-kit/src/rails.ts:25`.
+- **Severity:** `low`. **Decision needed:** `product call`. Add cancellation, or remove the status.
 - **Raised by:** [`foundations/the-run.md`](foundations/the-run.md#open-questions-and-verification), [`portal/watching-a-run.md`](portal/watching-a-run.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-38: Four dead code paths and one tautological test
 
-- `open_portal` has a button label but never appears in the priority list that could select it (`apps/discord-bot/src/commands.ts:159`).
-- `open_console` inside `executeCommand` returns "That run action is not available." for a button the product itself generates; only a pre-intercept in `index.ts:104` saves it, so the two files must stay in sync and the fallback is wrong rather than merely unreachable.
-- `unlinkDiscord` is implemented end to end and invoked by nothing in the bot, so a student who linked from Discord cannot unlink from Discord.
-- `GITHUB_TEAM_VIDEO` is a `null` constant with a TODO, making the walkthrough video component permanently dead (`apps/portal/src/routes/ConnectPage.tsx:32`).
-- `apps/discord-bot/test/refusal-message.test.ts:16` asserts `headline.slice(0, 300).length <= 300` on a string literal defined in the test itself. It is true of every string, imports nothing from the product, and leaves the real 300-character cap untested.
+- `open_portal` has a button label but no place in the priority list (`apps/discord-bot/src/commands.ts:163`).
+- `open_console` inside `executeCommand` returns "That run action is not available." for a button the product generates; only the pre-intercept in `apps/discord-bot/src/index.ts:104` saves it (`commands.ts:537`).
+- `unlinkDiscord` has no caller in the bot (`apps/portal/worker/rpc.ts:57`).
+- New: `home`'s priority list holds `run_again` and `rerun_hosted` behind `open_console`, which every surface carries, so neither is chosen (`apps/portal/worker/services/run-surfaces.ts:346`).
+- `apps/discord-bot/test/refusal-message.test.ts:16` is still true of every string, and the real test (`apps/portal/test/run-surfaces.test.ts:428`) does not pin the 300-character cut, which can stop mid-word (`apps/portal/worker/services/discord-messages.ts:233`).
+- `GITHUB_TEAM_VIDEO` was removed in `faa3fc3`. Fixed.
 - **Severity:** `low`. **Decision needed:** `fix`.
 - **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification), [`portal/connect-a-repository.md`](portal/connect-a-repository.md#open-questions-and-verification), [`cross-cutting/refusals-and-disclosure.md`](cross-cutting/refusals-and-disclosure.md#open-questions-and-verification)
-
-### B-39: Revoking a device and unlinking Discord have no confirmation
-
-- Both fire on one click (`apps/portal/src/routes/ConnectionsPage.tsx:225`, `:259`), while removing a teammate arms and asks. The irreversible actions have the weaker guard, and the reversible one has the stronger.
-- **Severity:** `low`, since re-linking is cheap. **Decision needed:** `fix`, for consistency with the confirm pattern used everywhere else.
-- **Raised by:** [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification)
-
-### B-40: The rail marks every stage done as soon as a result is published
-
-- The lifecycle rail treats `published` as making all four stages complete, regardless of the snapshot's actual stage, so a surface published while its stage is still local or hosted claims the official stage finished. The module's stated purpose is showing observed provenance.
-- **Why:** `packages/discord-kit/src/rails.ts:22`.
-- **Severity:** `low`. Whether the state is reachable was not established. **Decision needed:** `fix`.
-- **Raised by:** [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
 
 ### B-41: Small copy and consistency slips
 
-Grouped because each is one string or one line, and none is worth a separate decision.
+Grouped because each is one string or one line.
 
-- `"Failed."` on its own is the shortest error in the product (`apps/portal/src/routes/TeamPage.tsx:327`). It names neither what failed nor what to do, which `docs/design/voice.md` requires of an error. `"Update failed."` and `"Changing the repository failed."` are nearly as bare.
-- The connections page labels its device list `COGBENCH DEVICES` (`apps/portal/src/routes/ConnectionsPage.tsx:241`) while every other string in the product says CogWorks CLI. The panel above it says `COGWORKS DEVICE`.
-- `RequireStaff` redirects a non-staff visitor silently to `/` (`apps/portal/src/App.tsx:83`) while the matching worker gate answers "Staff access required." A student following a link pasted by a TA cannot tell forbidden from broken.
-- "Enter demo mode" navigates to `/dashboard` directly instead of the computed next stage (`apps/portal/src/routes/SignInPage.tsx:138`), so a demo account with no cohort is immediately bounced. Development only.
-- The setup guide's entry mode falls back to whether the reader is the team admin when the router state is absent (`apps/portal/src/routes/SetupPage.tsx:46`), so a reload can address a student as though they created a team they joined.
-- The setup guide's "Link this machine" step is deliberately unnumbered, so the visible step numbers skip a step while the field-notes rail shows a marker for it. Intentional, and it reads as a gap.
-- The dashboard silently degrades its branch dropdown to the default branch alone when the repository list fails or is still loading, and never surfaces that error (`apps/portal/src/routes/DashboardPage.tsx:63`).
-- The 900 ms redirect after approving a device is never cleared (`apps/portal/src/routes/ConnectionsPage.tsx:159`), so it can fire after the component unmounts.
-- `App.tsx` writes to `sessionStorage` during render rather than in an effect (`:61`, `:67`), and `DroppedLinkNotice` removes its key inside a lazy state initializer, so React's development double-invocation can swallow the notice.
-- The Discord activity persists the literal display name `"Discord user"` (`apps/portal/worker/routes/activity.ts:171`), discarding the username it already fetched, while the bot path stores a real identity string.
-- The activity authorizes with `prompt: "none"`, so a student who has never authorized the application gets a rejection that lands in the generic error card with no prompt and no retry.
-- The connect card promises the link "expires in 10 minutes", which matches the state cookie but not the one-hour activity session.
-- The entry-point command declares DM and user-install contexts that the handler then refuses, so a user-installed launch is always a dead end.
+- `"Failed."`, `"Update failed."` and `"Changing the repository failed."`: fixed in `676e626`; each now gives a next step (`apps/portal/src/routes/TeamPage.tsx:228`, `:309`, `:449`, `:556`). Beta still says "Failed." (beta `TeamPage.tsx:339`).
+- `COGBENCH DEVICES`: fixed in `99281c5` and `5194c82`; the section is now "CogWorks tool".
+- `RequireStaff` still redirects a non-staff visitor to `/` silently while the worker answers "Staff access required." (`apps/portal/src/App.tsx:95-96`, `apps/portal/worker/auth/roles.ts:91`).
+- "Enter demo mode" is now "Open the demo team" and goes to the computed stage: fixed in `634918f`. Beta still navigates to `/dashboard` (beta `SignInPage.tsx:191`).
+- The setup guide's admin-flag fallback: fixed; arrival reads router state once and clears it (`apps/portal/src/routes/SetupPage.tsx:57-68`).
+- The unnumbered "Link this machine" step: fixed; linking is step 4, and the unnumbered item is the conda precondition, which says why.
+- The dashboard's silent branch fallback: fixed in `bf1c57d` (`apps/portal/src/routes/DashboardPage.tsx:657-662`).
+- The 900 ms redirect after approving a device is still never cleared (`apps/portal/src/routes/ConnectionsPage.tsx:182`).
+- `App.tsx` still writes `sessionStorage` during render (`apps/portal/src/App.tsx:69-77`). The claim that StrictMode swallows the notice is disproved for React 19.2.7.
+- The Activity still stores the display name "Discord user", and it is now visible: the consent panel reads "Connect Discord user to Cog?" (`apps/portal/worker/routes/activity.ts:227`, `apps/portal/src/routes/ConnectionsPage.tsx:89`).
+- The Activity still authorizes with `prompt: "none"` (`apps/portal/src/activity-main.tsx:226`).
+- The "expires in 10 minutes" card is accurate for the link token; withdrawn. The one-hour session consequence is in B-69.
+- The entry-point command still declares DM and user-install contexts the handler refuses (`apps/discord-bot/scripts/command-payloads.mjs:28-29`).
 - **Severity:** `low`. **Decision needed:** `fix`.
-- **Raised by:** most documents in the set.
+- **Raised by:** most documents in the set, among them [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification), [`portal/setup.md`](portal/setup.md#open-questions-and-verification), [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`discord/the-activity.md`](discord/the-activity.md#open-questions-and-verification)
+- **Status:** narrowed; code read at `2ff32fa` bullet by bullet.
+
+### B-63: The setup page calls a CLI report from the student's machine "Verified"
+
+- **Where the user meets it:** The setup checklist and its completion panel.
+- **What happens / what was expected:** "Verified" (a filled green mark, "seen by the portal", and "Everything the portal can verify checks out. Your terminal found the repository and called your code.") means `cogworks check` on a linked device reported the step. The glossary and the working brief say anything on a student's machine is never called verified. Expected: one definition.
+- **Why (from the code):** `apps/portal/src/components/StepRail.tsx:34-48`; `apps/portal/src/routes/SetupPage.tsx:424-426`, `:456-462`; `apps/portal/worker/routes/setup.ts:110-111`.
+- **Severity:** `low`. The claim is close to true; the word is the problem.
+- **Decision needed:** `product call`. Narrow the definition to "observed by the portal, including reports from the CLI's own checks", or rename the tick.
+- **Raised by:** [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta (beta `StepRail.tsx:27-35`).
+
+### B-67: An official attempt does not say which synced weights it scored with
+
+- **Where the user meets it:** A Week 3 official attempt promoted from a practice run that fetched synced weights.
+- **What happens / what was expected:** The practice page says "{paths} from your local run at {sha}". The official job reuses that prepared environment, weights included, but carries no weight list, and the runner reports supplied weights only when it prepared the run itself, so the official page shows nothing. Expected: the run that can reach the leaderboard names the weights it scored with, for example copied from its parent.
+- **Reproduce:** Sync weights, run practice at that commit, promote, compare the two pages.
+- **Why (from the code):** `apps/portal/worker/execution/runner.ts:169`; `apps/runner-modal/src/cogworks_runner/modal_app.py:2222`, `:2295-2296`; `apps/portal/worker/routes/runner-events.ts:219-222`; `apps/portal/worker/db/schema.ts:393`; `apps/portal/src/routes/RunDetailPage.tsx:177-181`; the prepared record holds the weights at `prepared_environment.py:233-234`.
+- **Severity:** `low`. The score is right; the page omits a disclosure.
+- **Decision needed:** `fix`.
+- **Raised by:** [`sandbox/prepare.md`](sandbox/prepare.md#open-questions-and-verification), [`cross-cutting/what-the-benchmark-supplied.md`](cross-cutting/what-the-benchmark-supplied.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Same on beta.
+- **Status, re-read 2026-10-02:** by source, the claim above is wrong for a directly promoted attempt, and a Retry of a failed official attempt still drops the weights record. Neither has been observed. The reasoning above misses that promotion copies the practice run's row, `weightsSuppliedJson` included, into the official run (`apps/portal/worker/services/run-actions.ts:430`). A completed event without `weightsSupplied` leaves it as it is (`runner-events.ts:220-222`), so the official page should show the practice run's line. The defect narrows to Retry. A Retry successor is written field by field without `weightsSuppliedJson` (`run-actions.ts:618-642`). An official Retry reuses the prepared artifact, so the runner sends no list either, and a retried official attempt loses the line. Source is the same at `4984730`, `ed2b194` and `17d26d9` (`17d26d9` `run-actions.ts:614-638`). Read from code only. CROSS-15 or PREP-15 settles the direct promotion; the Retry case needs a failed official attempt retried.
+
+### B-69: Small behavior slips in the redesign
+
+- An abandoned device or Discord approval keeps redirecting `/`, the wordmark and `/signin` to the dead approval form for the rest of the tab session, including after "The device code is invalid, expired, or already used." (`apps/portal/src/routes/Landing.tsx:30-31`, `apps/portal/src/routes/SignInPage.tsx:78-80`, `apps/portal/src/lib/pending-return.ts:9-19`; cleared only at `ConnectionsPage.tsx:72`, `:174` and `pending-return.ts:38`).
+- After a failed official attempt, the pages say "Start a new practice run to create the next candidate to promote.", which names the path that counts if it completes and omits Retry, which costs nothing (`apps/portal/worker/services/run-eligibility.ts:115-117`; shown at `RunDetailPage.tsx:621-626`, `DashboardPage.tsx:506`, `:514`; Retry at `run-surfaces.ts:390-396`).
+- The console and Discord offer promotion with no attempts left, then refuse with "The official-attempt quota is exhausted." (`apps/portal/worker/services/run-surfaces.ts:353-358`; `RunConsole.tsx:290-291`; `apps/discord-bot/src/commands.ts:560`; `run-actions.ts:420-422`).
+- An official run's rail marks Prepare and Install done by position and the page says "Every stage finished", though the run starts at the contract check (`apps/portal/src/components/PhaseRail.tsx:40-44`, `RunDetailPage.tsx:263-266`, `modal_app.py:2211-2214`). Fixture data runs every phase (`apps/portal/worker/execution/sync.ts:28`), so it cannot show this.
+- The run page's promote control reads the active version's quota, not the run's; on an older version the server answers "That benchmark version is not active." (`apps/portal/src/routes/RunDetailPage.tsx:64`, `:70`; `apps/portal/worker/routes/dashboard.ts:37-47`; `run-actions.ts:158`, `:411`).
+- An Activity whose socket drops after the one-hour session shows "Reconnecting…" forever, retrying every 8 s against a 401 (`apps/portal/worker/routes/activity.ts:19`, `:128-136`, `:280-281`; `apps/portal/src/lib/run-surface-stream.ts:57-62`).
+- The quiet nudge counts hosted runs only, so a team running `cogworks run --live` daily is told publicly "The last run that scored for this team was N days ago." (`apps/portal/worker/services/team-nudges.ts:67-77`, `:125-135`).
+- A synced weight that fails its size or digest check reads E-DATA "Benchmark data is not ready", with the file named only under Show details (`modal_app.py:1575-1576`, `failures.ts:41-50`, `apps/portal/src/components/FailureCard.tsx:65`, `:70`, `:139-143`). Rare, since admission checks the stored weight (`apps/portal/worker/execution/runner.ts:240-258`).
+- The refusal card's command carries `--update-setup`, which does nothing when the check fails (B-16), and a not_read refusal prints a near-duplicate command above it (`apps/portal/src/components/RefusalCard.tsx:226`, `cli.py:1166`, `modal_app.py:731`).
+- The Discord bubble lists the first four non-primary metrics in stored order with a gauge each, so a floor or a plotted rung can be drawn as a score (`apps/portal/worker/services/discord-messages.ts:164-172`, order from `run-surfaces.ts:176-179`).
+- A crash in the CLI's own search is reported as "{benchmark} could not describe its task just now" (`python/cogbench/src/cogbench/cli.py:346-349`, `report.py:291-297`). Reachable only through a platform defect.
+- **Severity:** `low`. **Decision needed:** `fix`.
+- **Raised by:** [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification), [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification), [`foundations/the-run.md`](foundations/the-run.md#open-questions-and-verification), [`portal/watching-a-run.md`](portal/watching-a-run.md#open-questions-and-verification), [`discord/the-activity.md`](discord/the-activity.md#open-questions-and-verification), [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification), [`sandbox/prepare.md`](sandbox/prepare.md#open-questions-and-verification), [`sandbox/discovery.md`](sandbox/discovery.md#open-questions-and-verification), [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification), [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa`. Not checked on beta bullet by bullet; the server-side bullets are in files byte-identical there.
+
+### B-70: Small copy slips in the redesign
+
+- Server sentences use names the pages dropped: "They can also add you here from Team settings." (no page has that name), "Only the team creator can change team settings." (the page says Admin and allows several), and the admin console's "User not found." where the team page says the person must sign in once first (`apps/portal/worker/routes/team-membership.ts:69`, `:236`; `apps/portal/worker/routes/team.ts:149`; `apps/portal/worker/routes/admin.ts:386`).
+- The console labels its first connection "Reconnecting…" (`apps/portal/src/lib/run-surface-stream.ts:21`, `:40`; `apps/portal/src/components/RunConsole.tsx:93-100`).
+- The console's time column shows an em dash for an event with no elapsed time, which `docs/design/voice.md` bans (`RunConsole.tsx:115`).
+- The run page and the Runs page title one run two ways, "Official attempt 1" against "Official attempt #1" and "on a detached commit" against "on commit {sha}" (`apps/portal/src/routes/RunDetailPage.tsx:296-306` against `apps/portal/src/lib/run-meta.ts:18-30`). Observed in local fixtures `pairs/b-dashboard-desk.png` and `pairs/b-run-official-desk.png`.
+- A revoked GitHub sign-in prints its sentence twice in "Where the work went", the second ending in two full stops (`apps/portal/worker/services/process-signals.ts:125-126`, `:130-132`, `:550-552`; `apps/portal/src/components/ProcessPanel.tsx:237`).
+- A could-not-look check names the unread module three times and prints "(ours)", though the docstring promises once (`python/cogbench/src/cogbench/verdict.py:318-326`, `:463`; `report.py:352`). Rendered locally with synthetic input.
+- A failed local run prints a class name and a doubled full stop: "The run did not finish: PluginError: ... run this again.." (`python/cogbench/src/cogbench/cli.py:1202`, `isolate.py:386`). Observed locally on 2026-10-01.
+- Setup step 4 says sync uploads any weight "that isn't already in your commit"; the CLI uploads every scored weight with no git check (`apps/portal/src/routes/SetupPage.tsx:236-237` against `cli.py:1305-1335`).
+- **Severity:** `low`. **Decision needed:** `fix`.
+- **Raised by:** [`portal/join-or-make-a-team.md`](portal/join-or-make-a-team.md#open-questions-and-verification), [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification), [`portal/admin.md`](portal/admin.md#open-questions-and-verification), [`portal/watching-a-run.md`](portal/watching-a-run.md#open-questions-and-verification), [`cross-cutting/live-updates.md`](cross-cutting/live-updates.md#open-questions-and-verification), [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification), [`terminal/check.md`](terminal/check.md#open-questions-and-verification), [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification)
+- **Status:** open; code read at `2ff32fa` unless noted. Not checked on beta.
+
+## Closed
+
+### B-00: A successful GitHub sign-in leaves the student on the marketing page
+
+Fixed in `d88a8cf`: the callback now returns to `/signin` (`apps/portal/worker/routes/github.ts:76`), which sends the student to a pending connection or the next stage (`apps/portal/src/routes/SignInPage.tsx:78-80`). On beta too. Not observed with real GitHub OAuth. Raised by [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification).
+
+### B-00a: A partial GitHub outage silently shortens the repository list
+
+Fixed in `940c371`: a per-installation failure now throws (`apps/portal/worker/github/client.ts:209-214`) and reaches the 502 "GitHub did not answer the repository listing. Try again shortly." (`apps/portal/worker/routes/github.ts:114-131`), covered by `apps/portal/test/github-connect.test.ts`. On beta too. Not observed against a real multi-installation account. Raised by [`portal/connect-a-repository.md`](portal/connect-a-repository.md#open-questions-and-verification).
+
+### B-01: Week 1 scores student code under a randomized hash seed, and the guard test cannot see it
+
+Fixed in `0a554ba`: `week1_image` pins `PYTHONHASHSEED` (`apps/runner-modal/src/cogworks_runner/modal_app.py:446-455`), and the guard test selects all three images and asserts the seed in each (`apps/runner-modal/tests/test_prepare_rungs.py:207-223`). On beta too. Not observed; no repeated hosted Week 1 run has compared results. Raised by [`sandbox/prepare.md`](sandbox/prepare.md#open-questions-and-verification).
+
+### B-05: `cogworks run --live` checks its preconditions after the ninety-second search
+
+Fixed in `a63530b`: identity, link and repository are checked and the session opens before the project is copied and searched (`python/cogbench/src/cogbench/cli.py:1051-1060`, `:1175-1181`). On beta too. Not observed. Raised by [`terminal/run.md`](terminal/run.md#open-questions-and-verification).
+
+### B-06: Changing the repository rewrites what every earlier run page claims
+
+Fixed in `c6ab0a8`: run summaries and details take the repository from the run row (`apps/portal/worker/http/serializers.ts:114`). `f2e7776` adds a refusal for acting on a run from a repository the team left (`apps/portal/worker/services/run-source.ts:26-30`). On beta too. Not observed with a real repository swap. Raised by [`foundations/the-team-and-the-repository.md`](foundations/the-team-and-the-repository.md#open-questions-and-verification), [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification).
+
+### B-09: The weight upload has a fifteen-second timeout and a two-hundred-megabyte ceiling
+
+Fixed in `70513b1`: the upload streams from a retained copy with a 60 s per-socket timeout, and client and portal both cap at 100 MiB (`python/cogbench/src/cogbench/client.py:158-212`, `packages/contracts/src/protocol.ts:149`); the largest corpus weight is 411 KB. No progress line was added. On beta too. Not observed. Raised by [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification).
+
+### B-09a: The Week 3 withheld sentence is cut off mid-word before the student reads it
+
+Fixed in `8e6c470`: the cap is 600 characters with word-boundary splitting (`apps/runner-modal/src/cogworks_runner/modal_app.py:98`, `:156`; `packages/contracts/src/protocol.ts:174`), and week3 `94c7e64` writes one diagnostic per sentence. The cost is that the finding is now only "overall withheld: ... no image embedding to score." and the sync instruction is the third bullet. On beta too. Not observed on a real withheld run. Raised by [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification).
+
+### B-09c: The admin console counts quota differently from the quota
+
+Fixed in `99281c5`: rows print "{n} practice runs · {n} official attempts" with no denominator (`apps/portal/src/routes/AdminPage.tsx:480-483`), covered by `apps/portal/test/admin-members.test.ts:311`. Local fixtures `pairs/a-admin-desk.png` and `pairs/b-admin-active-desk.png` show the rows; neither shows the two-benchmark case. On beta too. Raised by [`portal/admin.md`](portal/admin.md#open-questions-and-verification).
+
+### B-10: `cogworks check` can exit 0 on a repository `cogworks run` refuses
+
+Fixed in `666f29e`: both commands read one decision, `_scoreable` (`python/cogbench/src/cogbench/cli.py:389-447`), and an installed entry point is reported without counting as readiness, covered by `python/cogbench/tests/test_cli_readiness.py`. On beta too. Not observed. Raised by [`terminal/check.md`](terminal/check.md#open-questions-and-verification).
+
+### B-20: The live run surface is unreachable from the portal and has no way out
+
+Fixed in the candidate. The run page links in with "Open current run" (`b76723a`, `apps/portal/src/routes/RunDetailPage.tsx:104`, `:116-123`); the console links back to Runs in every state and to the run page on failure (`8e223d8`, `apps/portal/src/routes/RunSurfacePage.tsx:43-49`, `apps/portal/src/components/RunConsole.tsx:341-349`), and the Runs tab stays lit (`2fe2178`). Local fixture `pairs/b-run-surface-desk.png` shows the failed state only. Beta has the way in and only the header navigation out. Raised by [`portal/watching-a-run.md`](portal/watching-a-run.md#open-questions-and-verification).
+
+### B-23: Promote is clickable while the quota is still loading
+
+Fixed in `d88a8cf`: the button stays disabled until the quota arrives (`apps/portal/src/routes/RunDetailPage.tsx:655`). The remaining issue, that it reads the active version's quota, is in B-69. On beta too. Not observed. Raised by [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification).
+
+### B-36: Four user-facing strings use em dashes, which the voice guide bans
+
+Fixed in `d88a8cf` and `208b6e0`: all four strings now use commas or two sentences (`apps/portal/src/routes/TeamPage.tsx:563`, `apps/portal/src/routes/RunDetailPage.tsx:647`, `apps/portal/worker/routes/team-membership.ts:236`, `apps/discord-bot/src/commands.ts:240`, `apps/discord-bot/src/index.ts:46`). The console's em dash for a missing elapsed time is in B-70. Beta's console still shows an em dash as the attempt number when none is left (beta `RunConsole.tsx:271`). Not observed. Raised by [`portal/the-team-page.md`](portal/the-team-page.md#open-questions-and-verification), [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification).
+
+### B-39: Revoking a device and unlinking Discord have no confirmation
+
+Fixed in `5194c82`: both are arm-then-confirm buttons, "Confirm, Cog stops seeing your team" and "Confirm, it stops reporting" (`apps/portal/src/routes/ConnectionsPage.tsx:258-264`, `:323-329`). Beta still fires on one press (beta `ConnectionsPage.tsx:228-233`, `:275-280`). Not observed. Raised by [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification).
+
+### B-40: The rail marks every stage done as soon as a result is published
+
+Fixed in `02ed8c3`: each stage is read from its own run, and a stage that never ran is omitted (`packages/discord-kit/src/rails.ts:42-50`). Beta `26aa861` carries the same code. The unreachable `cancelled` divergence is B-37. Not observed. Raised by [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification).
+
+### B-42: A run with no overall score shows none of the evidence it does have
+
+Fixed in `e76a75b`: the results block is gated on success alone, and with no primary the page says "This run has no overall score. Everything the scorer could measure is below." (`apps/portal/src/routes/RunDetailPage.tsx:236-247`, `:575-582`; orphan floors at `MetricBlock.tsx:396-413`). Confirmed at `49f6a98` with an injected record; not observed at `2ff32fa`. At the pinned week3 a withheld run always gets a substitute primary (`plugins.py:574-612`), so this branch needs a benchmark that names none. On beta too. Raised by the Astra lifecycle pass at `49f6a98` (SCORE-01/09) and [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification).
+
+### B-43: The back button restores a previous account's page
+
+Fixed in `9dc76af`, `44c3ca6`, `f66aa7c`, `7f1944e` and `c00eb19`: `RestoreGate` (`apps/portal/src/components/RestoreGate.tsx`) conceals account-bound content when the page is hidden, rereads the session on return, and reloads the document when the login or team differs, covered by `apps/portal/test/restored-document.test.ts`. Confirmed twice at `49f6a98` (`history-before-back.jpg`, `history-repeat.jpg`); not re-observed at `2ff32fa` (SIGNIN-11, IDENTITY-01). The observation never showed old-account server access. On beta too. Raised by [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification), [`portal/join-or-make-a-team.md`](portal/join-or-make-a-team.md#open-questions-and-verification).
+
+### B-24: The refund cap is bypassed when Modal dispatch fails
+
+Superseded by the recovery policy at `a0e8eac` (with `2bb0e92`): every failure uses no quota, and the refund cap and attempt ledger are gone (`apps/portal/worker/services/run-accounting.ts:11-13`, `apps/portal/worker/services/run-actions.ts:211-220`). Nothing to repair. Raised by [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification).
 
 ## What was raised and is not here
 
 Three classes of thing were left out on purpose.
 
-**Unbuilt work.** `RunWorkflow` is a 24-line placeholder that nothing constructs, and the Cloudflare sandbox adapter throws unconditionally. Both are deliberately unfinished and marked as such in the source, so auditing them against a template would produce noise rather than findings.
+**Unbuilt work.** `RunWorkflow` (`apps/portal/worker/orchestration/run-workflow.ts`) is a placeholder that nothing constructs, and the Cloudflare sandbox adapter (`apps/portal/worker/execution/sandbox.ts`) throws unconditionally. Both are deliberately unfinished and marked as such in the source.
 
-**Things the documents could not determine.** They stay in each document's open questions rather than becoming entries here. The largest are whether the `no_team` device-status branch is reachable at all, whether an outside collaborator's dropped co-author trailer would be noticed, and how long the silent retry window in `cogworks status` actually lasts.
+**Things the documents could not determine.** They stay in each document's open questions. Four areas have no runtime evidence on either build: the Discord bot and Activity in a guild, a hosted Language execution, the current CLI against a portal, and instructor mutations such as adding staff, assigning TAs or deactivating a version. Entries in those areas rest on code reads; [`verification/README.md`](verification/README.md) tracks what each pass covered.
 
-**Hardening observations with no user-visible symptom.** The unauthenticated device-start route, the unbounded token poll, the two-row team creation without a transaction, the missing unique index on a cohort join code, response validation being development-only, and the 426 that escapes the error envelope. Each is real and each belongs in a security or reliability review rather than in a list ordered by what a student meets first.
-
-### B-42: A run with no overall score shows none of the evidence it does have
-
-- **Where the user meets it:** A student opens a succeeded run whose benchmark withheld the primary metric. The page shows the pipeline, a Promote button and a log, and nothing else. Every number the scorer did produce, the floors they should be read against, and the diagnostic explaining the withholding are all absent.
-- **What happens / what was expected:** `apps/portal/src/routes/RunDetailPage.tsx:249` gated the whole succeeded-results block on `run.status === "succeeded" && primary`. The finding, the sweep, the wiring trace and every supporting metric sit inside that block. Week 3 withholds `overall` when the image side is unmeasured and still reports the text metrics and their floors, so the one case where a student most needs to see what the scorer managed to do is the case that shows least. Expected: render the available evidence and the explanation, and name the absence rather than inventing a primary or a zero.
-- **Reproduce:** Store a succeeded run with no `is_primary` metric, some supporting metrics and a diagnostic, and open its run page.
-- **Why (from the code):** the parent gate above; the supporting-metric and orphan-floor repairs at `MetricBlock.tsx` were all downstream of it and could never run.
-- **Severity:** `high`. It defeats the supporting-metric work entirely and it fails on the least legible result a student can get.
-- **Decision needed:** `fix`.
-- **Raised by:** Astra lifecycle pass at `49f6a98`, `verification-roles/lifecycle/report.md` (P1, RUNPAGE-02/05, SCORE-01/09), with `withheld-missing-evidence.jpg` and `withheld.dom.txt`.
-- **Status:** *confirmed at `49f6a98` with an injected record; repaired in `e76a75b`.* The gate is now on the run succeeding alone. With no primary the page states "This run has no overall score. Everything the scorer could measure is below." and renders the supporting metrics. Verified locally on the real page with an equivalent injected record: the diagnostic, `text_mrr` 0.789, `text_chance` folded as its parent's floor, the orphan `chance_mrr` standalone, and exactly one direction arrow, on the one scored metric. This was an injected record on both passes, not a real scorer result.
-
-### B-43: The back button restores a previous account's page
-
-- **Where the user meets it:** A student signs out on a shared machine, someone else signs in, and pressing Back shows the first account's name and pages.
-- **What happens / what was expected:** Sign in, navigate, sign out, sign in as a different account, then press Back. The restored document displays the previous account. A reload corrects it, which is the tell that only the cache is stale. Expected: a restored document revalidates who is signed in before it shows anything about them.
-- **Reproduce:** Reproduced twice, in two separate passes, in the same browser: staff sign-in → `/join` → `/admin` → sign out → sign in as an empty account → join → `/connect` → Back.
-- **Why (from the code):** signing out invalidates the cache of the document that signed out (`lib/queries.ts`), but the browser's back/forward cache can return a **different** document holding the old session. `refetchOnWindowFocus` is off (`App.tsx`) and the session is fresh for 60 seconds by a clock that did not run while the page was frozen. There was no `pageshow` hook anywhere in the source.
-- **Severity:** `high`. It is a shared-machine identity display, and the course runs on shared machines.
-- **Decision needed:** `fix`.
-- **Raised by:** Astra role and lifecycle passes at `49f6a98`, `verification-roles/lifecycle/report.md` (P2, SIGNIN-02/JOIN-02), with `history-before-back.jpg`, `history-repeat.jpg`, `history-repeat-refreshed.jpg`.
-- **Status:** *confirmed twice at `49f6a98`; repaired in `f463000`.* A `pageshow` listener now invalidates every session-gated query when `persisted` is true, which is exactly the back/forward-cache restore and nothing else. No second auth store and no polling timer. That listener still painted the old account until the refetch answered, and forever if it failed, and a tab returning from the background was never rechecked at all; the setup page's commands carry tokens signed for that account. `RestoreGate` (`apps/portal/src/components/RestoreGate.tsx`) replaces it: account-bound content is concealed when the page is hidden and stays concealed until a fresh `/api/session` answers, then the same tree is revealed for the same account, and the document is reloaded for a different one, so no request, callback or timer from the old account outlives it. **The observation never demonstrated old-account server access**, and this repair does not claim to have fixed one; it corrects what the restored page displays.
+**Hardening observations with no user-visible symptom.** The unauthenticated device-start route, the unbounded token poll, the two-row team creation without a transaction, the missing unique index on a cohort join code, response validation being development-only, and the 426 that escapes the error envelope. Each belongs in a security or reliability review rather than in a list ordered by what a student meets first.
