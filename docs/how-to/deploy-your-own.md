@@ -179,6 +179,11 @@ Notes on three of them:
 
 ## 7. Apply the migrations
 
+If a portal already serves this database, read "Moving the staff roster" below
+before running anything here. It decides a step that has to happen between
+these migrations and step 10, and the answer can only be read from the portal
+that is serving now.
+
 Review which account you are pointed at, then apply:
 
 ```sh
@@ -189,6 +194,57 @@ pnpm --filter @cogworks/portal exec wrangler d1 migrations apply cogportal-db-pr
 A fresh database takes the whole directory in order. If you are reconciling a
 database that already has rows, do not derive the sequence from filenames;
 `docs/runbooks/platform.md` section 6 explains why and who owns that decision.
+
+### Moving the staff roster
+
+Older Workers read the staff roster from the `PLATFORM_STAFF_LOGINS` secret.
+Current Workers read only the `platform_staff` table, which migration 0031
+creates empty. Which list is in charge depends on the Worker serving the
+database, not on its schema: migrations can run while an old Worker is still
+deployed, and nothing reads the table until a current Worker does. Deploying a
+current Worker over an old one without copying the roster takes the admin
+console away from every instructor who is not an owner or a team's TA.
+
+Decide before applying the migrations. Sign in to the deployed portal as an
+owner and open the admin console. A Worker that reads the table shows a
+"Platform staff" section with Add and Remove; an older one has no such
+section. Check that against your release record, for instance with
+`pnpm exec wrangler deployments list --env production`, for whether a Worker
+with that section has ever served this database. Then:
+
+- **No portal has served this database.** Nothing to copy. Owners add staff
+  in the console after step 10.
+- **The serving Worker has no "Platform staff" section, and none ever has.**
+  The secret is still the roster. Copy it after the migrations and before
+  step 10, as below. This includes an interrupted upgrade, where the
+  migrations already ran (0031 among them) but the old Worker is still the
+  one serving: no deployed Worker could edit the table, so nobody can have
+  been removed from it, and copying loses nothing. A copy that already ran
+  is harmless to repeat, because existing rows are kept.
+- **The serving Worker has the section, or one ever did (a rollback to an
+  older Worker included).** The table is the roster, and owners may have
+  removed people from it on purpose. Do not copy the secret into it; that
+  would bring them back. Add anyone missing in the console by hand.
+
+To copy, take the roster from your own records (Cloudflare cannot read a
+secret back) and run, after the migrations:
+
+```sh
+cd apps/portal
+printf '%s' "alice,bob,carol" |
+  pnpm exec tsx scripts/staff-roster-import.ts --owners "$PLATFORM_OWNER_LOGINS" > staff-import.sql
+pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --file staff-import.sql
+pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --command \
+  "SELECT display_login, granted_by FROM platform_staff ORDER BY login"
+```
+
+The script refuses a malformed login rather than skip it, leaves owners out
+(they are staff from `PLATFORM_OWNER_LOGINS`), and never replaces a row
+already in the table. Copied rows show `import:PLATFORM_STAFF_LOGINS` as who
+granted them. After step 10, delete the old secret so nothing suggests it
+still counts: `pnpm exec wrangler secret delete PLATFORM_STAFF_LOGINS --env production`.
+Decide `cogportal-db` the same way, with the commands above minus
+`--env production`.
 
 ## 8. Rename the seeded cohort
 

@@ -41,6 +41,7 @@ import { ApiHttpError } from "../http/errors";
 import {
   canPublishOfficialRun,
   currentSurfaceRun,
+  failureAllowsRetry,
   fixtureRetryRefusal,
   officialPromotionRefusal,
   rankingRefusal,
@@ -423,7 +424,8 @@ export async function readRunSurfaceSnapshot(
   const retryCapacity = execution?.mode === "official"
     ? occupied < OFFICIAL_LIMIT
     : accounting.practiceUsed + accounting.practiceReserved < PRACTICE_LIMIT;
-  if (execution?.status === "failed" && benchmark.active && !accounting.activeRuns
+  if (execution?.status === "failed" && failureAllowsRetry(execution)
+    && benchmark.active && !accounting.activeRuns
     && retryCapacity && execution.provider === env.EXECUTION_PROVIDER
     && !hostedRefusal
     && execution.repositoryId !== null && execution.repositoryId === team.repoId

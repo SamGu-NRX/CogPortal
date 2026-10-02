@@ -19,6 +19,7 @@ import {
 } from "../worker/services/run-surfaces.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import {
   DashboardSchema,
   RunDetailSchema,
@@ -390,6 +391,51 @@ test("Retry refuses changed provider, repository, configuration, and nonfailed e
   await db.update(runs).set({ repositoryId: FIXTURE_REPO.repositoryId, scorerVersion: "changed" }).where(eq(runs.id, PRACTICE_RUN_ID));
   await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /configuration has changed/);
   assert.equal((await db.select().from(runs)).length, 1);
+});
+
+// Every catalog category, both modes, through the console's actions and
+// through admission itself: a "fix" failure is neither offered nor admitted,
+// and every other category, plus an uncategorized failure, still is.
+const RETRY_CATEGORIES = [...Object.keys(FAILURE_CATALOG), null] as Array<keyof typeof FAILURE_CATALOG | null>;
+for (const mode of ["practice", "official"] as const) {
+  for (const category of RETRY_CATEGORIES) {
+    const allowed = category === null || FAILURE_CATALOG[category].remedy !== "fix";
+    test(`${mode} Retry ${allowed ? "admits" : "refuses"} a ${category ?? "uncategorized"} failure`, async () => {
+      const { db, binding } = freshDb();
+      const actor = await seedPromotion(db);
+      const failedId = mode === "official" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+      await db.update(runs).set({
+        status: "failed", provider: "fixture", finishedAt: NOW + 2_000, failureCategory: category,
+      }).where(eq(runs.id, failedId));
+      const snapshot = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+      assert.equal(snapshot.actions.includes("retry"), allowed);
+      // The failure card already says what to fix; this is not a recorded-input refusal.
+      assert.equal(snapshot.retryRefusal, null);
+      const admission = retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId);
+      if (allowed) {
+        await admission;
+        assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, failedId))).length, 1);
+      } else {
+        await assert.rejects(admission, (error: unknown) =>
+          error instanceof ApiHttpError && error.status === 409 && /Retry isn't available for this failure/.test(error.message));
+        assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, failedId))).length, 0);
+        const [failed] = await db.select().from(runs).where(eq(runs.id, failedId));
+        assert.equal(failed?.status, "failed", "a refused Retry leaves the failure as it was");
+      }
+    });
+  }
+}
+
+test("a Retry admitted before the remedy gate still replays to its successor", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ status: "failed", provider: "fixture", finishedAt: NOW + 2_000 })
+    .where(eq(runs.id, PRACTICE_RUN_ID));
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+  // Categorized "fix" after its successor exists, as a row from before this gate would be.
+  await db.update(runs).set({ failureCategory: "timeout" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+  assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID))).length, 1);
 });
 
 test("Retry revalidates the connected team and refuses unknown repository identity", async () => {
