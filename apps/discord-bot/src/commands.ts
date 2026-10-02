@@ -370,11 +370,12 @@ async function localView(
       : report.sha
         ? chip(report.sha.slice(0, 7))
         : "no commit";
-    // A test and a run score different case sets, so the number is labeled
-    // with the command that produced it, as on the dashboard.
+    // Each line leads with the commit, not the student who ran it: a login
+    // beside a score reads as that student's grade. A test and a run score
+    // different case sets, so the number is labeled with its command, as on
+    // the dashboard.
     return metaLine([
-      `${fmt(report.dirty ? "cog_active" : "cog_done")} **${report.author.login}**`,
-      state,
+      `${fmt(report.dirty ? "cog_active" : "cog_done")} ${state}`,
       report.command ? chip(report.command) : "command not recorded",
       primary ? `**${metricValue(primary)}**` : null,
     ]);
@@ -435,7 +436,7 @@ function bindChannelView(interaction: DiscordInteraction): InteractionResponse {
               "### Make this the team bench?",
               "Cog will post one live bubble per explicitly shared local run here, then edit that same message as the run moves.",
               "",
-              "Everyone who can read this channel can see the author, commit, progress, and self-reported score. Source code and raw outputs stay on the student's device.",
+              "Everyone who can read this channel can see the commit, progress, and self-reported score. Source code and raw outputs stay on the student's device.",
             ].join("\n"),
           ),
           separator(),

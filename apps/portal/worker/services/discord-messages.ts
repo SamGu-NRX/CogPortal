@@ -121,25 +121,25 @@ const STAGE_WORDS: Record<RunSurfaceSnapshot["stage"], string> = {
   published: "published",
 };
 
-/** For the two fields a team's own repository writes: the refusal headline,
- *  built from their function names and returned shapes, and the actor name
- *  from their GitHub profile. `allowed_mentions` on the payload already stops
- *  a mention from pinging and does nothing about a masked link, which would
- *  post into their channel as a link they have reason to trust.
+/** For the refusal headline, which a team's own repository writes from their
+ *  function names and returned shapes. `allowed_mentions` on the payload
+ *  already stops a mention from pinging and does nothing about a masked link,
+ *  which would post into their channel as a link they have reason to trust.
  *
- *  Both are one line by construction, so a line break in either can only have
- *  come from somewhere that should not be writing one; it becomes a space
- *  rather than a new `-#` or `###` line of its own. `<` goes too, because the
- *  sequences Discord reads for a timestamp or a mention all open with it. */
+ *  It is one line by construction, so a line break can only have come from
+ *  somewhere that should not be writing one; it becomes a space rather than a
+ *  new `-#` or `###` line of its own. `<` goes too, because the sequences
+ *  Discord reads for a timestamp or a mention all open with it. */
 function plain(text: string): string {
   return text.replace(/[\r\n]+/g, " ").replace(/[\\*_~`|[\]<>]/g, (ch) => "\\" + ch);
 }
 
+/** The run, not the person: a result line that names who ran it reads as that
+ *  student's score, so the snapshot's actor is never posted. */
 function surfaceMeta(snapshot: RunSurfaceSnapshot, lead: string): string {
   return `-# ${metaLine([
     lead,
     chip(snapshot.shortSha),
-    `by ${plain(snapshot.actor.name ?? snapshot.actor.login)}`,
     chip(elapsed(snapshot.elapsedMs)),
     snapshot.dirty && "dirty worktree",
     snapshot.simulated && "simulated",

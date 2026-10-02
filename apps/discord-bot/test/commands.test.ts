@@ -668,3 +668,28 @@ test("each local report line names the command that produced its number", async 
     /smoke-test/,
   );
 });
+
+test("local report lines lead with the commit, never the person who ran them", async () => {
+  const portal: PortalRpcContract = {
+    ...basePortal,
+    async getLocalReports() {
+      return {
+        linked: true,
+        reports: [{
+          reportId: "r1", benchmarkId: "vision-recognition", benchmarkVersion: 2,
+          contractVersion: "cogworks.submissions.v2", sdkVersion: "0.2.0", pluginVersion: "0.2.0",
+          repositoryId: null, repositoryFullName: "course/team", sha: "e".repeat(40), dirty: false,
+          startedAt: 1, finishedAt: 2, command: "run" as const,
+          metrics: [{ key: "top1", label: "Top-1", value: 0.8, unit: null, higherIsBetter: true, primary: true, precision: 1 }],
+          diagnostics: [], weightsUsed: [], weightsUploaded: [],
+          author: { login: "zq-synthetic-runner", name: "Quillon Synthetic" },
+          syncedAt: 3, trust: "local_self_reported" as const,
+        }],
+      };
+    },
+  };
+  const body = responseText(await executeCommand(command("local"), portal, guildId, portalOrigin));
+  // A login beside a score reads as that student's grade.
+  assert.doesNotMatch(body, /zq-synthetic-runner|Quillon Synthetic/);
+  assert.match(body, /`eeeeeee`.*`run`.*\*\*0\.8\*\*/);
+});

@@ -444,8 +444,7 @@ test("shared event parsing strips raw local detail, paths, predictions, and envi
 
 test("repository-controlled text cannot carry Discord formatting into a team channel", () => {
   // The refusal headline is built from the team's own function names and the
-  // shapes their code returned, and the actor name is whatever their GitHub
-  // profile says. Both land in a channel the whole team reads.
+  // shapes their code returned, and it lands in a channel the whole team reads.
   // `allowed_mentions: {parse: []}` on the payload already stops @everyone
   // from pinging; it does nothing about Markdown, so a link would render.
   const hostile = snapshot("failed");
@@ -461,10 +460,10 @@ test("repository-controlled text cannot carry Discord formatting into a team cha
   assert.equal(render(value).allowed_mentions.parse.length, 0);
   // Their brackets and backticks arrive escaped, so a masked link renders as
   // its own source. The chips around it are ours and stay formatted.
-  assert.ok(posted.includes("by \\[Staff\\](https://evil.example)"), posted);
+  // The actor's profile name is never posted at all.
+  assert.ok(!posted.includes("Staff"), posted);
   assert.ok(posted.includes("\\[click here\\](https://evil.example)"), posted);
   assert.ok(posted.includes("\\`peaks\\`"), posted);
-  assert.ok(!posted.includes("[Staff]("), "an unescaped masked link survived");
   assert.ok(!posted.includes("[click here]("), "an unescaped masked link survived");
   // A line break of theirs cannot start a heading or a subtext line of ours,
   // and none of the sequences Discord reads inside angle brackets survive.
@@ -474,4 +473,29 @@ test("repository-controlled text cannot carry Discord formatting into a team cha
   // Defused, not censored: the team still reads what the run reported.
   assert.ok(posted.includes("@everyone nothing took"), posted);
   assert.ok(posted.includes("Run passed"), "their words are kept, only their markup is not");
+});
+
+test("no posted state names the person who ran it", () => {
+  // A name beside a result reads as that student's score. The run is
+  // identified by its benchmark and commit; who started it stays internal.
+  const states: Array<[RunSurfaceSnapshot["stage"], RunSurfaceSnapshot["status"], boolean]> = [
+    ["local", "running", false],
+    ["local", "succeeded", false],
+    ["hosted", "succeeded", false],
+    ["official", "succeeded", true],
+    ["hosted", "failed", false],
+  ];
+  for (const [stage, status, published] of states) {
+    const value = snapshot(status);
+    value.stage = stage;
+    value.published = published;
+    value.actor = { login: "zq-synthetic-runner", name: "Quillon Synthetic" };
+    const posted = textContents(value).join("\n");
+    const label = `${stage} ${status}${published ? " published" : ""}`;
+    assert.ok(!/zq-synthetic-runner|Quillon Synthetic|\bby\b/.test(posted), `${label}: ${posted}`);
+    assert.ok(posted.includes("Vision Recognition"), `${label} lost its benchmark`);
+    assert.ok(posted.includes("bbbbbbb"), `${label} lost its commit`);
+    if (status === "succeeded") assert.ok(posted.includes("0.913"), `${label} lost its result`);
+    if (published) assert.ok(posted.includes("Published"), `${label} lost its state`);
+  }
 });
