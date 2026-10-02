@@ -67,6 +67,41 @@ export function savedEnvironmentEligibility(
   return { eligible: true, environment: parsed.data };
 }
 
+const SHA256 = /^[a-f0-9]{64}$/;
+
+/** What promotion, and every page that offers Promote, says while a benchmark
+ * has no approved dataset digest. */
+export const OFFICIAL_DATASET_REFUSAL =
+  "Official attempts for this benchmark are paused until course staff approve its dataset.";
+
+/**
+ * Null when an official run of this benchmark can carry an approved dataset
+ * digest. The runner refuses an official job without one, so admission refuses
+ * first: before an attempt is reserved, and before any sandbox starts.
+ */
+export function officialDatasetRefusal(benchmark: Pick<BenchmarkRow, "datasetDigest">): string | null {
+  return benchmark.datasetDigest !== null && SHA256.test(benchmark.datasetDigest)
+    ? null
+    : OFFICIAL_DATASET_REFUSAL;
+}
+
+/**
+ * Why this practice run can't be promoted on Modal, or null. Admission and
+ * every page that offers Promote read this one function, in this order: an
+ * unapproved dataset pauses the benchmark for everyone, so it answers before
+ * the run's own saved environment is asked about.
+ */
+export function officialPromotionRefusal(
+  run: SavedRun,
+  benchmark: Pick<BenchmarkRow, "id" | "sandboxContract" | "datasetDigest">,
+  team: Pick<TeamRow, "repoFullName" | "repoId">,
+): string | null {
+  const datasetRefusal = officialDatasetRefusal(benchmark);
+  if (datasetRefusal) return datasetRefusal;
+  const eligibility = savedEnvironmentEligibility(run, benchmark, team);
+  return eligibility.eligible ? null : eligibility.reason;
+}
+
 /**
  * A fixture run records no dispatch job, so the labels on its own row are the
  * only evidence of what it ran; Modal's equivalent is `recordedJob`. Admission

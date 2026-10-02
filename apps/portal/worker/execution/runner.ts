@@ -15,7 +15,11 @@ import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
 import { getLatestTeamWeights } from "../services/local-reports";
 import { headRecordedWeight, weightManifest, weightObjectKey } from "../services/weights";
-import { preparedEnvironmentMatchesRun, savedEnvironmentEligibility } from "../services/run-eligibility";
+import {
+  officialDatasetRefusal,
+  preparedEnvironmentMatchesRun,
+  savedEnvironmentEligibility,
+} from "../services/run-eligibility";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
@@ -84,6 +88,10 @@ function buildRunJobInputs(
   if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
     throw new ApiHttpError(409, "not_promotable", "The benchmark's execution contract is unknown.");
   }
+  // From the catalog, so a Retry rebuild compares the saved job against the
+  // digest approved now and refuses when it changed, rather than rebinding.
+  const datasetRefusal = run.mode === "official" ? officialDatasetRefusal(benchmark) : null;
+  if (datasetRefusal) throw new ApiHttpError(409, "not_promotable", datasetRefusal);
   let preparedEnvironment = null;
   if (run.preparedArtifactId || run.preparedEnvironmentJson) {
     const eligibility = savedEnvironmentEligibility(run, benchmark, team);
@@ -110,6 +118,8 @@ function buildRunJobInputs(
       datasetVersion: run.mode === "official" ? benchmark.datasetVersion : "practice-v1",
       scorerVersion: benchmark.scorerVersion,
       sandboxContract: benchmark.sandboxContract,
+      // Practice reads the packaged public cases, which this digest does not cover.
+      ...(run.mode === "official" ? { datasetDigest: benchmark.datasetDigest } : {}),
     },
     runtime: {
       // What the student's code actually runs on, which is not one number
@@ -217,6 +227,7 @@ export function recordedDispatchJob(run: RunRow): RunJobV1 {
       job.benchmark.version !== run.benchmarkVersion ||
       job.benchmark.contractVersion !== run.contractVersion ||
       job.benchmark.datasetVersion !== run.datasetVersion ||
+      (job.benchmark.datasetDigest ?? null) !== run.datasetDigest ||
       job.benchmark.scorerVersion !== run.scorerVersion ||
       job.protocolVersion !== run.protocolVersion || run.provider !== "modal") {
     throw retryInputError("Recorded dispatch inputs do not match this run.");
@@ -268,6 +279,16 @@ export function validateRetryInputs(
   benchmark: BenchmarkRow,
 ): RunJobV1 {
   const saved = recordedDispatchJob(failedRun);
+  // A job frozen before digests existed names no bytes, and binding it to
+  // today's approval would score it against data it was never checked for.
+  if (saved.mode === "official" && !saved.benchmark.datasetDigest) {
+    throw retryInputError(
+      "This official run was sent before its dataset was approved, so it can't be retried. Start a new candidate.",
+    );
+  }
+  // The pause sentence rather than the generic rebuild refusal below.
+  const datasetRefusal = saved.mode === "official" ? officialDatasetRefusal(benchmark) : null;
+  if (datasetRefusal) throw retryInputError(datasetRefusal);
   // The job carries the repository the run recorded, so current identity is
   // checked here rather than inferred from the rebuilt job. A run and a team
   // that both record no repository are not a match.

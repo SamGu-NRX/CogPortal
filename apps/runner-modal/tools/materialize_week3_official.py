@@ -19,8 +19,11 @@ from pathlib import Path
 from cogworks_runner.official_bundle import (
     UNCHANGED,
     BundleRefused,
+    dataset_digest,
     publish_bundle,
+    read_bundle,
     require_usable_destination,
+    scored_files,
 )
 from cogworks_runner.week3_payload import encode_payload, extract_gold
 from language_search_benchmark.datasets import (
@@ -32,7 +35,6 @@ from language_search_benchmark.datasets import (
 
 DATASET_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 BENCHMARK_ID = "language-search"
-BUNDLE_FILES = ("payload.zip", "gold.json")
 
 
 def main() -> None:
@@ -51,7 +53,7 @@ def main() -> None:
 
     target = args.volume_root.resolve() / BENCHMARK_ID / args.dataset_version
     try:
-        require_usable_destination(target, BUNDLE_FILES)
+        require_usable_destination(target, scored_files(BENCHMARK_ID))
     except BundleRefused as error:
         raise SystemExit(str(error)) from None
 
@@ -78,18 +80,21 @@ def main() -> None:
         outcome = publish_bundle(target, files)
     except BundleRefused as error:
         raise SystemExit(str(error)) from None
+    # From the bytes on disk, which after a no-op are the earlier archive's.
+    digest = dataset_digest(read_bundle(target, BENCHMARK_ID))
     if outcome == UNCHANGED:
         print(
             "{} already holds this exact bundle; nothing was written.".format(
                 args.dataset_version
             )
         )
-        return
-    print(
-        "Materialized official bundle: {} queries over a {}-image pool.".format(
-            queries, pool
+    else:
+        print(
+            "Materialized official bundle: {} queries over a {}-image pool.".format(
+                queries, pool
+            )
         )
-    )
+    print("Dataset digest for {} {}: {}".format(BENCHMARK_ID, args.dataset_version, digest))
 
 
 if __name__ == "__main__":

@@ -41,8 +41,8 @@ import {
   canPublishOfficialRun,
   currentSurfaceRun,
   fixtureRetryRefusal,
+  officialPromotionRefusal,
   rankingRefusal,
-  savedEnvironmentEligibility,
 } from "./run-eligibility";
 import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
@@ -372,13 +372,12 @@ export async function readRunSurfaceSnapshot(
   const sourceRefusal = stage === "local" ? localRefusal : hostedRefusal;
 
   // Separate from the source refusal above: this one is about whether the
-  // artifact the practice run saved can still be reused, not about which
-  // repository the run came from.
-  const promotionEligibility = practice && env.EXECUTION_PROVIDER === "modal"
-    ? savedEnvironmentEligibility(practice, benchmark, team)
+  // benchmark's official dataset is approved and the artifact the practice run
+  // saved can still be reused, not about which repository the run came from.
+  const promotionBlocked = practice && env.EXECUTION_PROVIDER === "modal"
+    ? officialPromotionRefusal(practice, benchmark, team)
     : null;
-  const promotionRefusal = stage === "hosted" && status === "succeeded" && promotionEligibility?.eligible === false
-    ? promotionEligibility.reason : null;
+  const promotionRefusal = stage === "hosted" && status === "succeeded" ? promotionBlocked : null;
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   // A silent run may never report again, so the way forward is offered now.
   if (stage === "local" && (status !== "running" || silentSince !== null)) {
@@ -389,8 +388,7 @@ export async function readRunSurfaceSnapshot(
   } else if (stage === "hosted" && status !== "running") {
     if (!hostedRefusal) {
       actions.push("rerun_hosted");
-      if (status === "succeeded" && practice?.refundedAt === null &&
-          promotionEligibility?.eligible !== false) {
+      if (status === "succeeded" && practice?.refundedAt === null && promotionBlocked === null) {
         actions.splice(2, 0, "promote_official");
       }
     }

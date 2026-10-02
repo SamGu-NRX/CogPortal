@@ -34,7 +34,12 @@
         "pluginVersion": { "type": "string" },
         "datasetVersion": { "type": "string" },
         "scorerVersion": { "type": "string" },
-        "sandboxContract": { "type": ["integer", "null"], "minimum": 1 }
+        "sandboxContract": { "type": ["integer", "null"], "minimum": 1 },
+        "datasetDigest": {
+          "description": "SHA-256 the catalog approved for this official dataset version (cogworks.dataset-digest.v1). The runner refuses an official run whose scored files hash differently, or that carries none.",
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        }
       }
     },
     "runtime": {

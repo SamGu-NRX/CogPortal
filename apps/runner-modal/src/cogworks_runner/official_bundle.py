@@ -1,8 +1,16 @@
-"""Publish an official dataset bundle under a version name exactly once.
+"""Official dataset bundles: their digest, and publishing each version once.
 
-A run records only the dataset version it was scored against, so the version
-name has to keep meaning one set of bytes. The materializers used to delete an
-existing version directory and install a replacement, which let two runs with
+A dataset digest is the identity of the bytes an official run is scored from.
+The catalog approves one per dataset version, the signed job carries it, and
+the controller reads the scored files once, hashes them, and refuses to
+evaluate when the hash differs (`read_approved_bundle`). It covers exactly the
+files in `SCORED_FILES`, so a stray file beside them cannot change it, and it
+is computed from bytes, so the operator command, the materializers and the
+controller agree by construction (`dataset_digest`).
+
+Before that check existed, a run recorded only the dataset version, so the
+version name alone had to keep meaning one set of bytes. The materializers
+used to delete an existing version directory and install a replacement, which let two runs with
 identical records be scored against different gold (the 2026-10-02 provenance
 audit measured overall 1.0 against 0.61 that way). This module is the only
 place the materializers write, and it never replaces or edits a directory that
@@ -29,7 +37,9 @@ environment and its tests run on the course interpreter.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
+import json
 import os
 import shutil
 import stat
@@ -37,7 +47,22 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Iterable, List, Mapping, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Mapping, Optional, Tuple, Union
+
+#: The files each benchmark's controller scores an official run from, read
+#: from /hidden/<benchmark id>/<dataset version>/. Week 1 renders its corpus
+#: from the manifest's seeds; Weeks 2 and 3 decode the sandbox payload and
+#: attach the controller-only answers.
+SCORED_FILES = {
+    "audio-identification": ("manifest.json",),
+    "vision-recognition": ("payload.zip", "expected.json"),
+    "vision-clustering": ("payload.zip", "expected.json"),
+    "language-search": ("payload.zip", "gold.json"),
+}
+
+#: Named inside the hashed document, so a later change to what is hashed is a
+#: new schema rather than a silent change of meaning.
+DIGEST_SCHEMA = "cogworks.dataset-digest.v1"
 
 PUBLISHED = "published"
 UNCHANGED = "unchanged"
@@ -48,6 +73,77 @@ FILE_MODE = 0o440
 
 class BundleRefused(RuntimeError):
     """The destination cannot take this bundle; nothing at it was changed."""
+
+
+class DatasetNotApproved(RuntimeError):
+    """The scored bytes are missing, unapproved, or not the approved bytes."""
+
+
+def scored_files(benchmark_id: str) -> Tuple[str, ...]:
+    try:
+        return SCORED_FILES[benchmark_id]
+    except KeyError:
+        raise DatasetNotApproved(
+            "{} has no official dataset layout.".format(benchmark_id)
+        ) from None
+
+
+def dataset_digest(files: Mapping[str, bytes]) -> str:
+    """SHA-256 of a canonical JSON list of (file name, SHA-256 of its bytes).
+
+    Language-neutral on purpose: anything that can hash a file and write
+    sorted-key, separator-free JSON can reproduce it.
+    """
+
+    document = {
+        "schema": DIGEST_SCHEMA,
+        "files": [
+            {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest()}
+            for name in sorted(files)
+        ],
+    }
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def read_bundle(root: Path, benchmark_id: str) -> Dict[str, bytes]:
+    """The scored files under `root`, each read exactly once."""
+
+    files = {}
+    for name in scored_files(benchmark_id):
+        path = root / name
+        try:
+            files[name] = path.read_bytes()
+        except OSError as error:
+            raise DatasetNotApproved(
+                "{} could not be read: {}.".format(path, error.strerror or error)
+            ) from None
+    return files
+
+
+def read_approved_bundle(
+    root: Path, benchmark_id: str, approved: Optional[str]
+) -> Dict[str, bytes]:
+    """The scored files, only if their digest is the one the job carries.
+
+    The caller decodes the returned bytes, never the files again, so what was
+    checked is what gets scored. This detects any difference between the
+    approved bytes and the bytes present; it does not stop an operator from
+    approving the wrong bundle.
+    """
+
+    if not approved:
+        raise DatasetNotApproved(
+            "The run job carries no approved dataset digest for this official run."
+        )
+    files = read_bundle(root, benchmark_id)
+    actual = dataset_digest(files)
+    if not hmac.compare_digest(actual, approved):
+        raise DatasetNotApproved(
+            "The official dataset bytes do not match the approved digest "
+            "(approved {}, found {}).".format(approved[:12], actual[:12])
+        )
+    return files
 
 
 def require_usable_destination(target: Path, names: Iterable[str]) -> None:

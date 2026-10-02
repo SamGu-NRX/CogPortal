@@ -196,7 +196,18 @@ def reproduce(source_repository):
         def hidden_path(path):
             return temporary / "hidden" if str(path) == "/hidden" else Path(path)
 
-        official = _function("_v2_cases", Path=hidden_path, json=json)(job, benchmark)
+        from cogworks_runner.failure import RunnerFailure
+        from cogworks_runner.official_bundle import (
+            DatasetNotApproved, dataset_digest, read_approved_bundle, read_bundle,
+        )
+        # Approved as materialized, before the package edit: the official
+        # bundle answers to its own digest, never to the packaged manifest.
+        job["benchmark"]["datasetDigest"] = dataset_digest(read_bundle(hidden, BENCHMARK_ID))
+        approved_bundle = _function(
+            "_approved_bundle", Path=hidden_path, read_approved_bundle=read_approved_bundle,
+            DatasetNotApproved=DatasetNotApproved, RunnerFailure=RunnerFailure, sys=sys,
+        )
+        official = _function("_v2_cases", json=json, _approved_bundle=approved_bundle)(job, benchmark)
         official_score = score(official)
         changed_identity = copy.deepcopy(drifted)
         changed_identity["samples"][0]["source_identity_sha256"] = "0" * 64
