@@ -731,13 +731,16 @@ function UnassignedRow({
         )}
       </span>
       <span className="w-full sm:w-56">
+        {/* aria-disabled while assigning, because a disabled select drops
+            focus before the row it belongs to leaves the list. */}
         <select
           aria-label={`Assign ${student.login} to a team`}
           value=""
-          disabled={add.isPending || teams.length === 0}
+          disabled={teams.length === 0}
+          aria-disabled={add.isPending || undefined}
           onChange={(e) => {
             const team = teams.find((option) => option.id === e.target.value);
-            if (!team) return;
+            if (!team || add.isPending) return;
             add.mutate(
               { teamId: team.id, login: student.login },
               { onSuccess: () => onAssigned(team.name) },

@@ -24,7 +24,7 @@ function team(id: string, name: string): AdminTeamSummary {
   };
 }
 
-async function mount(t: TestContext, unassigned: string[]) {
+async function mount(t: TestContext, unassigned: string[], addGate: Promise<void> = Promise.resolve()) {
   const window = new Window({ url: "https://portal.example/admin" });
   let overview: AdminOverview = {
     scope: "owner",
@@ -41,6 +41,7 @@ async function mount(t: TestContext, unassigned: string[]) {
       const body = JSON.parse(init.body ?? "{}") as { login?: string };
       const added = /^\/api\/admin\/teams\/([^/]+)\/members$/.exec(input);
       if (added && init.method === "POST") {
+        await addGate;
         const target = overview.teams.find((entry) => entry.id === added[1])!;
         const next = { ...target, members: [...target.members, { login: body.login!, name: null, role: "write" as const }] };
         overview = {
@@ -124,6 +125,34 @@ test("assigning a student moves focus to the row that takes its place, then to t
   const added = window.document.activeElement;
   assert.equal(added?.getAttribute("role"), "status");
   assert.equal(added?.textContent, "Added first to Team B.");
+});
+
+test("a select stays focusable while its assignment is pending", async (t) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const { window, container, settle } = await mount(t, ["only"], gate);
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Assign only to a team"]');
+  assert.ok(select);
+  try {
+    select.focus();
+    const option = [...select.options].find((entry) => entry.textContent === "Team A");
+    assert.ok(option);
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!.call(select, option.value);
+    await act(async () => {
+      select.dispatchEvent(new window.Event("change", { bubbles: true }));
+      // The mutation's pending state reaches the component on a zero-delay timer.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // A disabled select would drop focus in a browser before the row leaves.
+    assert.equal(select.disabled, false);
+    assert.equal(select.getAttribute("aria-disabled"), "true");
+    assertFocused(window.document.activeElement, select, "while pending");
+  } finally {
+    // A failed assertion must not leave the request waiting forever.
+    release();
+    await settle();
+  }
+  assert.equal(window.document.activeElement?.getAttribute("role"), "status");
 });
 
 test("a login form keeps focus in its field after the login is added", async (t) => {
