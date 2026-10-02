@@ -488,6 +488,74 @@ test("a dialog whose opener left while it was open closes onto the heading", asy
   assertFocused(window.document.activeElement, container.querySelector("h1"), "focus");
 });
 
+/** A finished run on the stage given, with the IDs the console resolves. */
+function succeededSnapshot(stage: "local" | "hosted" | "official" | "published", overrides: Record<string, unknown> = {}) {
+  return RunSurfaceSnapshotSchema.parse({
+    ...retrySnapshot(stage === "hosted" ? "practice" : "official"),
+    stage, status: "succeeded", phase: "succeeded", events: [], actions: ["open_console", "open_portal"],
+    localRunId: "localrun_done", practiceRunId: "physical_practice",
+    officialRunId: stage === "hosted" || stage === "local" ? null : "physical_official",
+    published: stage === "published",
+    ...overrides,
+  });
+}
+
+const findingsAction = (container: HTMLElement) =>
+  [...container.querySelectorAll("button")].find((button) => button.textContent === "Read what it found");
+
+for (const compact of [false, true]) {
+  for (const [stage, runId] of [["hosted", "physical_practice"], ["official", "physical_official"], ["published", "physical_official"]] as const) {
+    test(`a finished ${stage} run opens its own run page from the console with compact=${compact}`, async (t) => {
+      const opened: string[] = [];
+      const { window, container } = await mount(t, React.createElement(RunConsole, {
+        snapshot: succeededSnapshot(stage), streamState: "closed", compact, onOpenRun: (id: string) => { opened.push(id); },
+      }));
+      const action = findingsAction(container);
+      assert.ok(action, "one action to the findings");
+      // A native button, so Enter and Space activate it like a click.
+      assert.equal(action.getAttribute("type"), "button");
+      action.focus();
+      await act(async () => action.click());
+      assert.deepEqual(opened, [runId]);
+      assertFocused(window.document.activeElement, action, "opening the page from the console");
+    });
+  }
+}
+
+test("a retried run that then succeeded opens the retry, not the failure it replaced", async (t) => {
+  const opened: string[] = [];
+  const snapshot = succeededSnapshot("hosted", {
+    practiceRunId: "physical_retry", executionGeneration: 2,
+    executionHistory: [
+      { id: "physical_failed", mode: "practice", status: "failed", retryOfRunId: null, createdAt: 1000, finishedAt: 8000 },
+      { id: "physical_retry", mode: "practice", status: "succeeded", retryOfRunId: "physical_failed", createdAt: 9000, finishedAt: 12000 },
+    ],
+  });
+  const { container } = await mount(t, React.createElement(RunConsole, {
+    snapshot, streamState: "closed", onOpenRun: (id: string) => { opened.push(id); },
+  }));
+  const action = findingsAction(container);
+  assert.ok(action);
+  await act(async () => action.click());
+  assert.deepEqual(opened, ["physical_retry"]);
+});
+
+for (const [name, snapshot, withCallback] of [
+  ["a local run", () => succeededSnapshot("local"), true],
+  ["a hosted stage with no recorded run", () => succeededSnapshot("hosted", { practiceRunId: null }), true],
+  ["a caller with no way to open a page", () => succeededSnapshot("official"), false],
+  ["a run still going", () => succeededSnapshot("official", { status: "running", phase: "evaluating", finishedAt: null }), true],
+  ["a cancelled run", () => succeededSnapshot("official", { status: "cancelled", phase: "cancelled" }), true],
+] as const) {
+  test(`no findings action for ${name}`, async (t) => {
+    const { container } = await mount(t, React.createElement(RunConsole, {
+      snapshot: snapshot(), streamState: "closed",
+      onOpenRun: withCallback ? () => assert.fail(`${name} opened a page`) : undefined,
+    }));
+    assert.equal(findingsAction(container), undefined);
+  });
+}
+
 test("server refusal keeps recovery absent and physical details link only to recorded consoles", async (t) => {
   const snapshot = { ...retrySnapshot(), actions: [], sourceRefusal: "The recorded repository is no longer connected." };
   const { container } = await mount(t, React.createElement(RunConsole, { snapshot, streamState: "closed", onAction: async () => { throw new Error("must not run"); } }));
