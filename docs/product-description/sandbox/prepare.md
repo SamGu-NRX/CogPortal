@@ -256,7 +256,8 @@ and wall clock come from the job; see [`timeouts-and-limits.md`](timeouts-and-li
   the runner, which sends it only when the run prepared (`modal_app.py:2295`). By source its page
   still repeats the line, because promotion copied the practice run's weights record
   (`apps/portal/worker/services/run-actions.ts:430`). A Retry of a failed official attempt does not
-  copy it (`run-actions.ts:618-642`), so the retried page has no line. Not observed.
+  copy it (`run-actions.ts:618-642`), so the retried page has no line; integrated `93dfa5e` source
+  copies it when the Retry reuses the same artifact (`505ce25`). Not observed.
 - Upload, signed fetch, digest check and the weights line have not been observed end to end on any
   build.
 - The fixture provider draws Prepare and Install timings on official runs

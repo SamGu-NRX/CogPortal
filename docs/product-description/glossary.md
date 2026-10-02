@@ -148,7 +148,7 @@ There are two independent role systems, and confusing them is the most common mi
 
 **Supplied by the benchmark.** Anything the platform provided rather than measured from the team's code: the name of each item, a GloVe table, a folder pointed at the benchmark's files, an id-to-name table over the enrolled songs. It is meant to be disclosed wherever it changes how a number should be read. In practice it appears only in `cogworks check --json`; see [`cross-cutting/what-the-benchmark-supplied.md`](cross-cutting/what-the-benchmark-supplied.md).
 
-**No per-person numbers.** The platform's hardest rule: no number is ever attributed to an individual, in any form, including privately. A test fails the build on a field shaped like one (`python/cogbench/tests/test_process.py`). Three surfaces still print a login beside a score ([B-64](bug-triage.md#b-64-discord-and-the-console-put-a-students-login-beside-a-score)).
+**No per-person numbers.** The platform's hardest rule: no number is ever attributed to an individual, in any form, including privately. A test fails the build on a field shaped like one (`python/cogbench/tests/test_process.py`). At `2ff32fa` and `17d26d9` three surfaces print a login beside a score; integrated `93dfa5e` source removes all three ([B-64](bug-triage.md#b-64-discord-and-the-console-put-a-students-login-beside-a-score)).
 
 ## Verdicts
 

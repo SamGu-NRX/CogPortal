@@ -36,6 +36,7 @@ export function MemberPalette({
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [addingLogin, setAddingLogin] = useState<string | null>(null);
@@ -56,6 +57,16 @@ export function MemberPalette({
   useEffect(() => {
     setActive((current) => Math.min(current, Math.max(0, candidates.length - 1)));
   }, [candidates.length]);
+
+  // Focus stays in the search field, so the browser never scrolls the list
+  // for the active row. Past the sixth student, arrowing down moved the
+  // highlight out of sight, and Enter added someone the user couldn't see.
+  useEffect(() => {
+    if (!open) return;
+    listRef.current
+      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [active, candidates, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -179,6 +190,7 @@ export function MemberPalette({
           </label>
 
           <div
+            ref={listRef}
             className="max-h-[17rem] overflow-y-auto overscroll-contain py-1"
             role="listbox"
             id={listId}

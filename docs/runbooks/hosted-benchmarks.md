@@ -11,7 +11,10 @@ PEP 668 managed and refuses `pip install`, and the deploy script imports both
 `modal` and `fastapi`.
 
     uv venv --python 3.11 .venv-deploy
-    uv pip install --python .venv-deploy/bin/python "modal>=1.0,<2" "fastapi>=0.115,<1"
+    # 1.5 rather than the runner's 1.4 floor: smoke_reference_sandbox.py sets
+    # snapshot_filesystem(ttl=), which modal 1.5.0 added, and refuses to start
+    # on an older client.
+    uv pip install --python .venv-deploy/bin/python "modal>=1.5,<2" "fastapi>=0.115,<1"
 
     # The plugins, so the smoke test can build a manifest and score what the
     # sandbox returns. --no-deps: their pins target 3.8 for the sandbox, and
@@ -169,8 +172,10 @@ accepted source, it exits 1 and says how many files are missing, extra or change
 
 **`modal.exception.ExecutionError: ... was modified during build process`.**
 A file changed while the image copied it, almost always `.pytest_cache`
-because tests were running. `BUILD_JUNK` in `modal_app.py` excludes the usual
-suspects; add the directory name there rather than deleting it by hand each time.
+because tests were running. `BUILD_JUNK` in
+`apps/runner-modal/src/cogworks_runner/source_tree.py` excludes the usual
+suspects, for the image copy and the release probe's manifests alike; add the
+directory name there rather than deleting it by hand each time.
 
 **`AttributeError: module 'modal' has no attribute 'runner'`.** `modal.runner`
 resolves through a lazy `__getattr__` with a curated name list that omits it;

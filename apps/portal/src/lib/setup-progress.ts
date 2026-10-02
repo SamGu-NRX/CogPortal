@@ -140,8 +140,10 @@ export function setupCommandLines(input: {
       // directly instead.
       id: "benchmark",
       step: "project",
-      // Resolve dependencies before replacing the same-version benchmark.
-      command: `python -m pip install "${pkg.distribution} @ ${pkg.source}" && python -m pip install --force-reinstall --no-deps "${pkg.distribution} @ ${pkg.source}"`,
+      // Resolve dependencies, extras included, before replacing the
+      // same-version benchmark. The reinstall needs no extras: it only swaps
+      // the benchmark's own files.
+      command: `python -m pip install "${pkg.distribution}${pkg.extras?.length ? `[${pkg.extras.join(",")}]` : ""} @ ${pkg.source}" && python -m pip install --force-reinstall --no-deps "${pkg.distribution} @ ${pkg.source}"`,
       dataCommand: pkg.dataCommand,
       verified: input.verified("project"),
       selfChecked: input.selfChecked?.("project") ?? false,

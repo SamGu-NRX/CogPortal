@@ -100,12 +100,12 @@ class PluginDiscoveryTests(unittest.TestCase):
                 '@4e516f39ffbeefe579e093260b2865eb354c17a7"'
             ),
             "vision-recognition": (
-                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'python -m pip install "cogworks-week2-vision-benchmark[data] @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
                 '@a3dd948d0c108fabf070b4f159acdecd4d6c3897"'
             ),
             "vision-clustering": (
-                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'python -m pip install "cogworks-week2-vision-benchmark[data] @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
                 '@a3dd948d0c108fabf070b4f159acdecd4d6c3897"'
             ),

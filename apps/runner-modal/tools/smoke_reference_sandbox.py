@@ -58,6 +58,7 @@ import contextlib
 import gzip
 import hashlib
 import importlib
+import inspect
 import io
 import json
 import math
@@ -79,7 +80,7 @@ for _week in ("week1", "week3"):
 
 import probe_prepared_environment as probe  # noqa: E402  (also puts src and the SDK on sys.path)
 from cogbench.environment import PY38_VENV  # noqa: E402
-from cogbench.plugins import load_benchmark  # noqa: E402
+from cogbench.plugins import PluginError, load_benchmark  # noqa: E402
 from cogworks_runner.protocol import ProtocolError, validate_job  # noqa: E402
 
 #: Modal app the sandboxes attach to. Deliberately not `modal_app.app`: running
@@ -404,6 +405,27 @@ class Guards:
         )
 
 
+def require_snapshot_ttl(modal: Any) -> None:
+    """Refuse a Modal client that cannot give the snapshot an expiry.
+
+    `snapshot_filesystem(ttl=)` arrived in modal 1.5.0 (2026-06-09). On an
+    older client the call raises TypeError only after the prepare sandbox has
+    run and been billed, and before 1.5 a snapshot never expired, so the
+    reference solution would stay in the workspace indefinitely.
+    """
+
+    method = getattr(getattr(modal, "Sandbox", None), "snapshot_filesystem", None)
+    try:
+        parameters = inspect.signature(method).parameters if method else {}
+    except (TypeError, ValueError):
+        parameters = {}
+    if "ttl" not in parameters:
+        raise SmokeError(
+            "local", "modal {} can't set a snapshot expiry; snapshot_filesystem(ttl=) arrived in "
+            "1.5.0. Install modal>=1.5 in .venv-deploy.".format(getattr(modal, "__version__", "?")),
+        )
+
+
 def _stderr(process: Any) -> str:
     raw = process.stderr.read()
     return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else (raw or "")
@@ -592,7 +614,14 @@ def prepare_plan(arguments: argparse.Namespace, say: Callable[[str], None]) -> D
     except probe.ProbeError as error:
         raise SmokeError("local", str(error)) from None
     identity = source_identity(track, arguments.sdk_commit)
-    check_plugin(row, load_benchmark(arguments.benchmark))
+    try:
+        plugin = load_benchmark(arguments.benchmark)
+    except PluginError as error:
+        raise SmokeError(
+            "local", "The {} plugin isn't importable here ({}). Initialise the {} submodule "
+            "and run from .venv-deploy.".format(arguments.benchmark, error, track.submodule),
+        ) from None
+    check_plugin(row, plugin)
     job = build_job(row, arguments.image_id, identity["head"], track)
 
     try:
@@ -684,6 +713,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     import modal  # noqa: PLC0415
     import modal.runner  # noqa: PLC0415, F401
 
+    try:
+        require_snapshot_ttl(modal)
+    except SmokeError as error:
+        print("smoke refused: {}".format(error), file=sys.stderr)
+        return 1
     record["modalClient"] = modal.__version__
     plan = prepared["plan"]
     status = 1

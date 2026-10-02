@@ -20,6 +20,7 @@ import {
   cliDevices,
   cohorts,
   localRunSessions,
+  runStreamEvents,
   runSurfaces,
   teamMembers,
   teams,
@@ -51,7 +52,7 @@ const OTHER_REPO_ID = 999_999_999;
  *  already exists and the conflict branch is the one under test. */
 interface Race { hideSessionSelect: number; queries: string[] }
 
-function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Database; binding: unknown } {
+function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Database; binding: unknown; sqlite: DatabaseSync } {
   const sqlite = new DatabaseSync(":memory:");
   for (const file of readdirSync(MIGRATIONS)
     .filter((name) => name.endsWith(".sql"))
@@ -78,6 +79,13 @@ function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Data
           race.queries.push(query);
           return { success: true, meta: statement.run(...bound) };
         },
+        /** One statement of a batch, run synchronously inside its transaction. */
+        execute() {
+          race.queries.push(query);
+          const results = statement.all(...bound);
+          const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+          return { success: true, results, meta: { changes } };
+        },
         async all() {
           race.queries.push(query);
           if (prepared.hidden()) return { success: true, results: [] };
@@ -94,10 +102,23 @@ function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Data
       };
       return prepared;
     },
+    // D1 commits a batch as one transaction; mirror that so a failure inside
+    // one rolls back what the batch wrote before it.
+    async batch(statements: Array<{ execute(): unknown }>) {
+      sqlite.exec("BEGIN");
+      try {
+        const results = statements.map((statement) => statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
+    },
   };
   // SAFETY: this shim implements the prepared-statement methods used here;
   // Cloudflare's D1 type also requires host methods these tests never call.
-  return { db: drizzle(binding as never), binding };
+  return { db: drizzle(binding as never), binding, sqlite };
 }
 
 async function seed(db: Database, teamRepoId: number | null = FIXTURE_REPO.repositoryId): Promise<void> {
@@ -337,14 +358,14 @@ for (const [name, over, expected] of [
  * batch with the history before it.
  */
 async function liveRun(vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}) {
-  const { db, binding } = freshDb();
+  const { db, binding, sqlite } = freshDb();
   await seed(db);
   const env = runtime(binding, vars);
   const hubs = runSurfaceHubs(env);
   env.RUN_SURFACES = hubs.namespace;
   const surfaceId = `surface_${SESSION.slice(-20)}`;
   assert.equal((await start(env)).status, 201);
-  const post = async (path: string, body: unknown) => {
+  const post = async (path: string, body: unknown, expected = 200) => {
     const pending: Promise<unknown>[] = [];
     const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${SESSION}${path}`, {
       method: "POST",
@@ -352,11 +373,11 @@ async function liveRun(vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}) {
       body: JSON.stringify(body),
     }), env, { waitUntil: (promise: Promise<unknown>) => pending.push(promise), passThroughOnException() {} } as never);
     await Promise.all(pending);
-    assert.equal(response.status, 200);
+    assert.equal(response.status, expected);
     return (await response.json()) as { duplicate: boolean };
   };
   return {
-    db, env, surfaceId,
+    db, env, surfaceId, sqlite, post,
     hub: hubs.get(surfaceId),
     send: (event: LocalRunEvent) => post("/events", event),
     sendBatch: (events: LocalRunEvent[]) => post("/events/batch", { events }),
@@ -477,11 +498,14 @@ test("a result accepted while publication fails still reaches the console", asyn
   // result and its background publication meets the outage.
   const database = run.env.DB;
   let outage = true;
-  // SAFETY: prepare is the only D1 method these routes and the hub call.
-  run.env.DB = { prepare(query: string) {
-    if (outage && /"run_metrics"/.test(query)) throw new Error("Transient database failure");
-    return database.prepare(query);
-  } } as unknown as Env["DB"];
+  // SAFETY: prepare and batch are the only D1 methods these routes and the hub call.
+  run.env.DB = {
+    prepare(query: string) {
+      if (outage && /"run_metrics"/.test(query)) throw new Error("Transient database failure");
+      return database.prepare(query);
+    },
+    batch: (statements: D1PreparedStatement[]) => database.batch(statements),
+  } as unknown as Env["DB"];
   assert.equal((await run.send(completed(1))).duplicate, false);
   assert.match(String(logged.mock.calls.at(-1)?.arguments[0]), /run_surface_publish_failed/);
   assert.equal(run.hub.messages.at(-1)!.silentSince !== null, true, "nothing new was shown");
@@ -625,3 +649,201 @@ for (const [name, answer] of [
     assert.equal(run.hub.scheduledAlarm, null);
   });
 }
+
+/* ── A start and an event each commit whole ─────────────────────────────── */
+
+const SURFACE = `surface_${SESSION.slice(-20)}`;
+
+/** Makes the next write to `table` fail inside SQLite, the way a D1 error
+ *  mid-request would, until the returned function is called. */
+function failWritesTo(sqlite: DatabaseSync, table: string, when = "1"): () => void {
+  sqlite.exec(`CREATE TRIGGER fail_${table} BEFORE INSERT ON ${table} WHEN ${when}
+    BEGIN SELECT RAISE(ABORT, 'injected ${table} failure'); END`);
+  return () => sqlite.exec(`DROP TRIGGER fail_${table}`);
+}
+
+async function consoles(db: Database) {
+  return db.select().from(runSurfaces);
+}
+
+test("a start whose session write fails leaves no console, and the retry creates both", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  const { db, binding, sqlite } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  const restore = failWritesTo(sqlite, "local_run_sessions");
+
+  assert.equal((await start(env)).status, 500);
+  assert.deepEqual(await consoles(db), [], "the console outlived its failed session");
+  assert.equal(await session(db), undefined);
+
+  restore();
+  assert.equal((await start(env)).status, 201);
+  assert.equal((await session(db))?.surfaceId, SURFACE);
+  const [created] = await consoles(db);
+  assert.equal(created?.localRunId, SESSION);
+  assert.equal((await start(env)).status, 200, "the recovered start does not replay");
+});
+
+test("a console left without its session by an older start is reused, not duplicated", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  // What a failure between the two writes used to leave behind.
+  await db.insert(runSurfaces).values({
+    id: SURFACE, teamId: "team_1", createdByUserId: "user_1", benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1, localRunId: SESSION, supersedesSurfaceId: null, discordChannelId: null,
+    discordMessageId: null, discordNonceGeneration: 0, createdAt: NOW, updatedAt: NOW,
+  });
+
+  assert.equal((await start(env)).status, 201);
+  assert.equal((await session(db))?.surfaceId, SURFACE);
+  const all = await consoles(db);
+  assert.equal(all.length, 1);
+  assert.equal(all[0]!.createdAt, NOW, "the older console was rewritten instead of reused");
+});
+
+test("a console under the same id that belongs to another run blocks the start and writes nothing", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  // Two client run ids that share their last twenty characters map to one
+  // console id. The second start must not attach itself to the first's console.
+  const other = `localrun_${"f".repeat(12)}${SESSION.slice(-20)}`;
+  await db.insert(runSurfaces).values({
+    id: SURFACE, teamId: "team_1", createdByUserId: "user_1", benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1, localRunId: other, supersedesSurfaceId: null, discordChannelId: null,
+    discordMessageId: null, discordNonceGeneration: 0, createdAt: NOW, updatedAt: NOW,
+  });
+  const before = await consoles(db);
+
+  assert.equal((await start(env)).status, 409);
+  assert.equal(await session(db), undefined);
+  assert.deepEqual(await consoles(db), before);
+});
+
+test("two identical starts at once record one session and one console", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+
+  const statuses = (await Promise.all([start(env), start(env)])).map((response) => response.status);
+
+  assert.ok(statuses.every((status) => status === 200 || status === 201), String(statuses));
+  assert.equal((await db.select().from(localRunSessions)).length, 1);
+  assert.equal((await consoles(db)).length, 1);
+});
+
+for (const kind of ["progress", "completed"] as const) {
+  test(`a ${kind} event whose stream write fails leaves the session where it was, and its retry lands`, async (t) => {
+    t.mock.method(console, "error", () => undefined);
+    const run = await liveRun();
+    const { sqlite } = run;
+    await run.send(heartbeat(0));
+    const event = kind === "progress" ? heartbeat(1) : completed(1);
+    const before = await session(run.db);
+    const restore = failWritesTo(sqlite, "run_stream_events", `NEW.event_id = '${event.eventId}'`);
+
+    const failed = await run.post(`/events`, event, 500);
+    assert.ok(failed);
+    assert.deepEqual(await session(run.db), before, "the session moved without its event");
+
+    restore();
+    assert.equal((await run.send(event)).duplicate, false, "the retry was taken for a duplicate");
+    const after = await session(run.db);
+    assert.equal(after?.lastEventSequence, 1);
+    assert.equal(after?.status, kind === "completed" ? "succeeded" : "running");
+    const stream = await run.db.select().from(runStreamEvents).where(eq(runStreamEvents.eventId, event.eventId));
+    assert.equal(stream.length, 1, "the console never received the event");
+  });
+}
+
+test("a completion that loses the race for a sequence writes no event, even into a pruned slot", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  // The completion reads the session at sequence 0. Before its batch runs, a
+  // progress event wins sequence 1, and its stream row has already been
+  // pruned, so nothing but the admission condition stops the loser.
+  const database = run.env.DB;
+  let raced = false;
+  // SAFETY: prepare and batch are the only D1 methods these routes and the hub call.
+  run.env.DB = {
+    prepare: (query: string) => database.prepare(query),
+    async batch(statements: D1PreparedStatement[]) {
+      if (!raced) {
+        raced = true;
+        assert.equal((await run.send(heartbeat(1))).duplicate, false);
+        run.sqlite.exec("DELETE FROM run_stream_events WHERE source_sequence = 1");
+      }
+      return database.batch(statements);
+    },
+  } as unknown as Env["DB"];
+
+  assert.equal((await run.send(completed(1))).duplicate, true);
+  assert.ok(raced);
+  const after = await session(run.db);
+  assert.equal(after?.status, "running", "the losing completion finished the run");
+  const completions = await run.db.select().from(runStreamEvents).where(eq(runStreamEvents.code, "run.completed"));
+  assert.deepEqual(completions, [], "the losing completion still reached the console");
+});
+
+test("an event that reuses a stored event id is refused and does not move the session", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  const before = await session(run.db);
+
+  await run.post("/events", { ...heartbeat(1), eventId: heartbeat(0).eventId }, 500);
+
+  assert.deepEqual(await session(run.db), before, "the session advanced with no event to show for it");
+});
+
+/* ── A session from before consoles existed ─────────────────────────────── */
+
+// Migration 0010 added local_run_sessions.surface_id without a backfill, and
+// every session written since records its console in the same write. A row
+// with none predates consoles. Its suffix-derived id can name another run's
+// console, so nothing may be delivered there on that guess.
+
+const LEGACY = `localrun_${"9".repeat(12)}${SESSION.slice(-20)}`;
+
+async function withLegacySession() {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  // A current run whose console id is exactly what the legacy row would derive.
+  assert.equal((await start(env)).status, 201);
+  await db.insert(localRunSessions).values({
+    id: LEGACY, teamId: "team_1", userId: "user_1", deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID, benchmarkVersion: 1, repositoryId: FIXTURE_REPO.repositoryId,
+    repositoryFullName: FIXTURE_REPO.fullName, sha: SHA, branch: "main", dirty: false,
+    status: "running", phase: "preparing", failureDetail: null, reportId: null,
+    discordChannelId: null, discordMessageId: null, lastEventSequence: -1,
+    createdAt: NOW, updatedAt: NOW, finishedAt: null, surfaceId: null,
+  });
+  return { db, env };
+}
+
+test("an event for a session with no recorded console is refused and reaches no one's console", async () => {
+  const { db, env } = await withLegacySession();
+  const legacyBefore = await db.select().from(localRunSessions).where(eq(localRunSessions.id, LEGACY));
+
+  const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${LEGACY}/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: JSON.stringify(heartbeat(0)),
+  }), env, { waitUntil() {}, passThroughOnException() {} } as never);
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await db.select().from(runStreamEvents), [], "the legacy run's event landed on another run's console");
+  assert.deepEqual(await db.select().from(localRunSessions).where(eq(localRunSessions.id, LEGACY)), legacyBefore);
+});
+
+test("replaying a session with no recorded console is refused, not handed another run's console", async () => {
+  const { env } = await withLegacySession();
+
+  const response = await start(env, { clientRunId: LEGACY, repositoryId: FIXTURE_REPO.repositoryId });
+
+  assert.equal(response.status, 409);
+  assert.match((await response.json() as { error: { message: string } }).error.message, /Start a new run/);
+});

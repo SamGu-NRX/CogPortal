@@ -72,6 +72,13 @@
     --activity-safe-left: var(--discord-safe-area-inset-left, env(safe-area-inset-left, 0px));
   }
 
+  /* A page's heading takes focus after a navigation so a screen reader says
+     where you are (lib/route-focus.ts). It is not a control, so it draws no
+     ring; the next Tab lands on the page's first control. */
+  [data-route-heading]:focus {
+    outline: none;
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;

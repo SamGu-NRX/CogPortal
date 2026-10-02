@@ -208,27 +208,34 @@ export async function upsertLocalReport(
     command: body.command ?? null,
     syncedAt: Date.now(),
   };
+  const update = () => db
+    .update(localReports)
+    .set(values)
+    .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId)));
+  let created = !existing;
   if (existing) {
-    await db
-      .update(localReports)
-      .set(values)
-      .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId)));
+    await update();
   } else {
     try {
       await db.insert(localReports).values(values);
     } catch (error) {
       const [conflict] = await db
-        .select({ reportId: localReports.reportId })
+        .select({ userId: localReports.userId })
         .from(localReports)
         .where(eq(localReports.reportId, body.reportId))
         .limit(1);
-      if (conflict) throw new ApiHttpError(409, "forbidden", "That report ID is already in use.");
-      throw error;
+      if (!conflict) throw error;
+      if (conflict.userId !== userId) throw new ApiHttpError(409, "forbidden", "That report ID is already in use.");
+      // The same account saved this report a moment ago, from a request that
+      // raced this one (a live run's final event arrives alone and again in a
+      // batch). This is that save repeated, not a stolen id.
+      await update();
+      created = false;
     }
   }
   const report = await getLocalReport(env, body.reportId);
   if (!report) throw new ApiHttpError(500, "provider_unconfigured", "The report could not be saved.");
-  return { report, created: !existing };
+  return { report, created };
 }
 
 /**

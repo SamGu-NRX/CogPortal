@@ -14,6 +14,7 @@ class PluginError(RuntimeError):
 class BenchmarkInstall(NamedTuple):
     distribution: str
     source: str
+    extras: str = ""
 
 
 # What to tell a student whose benchmark package is missing. The URL is the
@@ -22,6 +23,11 @@ class BenchmarkInstall(NamedTuple):
 # checkout. test_plugins.py reads both back out of the repository, so a
 # submodule bump that misses this table breaks CI rather than a student's
 # install. The portal's installer copy restates the same revisions.
+#
+# Vision carries `[data]` because its real-data loader needs `datasets`,
+# which only that extra installs. Without it the package imports, `check`
+# passes, and `test` stops with "Real-data runs require the benchmark data
+# extra".
 BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
@@ -32,11 +38,13 @@ BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
         "@a3dd948d0c108fabf070b4f159acdecd4d6c3897",
+        "[data]",
     ),
     "vision-clustering": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
         "@a3dd948d0c108fabf070b4f159acdecd4d6c3897",
+        "[data]",
     ),
     "language-search": BenchmarkInstall(
         "cogworks-week3-language-benchmark",
@@ -50,8 +58,8 @@ def benchmark_install_command(name: str) -> Optional[str]:
     install = BENCHMARK_INSTALLS.get(name)
     if install is None:
         return None
-    return 'python -m pip install "{} @ {}"'.format(
-        install.distribution, install.source
+    return 'python -m pip install "{}{} @ {}"'.format(
+        install.distribution, install.extras, install.source
     )
 
 

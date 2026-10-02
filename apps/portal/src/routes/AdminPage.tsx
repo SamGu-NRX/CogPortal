@@ -642,16 +642,18 @@ function UnassignedSection({
     null,
   );
   const options = teams.map((team) => ({ id: team.id, name: team.name }));
-  // An assigned student's row leaves the list with its focused select. Focus
-  // goes to the row that moved up into its place (or the new last row), and
-  // after the last student to the line saying who was added.
+  // An assigned student's row leaves the list with its focused control.
+  // Focus goes to the team choice in the row that moved up into its place (or
+  // the new last row), and after the last student to the line saying who was
+  // added.
   const listRef = useRef<HTMLDivElement>(null);
   const addedRef = useRef<HTMLParagraphElement>(null);
   const focusedRow = useRef(0);
-  const selects = () => [...(listRef.current?.querySelectorAll<HTMLSelectElement>("select") ?? [])];
+  const rows = () => [...(listRef.current?.querySelectorAll<HTMLLIElement>("li[data-unassigned]") ?? [])];
   const keepFocus = useFocusFallback(() => {
-    const remaining = selects();
-    return remaining[Math.min(focusedRow.current, remaining.length - 1)] ?? addedRef.current;
+    const remaining = rows();
+    const row = remaining[Math.min(focusedRow.current, remaining.length - 1)];
+    return row?.querySelector("select") ?? addedRef.current;
   });
 
   return (
@@ -664,7 +666,7 @@ function UnassignedSection({
         ref={listRef}
         className="lg:max-w-[42rem]"
         onFocus={(event) => {
-          const row = selects().findIndex((select) => select === document.activeElement);
+          const row = rows().findIndex((item) => item.contains(document.activeElement));
           if (row >= 0) focusedRow.current = row;
           keepFocus.onFocus(event);
         }}
@@ -719,9 +721,28 @@ function UnassignedRow({
   onAssigned: (teamName: string) => void;
 }) {
   const add = useAdminAddMember();
+  // Choosing a team only fills the field; Add commits. A select changes its
+  // value on a typed letter in every browser, and on the arrow keys in some,
+  // so assigning on change put a student on a team while a TA was still
+  // looking for the right one. There is no form either: Chromium submits a
+  // form on Enter in its select, which assigned the team a type-ahead had
+  // just landed on.
+  const [teamId, setTeamId] = useState("");
+  const chosen = teams.find((option) => option.id === teamId);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  // A refetch can drop the chosen team. The field then shows "Choose a team…"
+  // again rather than whichever option happens to be first, and focus leaves
+  // Add before it becomes disabled.
+  useEffect(() => {
+    if (!teamId || chosen) return;
+    const active = document.activeElement;
+    if (active !== selectRef.current && controlsRef.current?.contains(active)) selectRef.current?.focus();
+    setTeamId("");
+  }, [teamId, chosen]);
 
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+    <li data-unassigned className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
       <span className="flex min-w-[12rem] flex-1 items-center gap-3">
         <Person login={student.login} name={student.name} />
         {student.joinedAt != null && (
@@ -730,41 +751,55 @@ function UnassignedRow({
           </span>
         )}
       </span>
-      <span className="w-full sm:w-56">
-        {/* aria-disabled while assigning, because a disabled select drops
-            focus before the row it belongs to leaves the list. */}
-        <select
-          aria-label={`Assign ${student.login} to a team`}
-          value=""
-          disabled={teams.length === 0}
-          aria-disabled={add.isPending || undefined}
-          onChange={(e) => {
-            const team = teams.find((option) => option.id === e.target.value);
-            if (!team || add.isPending) return;
-            add.mutate(
-              { teamId: team.id, login: student.login },
-              { onSuccess: () => onAssigned(team.name) },
-            );
-          }}
-          className="u-field cursor-pointer"
-        >
-          <option value="" disabled>
-            {add.isPending ? "Assigning…" : "Assign to team…"}
-          </option>
-          {teams.map((team) => (
-            <option key={team.id} value={team.id}>
-              {team.name}
+      <div ref={controlsRef} className="w-full sm:w-auto">
+        <span className="flex items-center gap-2">
+          {/* aria-disabled while assigning, because a disabled select drops
+              focus before the row it belongs to leaves the list. */}
+          <select
+            ref={selectRef}
+            aria-label={`Assign ${student.login} to a team`}
+            value={chosen ? teamId : ""}
+            disabled={teams.length === 0}
+            aria-disabled={add.isPending || undefined}
+            onChange={(e) => {
+              if (!add.isPending) setTeamId(e.target.value);
+            }}
+            className="u-field min-w-0 flex-1 cursor-pointer sm:w-48 sm:flex-none"
+          >
+            <option value="" disabled>
+              Choose a team…
             </option>
-          ))}
-        </select>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            variant="ghost"
+            busy={add.isPending}
+            disabled={!chosen}
+            onClick={() => {
+              if (!chosen || add.isPending) return;
+              add.mutate(
+                { teamId: chosen.id, login: student.login },
+                { onSuccess: () => onAssigned(chosen.name) },
+              );
+            }}
+            aria-label={chosen ? `Add ${student.login} to ${chosen.name}` : undefined}
+          >
+            Add
+          </Button>
+        </span>
         {add.error && (
           <span role="alert" className="mt-1 block text-[13px] text-detect-deep">
             {add.error instanceof ApiRequestError
               ? add.error.message
-              : "That assignment didn't go through. Pick the team again."}
+              : "That assignment didn't go through. Try Add again."}
           </span>
         )}
-      </span>
+      </div>
     </li>
   );
 }

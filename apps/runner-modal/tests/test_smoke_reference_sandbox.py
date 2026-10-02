@@ -654,12 +654,74 @@ class CommandLine(unittest.TestCase):
             self.assertIn("sandbox contract", said)
 
     def test_an_environment_without_modal_is_a_refusal_not_a_traceback(self):
+        # The plugin is stood in for, so this runs where the benchmark
+        # submodule is absent (CI's week1/week2 lanes have no Week 3 package).
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(smoke, "source_identity", return_value={"head": HEAD}), \
+                mock.patch.object(smoke, "load_benchmark", return_value=PluginAgreement.PLUGIN), \
                 mock.patch.object(smoke, "_load_runner", side_effect=ImportError("No module named 'modal'")):
             status, said = self._main(self._arguments(directory))
             self.assertEqual(status, 1)
             self.assertIn(".venv-deploy", said)
+            self.assertFalse((Path(directory) / "result.json").exists())
+
+    def _main_with_modal(self, directory, modal_module):
+        prepared = {
+            "plan": _plan(), "runner": types.SimpleNamespace(RunnerFailure=RunnerFailure),
+            "benchmark": object(), "record": {},
+        }
+        with mock.patch.dict(sys.modules, {"modal": modal_module, "modal.runner": modal_module.runner}), \
+                mock.patch.object(smoke, "prepare_plan", return_value=prepared), \
+                mock.patch.object(smoke, "run_remote", side_effect=AssertionError("billed")):
+            return self._main(self._arguments(directory))
+
+    def test_a_modal_client_without_snapshot_ttl_is_refused_before_anything_is_billed(self):
+        class OldSandbox:  # modal < 1.5: no ttl=
+            def snapshot_filesystem(self, timeout=55):
+                raise AssertionError("never called")
+
+        old = types.SimpleNamespace(__version__="1.4.2", runner=types.SimpleNamespace(), Sandbox=OldSandbox)
+        with tempfile.TemporaryDirectory() as directory:
+            status, said = self._main_with_modal(directory, old)
+            self.assertEqual(status, 1)
+            self.assertIn("modal 1.4.2 can't set a snapshot expiry", said)
+            self.assertIn("modal>=1.5", said)
+            self.assertFalse((Path(directory) / "result.json").exists())
+
+    def test_a_modal_without_a_sandbox_or_a_readable_signature_is_refused(self):
+        class Uninspectable:
+            snapshot_filesystem = property(lambda self: None)
+
+        class Opaque:
+            pass
+
+        Opaque.snapshot_filesystem = object()  # not callable: inspect.signature raises TypeError
+        for name, modal in (
+            ("no Sandbox", types.SimpleNamespace(__version__="9.9")),
+            ("no method", types.SimpleNamespace(__version__="9.9", Sandbox=Uninspectable)),
+            ("unreadable signature", types.SimpleNamespace(__version__="9.9", Sandbox=Opaque)),
+        ):
+            with self.subTest(name), self.assertRaisesRegex(smoke.SmokeError, "can't set a snapshot expiry"):
+                smoke.require_snapshot_ttl(modal)
+
+    def test_a_modal_client_with_snapshot_ttl_passes_the_check(self):
+        class CurrentSandbox:
+            def snapshot_filesystem(self, timeout=55, *, ttl=2592000):
+                raise AssertionError("never called")
+
+        smoke.require_snapshot_ttl(types.SimpleNamespace(Sandbox=CurrentSandbox))
+
+    def test_a_missing_benchmark_plugin_is_a_refusal_not_a_traceback(self):
+        missing = smoke.PluginError("No installed benchmark plugin named 'language-search'.")
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(smoke, "source_identity", return_value={"head": HEAD}), \
+                mock.patch.object(smoke, "load_benchmark", side_effect=missing), \
+                mock.patch.object(smoke, "_load_runner", side_effect=AssertionError("imported modal_app")):
+            status, said = self._main(self._arguments(directory))
+            self.assertEqual(status, 1)
+            self.assertIn("language-search plugin isn't importable", said)
+            self.assertIn("benchmarks/week3", said)
+            self.assertNotIn("Traceback", said)
             self.assertFalse((Path(directory) / "result.json").exists())
 
     def test_a_score_with_unconfirmed_cleanup_is_incomplete_not_passed(self):
@@ -674,7 +736,11 @@ class CommandLine(unittest.TestCase):
             "plan": _plan(), "runner": types.SimpleNamespace(RunnerFailure=RunnerFailure),
             "benchmark": object(), "record": {},
         }
-        fake = types.SimpleNamespace(__version__="1.5.4", runner=types.SimpleNamespace())
+        class CurrentSandbox:
+            def snapshot_filesystem(self, timeout=55, *, ttl=2592000):
+                raise AssertionError("never called")
+
+        fake = types.SimpleNamespace(__version__="1.5.4", runner=types.SimpleNamespace(), Sandbox=CurrentSandbox)
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.dict(sys.modules, {"modal": fake, "modal.runner": fake.runner}), \
                 mock.patch.object(smoke, "prepare_plan", return_value=prepared), \
