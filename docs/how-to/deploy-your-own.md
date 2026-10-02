@@ -190,6 +190,45 @@ A fresh database takes the whole directory in order. If you are reconciling a
 database that already has rows, do not derive the sequence from filenames;
 `docs/runbooks/platform.md` section 6 explains why and who owns that decision.
 
+### Upgrading a deployment that still uses `PLATFORM_STAFF_LOGINS`
+
+Workers built before migration 0031 read the staff roster from the
+`PLATFORM_STAFF_LOGINS` secret. Current Workers read only the `platform_staff`
+table, which 0031 creates empty, so deploying over an old Worker without
+copying the roster takes the admin console away from every instructor who is
+not an owner or a team's TA. Copy it once, after the migrations and before
+step 10 deploys the Worker. The old Worker ignores the table, so nobody loses
+access in between.
+
+Before applying the migrations, check whether this database has 0031 yet:
+
+```sh
+pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --command \
+  "SELECT name FROM d1_migrations WHERE name = '0031_platform_staff.sql'"
+```
+
+If it returns a row, the table is already the roster, and owners may have
+removed people from it on purpose; skip this section. If it returns nothing,
+apply the migrations as above, then import the roster you had in the secret
+(Cloudflare cannot read a secret back, so take it from your own records):
+
+```sh
+cd apps/portal
+printf '%s' "alice,bob,carol" |
+  pnpm exec tsx scripts/staff-roster-import.ts --owners "$PLATFORM_OWNER_LOGINS" > staff-import.sql
+pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --file staff-import.sql
+pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --command \
+  "SELECT display_login, granted_by FROM platform_staff ORDER BY login"
+```
+
+The script refuses a malformed login rather than skip it, leaves owners out
+(they are staff from `PLATFORM_OWNER_LOGINS`), and never replaces a row
+already in the table. Imported rows show `import:PLATFORM_STAFF_LOGINS` as who
+granted them. After step 10, delete the old secret so nothing suggests it
+still counts: `pnpm exec wrangler secret delete PLATFORM_STAFF_LOGINS --env production`.
+Repeat for `cogportal-db` (without `--env production`) if that database was
+also on an old Worker.
+
 ## 8. Rename the seeded cohort
 
 This step is for the two databases you created in step 4, after step 7 and
