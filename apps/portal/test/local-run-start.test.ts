@@ -797,3 +797,53 @@ test("an event that reuses a stored event id is refused and does not move the se
 
   assert.deepEqual(await session(run.db), before, "the session advanced with no event to show for it");
 });
+
+/* ── A session from before consoles existed ─────────────────────────────── */
+
+// Migration 0010 added local_run_sessions.surface_id without a backfill, and
+// every session written since records its console in the same write. A row
+// with none predates consoles. Its suffix-derived id can name another run's
+// console, so nothing may be delivered there on that guess.
+
+const LEGACY = `localrun_${"9".repeat(12)}${SESSION.slice(-20)}`;
+
+async function withLegacySession() {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  // A current run whose console id is exactly what the legacy row would derive.
+  assert.equal((await start(env)).status, 201);
+  await db.insert(localRunSessions).values({
+    id: LEGACY, teamId: "team_1", userId: "user_1", deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID, benchmarkVersion: 1, repositoryId: FIXTURE_REPO.repositoryId,
+    repositoryFullName: FIXTURE_REPO.fullName, sha: SHA, branch: "main", dirty: false,
+    status: "running", phase: "preparing", failureDetail: null, reportId: null,
+    discordChannelId: null, discordMessageId: null, lastEventSequence: -1,
+    createdAt: NOW, updatedAt: NOW, finishedAt: null, surfaceId: null,
+  });
+  return { db, env };
+}
+
+test("an event for a session with no recorded console is refused and reaches no one's console", async () => {
+  const { db, env } = await withLegacySession();
+  const legacyBefore = await db.select().from(localRunSessions).where(eq(localRunSessions.id, LEGACY));
+
+  const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${LEGACY}/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: JSON.stringify(heartbeat(0)),
+  }), env, { waitUntil() {}, passThroughOnException() {} } as never);
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await db.select().from(runStreamEvents), [], "the legacy run's event landed on another run's console");
+  assert.deepEqual(await db.select().from(localRunSessions).where(eq(localRunSessions.id, LEGACY)), legacyBefore);
+});
+
+test("replaying a session with no recorded console is refused, not handed another run's console", async () => {
+  const { env } = await withLegacySession();
+
+  const response = await start(env, { clientRunId: LEGACY, repositoryId: FIXTURE_REPO.repositoryId });
+
+  assert.equal(response.status, 409);
+  assert.match((await response.json() as { error: { message: string } }).error.message, /Start a new run/);
+});

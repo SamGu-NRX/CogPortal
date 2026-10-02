@@ -67,6 +67,21 @@ async function discordState(env: AppEnv["Bindings"], surfaceId: string) {
   return surface.messageId ? ("updated" as const) : ("unavailable" as const);
 }
 
+/**
+ * The console a session was recorded with. Every session written since
+ * migration 0010 records one in the same write. A session with none predates
+ * consoles and never had one: the id its own suffix would derive can belong to
+ * another run's console, so it is refused rather than guessed.
+ */
+function recordedSurfaceId(session: typeof localRunSessions.$inferSelect): string {
+  if (session.surfaceId) return session.surfaceId;
+  throw new ApiHttpError(
+    409,
+    "invalid_request",
+    "This local run started before CogPortal kept live consoles, so it can't take updates. Start a new run.",
+  );
+}
+
 async function acceptLocalRunEvent(
   env: AppEnv["Bindings"],
   device: { deviceId: string; userId: string },
@@ -86,7 +101,7 @@ async function acceptLocalRunEvent(
     )
     .limit(1);
   if (!current) throw new ApiHttpError(404, "not_found", "Local run session not found.");
-  const surfaceId = current.surfaceId ?? `surface_${current.id.slice(-20)}`;
+  const surfaceId = recordedSurfaceId(current);
   if (current.status !== "running" || event.sequence <= current.lastEventSequence) {
     return { duplicate: true, surfaceId };
   }
@@ -117,6 +132,9 @@ async function acceptLocalRunEvent(
     ) {
       throw new ApiHttpError(409, "invalid_request", "The completed report does not match this live run.");
     }
+    // Saved before the batch below, not inside it. The save is idempotent for
+    // its owner, so if the batch fails the report stays saved and the CLI's
+    // retry saves it again; the session is what records the run as finished.
     await upsertLocalReport(env, device.userId, report);
     phase = "scoring";
     code = "run.completed";
@@ -288,11 +306,12 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
       if (!isSameStart(existing, body, device, membership.team)) {
         throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
       }
+      const existingSurfaceId = recordedSurfaceId(existing);
       return respond(c, StartLocalRunResponseSchema, {
         sessionId,
-        surfaceId: existing.surfaceId ?? surfaceId,
+        surfaceId: existingSurfaceId,
         discord:
-          (await discordState(c.env, existing.surfaceId ?? surfaceId)) === "updated"
+          (await discordState(c.env, existingSurfaceId)) === "updated"
             ? "published"
             : existing.discordChannelId
               ? "unavailable"

@@ -596,3 +596,50 @@ test("ignoring letter case still refuses a different repository", async () => {
     /names a different repository than this execution/,
   );
 });
+
+/* Two first saves of one report race when a live run's final event arrives
+ * alone and again in a batch. Both read "no report yet"; the slower insert
+ * meets the faster one's row. */
+
+function reportInput(reportId: string) {
+  return LocalReportInputSchema.parse({
+    reportId, benchmarkId: BENCHMARK, benchmarkVersion: 1, contractVersion: "1",
+    sdkVersion: "0.2.0", pluginVersion: "0.1.0", repositoryId: 1, repositoryFullName: REPO,
+    sha: "a".repeat(40), dirty: false, startedAt: 1_750_000_000_000, finishedAt: 1_750_000_001_000,
+    metrics: [], diagnostics: [], weightsUsed: [],
+  });
+}
+
+test("two first saves of one report by its owner both succeed and keep one row", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values(benchmarkRow(1, true));
+
+  const results = await Promise.allSettled([
+    upsertLocalReport(env, "user_1", reportInput("report_raced")),
+    upsertLocalReport(env, "user_1", reportInput("report_raced")),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.status), ["fulfilled", "fulfilled"], JSON.stringify(results));
+  const created = results.map((result) => result.status === "fulfilled" && result.value.created);
+  assert.deepEqual(created.sort(), [false, true]);
+  assert.equal((await db.select().from(localReports).where(eq(localReports.reportId, "report_raced"))).length, 1);
+});
+
+test("a report id another account saved first is still refused, even in a race", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values(benchmarkRow(1, true));
+  await db.insert(users).values({ id: "user_2", name: "Grace", email: "grace@example.com" });
+
+  const results = await Promise.allSettled([
+    upsertLocalReport(env, "user_1", reportInput("report_contested")),
+    upsertLocalReport(env, "user_2", reportInput("report_contested")),
+  ]);
+
+  const refused = results.filter((result) => result.status === "rejected");
+  assert.equal(refused.length, 1, JSON.stringify(results));
+  const reason = (refused[0] as PromiseRejectedResult).reason as { status?: number; message?: string };
+  assert.equal(reason.status, 409);
+  assert.match(reason.message ?? "", /already in use/);
+  const [stored] = await db.select().from(localReports).where(eq(localReports.reportId, "report_contested"));
+  assert.equal(stored?.userId, "user_1");
+});
