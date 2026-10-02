@@ -286,6 +286,9 @@ export function validateRetryInputs(
       "This official run was sent before its dataset was approved, so it can't be retried. Start a new candidate.",
     );
   }
+  // The pause sentence rather than the generic rebuild refusal below.
+  const datasetRefusal = saved.mode === "official" ? officialDatasetRefusal(benchmark) : null;
+  if (datasetRefusal) throw retryInputError(datasetRefusal);
   // The job carries the repository the run recorded, so current identity is
   // checked here rather than inferred from the rebuilt job. A run and a team
   // that both record no repository are not a match.

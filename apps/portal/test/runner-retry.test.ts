@@ -222,10 +222,19 @@ test("official Retry keeps its frozen digest and never rebinds to a changed appr
   const official = original("official");
   const retried = await prepareRetryJob(official.env, official.run, team, benchmark, "run_retry");
   assert.equal(retried.benchmark.datasetDigest, benchmark.datasetDigest);
-  for (const datasetDigest of ["e".repeat(64), null]) {
-    await assert.rejects(prepareRetryJob(official.env, official.run, team,
-      { ...benchmark, datasetDigest }, "run_retry"), conflict);
-  }
+  await assert.rejects(prepareRetryJob(official.env, official.run, team,
+    { ...benchmark, datasetDigest: "e".repeat(64) }, "run_retry"), (error) => {
+    conflict(error);
+    assert.equal((error as ApiHttpError).message, "Repository or benchmark/runtime configuration changed since this run.");
+    return true;
+  });
+  await assert.rejects(prepareRetryJob(official.env, official.run, team,
+    { ...benchmark, datasetDigest: null }, "run_retry"), (error) => {
+    conflict(error);
+    assert.equal((error as ApiHttpError).message,
+      "Official attempts for this benchmark are paused until course staff approve its dataset.");
+    return true;
+  });
 });
 
 test("an official run sent before digests existed refuses Retry instead of guessing", () => {

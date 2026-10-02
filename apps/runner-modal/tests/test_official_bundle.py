@@ -260,6 +260,27 @@ class PublishBundle(unittest.TestCase):
         self.assertFalse(os.path.lexists(str(self.target)))
         self.assertEqual(list(self.target.parent.iterdir()), [])
 
+    def test_a_failed_rollback_reports_the_original_error_and_what_is_left(self):
+        real_link, real_unlink = os.link, os.unlink
+
+        def fail_second(source, destination):
+            if destination.endswith("payload.zip"):
+                raise OSError(28, "No space left on device")
+            return real_link(source, destination)
+
+        def refuse_target_unlink(path, *args, **kwargs):
+            if Path(path).parent == self.target:
+                raise OSError(1, "Operation not permitted")
+            return real_unlink(path, *args, **kwargs)
+
+        with mock.patch.object(official_bundle.os, "link", fail_second), \
+                mock.patch.object(official_bundle.os, "unlink", refuse_target_unlink):
+            with self.assertRaises(BundleRefused) as caught:
+                publish_bundle(self.target, bundle())
+        message = str(caught.exception)
+        self.assertIn("No space left on device", message)
+        self.assertIn("could not be removed (still holds gold.json)", message)
+
     def test_duplicate_archive_member_names_are_refused(self):
         publish_bundle(self.target, bundle())
         with warnings.catch_warnings():

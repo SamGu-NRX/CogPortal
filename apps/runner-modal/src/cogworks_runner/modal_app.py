@@ -1330,30 +1330,18 @@ def _load_benchmark(job: Dict[str, Any]) -> Any:
 
 
 def _cases(job: Dict[str, Any], benchmark: Any) -> Tuple[List[Any], List[Any]]:
-    if job["mode"] == "practice":
-        cases = list(benchmark.public_cases())
-    else:
-        path = (
-            Path("/hidden")
-            / job["benchmark"]["id"]
-            / (job["benchmark"]["datasetVersion"] + ".json")
+    if job["mode"] != "practice":
+        # The v1 contract's official file has no approved-digest layout
+        # (official_bundle.SCORED_FILES), so scoring it would score bytes no
+        # catalog approval names. No active benchmark uses v1.
+        print("official dataset refused: the v1 contract has no approved layout", file=sys.stderr)
+        raise RunnerFailure(
+            "data_download",
+            "evaluating",
+            "Official evaluation dataset is not configured.",
+            True,
         )
-        if not path.exists():
-            raise RunnerFailure(
-                "provider",
-                "evaluating",
-                "Official evaluation dataset is not configured.",
-                True,
-            )
-        try:
-            cases = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as error:
-            raise RunnerFailure(
-                "provider",
-                "evaluating",
-                "Official evaluation dataset is unreadable.",
-                True,
-            ) from error
+    cases = list(benchmark.public_cases())
     return [case["input"] for case in cases], [case["expected"] for case in cases]
 
 
@@ -2422,8 +2410,8 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
         week3 = job["benchmark"]["id"] == "language-search"
         week1 = job["benchmark"]["id"] == "audio-identification"
         week1_manifest: Dict[str, Any] = {}
-        # Set only where an official loader verified the scored bytes against
-        # it (`_approved_bundle`); the legacy v1 path below never does.
+        # Set once an official loader has verified the scored bytes against it
+        # (`_approved_bundle`); the legacy v1 loader refuses official runs.
         verified_dataset_digest = None
         if week1:
             week1_manifest = _week1_manifest(job)
@@ -2442,10 +2430,8 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
             inputs, expected = _cases(job, benchmark)
             cases = []
             case_count = len(inputs)
-        if job["mode"] == "official" and (
-            week1 or week3 or benchmark.contract_version == "cogworks.submissions.v2"
-        ):
-            # Each of those loaders raised unless the bytes matched this value.
+        if job["mode"] == "official":
+            # Every official loader above raised unless the bytes matched this.
             verified_dataset_digest = job["benchmark"].get("datasetDigest")
         phase = "evaluating"
         reporter.status("evaluating", 0, case_count)

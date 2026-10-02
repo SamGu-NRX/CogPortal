@@ -207,13 +207,21 @@ def _link_into(source: Path, target: Path, names: List[str]) -> None:
             os.link(str(source / name), str(target / name))
             linked.append(target / name)
     except OSError as error:
+        # Each step guarded: a cleanup failure must not replace the failure
+        # that caused it, and is reported beside it instead.
+        left = []
         for path in linked:
-            os.unlink(str(path))
+            try:
+                os.unlink(str(path))
+            except OSError:
+                left.append(path.name)
         try:
             os.rmdir(str(target))
             residue = ""
         except OSError:
-            residue = " {} still holds files this call did not create; inspect it.".format(target)
+            residue = " {} could not be removed{}; inspect it before publishing again.".format(
+                target, " (still holds {})".format(", ".join(left)) if left else ""
+            )
         raise BundleRefused(
             "Could not publish {}: {}.{}".format(target, error.strerror or error, residue)
         ) from None

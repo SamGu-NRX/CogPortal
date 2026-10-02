@@ -270,5 +270,33 @@ class OfficialDatasetIdentity(unittest.TestCase):
                 self.assertEqual(result["failure"]["detail"], "Trusted benchmark plugin version does not match the run job.")
 
 
+class LegacyContract(unittest.TestCase):
+    """The v1 loader has no approved layout, so official runs never reach it."""
+
+    def test_an_official_v1_run_is_refused_and_practice_still_loads(self):
+        from cogworks_runner.failure import RunnerFailure
+
+        loader = functions("_cases")["_cases"]
+        public = mock.Mock()
+        public.public_cases.return_value = [{"input": [1], "expected": 0}]
+        request = job()
+        for digest in (None, "a" * 64):
+            with self.subTest(digest=digest):
+                official = copy.deepcopy(request)
+                official.update(mode="official", preparedArtifactId="im-saved")
+                official["benchmark"]["datasetDigest"] = digest
+                with contextlib.redirect_stderr(io.StringIO()), \
+                        self.assertRaises(RunnerFailure) as caught:
+                    loader(official, public)
+                self.assertEqual(
+                    (caught.exception.category, caught.exception.infrastructure),
+                    ("data_download", True),
+                )
+        public.public_cases.assert_not_called()
+        practice = copy.deepcopy(request)
+        practice["mode"] = "practice"
+        self.assertEqual(loader(practice, public), ([[1]], [0]))
+
+
 if __name__ == "__main__":
     unittest.main()
