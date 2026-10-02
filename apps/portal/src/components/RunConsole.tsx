@@ -377,15 +377,17 @@ export function RunConsole({
         {failed && failureReason && (
           <p className="mt-3 max-w-[60ch] text-[15px] leading-[1.5] break-words text-ink">{failureReason}</p>
         )}
-        {/* The run page carries the failure's own note and its next step;
-            the console only says that it failed. A local run has no page. */}
-        {failed && onOpenRun && currentRunId && snapshot.stage !== "local" && (
+        {/* The run page carries what a finished run found, or a failure's
+            own note and its next step; the console only reports the result.
+            A local run has no page. A button, not a link, because the
+            Activity opens the page through Discord rather than its frame. */}
+        {(failed || snapshot.status === "succeeded") && onOpenRun && currentRunId && snapshot.stage !== "local" && (
           <button
             type="button"
             className="u-link mt-1 inline-flex min-h-11 items-center text-[14px]"
             onClick={() => onOpenRun(currentRunId)}
           >
-            See why it failed
+            {failed ? "See why it failed" : "Read what it found"}
           </button>
         )}
         {silent && (
