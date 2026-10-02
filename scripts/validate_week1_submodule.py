@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 from cogbench.plugins import load_plugin
+from benchmark_tree import require_reviewed_tree
 from validate_metric_metadata import validate_metric_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,6 +134,7 @@ def main() -> int:
                 actual, REVIEWED_COMMIT
             )
         )
+    require_reviewed_tree(BENCHMARK, "benchmarks/week1")
 
     validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", "audio-identification"))
     problems = []

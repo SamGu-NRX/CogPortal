@@ -19,6 +19,9 @@ from __future__ import annotations
 
 import io
 import json
+import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -34,6 +37,9 @@ sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
 from cogworks_runner.prepared_environment import _REQUIRED_PYTHON as REQUIRED_PYTHON  # noqa: E402
 import probe_prepared_environment as probe_module  # noqa: E402
 from probe_prepared_environment import (  # noqa: E402
+    BENCHMARK_PACKAGES,
+    MANIFEST_SCRIPT,
+    MANIFEST_SUFFIXES,
     PLATFORM_TREES,
     PY38_VENV,
     SANDBOX_CONTRACTS,
@@ -140,12 +146,81 @@ class BenchmarkSourceSelection(unittest.TestCase):
 
 
 class SourceManifest(unittest.TestCase):
-    def test_covers_every_python_file_once(self):
+    def test_covers_every_python_and_json_file_once(self):
         for _key, _module, local, _root in expected_trees(BENCHMARK):
             rows = source_manifest(local)
-            on_disk = sorted(path.relative_to(local).as_posix() for path in local.rglob("*.py"))
+            on_disk = sorted(
+                path.relative_to(local).as_posix()
+                for suffix in ("*.py", "*.json")
+                for path in local.rglob(suffix)
+            )
             self.assertEqual([row["path"] for row in rows], on_disk)
             self.assertEqual(len(rows), len(set(row["path"] for row in rows)))
+
+    def test_the_scored_case_manifests_are_compared(self):
+        # The data the audit edited, for every track that packages one.
+        for benchmark_id in sorted(BENCHMARK_PACKAGES):
+            package, local = benchmark_source(benchmark_id)
+            if not local.is_dir():
+                continue
+            with self.subTest(benchmark_id):
+                paths = [row["path"] for row in source_manifest(local)]
+                self.assertIn("manifests/public-evaluation.json", paths)
+                self.assertNotIn("README.md", paths)
+                self.assertNotIn("py.typed", paths)
+
+    def test_the_image_walk_and_the_local_walk_cover_the_same_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "synthetic_benchmark"
+            (package / "manifests").mkdir(parents=True)
+            (package / "__pycache__").mkdir()
+            (package / "__init__.py").write_text("")
+            (package / "manifests.py").write_text("x = 1\n")
+            (package / "manifests" / "public-evaluation.json").write_text('{"labels": [0, 0, 1, 1]}')
+            (package / "descriptor.json").write_text("{}")
+            (package / "README.md").write_text("not installed")
+            (package / "py.typed").write_text("")
+            (package / "__pycache__" / "manifests.cpython-38.pyc").write_bytes(b"bytecode")
+            # Build output the image copy never carries, JSON or not.
+            (package / ".mypy_cache" / "3.8").mkdir(parents=True)
+            (package / ".mypy_cache" / "3.8" / "manifests.data.json").write_text("{}")
+            local_rows = source_manifest(package)
+            shutil.rmtree(str(package / ".mypy_cache"))
+            walked = subprocess.run(
+                [sys.executable, "-c", MANIFEST_SCRIPT, "synthetic_benchmark"],
+                capture_output=True, text=True, check=True, cwd=directory,
+                env={"PYTHONPATH": directory, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            _root, image_rows = validate_manifest_payload(json.loads(walked.stdout))
+            self.assertEqual(image_rows, local_rows)
+            self.assertEqual(
+                [row["path"] for row in image_rows],
+                ["__init__.py", "descriptor.json", "manifests.py", "manifests/public-evaluation.json"],
+            )
+
+    def test_every_declared_package_data_type_is_compared(self):
+        """A benchmark that packages a new data type fails here, not silently."""
+
+        for week, package in sorted(set(BENCHMARK_PACKAGES.values())):
+            pyproject = ROOT / "benchmarks" / week / "pyproject.toml"
+            if not pyproject.is_file():
+                continue
+            with self.subTest(week):
+                block = re.search(
+                    r"^\[tool\.setuptools\.package-data\]\s*\n{}\s*=\s*\[(.*?)\]".format(package),
+                    pyproject.read_text(encoding="utf-8"),
+                    re.M | re.S,
+                )
+                self.assertIsNotNone(block, "{} declares no package-data".format(pyproject))
+                patterns = re.findall(r'"([^"]+)"', block.group(1))
+                self.assertTrue(patterns)
+                for pattern in patterns:
+                    if pattern == "py.typed":
+                        continue
+                    self.assertTrue(
+                        pattern.endswith(MANIFEST_SUFFIXES),
+                        "{} packages {!r}, which the receipt does not compare".format(week, pattern),
+                    )
 
     def test_refuses_a_directory_that_is_not_there(self):
         with self.assertRaises(ProbeError):
@@ -294,6 +369,25 @@ class InstalledSourceFidelity(unittest.TestCase):
         )
         with self.assertRaises(ProbeError):
             build_receipt(BENCHMARK, 1, IMAGE_ID, _observation(), manifests)
+
+    def test_an_edited_packaged_manifest_fails_with_every_module_unchanged(self):
+        # The audit's edit: labels only, every .py byte the same.
+        manifests = _manifests()
+        local = benchmark_source(BENCHMARK)[1]
+        drifted = [
+            dict(row, sha256="f" * 64) if row["path"] == "manifests/public-evaluation.json" else row
+            for row in manifests["benchmark"]["files"]
+        ]
+        self.assertNotEqual(drifted, manifests["benchmark"]["files"])
+        manifests["benchmark"]["files"] = drifted
+        manifests["benchmark"]["difference"] = compare_manifests(source_manifest(local), drifted)
+        self.assertEqual(
+            manifests["benchmark"]["difference"]["changed"], ["manifests/public-evaluation.json"]
+        )
+        with self.assertRaises(ProbeError) as caught:
+            build_receipt(BENCHMARK, 1, IMAGE_ID, _observation(manifests), manifests)
+        self.assertIn("benchmark package", str(caught.exception))
+        self.assertIn("1 changed", str(caught.exception))
 
     def test_a_drifted_runner_tree_fails(self):
         manifests = _manifests()

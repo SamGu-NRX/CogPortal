@@ -88,10 +88,22 @@ used to travel inside `payload.zip`, where a submission could read it and
 reconstruct every expected label without opening a single image, so a
 recognition bundle built by an older copy of
 `tools/materialize_week2_official.py` has no `expected.json` and must be
-rebuilt. Build bundles from the upstream manifest tooling, verify that
-official identities and rows are disjoint from both public manifests, mount the
-volume read-only operationally, and run one network-blocked canary. A missing or
-invalid bundle must surface as `E-DATA` and must not consume an attempt.
+rebuilt under a new dataset version. Build bundles from the upstream manifest
+tooling, verify that official identities and rows are disjoint from both public
+manifests, mount the volume read-only operationally, and run one
+network-blocked canary. A missing or invalid bundle must surface as `E-DATA`
+and must not consume an attempt.
+
+A dataset version names one bundle for good, because a run records the version
+and nothing else about the data it was scored against. Both materializers
+enforce that locally: the same manifest again prints `already holds this exact
+bundle` and writes nothing, while different contents, a partial directory or
+anything other than a plain directory at that version is refused and left as it
+was. Choose a new `--dataset-version`, and add its catalog migration, whenever
+the contents change. The volume does not enforce this, so upload only a version
+that `modal volume ls cogworks-hidden-datasets <track>` does not already list,
+and never pass `--force` to `modal volume put`: without it Modal refuses to
+overwrite a file, though it would still add a missing one beside the old ones.
 
 The `cogworks-week2-cpu-v1` image bakes the pinned VGGFace2 checkpoint and
 verifies SHA-256
@@ -152,7 +164,9 @@ python apps/runner-modal/tools/materialize_week3_official.py \
 
 The bundle is `payload.zip` (gold-free sandbox inputs) plus `gold.json`
 (controller-only truth) under
-`/hidden/language-search/language-search-official-v1/`. Verify a deploy
+`/hidden/language-search/language-search-official-v1/`. The same
+publish-once rule as Week 2 applies: re-running with the same manifest is a
+no-op, and a changed manifest needs a new `--dataset-version`. Verify a deploy
 end-to-end without Modal first:
 
 ```sh

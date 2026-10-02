@@ -12,8 +12,9 @@ image on demand, with no student and no evaluation.
 
 A receipt records, for one image: the interpreter, that the SDK exposes the
 entry points the evaluator calls, that the SDK, runner and benchmark packages
-the sandbox imports are the accepted source, and that the image's declared
-sandbox contract equals the catalog row.
+the sandbox imports are the accepted source (their Python modules and the JSON
+data packaged beside them), and that the image's declared sandbox contract
+equals the catalog row.
 
 Three refusals, each for a reason that is not obvious:
 
@@ -53,6 +54,7 @@ from cogworks_runner.prepared_environment import (  # noqa: E402
     student_python,
     validate_observation,
 )
+from cogworks_runner.source_tree import is_build_junk  # noqa: E402
 
 #: Separates an immutable object id from the mutable names deploy.py publishes.
 IMAGE_ID = re.compile(r"im-[A-Za-z0-9]+\Z")
@@ -78,11 +80,21 @@ BENCHMARK_PACKAGES = {
     "language-search": ("week3", "language_search_benchmark"),
 }
 
+#: Which files a manifest covers: the modules, and the data the benchmarks
+#: package with them. Every benchmark's `package-data` is JSON (case manifests,
+#: the Week 2 descriptor and model lock) plus an empty `py.typed`, and that JSON
+#: decides what is scored: the 2026-10-02 provenance audit changed only the
+#: labels in Week 2's public-evaluation.json and moved practice pairwise F1 from
+#: 1.0 to 0.0 while a `.py`-only receipt stayed identical.
+#: `test_probe_prepared_environment` fails if a benchmark declares package data
+#: of another type, so this list cannot silently fall behind.
+MANIFEST_SUFFIXES = (".py", ".json")
+
 #: Runs inside the sandbox. Imports one package and walks the directory that
 #: import resolved to, so the manifest describes what the interpreter loads
 #: rather than what is on disk at a guessed path. 3.8 syntax, standard library
 #: only: a pristine image is what is being measured.
-MANIFEST_SCRIPT = r"""
+MANIFEST_SCRIPT = "SUFFIXES = {!r}\n".format(MANIFEST_SUFFIXES) + r"""
 import hashlib, importlib, json, os, sys
 
 module = importlib.import_module(sys.argv[1])
@@ -90,7 +102,7 @@ root = os.path.dirname(os.path.abspath(module.__file__))
 rows = []
 for directory, _subdirectories, filenames in os.walk(root):
     for filename in sorted(filenames):
-        if not filename.endswith(".py"):
+        if not filename.endswith(SUFFIXES):
             continue
         full = os.path.join(directory, filename)
         with open(full, "rb") as handle:
@@ -138,24 +150,34 @@ def expected_trees(benchmark_id: str) -> List[Tuple[str, str, Path, Optional[str
 
 
 def source_manifest(root: Path) -> List[Dict[str, str]]:
-    """Every `.py` file under `root`, relative path and digest, sorted by path.
+    """Every file under `root` with a `MANIFEST_SUFFIXES` suffix, sorted by path.
 
-    Bounded to `.py`: the images copy these trees without `__pycache__` or
-    `*.egg-info` (`modal_app.BUILD_JUNK`), and an installed package has bytecode
-    the source tree does not, so a broader sweep would report differences that
-    mean nothing.
+    The same rule `MANIFEST_SCRIPT` applies inside the image, so the two sides
+    compare like with like. Files the image copy leaves out (`is_build_junk`,
+    such as a JSON cache under `.mypy_cache`) are left out here too, or a
+    correctly built image would be missing them. Bounded by suffix rather than
+    a full sweep: an installed package has bytecode the source tree does not,
+    and files outside `package-data` (a README) are not installed, so a broader
+    sweep would report differences that mean nothing.
     """
 
     if not root.is_dir():
         raise ProbeError("No source tree at {}.".format(root))
-    rows = [
-        {
-            "path": path.relative_to(root).as_posix(),
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        }
-        for path in sorted(root.rglob("*.py"))
-    ]
-    if not rows:
+    rows = sorted(
+        (
+            {
+                "path": path.relative_to(root).as_posix(),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in root.rglob("*")
+            if path.is_file()
+            and path.name.endswith(MANIFEST_SUFFIXES)
+            and not is_build_junk(path.relative_to(root))
+        ),
+        # The string order MANIFEST_SCRIPT uses, so equal trees give equal lists.
+        key=lambda row: row["path"],
+    )
+    if not any(row["path"].endswith(".py") for row in rows):
         raise ProbeError("Source tree {} holds no .py files.".format(root))
     return rows
 

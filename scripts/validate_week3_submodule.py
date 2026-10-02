@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 from cogbench.plugins import load_plugin
+from benchmark_tree import require_reviewed_tree
 from validate_metric_metadata import validate_metric_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,7 @@ def main() -> None:
                 actual, REVIEWED_COMMIT
             )
         )
+    require_reviewed_tree(BENCHMARK, "benchmarks/week3")
 
     # Judge tracked files, not the working tree: local editable installs
     # legitimately drop egg-info next to the source.

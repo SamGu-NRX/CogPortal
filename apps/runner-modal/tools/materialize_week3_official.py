@@ -3,19 +3,25 @@
 Input is a private manifest produced by the benchmark repo's
 ``tools/build_public_manifests.py --official OUT.json --seed N`` (the seed
 stays private). Output is ``payload.zip`` (gold-free sandbox inputs) plus
-``gold.json`` (controller-only truth), written atomically and read-only.
+``gold.json`` (controller-only truth), published read-only through
+``cogworks_runner.official_bundle``: an existing dataset version is never
+replaced, so re-running with the same manifest changes nothing and a different
+manifest needs a new ``--dataset-version``.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import shutil
-import tempfile
 from pathlib import Path
 
+from cogworks_runner.official_bundle import (
+    UNCHANGED,
+    BundleRefused,
+    publish_bundle,
+    require_usable_destination,
+)
 from cogworks_runner.week3_payload import encode_payload, extract_gold
 from language_search_benchmark.datasets import (
     assert_disjoint,
@@ -26,6 +32,7 @@ from language_search_benchmark.datasets import (
 
 DATASET_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 BENCHMARK_ID = "language-search"
+BUNDLE_FILES = ("payload.zip", "gold.json")
 
 
 def main() -> None:
@@ -42,6 +49,12 @@ def main() -> None:
             "only letters, numbers, dots, underscores, or hyphens."
         )
 
+    target = args.volume_root.resolve() / BENCHMARK_ID / args.dataset_version
+    try:
+        require_usable_destination(target, BUNDLE_FILES)
+    except BundleRefused as error:
+        raise SystemExit(str(error)) from None
+
     official = json.loads(args.manifest.read_text(encoding="utf-8"))
     assert_disjoint([load_manifest("test"), load_manifest("evaluation"), official])
     resources = build_resources(download=True, build_kv=False)
@@ -57,24 +70,21 @@ def main() -> None:
     payload = encode_payload(BENCHMARK_ID, cases, showcase=False)
     gold = extract_gold(cases)
 
-    target = args.volume_root.resolve() / BENCHMARK_ID / args.dataset_version
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(
-        tempfile.mkdtemp(prefix=".week3-official-", dir=str(target.parent))
-    )
+    files = {
+        "payload.zip": payload,
+        "gold.json": json.dumps(gold, separators=(",", ":")).encode("utf-8"),
+    }
     try:
-        (temporary / "payload.zip").write_bytes(payload)
-        (temporary / "gold.json").write_text(
-            json.dumps(gold, separators=(",", ":")), encoding="utf-8"
+        outcome = publish_bundle(target, files)
+    except BundleRefused as error:
+        raise SystemExit(str(error)) from None
+    if outcome == UNCHANGED:
+        print(
+            "{} already holds this exact bundle; nothing was written.".format(
+                args.dataset_version
+            )
         )
-        for path in temporary.iterdir():
-            path.chmod(0o440)
-        if target.exists():
-            shutil.rmtree(str(target))
-        os.replace(str(temporary), str(target))
-    except Exception:
-        shutil.rmtree(str(temporary), ignore_errors=True)
-        raise
+        return
     print(
         "Materialized official bundle: {} queries over a {}-image pool.".format(
             queries, pool

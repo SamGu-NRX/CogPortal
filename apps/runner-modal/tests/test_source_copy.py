@@ -185,6 +185,14 @@ class SourceCopyExcludesBuildOutput(deployment_target.ControllerImport):
         ):
             self.assertFalse(self.staging_app.is_build_junk(Path(path)), path)
 
+    def test_the_submodule_validators_use_the_image_copy_rule_itself(self):
+        # Restated, the two drifted into false refusals or unchecked files.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+        import benchmark_tree
+
+        # By module, not identity: the controller fixture reloads the runner.
+        for rule in (benchmark_tree.is_build_junk, self.staging_app.is_build_junk):
+            self.assertEqual(rule.__module__, "cogworks_runner.source_tree")
 
 if __name__ == "__main__":
     unittest.main()

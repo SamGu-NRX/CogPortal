@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from cogbench.plugins import load_plugin
+from benchmark_tree import require_reviewed_tree
 from validate_metric_metadata import validate_metric_metadata
 
 
@@ -28,6 +29,7 @@ def main() -> None:
                 actual, REVIEWED_COMMIT
             )
         )
+    require_reviewed_tree(BENCHMARK, "benchmarks/week2")
     descriptor = json.loads(
         (BENCHMARK / "facial_recognition_benchmark" / "descriptor.json").read_text(
             encoding="utf-8"
