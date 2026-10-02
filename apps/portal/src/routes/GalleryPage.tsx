@@ -442,6 +442,15 @@ const UNRANKED_OFFICIAL = RunSurfaceSnapshotSchema.parse({
   events: [], actions: ["open_console", "open_portal"], simulated: true, snapshotRevision: 1,
 });
 
+/* The same official result once it reports the ranked measure, so its
+ * confirmable actions are drawn. Confirming here sends nothing. */
+const PUBLISHABLE_OFFICIAL = RunSurfaceSnapshotSchema.parse({
+  ...UNRANKED_OFFICIAL,
+  id: `surface_${"d".repeat(20)}`,
+  primaryMetric: OVERALL, metrics: [OVERALL], publicationRefusal: null,
+  actions: ["open_console", "open_portal", "publish_result", "rerun_hosted"],
+});
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -503,6 +512,12 @@ export function GalleryPage() {
       <div className="mt-4">
         <RunConsole snapshot={UNRANKED_OFFICIAL} streamState="live" onAction={() => undefined} />
       </div>
+
+      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">A result that can be published</h2>
+      <p className="mb-4 max-w-prose text-[13px] text-ink-faint">
+        Publish and Rerun hosted ask first. Closing the question returns focus to the button that asked it.
+      </p>
+      <RunConsole snapshot={PUBLISHABLE_OFFICIAL} streamState="live" onAction={() => undefined} />
 
       <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Activity connect gate</h2>
       <p className="mb-2 max-w-prose text-[13px] text-ink-faint">

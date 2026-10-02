@@ -17,7 +17,8 @@ import {
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
 import type { RunSurfaceMutationInput } from "@/lib/api";
-import { buttonClass } from "./Button";
+import { useFocusFallback } from "@/lib/focus";
+import { Button, buttonClass } from "./Button";
 import { Code } from "./Code";
 import { SimulatedChip } from "./SimulatedChip";
 import { Veil } from "./Veil";
@@ -157,6 +158,8 @@ export function RunConsole({
   const retryFocusedRef = useRef(false);
   const runAgainFocusedRef = useRef(false);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
+  // A published or rerun result can take the focused action away.
+  const keepActionFocus = useFocusFallback(() => headingRef.current);
   const retryInFlightRef = useRef(false);
   const logRef = useRef<HTMLUListElement>(null);
   const logFocusedRef = useRef(false);
@@ -289,8 +292,11 @@ export function RunConsole({
     if (opener) (opener.isConnected ? opener : headingRef.current)?.focus();
   };
 
-  const ask = (action: RunSurfaceAction) => {
-    dialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // The opener is passed in rather than read from document.activeElement:
+  // Safari and Firefox on macOS don't focus a button on click, so the active
+  // element can be whatever the student had focused before.
+  const ask = (action: RunSurfaceAction, opener: HTMLElement) => {
+    dialogOpenerRef.current = opener;
     if (action === "run_again") {
       setShowCommand(true);
       return;
@@ -353,8 +359,10 @@ export function RunConsole({
           <div className="min-w-0">
             <h1 ref={headingRef} tabIndex={-1} className={compact ? "text-[1.5rem]" : "text-[clamp(1.6rem,1.2rem+1.8vw,2.4rem)]"}>{snapshot.benchmark.title}</h1>
             <p className={`${compact ? "mt-1" : "mt-2"} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13.5px] text-ink-secondary`}>
+              {/* The team and the commit, never the person who started it:
+                  a number beside a name reads as that student's grade. The
+                  actor stays in the server's records. */}
               <span>{snapshot.team.name}</span><span aria-hidden="true" className="text-ink-faint">·</span>
-              <span>@{snapshot.actor.login}</span><span aria-hidden="true" className="text-ink-faint">·</span>
               <code className="font-mono text-[12.5px]">{snapshot.shortSha}</code><span aria-hidden="true" className="text-ink-faint">·</span>
               <span className="u-tnum font-mono text-[12.5px]">{formatElapsed(snapshot.elapsedMs)}</span>
             </p>
@@ -369,20 +377,22 @@ export function RunConsole({
         {failed && failureReason && (
           <p className="mt-3 max-w-[60ch] text-[15px] leading-[1.5] break-words text-ink">{failureReason}</p>
         )}
-        {/* The run page carries the failure's own note and its next step;
-            the console only says that it failed. A local run has no page. */}
-        {failed && onOpenRun && currentRunId && snapshot.stage !== "local" && (
+        {/* The run page carries what a finished run found, or a failure's
+            own note and its next step; the console only reports the result.
+            A local run has no page. A button, not a link, because the
+            Activity opens the page through Discord rather than its frame. */}
+        {(failed || snapshot.status === "succeeded") && onOpenRun && currentRunId && snapshot.stage !== "local" && (
           <button
             type="button"
             className="u-link mt-1 inline-flex min-h-11 items-center text-[14px]"
             onClick={() => onOpenRun(currentRunId)}
           >
-            See why it failed
+            {failed ? "See why it failed" : "Read what it found"}
           </button>
         )}
         {silent && (
           <p className="mt-5 max-w-[60ch] border-t border-rule-soft pt-3.5 text-[14px] leading-[1.55] text-ink-secondary" role="status" aria-live="polite">
-            If @{snapshot.actor.login}'s run is still going, its result will appear here. If it stopped, run it again.
+            If this run is still going, its result will appear here. If it stopped, run it again.
           </p>
         )}
         {runAgainOffered && (
@@ -392,7 +402,7 @@ export function RunConsole({
               className={buttonClass(failed ? "primary" : "ghost")}
               onFocus={() => { runAgainFocusedRef.current = true; }}
               onBlur={() => { runAgainFocusedRef.current = false; }}
-              onClick={() => ask("run_again")}
+              onClick={(event) => ask("run_again", event.currentTarget)}
             >
               Run again
             </button>
@@ -555,21 +565,21 @@ export function RunConsole({
           <p role="status" className="max-w-prose text-[13px] leading-relaxed text-ink-secondary [&:not(:empty)]:mt-4">
             {snapshot.sourceRefusal ?? snapshot.promotionRefusal ?? snapshot.publicationRefusal}
           </p>
-          <div className="mt-6 grid gap-2">
+          <div className="mt-6 grid gap-2" {...keepActionFocus}>
             {/* A failed or silent local run offers Run again in the header. */}
             {snapshot.actions.filter((action) => !failed && !silent && ACTION_COPY[action]).map((action) => (
-              <button
+              // aria-disabled, not disabled, while another action is pending:
+              // the confirm returns focus here, and a disabled button drops it.
+              <Button
                 key={action}
-                type="button"
-                disabled={busyAction !== null}
-                className={buttonClass(
-                  action === "promote_official" || action === "publish_result" ? "official" : "ghost",
-                  "w-full !justify-start px-4 text-[14px]",
-                )}
-                onClick={() => ask(action)}
+                variant={action === "promote_official" || action === "publish_result" ? "official" : "ghost"}
+                className="w-full !justify-start px-4 text-[14px]"
+                busy={busyAction === action}
+                aria-disabled={busyAction !== null || undefined}
+                onClick={(event) => { if (busyAction === null) ask(action, event.currentTarget); }}
               >
-                {busyAction === action ? "Working…" : ACTION_COPY[action]}
-              </button>
+                {ACTION_COPY[action]}
+              </Button>
             ))}
             {/* The reference above states "Uncommitted changes" and the
                 hosted action silently disappears, so the one fact that
@@ -632,7 +642,7 @@ export function RunConsole({
               {pendingAction && (
                 <button type="button" className={buttonClass(pendingAction === "promote_official" || pendingAction === "publish_result" ? "official" : "primary")} onClick={() => {
                   const action = pendingAction;
-                  setPendingAction(null);
+                  closeDialog();
                   void onAction?.({ surfaceId: snapshot.id, action });
                 }}>{confirmAction}</button>
               )}
