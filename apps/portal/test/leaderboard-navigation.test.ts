@@ -42,19 +42,35 @@ async function settle(until: () => boolean, what: string) {
   assert.fail(`the DOM never reached: ${what}`);
 }
 
+/** The Vision Overall board as it reads before any team has published both
+ *  components from one commit. */
+const EMPTY_OVERALL = {
+  family: {
+    id: "vision-overall", version: 1, title: "Vision overall", module: "vision", active: true,
+    components: [
+      { key: "recognition", label: "Recognition", benchmarkId: "vision-recognition", benchmarkVersion: 1, metricKey: "f1", weight: 1 },
+      { key: "clustering", label: "Clustering", benchmarkId: "vision-clustering", benchmarkVersion: 1, metricKey: "ari", weight: 1 },
+    ],
+  },
+  entries: [],
+};
+
 /** Mounts the page at `path`. The catalog request waits for `releaseCatalog`,
  *  so a test can look at the page before the module is known. Standings
- *  requests never answer; only the tabs are under test. */
-async function mount(t: TestContext, path: string) {
+ *  requests never answer unless `answerOverall` is set; only the tabs are
+ *  under test. */
+async function mount(t: TestContext, path: string, answerOverall = false) {
   const window = new Window({ url: `https://portal.example${path}` });
-  let releaseCatalog: (catalog: Benchmark[]) => void = () => undefined;
+  let releaseCatalog: (catalog: Benchmark[] | null) => void = () => undefined;
   let catalogRequests = 0;
   const fetch = async (input: string) => {
     if (input === "/api/benchmarks") {
       catalogRequests += 1;
-      const catalog = await new Promise<Benchmark[]>((resolve) => { releaseCatalog = resolve; });
+      const catalog = await new Promise<Benchmark[] | null>((resolve) => { releaseCatalog = resolve; });
+      if (catalog === null) return Response.json({ error: { code: "internal", message: "Catalog unavailable." } }, { status: 500 });
       return new Response(JSON.stringify(catalog), { status: 200, headers: { "content-type": "application/json" } });
     }
+    if (answerOverall && input.startsWith("/api/leaderboard-family")) return Response.json(EMPTY_OVERALL);
     return new Promise<Response>(() => undefined);
   };
   const globals = {
@@ -100,8 +116,19 @@ async function mount(t: TestContext, path: string) {
     releaseCatalog(catalog);
     await settle(() => client.getQueryState(["benchmarks"])?.status === "success" && selected("Benchmark track").length === 1, "the catalog to render");
   };
+  const reachableTabs = () =>
+    [...container.querySelectorAll('[aria-label="Benchmark track"] [role="tab"]')]
+      .filter((node) => node.getAttribute("tabindex") === "0")
+      .map((node) => (node.textContent ?? "").replace(/in progress/, "").trim());
   return {
-    container, client, router, selected, answerCatalog,
+    container, client, router, selected, answerCatalog, window, reachableTabs,
+    failCatalog: async () => {
+      releaseCatalog(null);
+      await settle(
+        () => client.getQueryState(["benchmarks"])?.status === "error" && /Try again|Retry/i.test(container.textContent ?? ""),
+        "the catalog failure to render",
+      );
+    },
     click: async (list: string, name: string) => {
       await act(async () => tab(list, name).click());
     },
@@ -135,14 +162,23 @@ test("a published Recognition result opens the Vision track on its own tab", asy
   assert.deepEqual(page.selected("Vision leaderboard"), ["Recognition"]);
 });
 
-test("the bare leaderboard keeps its course-order default", async (t) => {
+test("the bare leaderboard opens on the first open track in course order", async (t) => {
   const page = await mount(t, "/leaderboard");
-  // Nothing was requested, so the default is right before the catalog answers.
-  assert.deepEqual(page.selected("Benchmark track"), ["Audio"]);
+  // Which track is open is in the catalog, so no tab is chosen before it answers.
+  assert.deepEqual(page.selected("Benchmark track"), []);
   await page.answerCatalog();
   assert.deepEqual(page.selected("Benchmark track"), ["Audio"]);
   await page.click("Benchmark track", "Vision");
   assert.deepEqual(page.selected("Vision leaderboard"), ["Overall"]);
+});
+
+test("a bare leaderboard skips a track still in progress", async (t) => {
+  const page = await mount(t, "/leaderboard");
+  await page.answerCatalog(CATALOG.map((entry) => (entry.module === "audio" ? { ...entry, active: false } : entry)));
+  assert.deepEqual(page.selected("Benchmark track"), ["Vision"]);
+  // The in-progress track is still one press away.
+  await page.click("Benchmark track", "Audio");
+  assert.deepEqual(page.selected("Benchmark track"), ["Audio"]);
 });
 
 test("a tab the reader picks survives a catalog refetch, and a new link replaces it", async (t) => {
@@ -180,4 +216,38 @@ test("Back resets a manual tab to the benchmark requested by the returning link"
   await page.back();
   assert.deepEqual(page.selected("Benchmark track"), ["Vision"]);
   assert.deepEqual(page.selected("Vision leaderboard"), ["Recognition"]);
+});
+
+test("an empty Overall board offers each component board one press away", async (t) => {
+  const page = await mount(t, "/leaderboard", true);
+  await page.answerCatalog(CATALOG.map((entry) => (entry.module === "audio" ? { ...entry, active: false } : entry)));
+  assert.deepEqual(page.selected("Vision leaderboard"), ["Overall"]);
+  await settle(() => /See Recognition/.test(page.container.textContent ?? ""), "the empty Overall board");
+
+  const see = [...page.container.querySelectorAll("button")].find((button) => button.textContent === "See Clustering");
+  assert.ok(see);
+  await act(async () => (see as unknown as HTMLElement).click());
+  assert.deepEqual(page.selected("Vision leaderboard"), ["Clustering"]);
+  // The button left with the empty state; focus is on the tab it chose.
+  const focused = page.window.document.activeElement;
+  assert.ok(focused?.id === "vision-tab-clustering", `focus is on ${focused?.id || focused?.tagName}`);
+});
+
+test("the track row keeps one Tab stop while the catalog is still answering", async (t) => {
+  const page = await mount(t, "/leaderboard");
+  assert.deepEqual(page.selected("Benchmark track"), []);
+  assert.deepEqual(page.reachableTabs(), ["Audio"]);
+});
+
+test("an unknown benchmark opens the first open track, not one in progress", async (t) => {
+  const page = await mount(t, "/leaderboard?benchmark=retired-benchmark");
+  await page.answerCatalog(CATALOG.map((entry) => (entry.module === "audio" ? { ...entry, active: false } : entry)));
+  assert.deepEqual(page.selected("Benchmark track"), ["Vision"]);
+});
+
+test("a catalog that fails still leaves a selected, reachable track", async (t) => {
+  const page = await mount(t, "/leaderboard");
+  await page.failCatalog();
+  assert.deepEqual(page.selected("Benchmark track"), ["Audio"]);
+  assert.deepEqual(page.reachableTabs(), ["Audio"]);
 });

@@ -1,10 +1,11 @@
 import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { motion, useReducedMotion } from "motion/react";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { moveTabFocus } from "@/lib/tablist";
 import type { Benchmark, LeaderboardEntry, Module } from "@cogworks/contracts/schema";
+import { buttonClass } from "@/components/Button";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { PageHeader } from "@/components/Note";
@@ -62,9 +63,28 @@ export function LeaderboardPage() {
   }
   const choice = selection.arrival === arrival ? selection.picked : null;
   const target = requested ? benchmarks.data?.find((b) => b.id === requested) : undefined;
-  // No tab until the catalog names the module; defaulting would flash Audio first.
-  const resolving = requested !== null && benchmarks.isPending;
-  const module: Module | null = choice?.module ?? target?.module ?? (resolving ? null : TRACKS[0]!.module);
+
+  const forModule = (m: Module): Benchmark | undefined => {
+    const list = benchmarks.data?.filter((b) => b.module === m) ?? [];
+    return list.find((b) => b.active) ?? list[0];
+  };
+  const visionBenchmarks = benchmarks.data?.filter((b) => b.module === "vision") ?? [];
+  const recognition = visionBenchmarks.find((b) => b.id === "vision-recognition" && b.active);
+  const clustering = visionBenchmarks.find((b) => b.id === "vision-clustering" && b.active);
+  const isOpen = (m: Module) => (m === "vision" ? Boolean(recognition && clustering) : (forModule(m)?.active ?? false));
+
+  // With nothing requested, the board opens on the first track open to this
+  // cohort, in course order: a track still in progress can only show an empty
+  // box, and that was the first thing "See this year's results" showed. Open
+  // is a catalog fact, so unlike choosing by which board has rows it can't
+  // move under the reader on a refetch. No tab is chosen until the catalog
+  // answers; guessing would show one track and then jump to another.
+  const opening: Module | null = benchmarks.data
+    ? (TRACKS.find((track) => isOpen(track.module)) ?? TRACKS[0]!).module
+    : benchmarks.isError
+      ? TRACKS[0]!.module
+      : null;
+  const module: Module | null = choice?.module ?? target?.module ?? opening;
   // Vision opens on Overall, which is the summary of the other two. Overall
   // is empty until a team publishes a Recognition and a Clustering result
   // from one commit, and that used to read as "no results published yet"
@@ -82,13 +102,6 @@ export function LeaderboardPage() {
       },
     });
 
-  const forModule = (m: Module): Benchmark | undefined => {
-    const list = benchmarks.data?.filter((b) => b.module === m) ?? [];
-    return list.find((b) => b.active) ?? list[0];
-  };
-  const visionBenchmarks = benchmarks.data?.filter((b) => b.module === "vision") ?? [];
-  const recognition = visionBenchmarks.find((b) => b.id === "vision-recognition" && b.active);
-  const clustering = visionBenchmarks.find((b) => b.id === "vision-clustering" && b.active);
   const benchmark =
     module === "vision"
       ? visionView === "recognition"
@@ -114,10 +127,7 @@ export function LeaderboardPage() {
       >
         {TRACKS.map((track) => {
           const active = module === track.module;
-          const available =
-            track.module === "vision"
-              ? Boolean(recognition && clustering)
-              : (forModule(track.module)?.active ?? false);
+          const available = isOpen(track.module);
           return (
             <button
               key={track.module}
@@ -126,7 +136,8 @@ export function LeaderboardPage() {
               id={`track-tab-${track.module}`}
               aria-selected={active}
               aria-controls={BOARD_PANEL_ID}
-              tabIndex={active ? 0 : -1}
+              // One Tab stop even while the catalog decides which track opens.
+              tabIndex={active || (module === null && track === TRACKS[0]) ? 0 : -1}
               onClick={() => pick({ module: track.module })}
               className={`relative inline-flex min-h-11 shrink-0 items-baseline gap-2 px-3 pt-2.5 text-[15px] font-semibold transition-colors duration-150 ${
                 active ? "text-ink" : "text-ink-secondary hover:text-ink"
@@ -204,7 +215,13 @@ export function LeaderboardPage() {
         ) : benchmarks.isError ? (
           <QueryError error={benchmarks.error} retry={() => void benchmarks.refetch()} />
         ) : module === "vision" && visionView === "overall" ? (
-          <OverallStandings />
+          <OverallStandings
+            onShow={(view) => {
+              pick({ visionView: view });
+              // The buttons go with the empty state; the tab they picked stays.
+              document.getElementById(`vision-tab-${view}`)?.focus();
+            }}
+          />
         ) : !benchmark ? (
           <Empty message={IN_PROGRESS} />
         ) : (
@@ -221,12 +238,12 @@ export function LeaderboardPage() {
 }
 
 /** The tab already says "in progress" and the title names the track. */
-const IN_PROGRESS = "Standings open when the track is calibrated.";
+const IN_PROGRESS = "Results appear here once this track opens to the cohort.";
 
-function Empty({ message }: { message: string }) {
+function Empty({ message, children }: { message: string; children?: ReactNode }) {
   return (
     <div className="rounded-surface border border-rule bg-paper-raised">
-      <EmptyState message={message} />
+      <EmptyState message={message}>{children}</EmptyState>
     </div>
   );
 }
@@ -259,7 +276,7 @@ function Standings({
     <>
       {!active && entries.length > 0 && (
         <p className="mb-4 max-w-[58ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-          {title} isn't calibrated for this cohort yet, so these are archive results.
+          {title} isn't open to this cohort yet, so these are archive results.
         </p>
       )}
       <Gallery
@@ -271,7 +288,7 @@ function Standings({
   );
 }
 
-function OverallStandings() {
+function OverallStandings({ onShow }: { onShow: (view: "recognition" | "clustering") => void }) {
   const board = useFamilyLeaderboard("vision-overall");
   if (board.isPending) return <LoadingMark />;
   if (board.isError) {
@@ -284,6 +301,20 @@ function OverallStandings() {
       // "No results published yet" was true of Overall and told the reader
       // nothing, because Clustering had standings the whole time.
       empty="Overall needs a Recognition and a Clustering result from the same commit. No team has published both yet."
+      // Overall opens first, so when it is empty the two boards that may
+      // already have results are one press away rather than a tab hunt.
+      emptyActions={
+        // Stacked at one width on a phone, where the pair would otherwise
+        // wrap into two ragged rows.
+        <div className="flex w-full max-w-[16rem] flex-col gap-2 sm:w-auto sm:max-w-none sm:flex-row">
+          <button type="button" className={buttonClass("ghost")} onClick={() => onShow("recognition")}>
+            See Recognition
+          </button>
+          <button type="button" className={buttonClass("ghost")} onClick={() => onShow("clustering")}>
+            See Clustering
+          </button>
+        </div>
+      }
     />
   );
 }
@@ -292,14 +323,16 @@ function Gallery({
   entries,
   footer,
   empty = "No results published yet.",
+  emptyActions,
 }: {
   entries: LeaderboardEntry[];
   footer: string;
   empty?: string;
+  emptyActions?: ReactNode;
 }) {
   const hasArchiveRows = entries.some((entry) => entry.provenance === "archive");
 
-  if (entries.length === 0) return <Empty message={empty} />;
+  if (entries.length === 0) return <Empty message={empty}>{emptyActions}</Empty>;
 
   return (
     <>
