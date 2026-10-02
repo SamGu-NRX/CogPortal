@@ -79,7 +79,7 @@ for _week in ("week1", "week3"):
 
 import probe_prepared_environment as probe  # noqa: E402  (also puts src and the SDK on sys.path)
 from cogbench.environment import PY38_VENV  # noqa: E402
-from cogbench.plugins import load_benchmark  # noqa: E402
+from cogbench.plugins import PluginError, load_benchmark  # noqa: E402
 from cogworks_runner.protocol import ProtocolError, validate_job  # noqa: E402
 
 #: Modal app the sandboxes attach to. Deliberately not `modal_app.app`: running
@@ -592,7 +592,14 @@ def prepare_plan(arguments: argparse.Namespace, say: Callable[[str], None]) -> D
     except probe.ProbeError as error:
         raise SmokeError("local", str(error)) from None
     identity = source_identity(track, arguments.sdk_commit)
-    check_plugin(row, load_benchmark(arguments.benchmark))
+    try:
+        plugin = load_benchmark(arguments.benchmark)
+    except PluginError as error:
+        raise SmokeError(
+            "local", "The {} plugin isn't importable here ({}). Initialise the {} submodule "
+            "and run from .venv-deploy.".format(arguments.benchmark, error, track.submodule),
+        ) from None
+    check_plugin(row, plugin)
     job = build_job(row, arguments.image_id, identity["head"], track)
 
     try:
