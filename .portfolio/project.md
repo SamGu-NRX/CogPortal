@@ -24,6 +24,15 @@ links:
 
 I built CogPortal from scratch as lead TA for Cog*Works, the pre-college machine learning course at MIT’s Beaver Works Summer Institute. Teams practice locally with a pip-installable CLI, then run their capstones against hidden test labels in a network-blocked Modal sandbox. A portal on Cloudflare Workers shows each team’s chosen official result on a live leaderboard, and a Discord bot posts the results. It has scored two real Week 1 team repositories end to end in that sandbox.
 
+## Four surfaces, one run
+
+A team meets CogPortal in four places, and one run passes through all of them.
+
+- The `cogworks` CLI, where they check and test their code offline.
+- The Modal sandbox, where a pushed commit runs with the inputs but no secrets and no network.
+- The portal, whose run page leads with what the run shows, in the course’s own words, before any trace or log.
+- CogBot on Discord, whose private `/cog` command shows a team’s runs and official attempts without leaving the server.
+
 ## Where it came from
 
 On July 24, an instructor gave up a lunch break to build a demo-day benchmark by hand. He pulled captions from COCO at three levels of difficulty, randomized which ones each team got so nobody could tune to them, and ran every team live on the projector. Half of it failed, and the room treated that as normal. It was a held-out evaluation done right, and it existed only because one person improvised it. CogPortal builds that hour into software.
