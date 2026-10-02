@@ -32,6 +32,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 BENCHMARK_ID = "vision-clustering"
+sys.path.insert(0, str(Path(__file__).parent))
+from test_prepared_environment import require_packages  # noqa: E402
 
 
 def _function(name, **namespace):
@@ -232,6 +234,9 @@ def reproduce(source_repository):
 class ResourceProvenance(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # The child imports Week 2's datasets, which need Pillow; lanes without
+        # it skip here instead of failing in the child.
+        require_packages("numpy", "PIL")
         source = os.environ.get("COGPORTAL_WEEK2_RESOURCE_SOURCE")
         if not source:
             source = str(ROOT / "benchmarks/week2")

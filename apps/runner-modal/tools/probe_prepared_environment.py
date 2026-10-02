@@ -54,6 +54,7 @@ from cogworks_runner.prepared_environment import (  # noqa: E402
     student_python,
     validate_observation,
 )
+from cogworks_runner.source_tree import is_build_junk  # noqa: E402
 
 #: Separates an immutable object id from the mutable names deploy.py publishes.
 IMAGE_ID = re.compile(r"im-[A-Za-z0-9]+\Z")
@@ -152,11 +153,12 @@ def source_manifest(root: Path) -> List[Dict[str, str]]:
     """Every file under `root` with a `MANIFEST_SUFFIXES` suffix, sorted by path.
 
     The same rule `MANIFEST_SCRIPT` applies inside the image, so the two sides
-    compare like with like. Bounded by suffix rather than a full sweep: the
-    images copy these trees without `__pycache__` or `*.egg-info`
-    (`modal_app.BUILD_JUNK`), an installed package has bytecode the source
-    tree does not, and files outside `package-data` (a README) are not
-    installed, so a broader sweep would report differences that mean nothing.
+    compare like with like. Files the image copy leaves out (`is_build_junk`,
+    such as a JSON cache under `.mypy_cache`) are left out here too, or a
+    correctly built image would be missing them. Bounded by suffix rather than
+    a full sweep: an installed package has bytecode the source tree does not,
+    and files outside `package-data` (a README) are not installed, so a broader
+    sweep would report differences that mean nothing.
     """
 
     if not root.is_dir():
@@ -168,7 +170,9 @@ def source_manifest(root: Path) -> List[Dict[str, str]]:
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
             for path in root.rglob("*")
-            if path.is_file() and path.name.endswith(MANIFEST_SUFFIXES)
+            if path.is_file()
+            and path.name.endswith(MANIFEST_SUFFIXES)
+            and not is_build_junk(path.relative_to(root))
         ),
         # The string order MANIFEST_SCRIPT uses, so equal trees give equal lists.
         key=lambda row: row["path"],

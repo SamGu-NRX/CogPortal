@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -180,13 +181,18 @@ class SourceManifest(unittest.TestCase):
             (package / "README.md").write_text("not installed")
             (package / "py.typed").write_text("")
             (package / "__pycache__" / "manifests.cpython-38.pyc").write_bytes(b"bytecode")
+            # Build output the image copy never carries, JSON or not.
+            (package / ".mypy_cache" / "3.8").mkdir(parents=True)
+            (package / ".mypy_cache" / "3.8" / "manifests.data.json").write_text("{}")
+            local_rows = source_manifest(package)
+            shutil.rmtree(str(package / ".mypy_cache"))
             walked = subprocess.run(
                 [sys.executable, "-c", MANIFEST_SCRIPT, "synthetic_benchmark"],
                 capture_output=True, text=True, check=True, cwd=directory,
                 env={"PYTHONPATH": directory, "PYTHONDONTWRITEBYTECODE": "1"},
             )
             _root, image_rows = validate_manifest_payload(json.loads(walked.stdout))
-            self.assertEqual(image_rows, source_manifest(package))
+            self.assertEqual(image_rows, local_rows)
             self.assertEqual(
                 [row["path"] for row in image_rows],
                 ["__init__.py", "descriptor.json", "manifests.py", "manifests/public-evaluation.json"],

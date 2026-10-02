@@ -8,8 +8,12 @@ audit measured overall 1.0 against 0.61 that way). This module is the only
 place the materializers write, and it never replaces or edits a directory that
 already exists:
 
-- absent: the bundle is written into a temporary sibling and renamed into
-  place, so the version appears complete or not at all;
+- absent: the bundle is written into a temporary sibling, the version
+  directory is claimed with an exclusive `mkdir`, and each file is hard-linked
+  in exclusively. A rename would be atomic but silently replaces an empty
+  directory created after the existence check; these operations each fail
+  instead. If linking fails part way, this call removes what it created;
+  a crash in that window leaves a partial directory, which is refused below;
 - present with the same contents: nothing is written;
 - present with different contents, missing files, extra files, or not a plain
   directory: refused, and the existing bytes are left as they were.
@@ -29,6 +33,7 @@ import io
 import os
 import shutil
 import stat
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -80,26 +85,61 @@ def publish_bundle(target: Path, files: Mapping[str, bytes]) -> str:
             path.write_bytes(files[name])
             path.chmod(FILE_MODE)
         try:
-            # rename(2), not shutil.move: one atomic step, and it fails rather
-            # than merging when the destination is a non-empty directory. The
-            # one thing it would replace is an empty directory, which holds no
-            # bundle to lose.
-            os.rename(str(temporary), str(target))
-        except OSError as error:
-            if _existing_files(target, names) is not None:
-                # Another materialization finished first. Same answer as if it
-                # had finished before this one started.
-                return _confirm_same(target, files)
-            raise BundleRefused(
-                "Could not publish {}: {}. Nothing at that path was changed.".format(
-                    target, error.strerror or error
-                )
-            ) from None
+            os.mkdir(str(target))
+        except FileExistsError:
+            # Another materialization got there first: the same answer as if
+            # it had finished before this one started.
+            if _existing_files(target, names) is None:
+                raise BundleRefused(
+                    "{} appeared and vanished while publishing. Nothing was "
+                    "written; run the materializer again.".format(target)
+                ) from None
+            return _confirm_same(target, files)
+        _link_into(temporary, target, names)
     finally:
-        # Only this call's own temporary directory. After a successful rename
-        # it no longer exists under this name.
-        shutil.rmtree(str(temporary), ignore_errors=True)
+        # Only this call's own temporary directory; the links keep the bytes.
+        # A failure here is reported, never raised: it must not replace the
+        # outcome above, and a silent leftover is a second copy of the data.
+        try:
+            shutil.rmtree(str(temporary))
+        except OSError as error:
+            print(
+                "bundle warning: a temporary copy remains at {}: {}.".format(
+                    temporary, error.strerror or error
+                ),
+                file=sys.stderr,
+            )
     return PUBLISHED
+
+
+def _link_into(source: Path, target: Path, names: List[str]) -> None:
+    """Fill a directory this call just created, or leave nothing behind."""
+
+    linked = []
+    try:
+        for name in names:
+            # link(2) fails rather than replacing a file already at the name.
+            os.link(str(source / name), str(target / name))
+            linked.append(target / name)
+    except OSError as error:
+        # Each step guarded: a cleanup failure must not replace the failure
+        # that caused it, and is reported beside it instead.
+        left = []
+        for path in linked:
+            try:
+                os.unlink(str(path))
+            except OSError:
+                left.append(path.name)
+        try:
+            os.rmdir(str(target))
+            residue = ""
+        except OSError:
+            residue = " {} could not be removed{}; inspect it before publishing again.".format(
+                target, " (still holds {})".format(", ".join(left)) if left else ""
+            )
+        raise BundleRefused(
+            "Could not publish {}: {}.{}".format(target, error.strerror or error, residue)
+        ) from None
 
 
 def _existing_files(target: Path, names: List[str]) -> Optional[List[str]]:
@@ -161,9 +201,18 @@ def _identity(name: str, data: bytes, target: Path) -> Union[str, Tuple[Tuple[st
         return hashlib.sha256(data).hexdigest()
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            # Reading by name returns the last of two same-named entries, so
+            # two different archives could compare equal; the encoders never
+            # write duplicates, so one is refused rather than interpreted.
+            if len({member.filename for member in members}) != len(members):
+                raise BundleRefused(
+                    "{} in {} repeats an archive member name. The bundle was left "
+                    "untouched; materialize under a new --dataset-version.".format(name, target)
+                )
             return tuple(
-                (member, hashlib.sha256(archive.read(member)).hexdigest())
-                for member in archive.namelist()
+                (member.filename, hashlib.sha256(archive.read(member)).hexdigest())
+                for member in members
             )
     except zipfile.BadZipFile:
         raise BundleRefused(

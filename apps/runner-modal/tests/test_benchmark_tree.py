@@ -89,18 +89,38 @@ class ReviewedTree(unittest.TestCase):
             ["facial_recognition_benchmark/manifests/extra case.json", "setup.cfg"],
         )
 
-    def test_build_output_and_ignored_files_are_not_differences(self):
+    def test_build_output_is_not_a_difference_even_when_ignored(self):
+        (self.repo / ".git/info/exclude").write_text("*.egg-info/\n__pycache__/\n")
         for relative in (
             "facial_recognition_benchmark/__pycache__/drivers.cpython-38.pyc",
             "facial_recognition_benchmark.egg-info/PKG-INFO",
             ".pytest_cache/v/cache/lastfailed",
             "build/lib/facial_recognition_benchmark/drivers.py",
-            "run.log",
         ):
             path = self.repo / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("generated")
         self.assertEqual(differences(self.repo), [])
+
+    def test_ignored_files_the_image_would_copy_are_refused(self):
+        # The image copy does not read .gitignore, so ignoring a file does
+        # not keep it out of /opt/weekN or out of pip's view.
+        (self.repo / ".git/info/exclude").write_text("setup.cfg\n")
+        (self.repo / "setup.cfg").write_text("[options]\n")
+        (self.repo / "run.log").write_text("ignored by .gitignore")
+        self.assertEqual(differences(self.repo), ["run.log", "setup.cfg"])
+
+    def test_an_unstaged_rename_keeps_both_names_aligned(self):
+        source = self.repo / "facial_recognition_benchmark/file with spaces.py"
+        source.write_text("y = 2\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "spaced")
+        source.rename(self.repo / "facial_recognition_benchmark/renamed with spaces.py")
+        self.git("add", "-N", "facial_recognition_benchmark/renamed with spaces.py")
+        self.assertEqual(differences(self.repo), [
+            "facial_recognition_benchmark/renamed with spaces.py "
+            "(from facial_recognition_benchmark/file with spaces.py)",
+        ])
 
     def test_lists_at_most_ten_paths(self):
         for index in range(12):

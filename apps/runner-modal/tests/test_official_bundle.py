@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+import warnings
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -195,24 +196,27 @@ class PublishBundle(unittest.TestCase):
         self.assertIn("not a readable archive", str(caught.exception))
         self.assertEqual((self.target / "payload.zip").read_bytes(), b"truncated")
 
+    def race(self, target, appear):
+        """Run `appear` between the existence check and this call's claim."""
+
+        real_mkdir = os.mkdir
+        fired = []
+
+        def other_writer_first(path, *args, **kwargs):
+            # `official_bundle.os` is the os module, so this patch is global
+            # and `appear` may call it too; it fires once.
+            if Path(path) == target and not fired:
+                fired.append(True)
+                appear()
+            return real_mkdir(path, *args, **kwargs)
+
+        return mock.patch.object(official_bundle.os, "mkdir", other_writer_first)
+
     def test_a_bundle_that_lands_first_wins_over_a_concurrent_one(self):
-        """Another publisher finishes between the check and the rename."""
-
-        real_rename = os.rename
-
-        def race(winner, target):
-            # Built before the patch, then moved into place from inside it.
-            staging = self.root / "staging" / target.parent.name
-            publish_bundle(staging, winner)
-
-            def other_publisher_first(source, destination):
-                real_rename(str(staging), destination)
-                return real_rename(source, destination)
-
-            return mock.patch.object(official_bundle.os, "rename", other_publisher_first)
-
         winner = bundle(gold=b'{"rows":[1,1]}')
-        with race(winner, self.target):
+        staging = self.root / "staging" / "official-v1"
+        publish_bundle(staging, winner)
+        with self.race(self.target, lambda: os.rename(str(staging), str(self.target))):
             with self.assertRaises(BundleRefused) as caught:
                 publish_bundle(self.target, bundle())
         self.assertIn("gold.json differ", str(caught.exception))
@@ -220,9 +224,91 @@ class PublishBundle(unittest.TestCase):
         self.assertOnlyTarget()
 
         same = self.root / "same" / "official-v1"
-        with race(bundle(), same):
+        staging = self.root / "staging-same" / "official-v1"
+        publish_bundle(staging, bundle())
+        with self.race(same, lambda: os.rename(str(staging), str(same))):
             self.assertEqual(publish_bundle(same, bundle()), UNCHANGED)
         self.assertEqual(sorted(path.name for path in same.parent.iterdir()), ["official-v1"])
+
+    def test_an_empty_directory_made_after_the_check_is_refused_not_replaced(self):
+        # Sol's reproduction: rename(2) replaced it and reported PUBLISHED.
+        self.target.parent.mkdir(parents=True)
+        with self.race(self.target, lambda: os.mkdir(str(self.target))):
+            with self.assertRaises(BundleRefused) as caught:
+                publish_bundle(self.target, bundle())
+        self.assertIn("not a complete bundle", str(caught.exception))
+        self.assertEqual(list(self.target.iterdir()), [])
+        self.assertOnlyTarget()
+
+    def test_a_link_that_fails_part_way_leaves_no_version_behind(self):
+        real_link = os.link
+
+        def fail_second(source, destination):
+            if destination.endswith("payload.zip"):
+                raise OSError(18, "Cross-device link")
+            return real_link(source, destination)
+
+        with mock.patch.object(official_bundle.os, "link", fail_second):
+            with self.assertRaises(BundleRefused) as caught:
+                publish_bundle(self.target, bundle())
+        self.assertIn("Could not publish", str(caught.exception))
+        self.assertFalse(os.path.lexists(str(self.target)))
+        self.assertEqual(list(self.target.parent.iterdir()), [])
+
+    def test_a_failed_rollback_reports_the_original_error_and_what_is_left(self):
+        real_link, real_unlink = os.link, os.unlink
+
+        def fail_second(source, destination):
+            if destination.endswith("payload.zip"):
+                raise OSError(28, "No space left on device")
+            return real_link(source, destination)
+
+        def refuse_target_unlink(path, *args, **kwargs):
+            if Path(path).parent == self.target:
+                raise OSError(1, "Operation not permitted")
+            return real_unlink(path, *args, **kwargs)
+
+        with mock.patch.object(official_bundle.os, "link", fail_second), \
+                mock.patch.object(official_bundle.os, "unlink", refuse_target_unlink):
+            with self.assertRaises(BundleRefused) as caught:
+                publish_bundle(self.target, bundle())
+        message = str(caught.exception)
+        self.assertIn("No space left on device", message)
+        self.assertIn("could not be removed (still holds gold.json)", message)
+
+    def test_a_staging_copy_that_cannot_be_removed_is_reported(self):
+        # Sol's reproduction: the outcome stood and the leftover copy was silent.
+        def refuse(path, *args, **kwargs):
+            raise OSError(13, "Permission denied")
+
+        def link_fails(source, destination):
+            raise OSError(28, "No space left on device")
+
+        for failing in (False, True):
+            with self.subTest(publication_fails=failing):
+                target = self.root / ("failing" if failing else "fresh") / "official-v1"
+                with mock.patch.object(official_bundle.shutil, "rmtree", refuse), \
+                        contextlib.redirect_stderr(io.StringIO()) as log:
+                    if failing:
+                        with mock.patch.object(official_bundle.os, "link", link_fails), \
+                                self.assertRaises(BundleRefused) as caught:
+                            publish_bundle(target, bundle())
+                        # The publication failure stays the error raised.
+                        self.assertIn("No space left on device", str(caught.exception))
+                    else:
+                        self.assertEqual(publish_bundle(target, bundle()), PUBLISHED)
+                self.assertIn("bundle warning: a temporary copy remains at", log.getvalue())
+                self.assertIn(str(target.parent / ".official-v1."), log.getvalue())
+                self.assertIn("Permission denied", log.getvalue())
+
+    def test_duplicate_archive_member_names_are_refused(self):
+        publish_bundle(self.target, bundle())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # zipfile warns about the duplicate
+            twice = archive((("metadata.json", b"{}"), ("a.npy", b"y"), ("a.npy", b"x")))
+        with self.assertRaises(BundleRefused) as caught:
+            publish_bundle(self.target, dict(bundle(), **{"payload.zip": twice}))
+        self.assertIn("repeats an archive member name", str(caught.exception))
 
     def test_a_failed_write_leaves_no_destination_and_no_temporary(self):
         real = Path.write_bytes
