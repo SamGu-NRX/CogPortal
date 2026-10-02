@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
 import {
   MetricSchema,
   OFFICIAL_LIMIT,
@@ -15,7 +15,8 @@ import {
 } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
 import { runSourceRefusal } from "./run-source";
-import { getDb } from "../db/client";
+import { getDb, type Database } from "../db/client";
+import { insertWhere } from "../db/insert-where";
 import type { Env } from "../env";
 import {
   benchmarks,
@@ -499,45 +500,63 @@ function refusalHeadlineOf(run: { refusalJson?: string | null } | null | undefin
   }
 }
 
+function streamEventRow(surfaceId: string, event: RunStreamEvent): typeof runStreamEvents.$inferInsert {
+  const parsed = RunStreamEventSchema.parse(event);
+  return {
+    eventId: parsed.eventId,
+    surfaceId,
+    source: parsed.source,
+    sourceRunId: parsed.sourceRunId,
+    sourceSequence: parsed.sourceSequence,
+    phase: parsed.phase,
+    code: parsed.code,
+    elapsedMs: parsed.elapsedMs,
+    progressCurrent: parsed.progress?.current ?? null,
+    progressTotal: parsed.progress?.total ?? null,
+    progressUnit: parsed.progress?.unit ?? null,
+    occurredAt: parsed.occurredAt,
+  };
+}
+
+/** A stream event written only if `condition` holds when it runs, for a batch
+ *  that must record the event together with the state change it reports. An
+ *  event that collides with a stored one fails the batch rather than letting
+ *  the state change commit without it. */
+export function guardedRunStreamEventInsert(
+  db: Database,
+  surfaceId: string,
+  event: RunStreamEvent,
+  condition: SQL,
+) {
+  return insertWhere(db, runStreamEvents, streamEventRow(surfaceId, event), condition);
+}
+
+/** After a new event: move the console up its team's list, and keep only its
+ *  newest MAX_SURFACE_EVENTS. */
+export async function settleRunStreamEvents(db: Database, surfaceId: string): Promise<void> {
+  await db.update(runSurfaces).set({ updatedAt: Date.now() }).where(eq(runSurfaces.id, surfaceId));
+  const overflow = await db
+    .select({ eventId: runStreamEvents.eventId })
+    .from(runStreamEvents)
+    .where(eq(runStreamEvents.surfaceId, surfaceId))
+    .orderBy(desc(runStreamEvents.occurredAt))
+    .limit(1_000)
+    .offset(MAX_SURFACE_EVENTS);
+  if (overflow.length) {
+    await db.delete(runStreamEvents).where(inArray(runStreamEvents.eventId, overflow.map((row) => row.eventId)));
+  }
+}
+
 export async function appendRunStreamEvent(
   env: Env,
   surfaceId: string,
   event: RunStreamEvent,
   options: { publish?: boolean } = {},
 ) {
-  const parsed = RunStreamEventSchema.parse(event);
   const db = getDb(env);
-  const result = await db
-    .insert(runStreamEvents)
-    .values({
-      eventId: parsed.eventId,
-      surfaceId,
-      source: parsed.source,
-      sourceRunId: parsed.sourceRunId,
-      sourceSequence: parsed.sourceSequence,
-      phase: parsed.phase,
-      code: parsed.code,
-      elapsedMs: parsed.elapsedMs,
-      progressCurrent: parsed.progress?.current ?? null,
-      progressTotal: parsed.progress?.total ?? null,
-      progressUnit: parsed.progress?.unit ?? null,
-      occurredAt: parsed.occurredAt,
-    })
-    .onConflictDoNothing();
+  const result = await db.insert(runStreamEvents).values(streamEventRow(surfaceId, event)).onConflictDoNothing();
   const duplicate = (result.meta.changes ?? 0) === 0;
-  if (!duplicate) {
-    await db.update(runSurfaces).set({ updatedAt: Date.now() }).where(eq(runSurfaces.id, surfaceId));
-    const overflow = await db
-      .select({ eventId: runStreamEvents.eventId })
-      .from(runStreamEvents)
-      .where(eq(runStreamEvents.surfaceId, surfaceId))
-      .orderBy(desc(runStreamEvents.occurredAt))
-      .limit(1_000)
-      .offset(MAX_SURFACE_EVENTS);
-    if (overflow.length) {
-      await db.delete(runStreamEvents).where(inArray(runStreamEvents.eventId, overflow.map((row) => row.eventId)));
-    }
-  }
+  if (!duplicate) await settleRunStreamEvents(db, surfaceId);
   if (options.publish !== false) await publishRunSurface(env, surfaceId);
   return { duplicate };
 }
