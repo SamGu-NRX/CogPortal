@@ -185,6 +185,31 @@ class SourceCopyExcludesBuildOutput(deployment_target.ControllerImport):
         ):
             self.assertFalse(self.staging_app.is_build_junk(Path(path)), path)
 
+    def test_the_submodule_validators_skip_exactly_what_the_image_copy_skips(self):
+        # scripts/benchmark_tree.py restates the predicate because the week
+        # lanes cannot import the runner. A path one side skips and the other
+        # does not is either a false refusal or an unchecked file in an image.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+        import benchmark_tree
+
+        self.assertEqual(benchmark_tree.BUILD_JUNK, self.staging_app.BUILD_JUNK)
+        for path in (
+            "build/lib/language_search_benchmark/plugins.py",
+            "language_search_benchmark.egg-info/SOURCES.txt",
+            "language_search_benchmark/__pycache__/plugins.cpython-311.pyc",
+            "language_search_benchmark/plugins.pyc",
+            "tests/.pytest_cache/v/cache/lastfailed",
+            "pyproject.toml",
+            "setup.cfg",
+            "facial_recognition_benchmark/manifests/public-evaluation.json",
+            ".DS_Store",
+        ):
+            self.assertEqual(
+                benchmark_tree.is_build_junk(Path(path)),
+                self.staging_app.is_build_junk(Path(path)),
+                path,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
