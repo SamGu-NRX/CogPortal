@@ -58,6 +58,7 @@ import contextlib
 import gzip
 import hashlib
 import importlib
+import inspect
 import io
 import json
 import math
@@ -404,6 +405,27 @@ class Guards:
         )
 
 
+def require_snapshot_ttl(modal: Any) -> None:
+    """Refuse a Modal client that cannot give the snapshot an expiry.
+
+    `snapshot_filesystem(ttl=)` arrived in modal 1.5.0 (2026-06-09). On an
+    older client the call raises TypeError only after both sandboxes have
+    been billed, and before 1.5 a snapshot never expired, so the reference
+    solution would stay in the workspace indefinitely.
+    """
+
+    method = getattr(getattr(modal, "Sandbox", None), "snapshot_filesystem", None)
+    try:
+        parameters = inspect.signature(method).parameters if method else {}
+    except (TypeError, ValueError):
+        parameters = {}
+    if "ttl" not in parameters:
+        raise SmokeError(
+            "local", "modal {} can't set a snapshot expiry; snapshot_filesystem(ttl=) arrived in "
+            "1.5.0. Install modal>=1.5 in .venv-deploy.".format(getattr(modal, "__version__", "?")),
+        )
+
+
 def _stderr(process: Any) -> str:
     raw = process.stderr.read()
     return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else (raw or "")
@@ -691,6 +713,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     import modal  # noqa: PLC0415
     import modal.runner  # noqa: PLC0415, F401
 
+    try:
+        require_snapshot_ttl(modal)
+    except SmokeError as error:
+        print("smoke refused: {}".format(error), file=sys.stderr)
+        return 1
     record["modalClient"] = modal.__version__
     plan = prepared["plan"]
     status = 1

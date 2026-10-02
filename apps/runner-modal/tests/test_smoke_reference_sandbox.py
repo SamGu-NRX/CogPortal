@@ -665,6 +665,36 @@ class CommandLine(unittest.TestCase):
             self.assertIn(".venv-deploy", said)
             self.assertFalse((Path(directory) / "result.json").exists())
 
+    def _main_with_modal(self, directory, modal_module):
+        prepared = {
+            "plan": _plan(), "runner": types.SimpleNamespace(RunnerFailure=RunnerFailure),
+            "benchmark": object(), "record": {},
+        }
+        with mock.patch.dict(sys.modules, {"modal": modal_module, "modal.runner": modal_module.runner}), \
+                mock.patch.object(smoke, "prepare_plan", return_value=prepared), \
+                mock.patch.object(smoke, "run_remote", side_effect=AssertionError("billed")):
+            return self._main(self._arguments(directory))
+
+    def test_a_modal_client_without_snapshot_ttl_is_refused_before_anything_is_billed(self):
+        class OldSandbox:  # modal < 1.5: no ttl=
+            def snapshot_filesystem(self, timeout=55):
+                raise AssertionError("never called")
+
+        old = types.SimpleNamespace(__version__="1.4.2", runner=types.SimpleNamespace(), Sandbox=OldSandbox)
+        with tempfile.TemporaryDirectory() as directory:
+            status, said = self._main_with_modal(directory, old)
+            self.assertEqual(status, 1)
+            self.assertIn("modal 1.4.2 can't set a snapshot expiry", said)
+            self.assertIn("modal>=1.5", said)
+            self.assertFalse((Path(directory) / "result.json").exists())
+
+    def test_a_modal_client_with_snapshot_ttl_passes_the_check(self):
+        class CurrentSandbox:
+            def snapshot_filesystem(self, timeout=55, *, ttl=2592000):
+                raise AssertionError("never called")
+
+        smoke.require_snapshot_ttl(types.SimpleNamespace(Sandbox=CurrentSandbox))
+
     def test_a_missing_benchmark_plugin_is_a_refusal_not_a_traceback(self):
         missing = smoke.PluginError("No installed benchmark plugin named 'language-search'.")
         with tempfile.TemporaryDirectory() as directory, \
@@ -690,7 +720,11 @@ class CommandLine(unittest.TestCase):
             "plan": _plan(), "runner": types.SimpleNamespace(RunnerFailure=RunnerFailure),
             "benchmark": object(), "record": {},
         }
-        fake = types.SimpleNamespace(__version__="1.5.4", runner=types.SimpleNamespace())
+        class CurrentSandbox:
+            def snapshot_filesystem(self, timeout=55, *, ttl=2592000):
+                raise AssertionError("never called")
+
+        fake = types.SimpleNamespace(__version__="1.5.4", runner=types.SimpleNamespace(), Sandbox=CurrentSandbox)
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.dict(sys.modules, {"modal": fake, "modal.runner": fake.runner}), \
                 mock.patch.object(smoke, "prepare_plan", return_value=prepared), \
