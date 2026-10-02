@@ -972,6 +972,9 @@ test("incomplete weight uploads fail hosted dispatch without leaving an active r
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
   await db.insert(teamMembers).values({ teamId: actor.team.id, userId: actor.userId, role: "write" });
+  // The report is for version 1, so the run has to be: a report only supplies
+  // weights to a run of its own benchmark version.
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
   await db.insert(localReports).values({
     reportId: "report_missing_weight",
     userId: actor.userId,
@@ -988,6 +991,7 @@ test("incomplete weight uploads fail hosted dispatch without leaving an active r
     metricsJson: "[]",
     diagnosticsJson: "[]",
     weightsUsedJson: '["models/first.pkl","models/missing.pkl"]',
+    weightsUsedKnown: true,
     weightsUploadedJson: JSON.stringify([
       { path: "models/first.pkl", sha256: "0".repeat(64) },
       { path: "models/missing.pkl", sha256: "0".repeat(64) },

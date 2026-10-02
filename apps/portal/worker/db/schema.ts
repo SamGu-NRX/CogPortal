@@ -492,6 +492,10 @@ export const localReports = sqliteTable("local_reports", {
   diagnosticsJson: text("diagnostics_json").notNull(),
   /** Paths discovery read while producing this local report. */
   weightsUsedJson: text("weights_used_json").notNull().default("[]"),
+  /** Whether weightsUsedJson is the report's answer. False on reports synced
+   *  before 0033 recorded it, whose '[]' is only the column default
+   *  (migration 0047). Every write since sets it. */
+  weightsUsedKnown: integer("weights_used_known", { mode: "boolean" }).notNull().default(false),
   /** Required uploads; NULL preserves unknown provenance on legacy reports. */
   weightsUploadedJson: text("weights_uploaded_json"),
   /** `test` or `run`; NULL for a report synced before the CLI recorded it. */

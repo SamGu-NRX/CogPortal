@@ -512,6 +512,7 @@ test("new dispatch selects B while an existing dispatch and Retry retain A", asy
       contractVersion: benchmark.contractVersion, sdkVersion: "0.1.0", pluginVersion: "1",
       repositoryId: null, repositoryFullName: team.repoFullName, sha: run.sha, dirty: false,
       startedAt: 1, finishedAt: 2, metricsJson: "[]", diagnosticsJson: "{}", weightsUsedJson: '["model.pkl"]',
+      weightsUsedKnown: true,
     };
     await db.insert(localReports).values({ ...report, reportId: "report_a", syncedAt: 10,
       weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: digest }]) });

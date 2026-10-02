@@ -347,6 +347,7 @@ export async function enqueueRun(
       const repository = stored.repositoryFullName ?? team.repoFullName;
       const report = await getLatestTeamWeights(
         env, stored.teamId, repository, stored.sha, stored.repositoryId, stored.benchmarkId,
+        stored.benchmarkVersion,
       );
       weights = await weightManifest(
         env.ARTIFACTS, repository, stored.sha, report.weightsUsed, report.weightsUploaded,
