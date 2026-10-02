@@ -134,29 +134,39 @@ catalog row clears the approval, which pauses official attempts until it is
 registered again; that is the safe direction.
 
 **Release blocker.** No real digest is registered anywhere yet, and none may
-be invented. Do not deploy the portal admission change or the digest-checking
-runner until Sam or an authorized operator has supplied reviewed digests taken
-from exact copies of the live volume and approved the order below. Until then
-migration 0046 only adds empty (NULL) columns, and the publish-once
-materializers, receipt manifests and validator checks can ship on their own.
+be invented. Do not start the sequence below until Sam or an authorized
+operator approves it, and do not register any digest until step 3 is verified.
+The publish-once materializers, receipt manifests and validator checks can
+ship without any of it.
 
-Roll out in this order, with no step depending on a later one:
+The order matters because the runner deployed today ignores `datasetDigest`:
+an approved digest in a job it runs is a label, not a check, and it would
+score replaced bytes exactly as before. So approvals stay NULL until the
+runner that enforces them is live:
 
-1. Deploy the portal with migration 0046 and the registration migrations for
-   every active official dataset in the same release. Jobs then carry digests;
-   the current runner ignores the field. Practice is unaffected.
-2. Deploy the runner that checks digests. From then on an official job without
-   one is refused, so a job queued or retried from before step 1 fails as
-   `data_download` rather than scoring unchecked.
-3. Retry of an official run sent before step 1 is refused with "sent before its
-   dataset was approved"; the team promotes a new candidate. A Retry never
-   picks up a changed approval, because the job it resends is the one it was
-   frozen with.
+1. Deploy the portal with migration 0046 and no registration migration. Every
+   approval is NULL, so official admission is paused: Promote is refused, the
+   console says why, and no new official job is built. Practice is unaffected.
+2. Let official runs admitted before step 1 settle. They were sent without a
+   digest and run on the old runner under the old provenance, which their row
+   records as `dataset_digest IS NULL`. Wait until
+   `SELECT count(*) FROM runs WHERE mode = 'official' AND status IN
+   ('queued','preparing','installing','contract_check','evaluating','scoring')`
+   returns 0. Their Retry is refused ("sent before its dataset was
+   approved"), so none re-enters.
+3. Deploy the runner that checks digests, with approvals still NULL, and
+   verify it: the deployed runner commit includes the check, and one practice
+   canary completes. From now on an official job without a matching digest
+   fails before evaluation as `data_download` instead of scoring unchecked.
+4. Only then register the reviewed digests, one migration each, taken from
+   exact copies of the live volume as above. Registration reopens official
+   admission for that benchmark; run one non-credit official canary on it.
 
-Deploying the portal migration without registrations pauses every official
-benchmark until they land. Practice runs are unchanged by all three steps:
-their digest is null and their packaged data is covered by the release probe
-receipts and the submodule validators, not by this check.
+Never register an approval before step 3 is verified. A Retry never picks up a
+later or changed approval, because the job it resends is the one it was
+frozen with. Practice runs are unchanged by every step: their digest is null
+and their packaged data is covered by the release probe receipts and the
+submodule validators, not by this check.
 
 The `cogworks-week2-cpu-v1` image bakes the pinned VGGFace2 checkpoint and
 verifies SHA-256
