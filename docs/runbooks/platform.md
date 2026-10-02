@@ -133,6 +133,13 @@ own numbered migration for review. A later `INSERT OR REPLACE` of the same
 catalog row clears the approval, which pauses official attempts until it is
 registered again; that is the safe direction.
 
+**Release blocker.** No real digest is registered anywhere yet, and none may
+be invented. Do not deploy the portal admission change or the digest-checking
+runner until Sam or an authorized operator has supplied reviewed digests taken
+from exact copies of the live volume and approved the order below. Until then
+migration 0046 only adds empty (NULL) columns, and the publish-once
+materializers, receipt manifests and validator checks can ship on their own.
+
 Roll out in this order, with no step depending on a later one:
 
 1. Deploy the portal with migration 0046 and the registration migrations for
@@ -812,7 +819,8 @@ request to a deployed origin, so run it deliberately. Do not reach for
 - [ ] Python packages tested from a clean, non-editable install
 - [ ] Modal M0 evidence recorded
 - [ ] hidden dataset/scorer versions immutable and approved, with every
-      active official dataset's digest registered (section 3)
+      active official dataset's digest reviewed from the live volume and
+      registered by its own migration (section 3, release blocker)
 - [ ] queue retry and dead-letter alarms configured
 - [ ] GitHub and Discord least-privilege settings reviewed
 - [ ] fixture rollback tested
