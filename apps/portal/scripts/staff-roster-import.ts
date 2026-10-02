@@ -1,6 +1,7 @@
 // Print the one-time staff roster import as SQL. Why it exists, and why it
 // runs once and by hand: worker/auth/staff-import.ts. Steps:
-// docs/how-to/deploy-your-own.md, "Apply the migrations".
+// docs/how-to/deploy-your-own.md, "Moving the staff roster", which also says
+// when not to run it.
 //
 //   printf '%s' "$PLATFORM_STAFF_LOGINS" |
 //     pnpm --filter @cogworks/portal exec tsx scripts/staff-roster-import.ts \

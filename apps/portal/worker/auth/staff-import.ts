@@ -15,10 +15,13 @@ import { normalizeLogin } from "./roles";
  * Nothing reads the variable at runtime. A fallback there would re-grant, on
  * every request, anyone an owner later removed in the admin console, which
  * would make the table's revocations meaningless. That is also why this runs
- * once, by hand, and only on a database that has not yet applied 0031: on one
- * that has, the table is already the authority and owners may have removed
+ * once, by hand, and only while no table-reading Worker has ever served the
+ * database. The schema cannot say that (0031 can be applied while the old
+ * Worker still serves), so the operator decides from the deployed Worker and
+ * the release record (docs/how-to/deploy-your-own.md, "Moving the staff
+ * roster"). Once a table-reading Worker has served, owners may have removed
  * people on purpose. `ON CONFLICT DO NOTHING` keeps any row already present,
- * like the console's own add.
+ * like the console's own add, so repeating an interrupted copy is harmless.
  *
  * Each login goes through the console's own request schema and normalization
  * (`routes/admin.ts`, POST /admin/staff), so an imported row is the row an
