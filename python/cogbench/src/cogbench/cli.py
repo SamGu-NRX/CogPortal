@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import platform
@@ -270,6 +271,19 @@ def _resolve_report(path_value: Optional[str], project_root: Path) -> Path:
     return latest
 
 
+def _load_report(path: Path) -> LocalReport:
+    # A saved JSON file can be truncated or have the wrong shape. An empty
+    # object raised KeyError in both report and sync, bypassing CLI exit 2.
+    raw = path.read_text(encoding="utf-8")
+    try:
+        return LocalReport.from_json(raw)
+    except (AttributeError, KeyError, OverflowError, TypeError, ValueError) as error:
+        raise ValueError("Invalid saved report {}: {}: {}. "
+                         "Run the benchmark again to save a new report.".format(
+            path, type(error).__name__, error
+        )) from error
+
+
 def _format_expiry(expires_at_ms: int, now: Optional[datetime] = None) -> str:
     expires = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc)
     current = now or datetime.now(timezone.utc)
@@ -477,17 +491,29 @@ def _student_output(as_json: bool):
     # Both Python prints and native writes must stay off the JSON descriptor.
     # A separate stream also lets no-fork code close stdout without closing ours.
     original_stdout = sys.stdout
+    native_flush = None
+    if as_json and os.name == "posix":
+        # printf buffers bytes separately from Python. Without flushing libc
+        # before restoring fd 1, an installed plugin's output reaches JSON
+        # stdout later, when the process exits or launches its child.
+        native_flush = ctypes.CDLL(None).fflush
+        native_flush.argtypes = [ctypes.c_void_p]
+        native_flush.restype = ctypes.c_int
     saved_fd = os.dup(1)
     output = os.fdopen(os.dup(2 if as_json else 1), "w", buffering=1,
                        encoding="utf-8", errors="replace")
     try:
         isolate._flush_streams()
+        if native_flush is not None:
+            native_flush(None)
         if as_json:
             os.dup2(2, 1)
         sys.stdout = output
         yield
     finally:
         isolate._flush_streams()
+        if native_flush is not None:
+            native_flush(None)
         sys.stdout = original_stdout
         os.dup2(saved_fd, 1)
         os.close(saved_fd)
@@ -746,23 +772,30 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     #: score one either, and the two commands answer from the same decision.
     checks["submissionSource"] = None
     checks["submissionDetail"] = None
-    if checks["benchmarkInstalled"] and benchmark_group.endswith(".v2"):
-        plugin = load_benchmark(benchmark)
-        checks["benchmarkLoadable"] = True
-        # Plugins may report their own model/artifact cache; Week 2 predates
-        # the attribute, so its FaceNet checkpoint probe stands.
-        cache_probe = getattr(plugin, "model_cache_status", None)
-        checks["modelCache"] = cache_probe() if callable(cache_probe) else model_cache_status()
-        for tier in ("test", "evaluation"):
-            status = plugin.cache_status(tier)
-            checks["data{}Cache".format(tier.title())] = {
-                "ready": status.ready,
-                "path": str(status.path),
-                "message": status.message,
-            }
-    elif checks["benchmarkInstalled"]:
-        load_benchmark(benchmark)
-        checks["benchmarkLoadable"] = True
+    benchmark_error = ""
+    if checks["benchmarkInstalled"]:
+        try:
+            # Installed plugins can print during import or fail on a missing
+            # dependency. Keep their output off JSON and report that failure
+            # before attempting to read the student's repository.
+            with _student_output(as_json):
+                plugin = load_benchmark(benchmark)
+                if benchmark_group.endswith(".v2"):
+                    # Plugins may report their own model/artifact cache; Week
+                    # 2 predates the attribute, so its checkpoint probe stands.
+                    cache_probe = getattr(plugin, "model_cache_status", None)
+                    checks["modelCache"] = cache_probe() if callable(cache_probe) else model_cache_status()
+                    for tier in ("test", "evaluation"):
+                        status = plugin.cache_status(tier)
+                        checks["data{}Cache".format(tier.title())] = {
+                            "ready": status.ready,
+                            "path": str(status.path),
+                            "message": status.message,
+                        }
+            checks["benchmarkLoadable"] = True
+        except (Exception, SystemExit) as error:
+            benchmark_error = "{}: {}".format(type(error).__name__, error)
+            checks["benchmarkError"] = benchmark_error
     submission = None
     survey = None
     installed_reference = False
@@ -821,6 +854,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             unread_detail=unread_detail,
             declaration_error=declaration_error,
             search_unavailable=search_unavailable,
+            benchmark_error=benchmark_error,
         ):
             print(line)
     # `submissionInstalled` is deliberately not required: it only reports the
@@ -1196,9 +1230,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if args.command == "run" and args.live:
                 # This loads the trusted installed benchmark entry point only.
                 # Submission resolution, discovery and scoring stay in the child.
-                with _student_output(args.json):
-                    benchmark = _live_benchmark(args.benchmark, project_root)
-                live = _start_live_run(args, benchmark, project_root)
+                try:
+                    with _student_output(args.json):
+                        benchmark = _live_benchmark(args.benchmark, project_root)
+                    live = _start_live_run(args, benchmark, project_root)
+                except (PluginError, PortalError, OSError, ValueError) as error:
+                    if not args.json:
+                        raise
+                    # An unlinked device used to return no JSON at all. No
+                    # local result exists yet, so this is the sole document.
+                    print(json.dumps({
+                        "benchmarkId": args.benchmark,
+                        "status": isolate.RAISED,
+                        "detail": "{}: {}".format(type(error).__name__, error),
+                    }, indent=2))
+                    print("cogworks: {}".format(error), file=sys.stderr)
+                    return 2
             outcome = _local_operation("run", project_root, live=live, args=vars(args))
             if outcome.status != COMPLETED:
                 if live:
@@ -1260,11 +1307,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             return 0
         if args.command == "report":
-            _print_report(
-                LocalReport.from_json(
-                    _resolve_report(args.path, project_root).read_text(encoding="utf-8")
-                )
-            )
+            _print_report(_load_report(_resolve_report(args.path, project_root)))
             return 0
         if args.command == "link":
             portal = _portal(args.portal)
@@ -1311,7 +1354,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not token:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path, project_root)
-            report = LocalReport.from_json(path.read_text(encoding="utf-8"))
+            report = _load_report(path)
             receipts = report.weights_uploaded
             if receipts is None and report.weights_used:
                 raise PortalError(
