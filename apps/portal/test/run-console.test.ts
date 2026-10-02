@@ -438,3 +438,24 @@ test("a failed run's folded summary never says the run completed", () => {
   assert.doesNotMatch(completionOnly, /Run complete|No structured events/);
   assert.match(completionOnly, /under Show details/);
 });
+
+// A number beside a name reads as that student's grade, so the console names
+// the team and the commit and never the person who started the run.
+test("no state of the console attributes its result to the person who started it", () => {
+  const actor = { login: "grace-h-initiator", name: "Grace Initiator" };
+  const scored = { ...snapshot("succeeded"), actor, stage: "official" as const, actions: ["open_console", "open_portal", "publish_result"] as RunSurfaceSnapshot["actions"] };
+  const failed = { ...snapshot("failed"), actor, stage: "hosted" as const, practiceRunId: "run_failed", actions: ["retry"] as RunSurfaceSnapshot["actions"] };
+  const silent = { ...snapshot("running"), actor, silentSince: 1_750_000_008_000, actions: ["open_console", "open_portal", "run_again"] as RunSurfaceSnapshot["actions"] };
+  for (const value of [scored, failed, silent]) {
+    for (const compact of [false, true]) {
+      const html = renderToStaticMarkup(React.createElement(RunConsole, {
+        snapshot: value, streamState: "live", compact, onAction: () => {}, onOpenRun: () => {},
+      }));
+      assert.doesNotMatch(html, /grace-h-initiator|Grace Initiator/, `${value.status} compact=${compact}`);
+      assert.match(html, /Analytical Engines/);
+      assert.match(html, /bbbbbbb/);
+    }
+  }
+  const html = renderToStaticMarkup(React.createElement(RunConsole, { snapshot: scored, streamState: "closed" }));
+  assert.match(html, /0\.913/, "the score itself still shows");
+});
