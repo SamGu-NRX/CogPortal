@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Trusted Modal execution controller for CogWorks benchmarks"
 requires-python = ">=3.11"
 dependencies = [
-  "modal>=1.0,<2",
+  # 1.4.0 added the Sandbox filesystem API (filesystem.read_text and
+  # write_bytes) that modal_app uses for every sandbox it drives.
+  "modal>=1.4,<2",
   "fastapi>=0.115,<1"
 ]
 

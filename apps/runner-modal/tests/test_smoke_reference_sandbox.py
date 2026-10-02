@@ -688,6 +688,22 @@ class CommandLine(unittest.TestCase):
             self.assertIn("modal>=1.5", said)
             self.assertFalse((Path(directory) / "result.json").exists())
 
+    def test_a_modal_without_a_sandbox_or_a_readable_signature_is_refused(self):
+        class Uninspectable:
+            snapshot_filesystem = property(lambda self: None)
+
+        class Opaque:
+            pass
+
+        Opaque.snapshot_filesystem = object()  # not callable: inspect.signature raises TypeError
+        for name, modal in (
+            ("no Sandbox", types.SimpleNamespace(__version__="9.9")),
+            ("no method", types.SimpleNamespace(__version__="9.9", Sandbox=Uninspectable)),
+            ("unreadable signature", types.SimpleNamespace(__version__="9.9", Sandbox=Opaque)),
+        ):
+            with self.subTest(name), self.assertRaisesRegex(smoke.SmokeError, "can't set a snapshot expiry"):
+                smoke.require_snapshot_ttl(modal)
+
     def test_a_modal_client_with_snapshot_ttl_passes_the_check(self):
         class CurrentSandbox:
             def snapshot_filesystem(self, timeout=55, *, ttl=2592000):
