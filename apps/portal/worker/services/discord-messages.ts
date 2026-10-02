@@ -274,6 +274,17 @@ function nonce(snapshot: RunSurfaceSnapshot, generation: number): string {
   return `${snapshot.id.slice(-18)}${generation.toString(36)}`.slice(0, 25);
 }
 
+/** The channel a surface's message goes to, or null when none is bound. The
+ *  hub compares it with the one Discord refused, so rebinding retries. */
+export async function runSurfaceDiscordChannel(env: Env, surfaceId: string): Promise<string | null> {
+  const [surface] = await getDb(env)
+    .select({ channel: runSurfaces.discordChannelId })
+    .from(runSurfaces)
+    .where(eq(runSurfaces.id, surfaceId))
+    .limit(1);
+  return surface?.channel ?? null;
+}
+
 export async function syncRunSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot): Promise<"updated" | "created" | "unbound"> {
   const db = getDb(env);
   const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, snapshot.id)).limit(1);

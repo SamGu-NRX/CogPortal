@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { RunSurfaceSnapshotSchema, shouldReplaceRunSurfaceSnapshot, type RunSurfaceSnapshot } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { ApiHttpError } from "../http/errors";
-import { DiscordRequestError, syncRunSurfaceMessage } from "../services/discord-messages";
+import { DiscordRequestError, runSurfaceDiscordChannel, syncRunSurfaceMessage } from "../services/discord-messages";
 import { readRunSurfaceSnapshot } from "../services/run-surfaces";
 
 const TICK_MS = 2_000;
@@ -23,6 +23,22 @@ function ticking(snapshot: RunSurfaceSnapshot): boolean {
 function refusedByDiscord(error: unknown): error is DiscordRequestError {
   return error instanceof DiscordRequestError && error.status >= 400 && error.status < 500 && error.status !== 429;
 }
+
+/**
+ * How long a refused channel waits before Discord is asked again, when
+ * nothing that could change the answer has happened.
+ *
+ * Derived from Discord's documented limit (10,000 refused requests per IP in
+ * ten minutes, shared by every team's messages), not from a measurement: at
+ * one retry per refused surface per five minutes, it takes 5,000 surfaces
+ * refused at once to reach that limit, and a channel whose permission comes
+ * back mid-run is written to again within five minutes.
+ */
+const REFUSED_RETRY_MS = 5 * 60_000;
+
+/** What Discord refused: the channel, the run's status then, and when. A
+ *  number is the record an older hub kept, which this one retries once. */
+type DeliveryRefusal = { channel: string | null; status: RunSurfaceSnapshot["status"]; at: number };
 
 export class RunSurfaceHub extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -104,10 +120,6 @@ export class RunSurfaceHub extends DurableObject<Env> {
   private async snapshot(surfaceId: string, publish: boolean): Promise<RunSurfaceSnapshot> {
     return this.serialize(async () => {
       await this.ctx.storage.put("surfaceId", surfaceId);
-      // A publication is the only thing that lifts a delivery refusal: see alarm().
-      if (publish) {
-        await this.ctx.storage.put("publications", (await this.ctx.storage.get<number>("publications") ?? 0) + 1);
-      }
       const armBy = async (next: number) => {
         const currentAlarm = await this.ctx.storage.getAlarm();
         if (currentAlarm == null || next < currentAlarm) await this.ctx.storage.setAlarm(next);
@@ -170,14 +182,13 @@ export class RunSurfaceHub extends DurableObject<Env> {
       );
       await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
     };
-    let read: { snapshot: RunSurfaceSnapshot; publication: number; refused: boolean } | null;
+    let read: { snapshot: RunSurfaceSnapshot; refusal: DeliveryRefusal | number | undefined } | null;
     try {
       read = await this.serialize(async () => {
         try {
           const snapshot = await this.readAndBroadcast(surfaceId);
-          const publication = await this.ctx.storage.get<number>("publications") ?? 0;
-          const refused = await this.ctx.storage.get<number>("deliveryRefused") === publication;
-          return { snapshot, publication, refused };
+          const refusal = await this.ctx.storage.get<DeliveryRefusal | number>("deliveryRefused");
+          return { snapshot, refusal };
         } catch (error) {
           if (!(error instanceof ApiHttpError) || error.status !== 404) throw error;
           // Keep the sequence even if context disappears temporarily. Cleanup
@@ -200,14 +211,19 @@ export class RunSurfaceHub extends DurableObject<Env> {
       return;
     }
     if (!read) return;
-    // A refused message is not retried on every tick: the run still ticks for
-    // the website and lost-contact detection, but Discord is asked again only
-    // after the next publication. Recording the publication the read saw,
-    // rather than a flag, lets one that lands mid-request still get its try.
+    // A refused message is not retried on every tick, nor on every
+    // publication: CLI and runner heartbeats publish about every two seconds,
+    // so that would ask a refusing channel at the same rate. The run still
+    // ticks for the website and lost-contact detection. Discord is asked again
+    // when the answer could differ: the surface is bound to another channel,
+    // the run's status changed (a handful of times per run, so its result
+    // still gets a try), or REFUSED_RETRY_MS has passed. Recording the status
+    // the read saw lets a change that lands mid-request still get its try.
     // Without a bot token (local development) nothing can be sent at all.
-    if (!read.refused && this.env.DISCORD_BOT_TOKEN) {
+    if (this.env.DISCORD_BOT_TOKEN && !await this.stillRefused(surfaceId, read.refusal, read.snapshot)) {
       try {
         await syncRunSurfaceMessage(this.env, read.snapshot);
+        if (read.refusal !== undefined) await this.ctx.storage.delete(["deliveryRefused"]);
       } catch (error) {
         if (error instanceof DiscordRequestError && error.retryAfterMs) {
           await this.ctx.storage.setAlarm(Date.now() + error.retryAfterMs);
@@ -218,10 +234,31 @@ export class RunSurfaceHub extends DurableObject<Env> {
           return;
         }
         console.warn(JSON.stringify({ event: "run_surface_delivery_refused", surfaceId, status: error.status }));
-        await this.ctx.storage.put("deliveryRefused", read.publication);
+        const refusal: DeliveryRefusal = {
+          channel: await runSurfaceDiscordChannel(this.env, surfaceId).catch(() => null),
+          status: read.snapshot.status,
+          at: Date.now(),
+        };
+        await this.ctx.storage.put("deliveryRefused", refusal);
       }
     }
     if (ticking(read.snapshot)) await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
+  }
+
+  /** Whether the recorded refusal still answers for this attempt. A binding
+   *  that cannot be read keeps the refusal: not knowing is no reason to send. */
+  private async stillRefused(
+    surfaceId: string,
+    refusal: DeliveryRefusal | number | undefined,
+    snapshot: RunSurfaceSnapshot,
+  ): Promise<boolean> {
+    if (refusal === undefined || typeof refusal === "number") return false;
+    if (refusal.status !== snapshot.status || Date.now() - refusal.at >= REFUSED_RETRY_MS) return false;
+    try {
+      return await runSurfaceDiscordChannel(this.env, surfaceId) === refusal.channel;
+    } catch {
+      return true;
+    }
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {

@@ -586,7 +586,43 @@ for (const [name, status] of [["a 401", 401], ["a 403", 403], ["no bot token", n
   });
 }
 
-test("a publication after a refusal tries Discord again and can deliver", async (t) => {
+test("heartbeats after a refusal do not ask Discord again", async (t) => {
+  // Each heartbeat is a publication, and a live run sends one about every two
+  // seconds. Lifting the refusal on every publication asked a refusing channel
+  // at that rate, which is the shared-IP block the refusal exists to avoid.
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 1);
+  for (let sequence = 1; sequence <= 5; sequence += 1) {
+    await run.send(heartbeat(sequence));
+    await run.hub.alarm();
+  }
+  assert.equal(discord.requests.length, 1, "no heartbeat lifted the refusal");
+  assert.equal(run.hub.messages.at(-1)!.status, "running", "the console kept updating");
+});
+
+test("binding the run to another channel asks that channel once", async (t) => {
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  const other = "323456789012345678";
+  await run.db.update(runSurfaces).set({ discordChannelId: other }).where(eq(runSurfaces.id, run.surfaceId));
+  await run.hub.alarm();
+  assert.deepEqual(discord.requests, [
+    `POST /api/v10/channels/${CHANNEL}/messages`,
+    `POST /api/v10/channels/${other}/messages`,
+  ]);
+  // Refused again there, so the next tick stays quiet too.
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+});
+
+test("a refused channel is asked again after the retry interval and can deliver", async (t) => {
   t.mock.method(console, "warn", () => undefined);
   const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
   const discord = await discordChannel(t, run);
@@ -594,11 +630,14 @@ test("a publication after a refusal tries Discord again and can deliver", async 
   await run.hub.alarm();
   assert.deepEqual(discord.requests, [`POST /api/v10/channels/${CHANNEL}/messages`]);
 
-  // Staff give the permission back. Nothing is sent until the run reports.
+  // Staff give the permission back. Nothing is sent before the interval.
   discord.answer = () => Response.json({ id: MESSAGE });
+  await run.send(heartbeat(1));
   await run.hub.alarm();
   assert.equal(discord.requests.length, 1);
-  await run.send(heartbeat(1));
+
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now + 5 * 60_000);
   await run.hub.alarm();
   assert.equal(discord.requests.length, 2);
   const [surface] = await run.db.select().from(runSurfaces).where(eq(runSurfaces.id, run.surfaceId));
@@ -607,6 +646,20 @@ test("a publication after a refusal tries Discord again and can deliver", async 
   // Delivered again, so the live tick goes back to editing the message.
   await run.hub.alarm();
   assert.equal(discord.requests.at(-1), `PATCH /api/v10/channels/${CHANNEL}/messages/${MESSAGE}`);
+});
+
+test("a refusal recorded by an older hub gets one more try", async (t) => {
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  // The previous hub stored a publication number here.
+  run.hub.values.set("deliveryRefused", 7);
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2, "the retry was refused, and recorded in the new form");
 });
 
 test("a rate limit on a settled run waits as long as Discord asks", async (t) => {
