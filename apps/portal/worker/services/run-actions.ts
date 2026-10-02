@@ -10,7 +10,7 @@ import {
 import type { AuthState } from "../auth/session";
 import { createAuth, getGithubToken } from "../auth/better-auth";
 import type { Env } from "../env";
-import { getDb } from "../db/client";
+import { getDb, type Database } from "../db/client";
 import {
   benchmarks,
   discordAccounts,
@@ -169,10 +169,13 @@ function repeatPromotion(promotion: ExistingPromotion, surfaceId: string) {
   return { runId: promotion.promotedTo.runId, surfaceId };
 }
 
-async function insertPhaseSkeleton(env: Env, runId: string): Promise<void> {
-  await getDb(env).insert(runPhases).values(
-    RUN_PHASES.map((phase) => ({ runId, phase, startedAt: null, endedAt: null })),
-  );
+/** Phase rows for a run admitted earlier in the same batch. A refused capacity
+ *  insert leaves the run absent, so these write nothing either. */
+function guardedPhaseInserts(db: Database, runId: string) {
+  return RUN_PHASES.map((phase) => db.insert(runPhases).select(sql`
+    select ${runId}, ${phase}, null, null
+    where exists (select 1 from ${runs} where ${runs.id} = ${runId})
+  `));
 }
 
 async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: BenchmarkRow) {
@@ -311,26 +314,9 @@ export async function startPracticeRun(
 
   const surfaceId = options.surfaceId ?? `surface_${randomHex(10)}`;
   const now = Date.now();
-  await db
-    .insert(runSurfaces)
-    .values({
-      id: surfaceId,
-      teamId: actor.team.id,
-      createdByUserId: actor.userId,
-      benchmarkId: benchmark.id,
-      benchmarkVersion: benchmark.version,
-      localRunId: null,
-      supersedesSurfaceId: options.supersedesSurfaceId ?? null,
-      discordChannelId: actor.team.discordChannelId,
-      discordMessageId: null,
-      discordNonceGeneration: 0,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing();
   const runId = `run_${randomHex(5)}`;
   try {
-    const inserted = await insertRunWithCapacity(db, {
+    const insertRun = insertRunWithCapacity(db, {
       id: runId,
       teamId: actor.team.id,
       benchmarkId: benchmark.id,
@@ -366,6 +352,34 @@ export async function startPracticeRun(
       lastEventSequence: -1,
       surfaceId,
     });
+    // One D1 batch is one transaction: the console is written only if this
+    // run was admitted, because a console with no run cannot be rendered. An
+    // existing console (a local session being verified, a replayed rerun) is
+    // left exactly as it was.
+    const insertSurface = db
+      .insert(runSurfaces)
+      .select(
+        // Drizzle requires every column, in table order.
+        db
+          .select({
+            id: sql<string>`${surfaceId}`.as("id"),
+            teamId: runs.teamId,
+            createdByUserId: sql<string>`${actor.userId}`.as("createdByUserId"),
+            benchmarkId: runs.benchmarkId,
+            benchmarkVersion: runs.benchmarkVersion,
+            localRunId: sql<null>`null`.as("localRunId"),
+            supersedesSurfaceId: sql<string | null>`${options.supersedesSurfaceId ?? null}`.as("supersedesSurfaceId"),
+            discordChannelId: sql<string | null>`${actor.team.discordChannelId}`.as("discordChannelId"),
+            discordMessageId: sql<null>`null`.as("discordMessageId"),
+            discordNonceGeneration: sql<number>`0`.as("discordNonceGeneration"),
+            createdAt: sql<number>`${now}`.as("createdAt"),
+            updatedAt: sql<number>`${now}`.as("updatedAt"),
+          })
+          .from(runs)
+          .where(eq(runs.id, runId)),
+      )
+      .onConflictDoNothing();
+    const [inserted] = await db.batch([insertRun, insertSurface, ...guardedPhaseInserts(db, runId)]);
     if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
@@ -377,7 +391,6 @@ export async function startPracticeRun(
     }
     throw error;
   }
-  await insertPhaseSkeleton(env, runId);
   await dispatch(env, runId, actor.team, benchmark);
   await publishRunSurface(env, surfaceId);
   return { runId, surfaceId };
@@ -449,12 +462,7 @@ export async function promotePracticeRun(
       surfaceId: parent.surfaceId,
     });
     // A phase-write failure must not leave an admitted run without its phases.
-    // A rejected capacity insert creates no phases.
-    const insertPhases = RUN_PHASES.map((phase) => db.insert(runPhases).select(sql`
-      select ${runId}, ${phase}, null, null
-      where exists (select 1 from ${runs} where ${runs.id} = ${runId})
-    `));
-    const [inserted] = await db.batch([insertRun, ...insertPhases]);
+    const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId)]);
     if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
@@ -636,16 +644,12 @@ export async function retryRun(
     surfaceId,
     createdAt: now,
   });
-  const insertPhases = RUN_PHASES.map((phase) => db.insert(runPhases).select(sql`
-    select ${runId}, ${phase}, null, null
-    where exists (select 1 from ${runs} where ${runs.id} = ${runId})
-  `));
   const updateSurface = db.update(runSurfaces).set({ updatedAt: now }).where(and(
     eq(runSurfaces.id, surfaceId),
     exists(db.select({ id: runs.id }).from(runs).where(eq(runs.id, runId))),
   ));
   try {
-    const [inserted] = await db.batch([insertRun, ...insertPhases, updateSurface]);
+    const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId), updateSurface]);
     if (!inserted.meta.changes) {
       throw new ApiHttpError(409, "quota_exhausted",
         failed.mode === "official" ? "The official-attempt quota is exhausted." : "The practice-run quota is exhausted.");

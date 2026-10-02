@@ -1,16 +1,16 @@
 import type { Context, Hono } from "hono";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { RetryRunRequestSchema, RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
-import { discordAccounts, runSurfaces, teamMembers, teams, users } from "../db/schema";
+import { discordAccounts, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { createDiscordLink } from "../services/identity";
-import { buildRunSurfaceSnapshot, getRunSurfaceRow } from "../services/run-surfaces";
+import { getRunSurfaceRow, listTeamRunSurfaceSnapshots } from "../services/run-surfaces";
 import { discordRunActor, performRunSurfaceMutation } from "../services/run-actions";
 import { randomHex } from "../util/id";
 
@@ -245,16 +245,10 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
 
   app.get("/activity/run-surfaces", async (c) => {
     const identity = await requireActivityTeam(c);
-    const rows = await getDb(c.env)
-      .select({ id: runSurfaces.id })
-      .from(runSurfaces)
-      .where(eq(runSurfaces.teamId, identity.team.id))
-      .orderBy(desc(runSurfaces.updatedAt))
-      .limit(10);
     return respond(
       c,
       z.array(RunSurfaceSnapshotSchema),
-      await Promise.all(rows.map((row) => buildRunSurfaceSnapshot(c.env, row.id))),
+      await listTeamRunSurfaceSnapshots(c.env, identity.team.id),
     );
   });
 
