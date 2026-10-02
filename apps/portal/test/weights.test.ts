@@ -89,6 +89,8 @@ function runParts(mode: "practice" | "official" = "practice") {
       datasetVersion: "eval-v1",
       scorerVersion: "1.0.0",
       sandboxContract: 1,
+      // Synthetic approved digest; an official job cannot be built without one.
+      datasetDigest: "d".repeat(64),
     } as never,
   };
 }

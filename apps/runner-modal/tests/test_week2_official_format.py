@@ -199,12 +199,14 @@ class OfficialClusteringFormatTests(unittest.TestCase):
     def materialize(self, root, seed, sizes=(30, 30, 30)):
         cases, payload, gold, announced = materialize_official_bundle(root, seed, sizes)
         self.assertEqual(sum(case.scored for case in cases), len(sizes))
+        summary, digest = announced.splitlines()
         self.assertEqual(
-            announced,
+            summary,
             "Materialized {} scored clustering cases with {} images and {} stability repetitions.".format(
                 len(sizes), sum(sizes), len(cases) - len(sizes)
             ),
         )
+        self.assertRegex(digest, r"^Dataset digest for vision-clustering synthetic-test: [0-9a-f]{64}$")
         return cases, payload, gold
 
     def check_round_trip(self, seed, expanded_count):

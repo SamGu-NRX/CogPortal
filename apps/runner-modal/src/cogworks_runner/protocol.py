@@ -58,6 +58,11 @@ def validate_job(value: Any) -> Dict[str, Any]:
         type(sandbox_contract) is not int or sandbox_contract < 1
     ):
         raise ProtocolError("Sandbox contract is invalid.")
+    # Shape only. An official job without one is refused by the controller as
+    # a data failure, so a run is told why instead of being rejected unread.
+    dataset_digest = benchmark.get("datasetDigest")
+    if dataset_digest is not None and not _is_sha256(dataset_digest):
+        raise ProtocolError("Dataset digest is invalid.")
     source = value["source"]
     if not isinstance(source, dict) or len(str(source.get("sha", ""))) != 40:
         raise ProtocolError("Run source is invalid.")
@@ -96,13 +101,17 @@ def validate_job(value: Any) -> Dict[str, Any]:
             or size > MAX_WEIGHT_BYTES
         ):
             raise ProtocolError("Run weight size is invalid.")
-        if (
-            not isinstance(sha256, str)
-            or len(sha256) != 64
-            or any(character not in "0123456789abcdef" for character in sha256)
-        ):
+        if not _is_sha256(sha256):
             raise ProtocolError("Run weight digest is invalid.")
     return value
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def signature(secret: str, timestamp: str, body: bytes) -> str:

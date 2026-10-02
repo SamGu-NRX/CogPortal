@@ -76,6 +76,7 @@ import {
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 const NOW = 1_780_000_000_000;
 const BENCHMARK_ID = "vision-recognition";
+const APPROVED_DIGEST = "d".repeat(64);
 const PRACTICE_RUN_ID = "run_practice";
 // Shaped like a real one: publishRunSurface validates this id, and the
 // dispatch tests below now reach that publish, because a run the provider
@@ -224,6 +225,8 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     active: true,
     primaryMetricKey: "accuracy",
     sandboxContract: 1,
+    // Synthetic: an approved digest's shape, not any real bundle's.
+    datasetDigest: APPROVED_DIGEST,
     pluginVersion: "1",
     datasetVersion: "official-v1",
     scorerVersion: "1",
@@ -787,6 +790,7 @@ test("authenticated completion, promotion and signed dispatch preserve provision
     const job = RunJobV1Schema.parse(JSON.parse(payload));
     assert.deepEqual(job.preparedEnvironment, PREPARED);
     assert.equal(job.benchmark.sandboxContract, 1);
+    assert.equal(job.benchmark.datasetDigest, APPROVED_DIGEST);
     assert.equal(job.benchmark.scorerVersion, "new-scorer");
     assert.equal(job.preparedArtifactId, PREPARED.artifactId);
     assert.equal(job.weights, undefined);
@@ -801,6 +805,36 @@ test("authenticated completion, promotion and signed dispatch preserve provision
   const [official] = await db.select().from(runs).where(eq(runs.mode, "official"));
   assert.deepEqual(JSON.parse(official.preparedEnvironmentJson!), PREPARED);
   assert.equal(official.scorerVersion, "new-scorer");
+  assert.equal(official.datasetDigest, APPROVED_DIGEST);
+});
+
+test("an unapproved official dataset refuses promotion before admission, and every page says so", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ datasetDigest: null }).where(eq(benchmarks.id, BENCHMARK_ID));
+  const runtime = env(binding, "modal");
+  const refusal = "Official attempts for this benchmark are paused until course staff approve its dataset.";
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(snapshot.actions.includes("promote_official"), false);
+  assert.equal(snapshot.promotionRefusal, refusal);
+  const [practice] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  const detail = await serializeRunDetail(db, practice, actor.team);
+  assert.equal(detail.promotionRefusal, refusal);
+  const before = await db.select().from(runs);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => assert.fail("an unapproved dataset must not reach the runner");
+  try {
+    await assert.rejects(promotePracticeRun(runtime, actor, PRACTICE_RUN_ID), (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "not_promotable");
+      assert.equal(error.message, refusal);
+      return true;
+    });
+  } finally { globalThis.fetch = originalFetch; }
+  assert.deepEqual(await db.select().from(runs), before);
+  const accounting = await readRunAccounting(db, { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 });
+  assert.equal(accounting.officialReserved, 0);
 });
 
 for (const [name, patch] of Object.entries({
