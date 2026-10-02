@@ -414,7 +414,7 @@ for (const mode of ["practice", "official"] as const) {
         assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, failedId))).length, 1);
       } else {
         await assert.rejects(admission, (error: unknown) =>
-          error instanceof ApiHttpError && error.status === 409 && /fail the same way again/.test(error.message));
+          error instanceof ApiHttpError && error.status === 409 && /Retry isn't available for this failure/.test(error.message));
         assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, failedId))).length, 0);
         const [failed] = await db.select().from(runs).where(eq(runs.id, failedId));
         assert.equal(failed?.status, "failed", "a refused Retry leaves the failure as it was");

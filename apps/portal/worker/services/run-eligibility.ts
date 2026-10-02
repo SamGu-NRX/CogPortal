@@ -89,11 +89,12 @@ export function fixtureRetryRefusal(
 /**
  * Whether a failure's own category allows running the same commit again.
  *
- * The catalog's "fix" remedy means the runner saw the cause in what the
- * submission did (an install, a timeout, the memory limit, the output shape),
- * so the same commit fails the same way. Failed executions use no quota, so
- * without this a known-bad commit could be resent indefinitely on hosted
- * compute. An uncategorized failure stays retryable: nothing says it was the
+ * The catalog's "fix" remedy is its policy for causes the runner saw in what
+ * the submission did (an install, a timeout, the memory limit, the output
+ * shape): the next step is a change to the code, not the same commit again.
+ * That is a policy, not a proof that a rerun would fail identically. Failed
+ * executions use no quota, so without it such a commit could be resent
+ * indefinitely on hosted compute. An uncategorized failure stays retryable: nothing says it was the
  * submission. Admission and the console both read this, so the console never
  * offers a Retry that admission refuses.
  */

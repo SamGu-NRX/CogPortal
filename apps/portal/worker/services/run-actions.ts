@@ -576,7 +576,7 @@ export async function retryRun(
   if ((await successor()).length) return;
   if (!failureAllowsRetry(failed)) {
     throw new ApiHttpError(409, "invalid_request",
-      "This commit would fail the same way again. Fix the cause in your code, then start a new run.");
+      "Retry isn't available for this failure. Check the diagnostics, fix the cause, then start a new run.");
   }
   const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
   const current = currentSurfaceRun(attached, "official") ?? currentSurfaceRun(attached, "practice");
