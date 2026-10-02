@@ -1,6 +1,6 @@
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { CornerBrackets } from "@/components/Brackets";
 import { Button } from "@/components/Button";
@@ -10,6 +10,7 @@ import { LoadingMark, QueryError } from "@/components/Feedback";
 import { PageHeader } from "@/components/Note";
 import { Panel } from "@/components/Panel";
 import { ApiRequestError } from "@/lib/api";
+import { useFocusFallback } from "@/lib/focus";
 import { formatDateTime } from "@/lib/format";
 import { deviceLinkCommand } from "@/lib/setup-progress";
 import {
@@ -51,6 +52,12 @@ export function ConnectionsPage() {
   const revokeDevice = useRevokeDevice();
   const userCode = useMemo(() => searchParams.get("user_code")?.toUpperCase() ?? null, [searchParams]);
   const returnToSetup = searchParams.get("return_to") === "setup";
+  // Approving a device or connecting Discord replaces the request panel and
+  // its focused button with a line saying it worked; focus goes to that line.
+  const requestsRef = useRef<HTMLDivElement>(null);
+  const keepRequestFocus = useFocusFallback(
+    () => requestsRef.current?.querySelector<HTMLElement>("[data-request-outcome]"),
+  );
 
   useEffect(() => {
     const onHashChange = () => setDiscordToken(fragmentToken());
@@ -78,156 +85,160 @@ export function ConnectionsPage() {
     <div className="page anim-rise">
       <PageHeader eyebrow="Your account" title="Connections" />
 
-      {discordToken && (
-        <Panel
-          label={preview.isSuccess ? `Connect ${preview.data.username} to Cog?` : "Discord request"}
-          className="mt-10 max-w-[42rem]"
-        >
-          {preview.isPending ? (
-            <LoadingMark label="Checking Discord request" />
-          ) : preview.isError ? (
-            <div role="alert">
-              <p className="text-[14px] text-detect-deep">
-                {errorMessage(preview.error, "This Discord request can't be used. Start a new connection from Discord.")}
-              </p>
-              <Button className="mt-4" variant="ghost" onClick={clearDiscordToken}>
-                Dismiss
-              </Button>
-            </div>
-          ) : (
-            <div>
-              {/* What the link grants, read off the bot's own actions
-                  (apps/discord-bot/src/commands.ts, worker/rpc.ts). No promise
-                  of a confirmation here: the Activity retries a failed run,
-                  official ones included, without asking (RunConsole). */}
-              <dl className="space-y-3 text-[14px] leading-[1.55]">
-                <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
-                  <dt className="u-label text-ink">Shows you privately</dt>
-                  <dd className="mt-0.5 text-ink-secondary sm:mt-0">
-                    Your team's status and its synced local reports.
-                  </dd>
-                </div>
-                <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
-                  <dt className="u-label text-ink">Does as you</dt>
-                  <dd className="mt-0.5 text-ink-secondary sm:mt-0">
-                    Starts and retries hosted runs, spends official attempts and publishes
-                    results to the public leaderboard.
-                  </dd>
-                </div>
-              </dl>
-              <p className="mt-4 text-[13.5px] leading-[1.55] text-ink-faint">
-                Cog never receives your source code or your GitHub token.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Button
-                  busy={confirmDiscord.isPending}
-                  onClick={() =>
-                    confirmDiscord.mutate(discordToken, {
-                      onSuccess: (summary) => {
-                        setLinkedDiscord(summary.discord?.username ?? preview.data.username);
-                        clearDiscordToken();
-                      },
-                    })
-                  }
-                >
-                  Connect Discord
-                </Button>
-                <Button variant="quiet" onClick={clearDiscordToken}>
-                  Cancel
+      <div ref={requestsRef} {...keepRequestFocus}>
+        {discordToken && (
+          <Panel
+            label={preview.isSuccess ? `Connect ${preview.data.username} to Cog?` : "Discord request"}
+            className="mt-10 max-w-[42rem]"
+          >
+            {preview.isPending ? (
+              <LoadingMark label="Checking Discord request" />
+            ) : preview.isError ? (
+              <div role="alert">
+                <p className="text-[14px] text-detect-deep">
+                  {errorMessage(preview.error, "This Discord request can't be used. Start a new connection from Discord.")}
+                </p>
+                <Button className="mt-4" variant="ghost" onClick={clearDiscordToken}>
+                  Dismiss
                 </Button>
               </div>
-              {confirmDiscord.error && (
+            ) : (
+              <div>
+                {/* What the link grants, read off the bot's own actions
+                    (apps/discord-bot/src/commands.ts, worker/rpc.ts). No promise
+                    of a confirmation here: the Activity retries a failed run,
+                    official ones included, without asking (RunConsole). */}
+                <dl className="space-y-3 text-[14px] leading-[1.55]">
+                  <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                    <dt className="u-label text-ink">Shows you privately</dt>
+                    <dd className="mt-0.5 text-ink-secondary sm:mt-0">
+                      Your team's status and its synced local reports.
+                    </dd>
+                  </div>
+                  <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                    <dt className="u-label text-ink">Does as you</dt>
+                    <dd className="mt-0.5 text-ink-secondary sm:mt-0">
+                      Starts and retries hosted runs, spends official attempts and publishes
+                      results to the public leaderboard.
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-4 text-[13.5px] leading-[1.55] text-ink-faint">
+                  Cog never receives your source code or your GitHub token.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button
+                    busy={confirmDiscord.isPending}
+                    onClick={() =>
+                      confirmDiscord.mutate(discordToken, {
+                        onSuccess: (summary) => {
+                          setLinkedDiscord(summary.discord?.username ?? preview.data.username);
+                          clearDiscordToken();
+                        },
+                      })
+                    }
+                  >
+                    Connect Discord
+                  </Button>
+                  <Button variant="quiet" onClick={clearDiscordToken}>
+                    Cancel
+                  </Button>
+                </div>
+                {confirmDiscord.error && (
+                  <p role="alert" className="mt-3 text-[13.5px] text-detect-deep">
+                    {errorMessage(confirmDiscord.error, "Discord couldn't be connected. Try again.")}
+                  </p>
+                )}
+              </div>
+            )}
+          </Panel>
+        )}
+
+        {linkedDiscord && (
+          <Panel label="Discord connected" tone="good" className="anim-rise mt-10 max-w-[42rem]">
+            <p data-request-outcome tabIndex={-1} className="text-[14px] leading-[1.6] text-ink-secondary">
+              Cog is connected to <strong className="font-semibold text-ink">{linkedDiscord}</strong>.
+              To refresh Discord, choose <strong className="font-semibold text-ink">Check the link</strong>{" "}
+              in the Activity or run <strong className="font-semibold text-ink">/cog</strong> again.
+            </p>
+          </Panel>
+        )}
+
+        {userCode && !deviceApproved && (
+          <Panel
+            label="Approve this device"
+            description="It sends check results, synced local reports and runs you share live. It can't touch your repository, start a hosted run or publish a result."
+            className="mt-10 max-w-[42rem]"
+          >
+            <p className="text-[14px] text-ink-secondary">Approve only if your terminal shows this code.</p>
+            {/* The code is what ties this page to one terminal, so it is shown
+                big enough to compare at a glance, inside the bracket the portal
+                uses for "look here". */}
+            <p className="relative mt-3 inline-block px-4 py-3 font-mono text-[20px] leading-none tracking-[0.08em] whitespace-nowrap text-ink sm:px-5 sm:text-[26px] sm:tracking-[0.14em]">
+              <CornerBrackets size={10} thickness={1.5} className="text-detect" />
+              {userCode}
+            </p>
+            <form
+              className="mt-5 max-w-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (approveDevice.isPending) return;
+                const onApproved = () => {
+                  setDeviceApproved(true);
+                  // Drop the code from the URL so a reload does not re-offer
+                  // the approval form for a code the server already consumed.
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("user_code");
+                  setSearchParams(next, { replace: true });
+                  if (returnToSetup) {
+                    window.setTimeout(() => navigate("/setup", { replace: true }), 900);
+                  }
+                };
+                approveDevice.mutate(
+                  { userCode, deviceName },
+                  {
+                    onSuccess: onApproved,
+                  },
+                );
+              }}
+            >
+              <label htmlFor="device-name" className="u-label block">
+                Device name
+              </label>
+              <input
+                id="device-name"
+                value={deviceName}
+                onChange={(event) => setDeviceName(event.target.value)}
+                maxLength={80}
+                className="u-field mt-1.5"
+              />
+              <Button type="submit" className="mt-4" busy={approveDevice.isPending} disabled={!deviceName.trim()}>
+                Approve device
+              </Button>
+              {approveDevice.error && (
                 <p role="alert" className="mt-3 text-[13.5px] text-detect-deep">
-                  {errorMessage(confirmDiscord.error, "Discord couldn't be connected. Try again.")}
+                  {errorMessage(approveDevice.error, "The device couldn't be approved. Try again.")}
                 </p>
               )}
-            </div>
-          )}
-        </Panel>
-      )}
+            </form>
+          </Panel>
+        )}
 
-      {linkedDiscord && (
-        <Panel label="Discord connected" tone="good" className="anim-rise mt-10 max-w-[42rem]">
-          <p className="text-[14px] leading-[1.6] text-ink-secondary">
-            Cog is connected to <strong className="font-semibold text-ink">{linkedDiscord}</strong>.
-            To refresh Discord, choose <strong className="font-semibold text-ink">Check the link</strong>{" "}
-            in the Activity or run <strong className="font-semibold text-ink">/cog</strong> again.
-          </p>
-        </Panel>
-      )}
-
-      {userCode && !deviceApproved && (
-        <Panel
-          label="Approve this device"
-          description="It sends check results, synced local reports and runs you share live. It can't touch your repository, start a hosted run or publish a result."
-          className="mt-10 max-w-[42rem]"
-        >
-          <p className="text-[14px] text-ink-secondary">Approve only if your terminal shows this code.</p>
-          {/* The code is what ties this page to one terminal, so it is shown
-              big enough to compare at a glance, inside the bracket the portal
-              uses for "look here". */}
-          <p className="relative mt-3 inline-block px-4 py-3 font-mono text-[20px] leading-none tracking-[0.08em] whitespace-nowrap text-ink sm:px-5 sm:text-[26px] sm:tracking-[0.14em]">
-            <CornerBrackets size={10} thickness={1.5} className="text-detect" />
-            {userCode}
-          </p>
-          <form
-            className="mt-5 max-w-sm"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (approveDevice.isPending) return;
-              const onApproved = () => {
-                setDeviceApproved(true);
-                // Drop the code from the URL so a reload does not re-offer
-                // the approval form for a code the server already consumed.
-                const next = new URLSearchParams(searchParams);
-                next.delete("user_code");
-                setSearchParams(next, { replace: true });
-                if (returnToSetup) {
-                  window.setTimeout(() => navigate("/setup", { replace: true }), 900);
-                }
-              };
-              approveDevice.mutate(
-                { userCode, deviceName },
-                {
-                  onSuccess: onApproved,
-                },
-              );
-            }}
+        {deviceApproved && (
+          <div
+            role="status"
+            data-request-outcome
+            tabIndex={-1}
+            className="anim-rise mt-10 flex max-w-[42rem] items-start gap-3 rounded-r-surface border-l-2 border-verify bg-verify-wash px-4 py-3 text-[14px] text-verify-deep"
           >
-            <label htmlFor="device-name" className="u-label block">
-              Device name
-            </label>
-            <input
-              id="device-name"
-              value={deviceName}
-              onChange={(event) => setDeviceName(event.target.value)}
-              maxLength={80}
-              className="u-field mt-1.5"
-            />
-            <Button type="submit" className="mt-4" busy={approveDevice.isPending} disabled={!deviceName.trim()}>
-              Approve device
-            </Button>
-            {approveDevice.error && (
-              <p role="alert" className="mt-3 text-[13.5px] text-detect-deep">
-                {errorMessage(approveDevice.error, "The device couldn't be approved. Try again.")}
-              </p>
-            )}
-          </form>
-        </Panel>
-      )}
-
-      {deviceApproved && (
-        <div
-          role="status"
-          className="anim-rise mt-10 flex max-w-[42rem] items-start gap-3 rounded-r-surface border-l-2 border-verify bg-verify-wash px-4 py-3 text-[14px] text-verify-deep"
-        >
-          <HugeiconsIcon icon={Tick02Icon} size={17} strokeWidth={2} aria-hidden="true" className="mt-0.5 shrink-0" />
-          <span>
-            Device approved. You can return to the terminal
-            {returnToSetup ? "; returning to Setup…" : "."}
-          </span>
-        </div>
-      )}
+            <HugeiconsIcon icon={Tick02Icon} size={17} strokeWidth={2} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span>
+              Device approved. You can return to the terminal
+              {returnToSetup ? "; returning to Setup…" : "."}
+            </span>
+          </div>
+        )}
+      </div>
 
       <div className="mt-12">
         <Connection
@@ -352,9 +363,13 @@ function Connection({
   last?: boolean;
   children: ReactNode;
 }) {
+  // Revoking a device or unlinking Discord replaces the focused confirm with
+  // the section's new state; the heading is where reading it starts.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const keepFocus = useFocusFallback(() => headingRef.current);
   return (
-    <section className={`max-w-[42rem] border-t border-rule pt-6 ${last ? "" : "pb-10"}`}>
-      <h2 className="text-[21px] text-ink">{title}</h2>
+    <section className={`max-w-[42rem] border-t border-rule pt-6 ${last ? "" : "pb-10"}`} {...keepFocus}>
+      <h2 ref={headingRef} tabIndex={-1} className="text-[21px] text-ink">{title}</h2>
       <p className="mt-1 text-[13.5px] leading-[1.5] text-ink-faint">{grants}</p>
       <div className="mt-4">{children}</div>
     </section>
