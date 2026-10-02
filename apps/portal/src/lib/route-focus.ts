@@ -3,11 +3,6 @@ import { useLocation } from "react-router";
 
 const SITE = "Cog*Portal";
 
-/** How long after a navigation a late-rendering heading may still take
- *  focus. Pages render their heading once their data arrives; past this the
- *  user is assumed to have moved on, and focus is left where they put it. */
-const FOCUS_WINDOW_MS = 2000;
-
 /**
  * What a page change tells someone who can't see the whole screen.
  *
@@ -18,9 +13,10 @@ const FOCUS_WINDOW_MS = 2000;
  *
  * The page's own `<h1>` names it: the title becomes "{heading} · Cog*Portal"
  * and follows the heading if it changes. After a navigation (not the first
- * load), focus moves to that heading, but only when focus is on the page
- * itself or still in the header. A page that put focus somewhere on purpose,
- * such as a run that keeps focus on its console, keeps it.
+ * load), focus moves to that heading once, as soon as it renders, while
+ * focus is still on the page itself or in the header. The move is dropped if
+ * the user presses a key or the pointer first, or if the page puts focus
+ * somewhere in it, such as a run that keeps focus on its console.
  */
 export function useRouteFocusAndTitle(main: React.RefObject<HTMLElement | null>, header: React.RefObject<HTMLElement | null>) {
   const { pathname } = useLocation();
@@ -34,7 +30,22 @@ export function useRouteFocusAndTitle(main: React.RefObject<HTMLElement | null>,
     if (!root) return;
     const navigated = previous.current !== null && previous.current !== pathname;
     previous.current = pathname;
-    const focusAllowedUntil = navigated ? Date.now() + FOCUS_WINDOW_MS : 0;
+
+    // One move per navigation, and only until someone else decides where
+    // focus goes. A refetch after the move must never pull focus back.
+    let pending = navigated;
+    const cancel = () => {
+      pending = false;
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof Node && root.contains(target) && target !== root.querySelector("h1")) cancel();
+    };
+    if (pending) {
+      document.addEventListener("keydown", cancel, true);
+      document.addEventListener("pointerdown", cancel, true);
+      document.addEventListener("focusin", onFocusIn, true);
+    }
 
     const sync = () => {
       const heading = root.querySelector<HTMLElement>("h1");
@@ -42,9 +53,10 @@ export function useRouteFocusAndTitle(main: React.RefObject<HTMLElement | null>,
       const title = text ? `${text} · ${SITE}` : SITE;
       if (document.title !== title) document.title = title;
 
-      if (!heading || Date.now() > focusAllowedUntil) return;
+      if (!pending || !heading) return;
       const active = document.activeElement;
       const unplaced = !active || active === document.body || Boolean(header.current?.contains(active));
+      pending = false;
       if (!unplaced) return;
       if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
       heading.setAttribute("data-route-heading", "");
@@ -54,6 +66,11 @@ export function useRouteFocusAndTitle(main: React.RefObject<HTMLElement | null>,
     sync();
     const observer = new MutationObserver(sync);
     observer.observe(root, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("keydown", cancel, true);
+      document.removeEventListener("pointerdown", cancel, true);
+      document.removeEventListener("focusin", onFocusIn, true);
+    };
   }, [pathname, main, header]);
 }

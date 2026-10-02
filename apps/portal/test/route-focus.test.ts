@@ -90,7 +90,7 @@ async function mount(t: TestContext, strict = false) {
     await act(async () => { link.click(); });
     await settle();
   };
-  return { window, container, settle, follow };
+  return { window, container, settle, follow, root: () => window.document.querySelector("main")! };
 }
 
 test("the first load names the page and leaves focus alone", async (t) => {
@@ -133,4 +133,29 @@ test("going back to a page names it again", async (t) => {
   assert.equal(window.document.title, "Runs · Cog*Portal");
   assert.equal(window.document.activeElement?.textContent, "Runs");
   assert.equal(window.document.activeElement?.tagName, "H1");
+});
+
+test("after the heading takes focus once, a later change to the page never pulls focus back", async (t) => {
+  const { window, container, settle, follow, root } = await mount(t);
+  await follow("Team");
+  assert.equal(window.document.activeElement?.tagName, "H1");
+  // The user moves to a header control, then the page refetches.
+  const link = [...container.querySelectorAll("header a")].find((a) => a.textContent === "Runs") as HTMLAnchorElement;
+  link.focus();
+  await act(async () => { root().append(window.document.createElement("p")); });
+  await settle();
+  assert.equal(window.document.activeElement, link, "the header control keeps focus");
+});
+
+test("a key pressed before a late heading renders cancels the move", async (t) => {
+  const { window, container, settle } = await mount(t);
+  const link = [...container.querySelectorAll("header a")].find((a) => a.textContent === "Team") as HTMLAnchorElement;
+  link.focus();
+  await act(async () => { link.click(); });
+  // The heading is still loading; the user is already moving on.
+  window.document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+  await settle();
+  assert.ok(window.document.querySelector("main h1"), "the heading rendered");
+  assert.equal(window.document.activeElement, link, "focus stayed where the user had it");
+  assert.equal(window.document.title, "Demo Team · Cog*Portal", "the title still follows");
 });
