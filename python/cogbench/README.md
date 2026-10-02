@@ -46,7 +46,7 @@ placeholders:
 conda activate week2
 git clone https://github.com/<owner>/<repo>.git && cd <repo>
 python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@<commit>#subdirectory=python/cogbench"
-python -m pip install "cogworks-week2-vision-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@<commit>" && python -m pip install --force-reinstall --no-deps "cogworks-week2-vision-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@<commit>"
+python -m pip install "cogworks-week2-vision-benchmark[data] @ git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@<commit>" && python -m pip install --force-reinstall --no-deps "cogworks-week2-vision-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@<commit>"
 cogworks link --portal https://<your-portal>
 cogworks check --benchmark vision-recognition --update-setup
 ```
@@ -58,6 +58,10 @@ A few of these look odd, and each oddity is there on purpose:
 - The benchmark installs twice. The first command brings in its
   dependencies, and the second replaces an older copy of the same version
   without touching them.
+- Week 2 needs the `[data]` extra to load its public image dataset. A basic
+  benchmark install can pass a wiring check and then stop at `test` with
+  "Real-data runs require the benchmark data extra". If your Setup page's
+  line omits `[data]`, add it to the first install as shown above.
 - `link` opens the portal in your browser so you can approve this machine
   within ten minutes. On a machine without a browser, add `--no-browser` and
   open the printed link yourself. The link lasts 60 days.
@@ -129,11 +133,19 @@ note: Identification falls gradually from 68% at 5 songs to 54% at 30, without a
 note: 21% of queries had the right song somewhere in the list but not near the top.
 ```
 
-The first `test` or `run` of a week can download that week's public data and
-model files, so expect it to be slower than the ones after it. Language is the
-exception: its `check` reads the course files before it searches a repository,
-and nothing here downloads them for it, so run
-`python -m language_search_benchmark.fetch` once first (about 935 MB).
+Installing the tool and benchmark does not cache their public data or model
+files. Week 1 generates its audio locally and needs no download. Week 2's
+first `test` or `run` can download public images and model files; install the
+Week 2 course prerequisites, including FaceNet, first. For language, `check`
+needs the course files before it can search a repository. Run
+`python -m language_search_benchmark.fetch` once first, about 935 MB, or set
+`COGWORKS_LANGUAGE_DATA` to a folder that already holds those files. The
+benchmark verifies existing copies before using them.
+
+Local scoring works offline once its required packages and assets are here.
+A device link is not needed for `check`, `test`, `run`, or `report`. A wiring
+check can pass with an explicit adapter while assets are still absent, so
+use `test` to verify that this machine can actually score it.
 
 Commit before you run. A report records the commit it ran on, and it says
 "(dirty)" when the working tree had uncommitted changes, which means nobody

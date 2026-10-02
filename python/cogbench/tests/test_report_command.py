@@ -108,6 +108,18 @@ class SyncAndShow(unittest.TestCase):
         self.assertIn("command must be one of 'test', 'run', not 'practice'", err)
         sync.assert_not_called()
 
+    def test_malformed_saved_reports_exit_two_without_printing_or_posting(self):
+        invalid_metric = dict(json.loads(_report().to_json()), metrics=[None])
+        for raw in ("{}", "[]", "null", "{", json.dumps(invalid_metric)):
+            for command in ("report", "sync"):
+                with self.subTest(raw=raw, command=command):
+                    code, sync, out, err = self._cli([command, str(self.path)], raw)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(out, "")
+                    self.assertIn("Invalid saved report {}:".format(self.path), err)
+                    self.assertNotIn("Traceback", err)
+                    sync.assert_not_called()
+
     def test_showing_a_test_report_says_what_it_measured(self):
         code, _, out, err = self._cli(["report", str(self.path)], _report("test").to_json())
         self.assertEqual(code, 0, err)

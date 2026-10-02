@@ -199,6 +199,7 @@ def render_check(
     unread_detail: str = "",
     search_unavailable: str = "",
     declaration_error: str = "",
+    benchmark_error: str = "",
 ) -> List[str]:
     """The whole report, in the order a person asks about it.
 
@@ -239,7 +240,8 @@ def render_check(
     """
 
     lines: List[str] = []
-    lines.append(_line("benchmark", benchmark if benchmark_ready else benchmark + " (not installed)"))
+    benchmark_state = " (could not load)" if benchmark_error else " (not installed)"
+    lines.append(_line("benchmark", benchmark if benchmark_ready else benchmark + benchmark_state))
     lines.append(_line("python", python_version))
     if hosted_python and hosted_python != python_version:
         lines.append(
@@ -275,6 +277,12 @@ def render_check(
     if local_gap_note and not verdict_covers_the_gap:
         lines.append("")
         lines.extend(_wrapped(local_gap_note))
+
+    if benchmark_error:
+        lines.append("")
+        lines.extend(_wrapped("Could not check the installed benchmark: {}".format(benchmark_error)))
+        lines.extend(_wrapped("Check its installation in this Python environment and retry."))
+        return lines
 
     if unread_detail:
         lines.append("")

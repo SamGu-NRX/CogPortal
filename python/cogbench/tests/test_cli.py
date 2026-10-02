@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
 import unittest
 from datetime import datetime, timezone
@@ -15,9 +16,31 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 from cogbench.cli import _format_expiry, _parser, _print_report, main  # noqa: E402
 from cogbench.client import PortalError  # noqa: E402
 from cogbench.models import LocalReport, Metric, RepositoryState  # noqa: E402
+from cogbench.plugins import PluginError  # noqa: E402
 
 
 class CliContractTests(unittest.TestCase):
+    def test_json_live_startup_failures_return_one_document_before_scoring(self):
+        for target, error in (
+            ("_live_benchmark", PluginError("broken benchmark installation")),
+            ("_start_live_run", PortalError("This portal is not linked. Run `cogworks link` first.")),
+        ):
+            with self.subTest(target=target):
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch("cogbench.cli._live_benchmark", return_value={}), \
+                        patch("cogbench.cli._start_live_run"), \
+                        patch("cogbench.cli." + target, side_effect=error), \
+                        patch("cogbench.cli._local_operation") as score, \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    code = main(["run", "--benchmark", "fixture", "--live", "--json"])
+                self.assertEqual(code, 2)
+                self.assertEqual(json.loads(stdout.getvalue()), {
+                    "benchmarkId": "fixture", "status": "raised",
+                    "detail": "{}: {}".format(type(error).__name__, error),
+                })
+                self.assertIn(str(error), stderr.getvalue())
+                score.assert_not_called()
+
     def test_bare_command_prints_help_and_succeeds(self):
         stdout = io.StringIO()
         with redirect_stdout(stdout):
