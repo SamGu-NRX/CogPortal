@@ -65,7 +65,14 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
-  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } } });
+  // Mutations too: a finished one otherwise starts TanStack's 5-minute
+  // garbage-collection timer, which keeps this process alive after the tests.
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { staleTime: Infinity, gcTime: Infinity, retry: false },
+      mutations: { gcTime: Infinity },
+    },
+  });
   client.setQueryData(["admin", "overview"], overview);
   client.setQueryData(["admin", "staff"], staff);
   const container = window.document.createElement("div");
@@ -97,6 +104,16 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
 function assertFocused(actual: Element | null | undefined, expected: Element | null | undefined, message: string) {
   const describe = (node: Element | null | undefined) => (node ? `${node.tagName} "${node.textContent?.trim().slice(0, 40)}"` : String(node));
   assert.ok(actual === expected, `${message}: focus is on ${describe(actual)}, expected ${describe(expected)}`);
+}
+
+/** Drives React task by task until `check` holds, and fails by name after
+ *  a bounded number of tasks rather than hanging. */
+async function waitFor(check: () => boolean, what: string) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (check()) return;
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+  assert.fail(`timed out waiting for ${what}`);
 }
 
 test("assigning a student moves focus to the row that takes its place, then to the line saying who was added", async (t) => {
@@ -138,11 +155,9 @@ test("a select stays focusable while its assignment is pending", async (t) => {
     const option = [...select.options].find((entry) => entry.textContent === "Team A");
     assert.ok(option);
     Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!.call(select, option.value);
-    await act(async () => {
-      select.dispatchEvent(new window.Event("change", { bubbles: true }));
-      // The mutation's pending state reaches the component on a zero-delay timer.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await act(async () => { select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    // The mutation's pending state reaches the component on a later task.
+    await waitFor(() => select.getAttribute("aria-disabled") === "true", "the pending assignment");
     // A disabled select would drop focus in a browser before the row leaves.
     assert.equal(select.disabled, false);
     assert.equal(select.getAttribute("aria-disabled"), "true");
