@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   SELF_CHECKABLE_SETUP_STEPS,
@@ -22,7 +22,7 @@ import {
 } from "./setup-check-off-token";
 import { isPlatformOwner } from "../auth/roles";
 import { authorizationLogin, requireTeam } from "../auth/session";
-import { getDb } from "../db/client";
+import { getDb, type Database } from "../db/client";
 import { benchmarks, setupVerifications, teamMembers, teams } from "../db/schema";
 import { onboardingDevToolsAvailable, type AppEnv, type Env } from "../env";
 import { ApiHttpError } from "../http/errors";
@@ -57,8 +57,62 @@ async function checkOffTokens(
   return Object.fromEntries(entries);
 }
 
+function noTeam(): ApiHttpError {
+  return new ApiHttpError(403, "no_team", "Finish joining a team and connecting its repository first.");
+}
+
 function normalizedRepository(value: string): string {
   return value.trim().replace(/\.git$/i, "").toLowerCase();
+}
+
+/**
+ * The membership check and the write are one statement because a separate
+ * lookup leaves a gap for a removal to land in, and a check-off token can
+ * outlive its membership by a week. `cli` outranks `self`: an observation is
+ * never downgraded by the student's word. False means nothing was written.
+ */
+async function recordSetupStep(
+  db: Database,
+  row: {
+    userId: string;
+    teamId: string;
+    step: SetupStep;
+    benchmarkId: string;
+    verifiedAt: number;
+    source: "cli" | "self";
+  },
+): Promise<boolean> {
+  const written = await db
+    .insert(setupVerifications)
+    .select(
+      // Drizzle requires every column, in table order. The WHERE also stops
+      // SQLite reading the upsert's ON as a join constraint.
+      db
+        .select({
+          userId: teamMembers.userId,
+          teamId: teamMembers.teamId,
+          step: sql<string>`${row.step}`.as("step"),
+          benchmarkId: sql<string>`${row.benchmarkId}`.as("benchmarkId"),
+          verifiedAt: sql<number>`${row.verifiedAt}`.as("verifiedAt"),
+          source: sql<string>`${row.source}`.as("source"),
+        })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.userId, row.userId), eq(teamMembers.teamId, row.teamId))),
+    )
+    .onConflictDoUpdate({
+      target: [
+        setupVerifications.userId,
+        setupVerifications.teamId,
+        setupVerifications.step,
+        setupVerifications.benchmarkId,
+      ],
+      set:
+        row.source === "cli"
+          ? { verifiedAt: row.verifiedAt, source: "cli" }
+          : { verifiedAt: row.verifiedAt },
+    })
+    .returning({ step: setupVerifications.step });
+  return written.length > 0;
 }
 
 async function setupState(c: Parameters<typeof requireTeam>[0]) {
@@ -153,29 +207,17 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
     // even though nothing legitimately mints one.
     if (!isSelfCheckableStep(payload.s)) return c.text(STALE_TOKEN_MESSAGE, 400);
 
-    const now = Date.now();
-    await getDb(c.env)
-      .insert(setupVerifications)
-      .values({
-        userId: payload.u,
-        teamId: payload.t,
-        step: payload.s,
-        benchmarkId: payload.b,
-        verifiedAt: now,
-        source: "self",
-      })
-      // Only the timestamp moves. A step the CLI already reported stays `cli`,
-      // because running the check-off afterwards does not make the portal's
-      // observation weaker.
-      .onConflictDoUpdate({
-        target: [
-          setupVerifications.userId,
-          setupVerifications.teamId,
-          setupVerifications.step,
-          setupVerifications.benchmarkId,
-        ],
-        set: { verifiedAt: now },
-      });
+    // Same sentence as any stale command, so a leaked copy does not reveal
+    // whether the student is still on the team.
+    const recorded = await recordSetupStep(getDb(c.env), {
+      userId: payload.u,
+      teamId: payload.t,
+      step: payload.s,
+      benchmarkId: payload.b,
+      verifiedAt: Date.now(),
+      source: "self",
+    });
+    if (!recorded) return c.text(STALE_TOKEN_MESSAGE, 400);
 
     return c.text(`CogPortal: '${payload.s}' is checked off. Back to the browser with you.`);
   });
@@ -190,13 +232,7 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
       .innerJoin(teams, eq(teamMembers.teamId, teams.id))
       .where(eq(teamMembers.userId, device.userId))
       .limit(1);
-    if (!membership) {
-      throw new ApiHttpError(
-        403,
-        "no_team",
-        "Finish joining a team and connecting its repository first.",
-      );
-    }
+    if (!membership) throw noTeam();
     if (
       normalizedRepository(body.repositoryFullName) !==
       normalizedRepository(membership.team.repoFullName)
@@ -230,26 +266,16 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
       // across every track a student ever checks, and each track would then
       // show a clone it has its own evidence for.
       const benchmarkId = isBenchmarkScopedStep(step) && scopeId ? scopeId : "";
-      await db
-        .insert(setupVerifications)
-        .values({
-          userId: device.userId,
-          teamId: membership.team.id,
-          step,
-          benchmarkId,
-          verifiedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            setupVerifications.userId,
-            setupVerifications.teamId,
-            setupVerifications.step,
-            setupVerifications.benchmarkId,
-          ],
-          // A step the student checked off by hand becomes observed once the
-          // CLI reports it, which is an upgrade and not a conflict.
-          set: { verifiedAt: now, source: "cli" },
-        });
+      const recorded = await recordSetupStep(db, {
+        userId: device.userId,
+        teamId: membership.team.id,
+        step,
+        benchmarkId,
+        verifiedAt: now,
+        source: "cli",
+      });
+      // A removal landed after the membership read above.
+      if (!recorded) throw noTeam();
     }
     return respond(c, SetupEvidenceResponseSchema, { accepted });
   });

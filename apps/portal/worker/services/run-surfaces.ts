@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, isNull, ne, or } from "drizzle-orm";
 import {
   MetricSchema,
   OFFICIAL_LIMIT,
@@ -568,6 +568,48 @@ export async function buildRunSurfaceSnapshot(env: Env, surfaceId: string): Prom
 
 export async function publishRunSurface(env: Env, surfaceId: string): Promise<RunSurfaceSnapshot> {
   return requestRunSurfaceSnapshot(env, surfaceId, "publish");
+}
+
+/** How many consoles the team's list shows. */
+const LISTED_SURFACES = 10;
+
+/**
+ * The team's newest consoles, for the portal and Activity lists.
+ *
+ * Only consoles with something to show are selected, before the limit, so a
+ * console with no run and no local session (left by an older start that was
+ * refused) can neither fail the list nor push real consoles out of it. A 404
+ * from one snapshot means its context vanished after the selection, and that
+ * console is left out; any other failure still fails the list.
+ */
+export async function listTeamRunSurfaceSnapshots(env: Env, teamId: string): Promise<RunSurfaceSnapshot[]> {
+  const db = getDb(env);
+  const rows = await db
+    .select({ id: runSurfaces.id })
+    .from(runSurfaces)
+    .where(and(
+      eq(runSurfaces.teamId, teamId),
+      or(
+        // Every run chain on a console starts with a run that is not a retry,
+        // so this is "has any run", phrased so runs_surface_mode_unique applies.
+        exists(db.select({ id: runs.id }).from(runs).where(and(
+          eq(runs.surfaceId, runSurfaces.id), isNull(runs.retryOfRunId),
+        ))),
+        exists(db.select({ id: localRunSessions.id }).from(localRunSessions)
+          .where(eq(localRunSessions.id, runSurfaces.localRunId))),
+      ),
+    ))
+    .orderBy(desc(runSurfaces.updatedAt))
+    .limit(LISTED_SURFACES);
+  const snapshots = await Promise.all(rows.map(async ({ id }) => {
+    try {
+      return await buildRunSurfaceSnapshot(env, id);
+    } catch (error) {
+      if (error instanceof ApiHttpError && error.status === 404) return null;
+      throw error;
+    }
+  }));
+  return snapshots.filter((snapshot) => snapshot !== null);
 }
 
 export function defaultLocalEventCode(phase: string): RunStreamEventCode {
