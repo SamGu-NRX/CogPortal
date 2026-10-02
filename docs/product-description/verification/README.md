@@ -78,7 +78,7 @@ No document is `verified`; each still has P1 or P2 items behind one of the gaps 
 
 Covered since the last revision, on deployed `ed2b194`: a fresh hosted Language run (`run_d11b5e5e2e`, succeeded, 9 cases, 19 metrics, 15 m 38 s, of which Install was 7 m 37 s with progress shown throughout), and the current CLI's `check --update-setup`, `run` and `sync` with Setup reaching 5/5. The CLI pass reused local source equal to the `b6bbffb` pin and needed course packages added by hand, so it does not prove a fresh setup from the page's lines alone.
 
-Observed locally on `17d26d9` with the fixture provider, and recorded in [checkpoint-17d26d9.md](checkpoint-17d26d9.md) rather than in the rows: publication refused for a synthetic partial Language result (B-50), teamless staff routed to `/admin` (B-48), the staff roster note and empty TA workspace (B-66), the Connections grant copy (B-49), and a real CLI link, approval and revocation. None of it closes a gap below, which names `ed2b194` or a hosted run.
+Observed locally on `17d26d9` with the fixture provider, and recorded in [checkpoint-17d26d9.md](checkpoint-17d26d9.md) rather than in the rows: publication refused for a synthetic partial Language result (B-50), teamless staff routed to `/admin` (B-48), the staff roster note and empty TA workspace (B-66), the Connections grant copy (B-49), and a real CLI link, approval and revocation. None of it closes a gap below; each gap still needs the build and setup its own row names.
 
 What still blocks `verified`, with what each needs. The release owner decides which of these matter for a given delivery.
 
