@@ -16,8 +16,11 @@ from pathlib import Path
 from cogworks_runner.official_bundle import (
     UNCHANGED,
     BundleRefused,
+    dataset_digest,
     publish_bundle,
+    read_bundle,
     require_usable_destination,
+    scored_files,
 )
 from cogworks_runner.week2_payload import encode_cases, recognition_gold
 from facial_recognition_benchmark.datasets import (
@@ -30,9 +33,6 @@ from facial_recognition_benchmark.datasets import (
 )
 
 DATASET_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-#: Both tracks. A recognition bundle from before expected.json existed is
-#: refused as incomplete rather than silently completed under its old name.
-BUNDLE_FILES = ("payload.zip", "expected.json")
 
 
 def main() -> None:
@@ -51,7 +51,9 @@ def main() -> None:
 
     target = args.volume_root.resolve() / args.track / args.dataset_version
     try:
-        require_usable_destination(target, BUNDLE_FILES)
+        # A recognition bundle from before expected.json existed is refused
+        # as incomplete rather than silently completed under its old name.
+        require_usable_destination(target, scored_files(args.track))
     except BundleRefused as error:
         raise SystemExit(str(error)) from None
 
@@ -107,14 +109,15 @@ def main() -> None:
         outcome = publish_bundle(target, files)
     except BundleRefused as error:
         raise SystemExit(str(error)) from None
+    # From the bytes on disk, which after a no-op are the earlier archive's.
+    digest = dataset_digest(read_bundle(target, args.track))
     if outcome == UNCHANGED:
         print(
             "{} already holds this exact bundle; nothing was written.".format(
                 args.dataset_version
             )
         )
-        return
-    if args.track == "vision-clustering":
+    elif args.track == "vision-clustering":
         print(
             "Materialized {} scored clustering cases with {} images and {} stability repetitions.".format(
                 len(scored), count, len(cases) - len(scored)
@@ -122,6 +125,7 @@ def main() -> None:
         )
     else:
         print("Materialized {} official images for {}.".format(count, args.track))
+    print("Dataset digest for {} {}: {}".format(args.track, args.dataset_version, digest))
 
 
 if __name__ == "__main__":

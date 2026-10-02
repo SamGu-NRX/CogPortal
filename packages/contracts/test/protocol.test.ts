@@ -91,6 +91,41 @@ test("weight manifests require digests and prepared jobs may omit them", async (
   assert.equal(RunJobV1Schema.safeParse(prepared).success, true);
 });
 
+test("the run-job benchmark block names the same fields in JSON Schema and Zod", async () => {
+  // Zod's benchmark object is not strict, so a field the JSON Schema adds and
+  // Zod lacks is stripped from every job the Worker builds, silently.
+  const schema = JSON.parse(await readFile(
+    fileURLToPath(new URL("../../../protocols/v1/run-job.schema.json", import.meta.url)), "utf8",
+  )) as { properties: { benchmark: { properties: Record<string, unknown>; required: string[] } } };
+  const zod = RunJobV1Schema.shape.benchmark.shape;
+  assert.deepEqual(Object.keys(schema.properties.benchmark.properties).sort(), Object.keys(zod).sort());
+  assert.deepEqual(
+    [...schema.properties.benchmark.required].sort(),
+    Object.keys(zod).filter((key) => !zod[key as keyof typeof zod].isOptional()).sort(),
+  );
+});
+
+test("an approved dataset digest is optional, and lowercase SHA-256 when present", async () => {
+  const job = (await fixture("run-job.valid.json")) as { benchmark: Record<string, unknown> };
+  // Optional so a job frozen before the field existed still parses; admission
+  // and the runner refuse an official run without one.
+  assert.equal("datasetDigest" in job.benchmark, false);
+  assert.equal(RunJobV1Schema.safeParse(job).success, true);
+  for (const accepted of [null, "a".repeat(64)]) {
+    job.benchmark.datasetDigest = accepted;
+    assert.equal(RunJobV1Schema.parse(job).benchmark.datasetDigest, accepted);
+  }
+  for (const refused of ["A".repeat(64), "a".repeat(63), "g".repeat(64), "", 7]) {
+    job.benchmark.datasetDigest = refused;
+    assert.equal(RunJobV1Schema.safeParse(job).success, false, String(refused));
+  }
+  const schema = JSON.parse(await readFile(
+    fileURLToPath(new URL("../../../protocols/v1/run-job.schema.json", import.meta.url)), "utf8",
+  )) as { properties: { benchmark: { properties: { datasetDigest: { pattern: string; type: string[] } } } } };
+  assert.equal(schema.properties.benchmark.properties.datasetDigest.pattern, "^[a-f0-9]{64}$");
+  assert.deepEqual(schema.properties.benchmark.properties.datasetDigest.type, ["string", "null"]);
+});
+
 test("benchmark results may omit weights supplied when a snapshot was reused", async () => {
   const result = (await fixture("benchmark-result.valid.json")) as Record<string, unknown>;
   delete result.weightsSupplied;

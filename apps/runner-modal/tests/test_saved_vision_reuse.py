@@ -114,6 +114,8 @@ class SavedVisionReuse(unittest.TestCase):
                 value.update(mode="official", preparedArtifactId="im-saved",
                              preparedEnvironment=evidence, weights=[])
                 value["benchmark"]["scorerVersion"] = "recognition-v2"
+                # Synthetic approval; `_v2_cases` is stubbed, so no bytes are checked.
+                value["benchmark"]["datasetDigest"] = "d" * 64
                 value["runtime"]["imageDigest"] = "different-current-image"
                 calls = []
                 files = {}

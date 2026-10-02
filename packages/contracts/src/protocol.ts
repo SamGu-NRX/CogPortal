@@ -236,6 +236,11 @@ export const RunJobV1Schema = z.object({
     datasetVersion: z.string().min(1).max(80),
     scorerVersion: z.string().min(1).max(80),
     sandboxContract: z.number().int().positive().nullable().optional(),
+    // The catalog's approved digest of an official dataset version's scored
+    // files (cogworks.dataset-digest.v1). Optional here so a job built before
+    // it existed still parses; admission and the runner refuse an official
+    // run without one.
+    datasetDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
   }),
   runtime: z.object({
     pythonVersion: z.string().regex(/^3\.\d{1,2}$/),

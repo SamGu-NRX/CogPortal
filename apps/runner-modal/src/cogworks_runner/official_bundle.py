@@ -1,15 +1,27 @@
-"""Publish an official dataset bundle under a version name exactly once.
+"""Official dataset bundles: their digest, and publishing each version once.
 
-A run records only the dataset version it was scored against, so the version
-name has to keep meaning one set of bytes. The materializers used to delete an
-existing version directory and install a replacement, which let two runs with
+A dataset digest is the identity of the bytes an official run is scored from.
+The catalog approves one per dataset version, the signed job carries it, and
+the controller reads the scored files once, hashes them, and refuses to
+evaluate when the hash differs (`read_approved_bundle`). It covers exactly the
+files in `SCORED_FILES`, so a stray file beside them cannot change it, and it
+is computed from bytes, so the operator command, the materializers and the
+controller agree by construction (`dataset_digest`).
+
+Before that check existed, a run recorded only the dataset version, so the
+version name alone had to keep meaning one set of bytes. The materializers
+used to delete an existing version directory and install a replacement, which let two runs with
 identical records be scored against different gold (the 2026-10-02 provenance
 audit measured overall 1.0 against 0.61 that way). This module is the only
 place the materializers write, and it never replaces or edits a directory that
 already exists:
 
-- absent: the bundle is written into a temporary sibling and renamed into
-  place, so the version appears complete or not at all;
+- absent: the bundle is written into a temporary sibling, the version
+  directory is claimed with an exclusive `mkdir`, and each file is hard-linked
+  in exclusively. A rename would be atomic but silently replaces an empty
+  directory created after the existence check; these operations each fail
+  instead. If linking fails part way, this call removes what it created;
+  a crash in that window leaves a partial directory, which is refused below;
 - present with the same contents: nothing is written;
 - present with different contents, missing files, extra files, or not a plain
   directory: refused, and the existing bytes are left as they were.
@@ -25,14 +37,31 @@ environment and its tests run on the course interpreter.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
+import json
 import os
 import shutil
 import stat
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Iterable, List, Mapping, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Mapping, Optional, Tuple, Union
+
+#: The files each benchmark's controller scores an official run from, read
+#: from /hidden/<benchmark id>/<dataset version>/. Week 1 renders its corpus
+#: from the manifest's seeds; Weeks 2 and 3 decode the sandbox payload and
+#: attach the controller-only answers.
+SCORED_FILES = {
+    "audio-identification": ("manifest.json",),
+    "vision-recognition": ("payload.zip", "expected.json"),
+    "vision-clustering": ("payload.zip", "expected.json"),
+    "language-search": ("payload.zip", "gold.json"),
+}
+
+#: Named inside the hashed document, so a later change to what is hashed is a
+#: new schema rather than a silent change of meaning.
+DIGEST_SCHEMA = "cogworks.dataset-digest.v1"
 
 PUBLISHED = "published"
 UNCHANGED = "unchanged"
@@ -43,6 +72,77 @@ FILE_MODE = 0o440
 
 class BundleRefused(RuntimeError):
     """The destination cannot take this bundle; nothing at it was changed."""
+
+
+class DatasetNotApproved(RuntimeError):
+    """The scored bytes are missing, unapproved, or not the approved bytes."""
+
+
+def scored_files(benchmark_id: str) -> Tuple[str, ...]:
+    try:
+        return SCORED_FILES[benchmark_id]
+    except KeyError:
+        raise DatasetNotApproved(
+            "{} has no official dataset layout.".format(benchmark_id)
+        ) from None
+
+
+def dataset_digest(files: Mapping[str, bytes]) -> str:
+    """SHA-256 of a canonical JSON list of (file name, SHA-256 of its bytes).
+
+    Language-neutral on purpose: anything that can hash a file and write
+    sorted-key, separator-free JSON can reproduce it.
+    """
+
+    document = {
+        "schema": DIGEST_SCHEMA,
+        "files": [
+            {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest()}
+            for name in sorted(files)
+        ],
+    }
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def read_bundle(root: Path, benchmark_id: str) -> Dict[str, bytes]:
+    """The scored files under `root`, each read exactly once."""
+
+    files = {}
+    for name in scored_files(benchmark_id):
+        path = root / name
+        try:
+            files[name] = path.read_bytes()
+        except OSError as error:
+            raise DatasetNotApproved(
+                "{} could not be read: {}.".format(path, error.strerror or error)
+            ) from None
+    return files
+
+
+def read_approved_bundle(
+    root: Path, benchmark_id: str, approved: Optional[str]
+) -> Dict[str, bytes]:
+    """The scored files, only if their digest is the one the job carries.
+
+    The caller decodes the returned bytes, never the files again, so what was
+    checked is what gets scored. This detects any difference between the
+    approved bytes and the bytes present; it does not stop an operator from
+    approving the wrong bundle.
+    """
+
+    if not approved:
+        raise DatasetNotApproved(
+            "The run job carries no approved dataset digest for this official run."
+        )
+    files = read_bundle(root, benchmark_id)
+    actual = dataset_digest(files)
+    if not hmac.compare_digest(actual, approved):
+        raise DatasetNotApproved(
+            "The official dataset bytes do not match the approved digest "
+            "(approved {}, found {}).".format(approved[:12], actual[:12])
+        )
+    return files
 
 
 def require_usable_destination(target: Path, names: Iterable[str]) -> None:
@@ -80,26 +180,43 @@ def publish_bundle(target: Path, files: Mapping[str, bytes]) -> str:
             path.write_bytes(files[name])
             path.chmod(FILE_MODE)
         try:
-            # rename(2), not shutil.move: one atomic step, and it fails rather
-            # than merging when the destination is a non-empty directory. The
-            # one thing it would replace is an empty directory, which holds no
-            # bundle to lose.
-            os.rename(str(temporary), str(target))
-        except OSError as error:
-            if _existing_files(target, names) is not None:
-                # Another materialization finished first. Same answer as if it
-                # had finished before this one started.
-                return _confirm_same(target, files)
-            raise BundleRefused(
-                "Could not publish {}: {}. Nothing at that path was changed.".format(
-                    target, error.strerror or error
-                )
-            ) from None
+            os.mkdir(str(target))
+        except FileExistsError:
+            # Another materialization got there first: the same answer as if
+            # it had finished before this one started.
+            if _existing_files(target, names) is None:
+                raise BundleRefused(
+                    "{} appeared and vanished while publishing. Nothing was "
+                    "written; run the materializer again.".format(target)
+                ) from None
+            return _confirm_same(target, files)
+        _link_into(temporary, target, names)
     finally:
-        # Only this call's own temporary directory. After a successful rename
-        # it no longer exists under this name.
+        # Only this call's own temporary directory; the links keep the bytes.
         shutil.rmtree(str(temporary), ignore_errors=True)
     return PUBLISHED
+
+
+def _link_into(source: Path, target: Path, names: List[str]) -> None:
+    """Fill a directory this call just created, or leave nothing behind."""
+
+    linked = []
+    try:
+        for name in names:
+            # link(2) fails rather than replacing a file already at the name.
+            os.link(str(source / name), str(target / name))
+            linked.append(target / name)
+    except OSError as error:
+        for path in linked:
+            os.unlink(str(path))
+        try:
+            os.rmdir(str(target))
+            residue = ""
+        except OSError:
+            residue = " {} still holds files this call did not create; inspect it.".format(target)
+        raise BundleRefused(
+            "Could not publish {}: {}.{}".format(target, error.strerror or error, residue)
+        ) from None
 
 
 def _existing_files(target: Path, names: List[str]) -> Optional[List[str]]:
@@ -161,9 +278,18 @@ def _identity(name: str, data: bytes, target: Path) -> Union[str, Tuple[Tuple[st
         return hashlib.sha256(data).hexdigest()
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            # Reading by name returns the last of two same-named entries, so
+            # two different archives could compare equal; the encoders never
+            # write duplicates, so one is refused rather than interpreted.
+            if len({member.filename for member in members}) != len(members):
+                raise BundleRefused(
+                    "{} in {} repeats an archive member name. The bundle was left "
+                    "untouched; materialize under a new --dataset-version.".format(name, target)
+                )
             return tuple(
-                (member, hashlib.sha256(archive.read(member)).hexdigest())
-                for member in archive.namelist()
+                (member.filename, hashlib.sha256(archive.read(member)).hexdigest())
+                for member in members
             )
     except zipfile.BadZipFile:
         raise BundleRefused(

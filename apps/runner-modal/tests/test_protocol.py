@@ -36,6 +36,22 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "digest"):
             validate_job(self.job)
 
+    def test_dataset_digest_is_optional_and_lowercase_sha256_when_present(self):
+        # Optional so a job built before the field existed still reaches the
+        # controller, which refuses an official one with a data failure.
+        self.job["mode"] = "official"
+        self.job["preparedArtifactId"] = "snapshot_1"
+        self.assertNotIn("datasetDigest", self.job["benchmark"])
+        validate_job(self.job)
+        for accepted in (None, "a" * 64):
+            self.job["benchmark"]["datasetDigest"] = accepted
+            validate_job(self.job)
+        for refused in ("A" * 64, "a" * 63, "a" * 65, "g" * 64, 7, ["a" * 64], ""):
+            with self.subTest(refused=refused):
+                self.job["benchmark"]["datasetDigest"] = refused
+                with self.assertRaisesRegex(ValueError, "Dataset digest is invalid"):
+                    validate_job(self.job)
+
     def test_weight_manifest_is_limited_to_eight_entries(self):
         self.job["weights"] = [
             {

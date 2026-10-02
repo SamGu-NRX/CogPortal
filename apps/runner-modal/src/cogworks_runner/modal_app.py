@@ -30,6 +30,8 @@ from .image_bake import (
     cache_week3_artifacts,
 )
 from .failure import RunnerFailure
+from .official_bundle import DatasetNotApproved, read_approved_bundle
+from .source_tree import is_build_junk
 from .prediction_validation import (
     check_predictions,
     load_predictions,
@@ -243,37 +245,6 @@ def add_source_dir(image: "modal.Image", local: Path, remote: str) -> "modal.Ima
     """
 
     return image.add_local_dir(str(local), remote, copy=True, ignore=is_build_junk)
-
-
-#: Directory names a source copy never carries, at any depth.
-BUILD_JUNK = frozenset(
-    {
-        "__pycache__",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".mypy_cache",
-        ".git",
-        ".venv",
-        "build",
-        "dist",
-    }
-)
-
-
-def is_build_junk(relative: Path) -> bool:
-    """Modal's `ignore` predicate: True excludes the file.
-
-    Modal calls it with each file's path relative to the copied directory.
-    This used to be a list of patterns written as `"~=**/build"`. Modal reads
-    a list as .dockerignore patterns and has no `~=` prefix, so every entry
-    matched nothing and all of these directories were copied. A predicate has
-    no pattern syntax to get wrong, and the tests can run it without Modal
-    installed.
-    """
-
-    return relative.suffix == ".pyc" or any(
-        part in BUILD_JUNK or part.endswith(".egg-info") for part in relative.parts
-    )
 
 
 #: Staging unless the environment says otherwise, both here and inside every
@@ -1386,6 +1357,35 @@ def _cases(job: Dict[str, Any], benchmark: Any) -> Tuple[List[Any], List[Any]]:
     return [case["input"] for case in cases], [case["expected"] for case in cases]
 
 
+def _approved_bundle(job: Dict[str, Any], week: str) -> Dict[str, bytes]:
+    """An official run's scored files, read once and checked against the job.
+
+    The signed job carries the digest the catalog approved for this dataset
+    version. Without the check, a bundle replaced under the same version name
+    scored with nothing in the run's record showing it (the 2026-10-02 audit
+    measured overall 1.0 against 0.61). Callers decode the returned bytes and
+    never reopen the files, so the checked bytes are the scored bytes.
+
+    A refusal is the platform's data problem, never the team's: category
+    data_download, infrastructure, before any evaluation starts. The specific
+    reason goes to the controller log for the operator; the run keeps the
+    sentence it has always shown for unusable official data.
+    """
+
+    benchmark = job["benchmark"]
+    root = Path("/hidden") / benchmark["id"] / benchmark["datasetVersion"]
+    try:
+        return read_approved_bundle(root, benchmark["id"], benchmark.get("datasetDigest"))
+    except DatasetNotApproved as error:
+        print("official dataset refused: {}".format(error), file=sys.stderr)
+        raise RunnerFailure(
+            "data_download",
+            "evaluating",
+            "Official {} data is missing or failed integrity validation.".format(week),
+            True,
+        ) from error
+
+
 def _v2_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
     if job["mode"] == "practice":
         try:
@@ -1403,9 +1403,9 @@ def _v2_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
         decode_cases,
     )
 
-    root = Path("/hidden") / job["benchmark"]["id"] / job["benchmark"]["datasetVersion"]
+    files = _approved_bundle(job, "Week 2")
     try:
-        payload_bytes = (root / "payload.zip").read_bytes()
+        payload_bytes = files["payload.zip"]
         payload_id, cases = decode_cases(payload_bytes)
         if payload_id != job["benchmark"]["id"]:
             raise ValueError("Official payload track mismatch.")
@@ -1416,7 +1416,7 @@ def _v2_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
         # to the stranger. That grouping used to travel inside payload.zip,
         # where the sandbox could read it and rebuild every expected label
         # without opening a single image.
-        expected = json.loads((root / "expected.json").read_text(encoding="utf-8"))
+        expected = json.loads(files["expected.json"].decode("utf-8"))
         if payload_id == "vision-clustering":
             cases = attach_clustering_labels(cases, expected)
         else:
@@ -1448,12 +1448,12 @@ def _week3_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
 
     from cogworks_runner.week3_payload import decode_payload
 
-    root = Path("/hidden") / job["benchmark"]["id"] / job["benchmark"]["datasetVersion"]
+    files = _approved_bundle(job, "Week 3")
     try:
-        payload_id, _showcase, cases = decode_payload((root / "payload.zip").read_bytes())
+        payload_id, _showcase, cases = decode_payload(files["payload.zip"])
         if payload_id != job["benchmark"]["id"]:
             raise ValueError("Official payload benchmark mismatch.")
-        gold = json.loads((root / "gold.json").read_text(encoding="utf-8"))
+        gold = json.loads(files["gold.json"].decode("utf-8"))
         return attach_gold(
             cases,
             text_group_rows=gold["text_group_rows"],
@@ -1489,10 +1489,10 @@ def _week1_manifest(job: Dict[str, Any]) -> Dict[str, Any]:
                 "Public Week 1 data could not be prepared.",
                 True,
             ) from error
-    root = Path("/hidden") / job["benchmark"]["id"] / job["benchmark"]["datasetVersion"]
+    files = _approved_bundle(job, "Week 1")
     try:
-        return json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
+        return json.loads(files["manifest.json"].decode("utf-8"))
+    except ValueError as error:
         raise RunnerFailure(
             "data_download",
             "evaluating",
@@ -2422,6 +2422,9 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
         week3 = job["benchmark"]["id"] == "language-search"
         week1 = job["benchmark"]["id"] == "audio-identification"
         week1_manifest: Dict[str, Any] = {}
+        # Set only where an official loader verified the scored bytes against
+        # it (`_approved_bundle`); the legacy v1 path below never does.
+        verified_dataset_digest = None
         if week1:
             week1_manifest = _week1_manifest(job)
             cases = _week1_cases(job, week1_manifest)
@@ -2439,6 +2442,11 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
             inputs, expected = _cases(job, benchmark)
             cases = []
             case_count = len(inputs)
+        if job["mode"] == "official" and (
+            week1 or week3 or benchmark.contract_version == "cogworks.submissions.v2"
+        ):
+            # Each of those loaders raised unless the bytes matched this value.
+            verified_dataset_digest = job["benchmark"].get("datasetDigest")
         phase = "evaluating"
         reporter.status("evaluating", 0, case_count)
         with StatusHeartbeat(reporter, "evaluating", 0, case_count):
@@ -2470,13 +2478,18 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
         ).hexdigest()
         # Preparation identity is preserved separately from this evaluator.
         # Requested image labels cannot describe a restored filesystem.
-        environment_digest = hashlib.sha256(canonical_json({
+        identity = {
             "preparedEnvironment": prepared_environment,
             "evaluationScriptSha256": hashlib.sha256(EVALUATE_SCRIPT.encode("utf-8")).hexdigest(),
             "controllerPython": sys.version,
             "pluginVersion": benchmark.plugin_version,
             "scorerVersion": benchmark.scorer_version,
-        })).hexdigest()
+        }
+        # The data an official run was scored on, once checked. Absent for
+        # practice so those digests stay what they were before this field.
+        if verified_dataset_digest is not None:
+            identity["datasetDigest"] = verified_dataset_digest
+        environment_digest = hashlib.sha256(canonical_json(identity)).hexdigest()
         result = {
             "protocolVersion": "1",
             "benchmarkId": job["benchmark"]["id"],

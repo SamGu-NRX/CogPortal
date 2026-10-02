@@ -26,8 +26,8 @@ import { readRunAccounting } from "../services/run-accounting";
 import {
   existingPromotion,
   NO_CONSOLE_PROMOTION_REFUSAL,
+  officialPromotionRefusal,
   rankingRefusal,
-  savedEnvironmentEligibility,
 } from "../services/run-eligibility";
 
 export function registerDashboardRoutes(app: Hono<AppEnv>): void {
@@ -82,11 +82,11 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
     const promoted = candidate?.surfaceId
       ? existingPromotion(allRuns.filter((run) => run.surfaceId === candidate.surfaceId))
       : null;
-    const promotionEligibility = candidate?.surfaceId && !promoted && c.env.EXECUTION_PROVIDER === "modal"
-      ? savedEnvironmentEligibility(candidate, benchmark, auth.team) : null;
+    const blocked = candidate?.surfaceId && !promoted && c.env.EXECUTION_PROVIDER === "modal"
+      ? officialPromotionRefusal(candidate, benchmark, auth.team) : null;
     const promotionRefusal = candidate && !candidate.surfaceId
       ? NO_CONSOLE_PROMOTION_REFUSAL
-      : promoted?.refusal ?? (promotionEligibility?.eligible === false ? promotionEligibility.reason : null);
+      : promoted?.refusal ?? blocked;
 
     // One statement for every primary metric this response needs: the run
     // log's rows and the two runs named above it. Read per run, this grew
