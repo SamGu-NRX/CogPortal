@@ -30,7 +30,7 @@ On July 24, an instructor gave up a lunch break to build a demo-day benchmark by
 
 ## Three levels of trust
 
-- Local practice. `cogworks check` works offline after install, and `test` and `run` work offline once the public data and models they fetch on first use are cached. None of them needs an account. The CLI never uploads source, paths, datasets or predictions, and any result you sync is marked self-reported.
+- Local practice. `cogworks check` works offline after install, and `test` and `run` work offline once the public data and models they fetch on first use are cached. None of them needs an account. `cogworks sync` uploads one report you pick (the latest by default) with the weight files that run used, and the portal marks the result self-reported.
 - Hosted practice. The same code runs in a Modal sandbox that gets inputs but no secrets and no network. The hidden labels stay with a trusted controller outside it.
 - Official evaluation. An official run has to reuse the exact artifact from a successful practice run at the same commit, and attempts are limited.
 
