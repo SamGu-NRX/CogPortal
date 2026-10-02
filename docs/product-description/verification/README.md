@@ -80,6 +80,13 @@ Covered since the last revision, on deployed `ed2b194`: a fresh hosted Language 
 
 Observed locally on `17d26d9` with the fixture provider, and recorded in [checkpoint-17d26d9.md](checkpoint-17d26d9.md) rather than in the rows: publication refused for a synthetic partial Language result (B-50), teamless staff routed to `/admin` (B-48), the staff roster note and empty TA workspace (B-66), the Connections grant copy (B-49), and a real CLI link, approval and revocation. None of it closes a gap below; each gap still needs the build and setup its own row names.
 
+The full hosted path at `f618038` is a separate receipt. A local Worker dispatched straight to the deployed beta runner v48 (deployed from `17d26d9`). Signed callbacks went into local D1, and the run page was reloaded in Chromium. The team connected a real public repository with a GitHub token placed in local D1; GitHub sign-in itself was not part of the run. There were two Language practice runs:
+
+- `run_6867b9fefa` on `bb08255` succeeded at Overall 0.1540, opening on the benchmark's finding (B-68).
+- `run_e9206870c0` on a deliberately malformed `4c6d54d` succeeded with notes, leading "What this run shows" with "text component scored 0: embed_text returned an array with 1 dimensions; expected a 2-D (rows, D) matrix."
+
+Every callback was answered `200`, and an unsigned one `401`. This run did not exercise sign-in, Cloudflare Queues, hosted D1, promotion, publication, weights or Discord. Later integrated commits have local evidence only.
+
 What still blocks `verified`, with what each needs. The release owner decides which of these matter for a given delivery.
 
 | Gap | What it unblocks | Needs | Command or procedure |

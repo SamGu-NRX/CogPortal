@@ -165,5 +165,6 @@ Nothing is pushed beyond the screen changing: no sound, no title change, no noti
 - No reconnection, stale-run sweep or Discord rate-limit reschedule was observed.
 - Hosted beta (`4984730`) observed the live run page for `run_f5fc5babe5` in `hosted-run_f5fc5babe5/evaluating.jpg`: pre-redesign layout, `RUN ABE5` title and an `EVALUATING` chip. That is beta's layout, not the candidate's.
 - Hosted beta (`4984730`) differs: its console page has no "Runs" link in the success state (beta `apps/portal/src/routes/RunSurfacePage.tsx:40`) and no "See why it failed" (beta `apps/portal/src/components/RunConsole.tsx:321-323` goes straight from the reason to the local "Run again"); the candidate has both (`RunSurfacePage.tsx:43-49`, `RunConsole.tsx:341-349`).
+- Integrated `93dfa5e` source differs: a finished hosted, official or published run's console offers "Read what it found" in the slot that says "See why it failed" on a failure (`3689ac5`, `apps/portal/src/components/RunConsole.tsx:390`). It is absent for local runs and runs still going. Keyboard Enter on it was checked in Chromium and WebKit at 390 and 1440 px on local fixture data.
 
 Read against Cog\*Portal commit `2ff32fa`.

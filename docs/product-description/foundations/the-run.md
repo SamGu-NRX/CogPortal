@@ -192,7 +192,7 @@ Twelve categories exist in the catalog (`packages/contracts/src/failures.ts:21`)
 
 ## Edge cases
 
-- **`queued` is a phase nobody reports.** No sandbox event carries it; it is the value a row starts with and the phase on a dispatch failure.
+- **`queued` is a phase nobody reports.** No sandbox event carries it; it is the value a row starts with and the phase on a dispatch failure. Both `f618038` full-path runs (`run_6867b9fefa`, `run_e9206870c0`) left it unstamped while every later phase opened and closed in order. Dispatch there was direct, with no Cloudflare Queue.
 - **`cancelled` is unreachable.** No worker, sandbox or CLI path writes it, yet the Runs page has "Cancelled {ago}." (`DashboardPage.tsx:457`) and the console has "Stopped before completion" (`RunConsole.tsx:87`).
 - **Two categories have no producer.** `model_cache` and `contract_invalid`. In the live console, `data_download` and `model_cache` fall through to the provider stream code because the map omits them (`run-surfaces.ts:60`).
 - **A version mismatch reads as missing data.** The deployed plugin disagreeing with the job raises `data_download`, titled "Benchmark data is not ready" ([B-21](../bug-triage.md)).
