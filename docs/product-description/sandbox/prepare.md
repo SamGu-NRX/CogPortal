@@ -252,8 +252,11 @@ and wall clock come from the job; see [`timeouts-and-limits.md`](timeouts-and-li
   exception, was not established. The first is E-INSTALL, the second E-PROVIDER.
 - Weights are matched to the run's exact commit (`local-reports.ts:340`); a push after `cogworks
   sync` silently drops them (B-08). The run page names the commit only when weights were supplied.
-- An official attempt reusing an artifact that holds uploaded weights does not repeat the weights
-  line: the result carries `weightsSupplied` only when the run prepared (`modal_app.py:2295`).
+- An official attempt reusing an artifact that holds uploaded weights gets no `weightsSupplied` from
+  the runner, which sends it only when the run prepared (`modal_app.py:2295`). By source its page
+  still repeats the line, because promotion copied the practice run's weights record
+  (`apps/portal/worker/services/run-actions.ts:430`). A Retry of a failed official attempt does not
+  copy it (`run-actions.ts:618-642`), so the retried page has no line. Not observed.
 - Upload, signed fetch, digest check and the weights line have not been observed end to end on any
   build.
 - The fixture provider draws Prepare and Install timings on official runs

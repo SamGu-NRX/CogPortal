@@ -7,7 +7,7 @@ Some of what a run scores did not come out of the team's repository. The benchma
 There are four kinds of supplied thing and the platform treats them differently:
 
 1. **What a step was handed.** Built on every search, shown only by `cogworks check --json`.
-2. **Weights from the team's own local run.** Named under the title of the practice run that fetched them, and not on the official attempt promoted from it.
+2. **Weights from the team's own local run.** Named under the title of the practice run that fetched them and, by source, on the official attempt promoted from it.
 3. **Glue code somebody else wrote.** A Week 1 sentence that nothing in the current tree triggers, though a team's own `submission.py` still can.
 4. **The image itself.** The same for every team and disclosed per run to nobody.
 
@@ -65,7 +65,7 @@ A Week 3 team keeps its trained projection out of git and lets `cogworks sync` u
 
 > "{paths} from your local run at {shortSha}" (`apps/portal/src/routes/RunDetailPage.tsx:179`)
 
-That is the one supplied thing a hosted run page names. It is missing from the official attempt promoted from that run. An official attempt reuses the practice run's prepared environment, weights included, so its job carries no weight list (`apps/portal/worker/execution/runner.ts:169`), the runner sends `weightsSupplied` only when it prepared the run itself (`modal_app.py:2295`), and the official run keeps the empty default. The number that can reach the leaderboard was computed with the team's synced weights and its page does not say so.
+That is the one supplied thing a hosted run page names. The official attempt promoted from that run should carry the same line, though not from the runner. An official attempt reuses the practice run's prepared environment, weights included, so its job carries no weight list (`apps/portal/worker/execution/runner.ts:169`), and the runner sends `weightsSupplied` only when it prepared the run itself (`modal_app.py:2295`). Promotion, though, copies the practice run's row into the official run, weights record included (`apps/portal/worker/services/run-actions.ts:430`). A completed event without the field leaves that record as it is (`apps/portal/worker/routes/runner-events.ts:220-222`). A Retry of a failed official attempt is the exception: its successor is written without that record (`run-actions.ts:618-642`) and reuses the environment, so its page has no line. Read from code; no promoted or retried run with synced weights has been observed. An earlier revision of this document said the line was missing from every official attempt.
 
 ## The third kind: glue code somebody else wrote
 
@@ -97,7 +97,7 @@ The record does carry the seed: `hashRandomization` and `hashSeed` sit beside `s
 | Who you are | No effect. No view of the supplied rows exists for anyone, staff included. | No effect. |
 | Where your team and repository stand | A repository with a declared `submission.py` is never searched, so no bindings and no rows exist. A repository with synced weights gets the weights line on its practice run. | No effect. The rows are read off the bindings once, at the end of the search. |
 | Which week's benchmark | Decides what there is to disclose. Week 3 supplies GloVe, the caption corpus and the descriptors, and is the only week that fetches synced weights; Week 1 supplies an id-to-name table and the name of each item; Week 2 supplies its FaceNet model. Only Week 1 reads `PROVENANCE`. | No effect. |
-| Practice or leaderboard | The supplied rows are absent from both. The weights line appears on a practice run that fetched weights and not on the official attempt promoted from it. | No effect. |
+| Practice or leaderboard | The supplied rows are absent from both. The weights line appears on a practice run that fetched weights and, by source, on the official attempt promoted from it. | No effect. |
 | Flags, options, and where you are typing | `cogworks check --json` is the only surface with the supplied rows; the same command without `--json` omits them; the run page, the live surface and Discord have no field for them. | No effect. |
 
 ## Cancel and interrupt
@@ -141,7 +141,7 @@ The record does carry the seed: `hashRandomization` and `hashSeed` sit beside `s
 ## Open questions and verification
 
 - The supplied rows never reach the hosted run page. [B-04](../bug-triage.md): the claim in the `resolve.py` comment is gone, the gap is not.
-- An official attempt's page omits the synced weights its reused environment scored with (`runner.ts:169`, `modal_app.py:2295`, `RunDetailPage.tsx:177`). Carried to triage.
+- Whether an official attempt's page repeats the weights line has not been observed. Source says it does, copied from its practice run at promotion (`run-actions.ts:430`, `runner-events.ts:220-222`), except after a Retry of a failed official attempt (`run-actions.ts:618-642`). An earlier reading said it did not and carried that to triage ([B-67](../bug-triage.md#b-67-an-official-attempt-does-not-say-which-synced-weights-it-scored-with)).
 - Nothing in the current tree triggers the instructor-adapter sentence. Only a team's own non-student `PROVENANCE` would, and the sentence would then render as the last bullet (`drivers.py:316`, `metrics.py:307`). Remove it, or document what a student-written declaration means.
 - No pass observed `cogworks check --json` against a real repository; the row shapes are read from `python/cogbench/tests/test_resolve.py:947` and `:1205`. **Unverified.**
 - Whether the image's contribution should be disclosed per run is a product question. The case against silence is that no surface tells a student which packages their code may import.
