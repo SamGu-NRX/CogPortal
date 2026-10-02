@@ -14,6 +14,7 @@ title: CogPortal
 kind: project
 date: 2026-07
 line: Demo day, before demo day. Cog*Works teams benchmark their capstones on a laptop, then on hidden tests in a sandbox.
+award: MIT BWSI
 stack: [Python, React, Cloudflare Workers, Modal]
 links:
   - label: Portal
