@@ -87,10 +87,10 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-60 | A prepare killed for time or memory is reported as a dependency install failure | medium | open | same | as candidate | sandbox | fix |
 | B-61 | A refusal's notes reach the browser and are never drawn | medium | open | same | as candidate | portal | fix |
 | B-62 | The E-OUTPUT card promises checks that do not run | medium | open | same | as candidate | sandbox, portal | fix |
-| B-64 | Discord and the console put a student's login beside a score | medium | open | same | as candidate | discord, portal | product call |
+| B-64 | Discord and the console put a student's login beside a score | medium | open in `2ff32fa` and `17d26d9`; removed in integrated `93dfa5e` source | same | as candidate | discord, portal | product call |
 | B-65 | A team creator with only GitHub write access loses settings on first save, which can leave the team with no admin | medium | open | same | as candidate | portal | product call |
 | B-66 | The staff roster promises a co-instructor "the same view"; they get an empty TA workspace | medium | open in `2ff32fa`; copy fixed in `17d26d9`, seen locally | differs: no promise copy | as candidate | portal | fix |
-| B-68 | A clean Language run opens by saying the scorer wrote no finding | medium | open, producer repair active elsewhere | differs: says it below the metrics | confirmed live, `run_d11b5e5e2e` | portal, sandbox | product call |
+| B-68 | A clean Language run opens by saying the scorer wrote no finding | medium | fixed by Week 3 `9e4dcff`; seen on the `f618038` full path | differs: says it below the metrics | confirmed live, `run_d11b5e5e2e` | portal, sandbox | product call |
 | B-03 | Two gates disagree about which team members Discord serves | low | latent | same | as candidate | discord | fix |
 | B-09b | Hosted practice confirmations say every run uses quota; only completed runs do | low | narrowed | same | as candidate | discord, portal | fix |
 | B-12 | `/cog view:connect` for an already-linked student is a dead end | low | open | same | as candidate | discord | fix |
@@ -107,7 +107,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-38 | Four dead code paths and one tautological test | low | open | same | as candidate | discord, portal | fix |
 | B-41 | Small copy and consistency slips | low | narrowed | differs: two bullets open | as candidate | portal, discord | fix |
 | B-63 | The setup page calls a CLI report from the student's machine "Verified" | low | open | same | as candidate | portal | product call |
-| B-67 | An official attempt does not say which synced weights it scored with | low | open; source re-read: promotion copies the line, an official Retry drops it; not observed | same | as candidate | sandbox, portal | fix |
+| B-67 | An official attempt does not say which synced weights it scored with | low | promotion copies the line; Retry repaired in integrated `93dfa5e` source; not observed | same | as candidate | sandbox, portal | fix |
 | B-69 | Small behavior slips in the redesign | low | open | not checked | as candidate | portal, discord, sandbox, terminal | fix |
 | B-70 | Small copy slips in the redesign | low | open | not checked | as candidate | portal, terminal | fix |
 | B-00 | A successful GitHub sign-in leaves the student on the marketing page | n/a | fixed in candidate | fixed | as candidate | portal | none |
@@ -521,6 +521,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `product call`. Drop the name next to a score, or decide an actor line is not a per-person number and say why.
 - **Raised by:** [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Same on beta (beta `RunConsole.tsx:309`).
+- **Status, integrated `93dfa5e` source (2026-10-02):** no surface prints the login beside a score. The console drops `@{login}` (`d687c74`; the actor stays in the server's records, `apps/portal/src/components/RunConsole.tsx:364`). Discord's local view leads each line with the commit (`3903291`, `apps/discord-bot/src/commands.ts:378`), and the run bubble no longer writes "by {name}" (`apps/portal/worker/services/discord-messages.ts:139-147`). Read from code and the suite; not seen in Discord. `17d26d9` still has all three.
 
 ### B-65: A team creator with only GitHub write access loses settings on first save, which can leave the team with no admin
 
@@ -555,6 +556,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `product call` for the benchmark owners: whether a lead sentence is part of the plugin contract. Fix in the benchmark submodules, not in portal copy; that is a new benchmark version under the brief's versioning rule if it changes what a run reports.
 - **Raised by:** the lead's evidence review of the matched pairs; [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification).
 - **Status:** **confirmed** on deployed `ed2b194`. Hosted run `run_d11b5e5e2e` (`SamGu-NRX/Language_Module_Capstone@8789361`, succeeded, Overall 0.4126, 9 cases, 19 metrics) leads with "The scorer didn't write a sentence for this run. Its curve is below, with the readings under it." (`beta-qa/live-language-ed2b194/README.md`, `hosted-result.txt`); its local report's diagnostics are empty too. The lead was the fallback, not adapter text. The producer repair on benchmark pin `94c7e64` is owned by Opus worker `0e3d690b-079f-408d-926b-15a8e70f5d2c`; do not duplicate it. Earlier evidence: read from code at `2ff32fa` and the pinned submodules, and the empty state on local fixture data. The per-benchmark conditions above were checked in a fresh Sol audit. Beta's older page says "The scorer had no notes on this run." below the metrics instead of leading with it (beta `RunDetailPage.tsx:315`), so the redesign is what moved the absence to the top.
+- **Status, `f618038` full path (2026-10-02):** fixed for a clean Language run. The producer repair is Week 3 `9e4dcff` ("lead a clean run with search against retrieval"), inside pin `4b17554`; `94c7e64` above is not the commit that carries it. The full hosted path at `f618038`: a local Worker dispatching to the deployed beta runner v48 (deployed from `17d26d9`), with signed callbacks into local D1 and the run page reloaded in Chromium. Practice run `run_6867b9fefa` (`bb08255`, Overall 0.1540) opens on "On the same rewritten queries, your search scored 0.010 …", not the fallback; the benchmark writes that sentence only when every case ran and nothing was withheld. The same repair moves adapter mapping notes after the metric notes, which answers the related open question above in source. Recognition, Clustering and Audio leads were not rechecked.
 
 ## Low
 
@@ -722,6 +724,7 @@ Grouped because each is one string or one line.
 - **Raised by:** [`sandbox/prepare.md`](sandbox/prepare.md#open-questions-and-verification), [`cross-cutting/what-the-benchmark-supplied.md`](cross-cutting/what-the-benchmark-supplied.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Same on beta.
 - **Status, re-read 2026-10-02:** by source, the claim above is wrong for a directly promoted attempt, and a Retry of a failed official attempt still drops the weights record. Neither has been observed. The reasoning above misses that promotion copies the practice run's row, `weightsSuppliedJson` included, into the official run (`apps/portal/worker/services/run-actions.ts:430`). A completed event without `weightsSupplied` leaves it as it is (`runner-events.ts:220-222`), so the official page should show the practice run's line. The defect narrows to Retry. A Retry successor is written field by field without `weightsSuppliedJson` (`run-actions.ts:618-642`). An official Retry reuses the prepared artifact, so the runner sends no list either, and a retried official attempt loses the line. Source is the same at `4984730`, `ed2b194` and `17d26d9` (`17d26d9` `run-actions.ts:614-638`). Read from code only. CROSS-15 or PREP-15 settles the direct promotion; the Retry case needs a failed official attempt retried.
+- **Status, integrated `93dfa5e` source (2026-10-02):** a Retry that reuses the failed run's prepared artifact now carries its weights record (`505ce25`, `apps/portal/worker/services/run-actions.ts:621-648`). A Retry that prepares afresh starts empty and reports what it used. Covered by suite tests; no promoted or retried run with synced weights has been observed on any build.
 
 ### B-69: Small behavior slips in the redesign
 
