@@ -7,9 +7,10 @@ The 2026-10-02 provenance audit edited only the labels in Week 2's tracked
 public-evaluation.json, which moved practice pairwise F1 from 1.0 to 0.0 while
 the HEAD check and every version restatement still passed.
 
-So any modified, deleted or untracked file fails, except the build output the
-image copy itself leaves behind. Untracked files count because they are copied
-too, and one at the root (a `setup.cfg`) can change what pip installs.
+So any modified, deleted, untracked or git-ignored file fails, except the
+build output the image copy itself leaves behind. Untracked and ignored files
+count because the copy does not read .gitignore, and one at the root (a
+`setup.cfg`) can change what pip installs.
 
 Python 3.8, standard library only: the week lanes run this on the course
 interpreter without the runner installed.
@@ -18,31 +19,15 @@ interpreter without the runner installed.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from typing import List
 
-#: Must equal `modal_app.BUILD_JUNK`; `test_source_copy` compares the two,
-#: because the runner is not importable where these validators run.
-BUILD_JUNK = frozenset(
-    {
-        "__pycache__",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".mypy_cache",
-        ".git",
-        ".venv",
-        "build",
-        "dist",
-    }
-)
-
-
-def is_build_junk(relative: Path) -> bool:
-    """The image copy's own exclusion rule, `modal_app.is_build_junk`."""
-
-    return relative.suffix == ".pyc" or any(
-        part in BUILD_JUNK or part.endswith(".egg-info") for part in relative.parts
-    )
+# The image copy's own exclusion rule, read from the runner rather than
+# restated: it is standard library only, so this works on the course
+# interpreter where the runner's dependencies are not installed.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "runner-modal" / "src"))
+from cogworks_runner.source_tree import is_build_junk  # noqa: E402
 
 
 def differences(benchmark: Path) -> List[str]:
@@ -51,7 +36,7 @@ def differences(benchmark: Path) -> List[str]:
     output = subprocess.check_output(
         [
             "git", "-C", str(benchmark), "status",
-            "--porcelain=v1", "-z", "--untracked-files=all",
+            "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=traditional",
         ]
     ).decode("utf-8", "surrogateescape")
     entries = output.split("\0")
@@ -63,12 +48,15 @@ def differences(benchmark: Path) -> List[str]:
         if not entry:
             continue
         status, path = entry[:2], entry[3:]
-        if status[0] in "RC":
-            # -z puts a rename's source in the next field; both names matter.
+        if "R" in status or "C" in status:
+            # -z puts a rename's source in the next field, whether the rename
+            # is staged (first column) or not (second); both names matter.
             changed.append("{} (from {})".format(path, entries[index]))
             index += 1
             continue
-        if status == "??" and is_build_junk(Path(path)):
+        # Only files git does not track can be build output; a tracked file
+        # under build/ that changed is still a changed file.
+        if status in ("??", "!!") and is_build_junk(Path(path)):
             continue
         changed.append(path)
     return changed

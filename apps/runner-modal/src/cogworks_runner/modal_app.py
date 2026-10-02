@@ -30,6 +30,7 @@ from .image_bake import (
     cache_week3_artifacts,
 )
 from .failure import RunnerFailure
+from .source_tree import is_build_junk
 from .prediction_validation import (
     check_predictions,
     load_predictions,
@@ -243,37 +244,6 @@ def add_source_dir(image: "modal.Image", local: Path, remote: str) -> "modal.Ima
     """
 
     return image.add_local_dir(str(local), remote, copy=True, ignore=is_build_junk)
-
-
-#: Directory names a source copy never carries, at any depth.
-BUILD_JUNK = frozenset(
-    {
-        "__pycache__",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".mypy_cache",
-        ".git",
-        ".venv",
-        "build",
-        "dist",
-    }
-)
-
-
-def is_build_junk(relative: Path) -> bool:
-    """Modal's `ignore` predicate: True excludes the file.
-
-    Modal calls it with each file's path relative to the copied directory.
-    This used to be a list of patterns written as `"~=**/build"`. Modal reads
-    a list as .dockerignore patterns and has no `~=` prefix, so every entry
-    matched nothing and all of these directories were copied. A predicate has
-    no pattern syntax to get wrong, and the tests can run it without Modal
-    installed.
-    """
-
-    return relative.suffix == ".pyc" or any(
-        part in BUILD_JUNK or part.endswith(".egg-info") for part in relative.parts
-    )
 
 
 #: Staging unless the environment says otherwise, both here and inside every
