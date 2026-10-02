@@ -2618,3 +2618,134 @@ test("refused hosted verification leaves the local console and session exactly a
   const listed = await listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test");
   assert.ok(listed.some((snapshot) => snapshot.id === localSurface), "the local console fell out of the list");
 });
+
+/* ── Which weights a Retry's prepared environment holds ─────────────────── */
+
+// `weightsSuppliedJson` records which weight files a prepared environment
+// holds. A Retry that reuses the failed execution's saved artifact runs on
+// those same files; one that prepares afresh does not, and its completion says
+// what it used. Every list below is seeded metadata; no weight file is uploaded.
+
+const SEEDED_WEIGHTS = '["models/synthetic_seeded_metadata.pkl"]';
+
+async function postRunnerEvent(runtime: Env, event: unknown) {
+  const app = new Hono<AppEnv>();
+  registerRunnerEventRoutes(app);
+  app.onError(handleError);
+  const body = JSON.stringify(event);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const response = await app.fetch(new Request("http://localhost:5173/internal/v1/runner/events", {
+    method: "POST", body, headers: { "X-Cogworks-Key-Id": "runner-v1", "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, timestamp, body)}` },
+  }), runtime);
+  assert.equal(response.status, 200, await response.text());
+}
+
+function completion(runId: string, preparedArtifactId: string, weightsSupplied?: string[]) {
+  return {
+    protocolVersion: "1", type: "completed", eventId: `evt_${runId}_done`, runId,
+    sequence: 5, occurredAt: Date.now(), preparedArtifactId,
+    preparedEnvironment: { ...PREPARED, artifactId: preparedArtifactId },
+    environmentDigest: "b".repeat(64), sanitizedLog: null,
+    result: {
+      protocolVersion: "1", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+      metrics: [{ key: "accuracy", label: "Accuracy", value: 0.5, unit: null, higherIsBetter: true, primary: true, precision: 2 }],
+      diagnostics: [], outputDigest: "c".repeat(64),
+      ...(weightsSupplied ? { weightsSupplied } : {}),
+    },
+  };
+}
+
+for (const seeded of [SEEDED_WEIGHTS, "[]"] as const) {
+  test(`an official Retry on the same saved environment keeps its weights record (${seeded === "[]" ? "none recorded" : "seeded"})`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    await db.update(runs).set({ weightsSuppliedJson: seeded }).where(eq(runs.id, PRACTICE_RUN_ID));
+    // The official dispatch fails after its job is recorded, which is the
+    // ordinary way an official execution becomes retryable.
+    await assert.rejects(promotePracticeRun(env(binding, "modal", {
+      async send() { throw new Error("dispatch unavailable"); },
+    }), actor, PRACTICE_RUN_ID));
+    const [failed] = await db.select().from(runs).where(eq(runs.mode, "official"));
+    assert.ok(failed?.dispatchJobJson);
+    assert.equal(failed.weightsSuppliedJson, seeded, "promotion should inherit the practice run's record");
+
+    const runtime = env(binding, "modal", { async send() {} });
+    await retryRun(runtime, actor, SURFACE_ID, failed.id);
+    const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, failed.id));
+    assert.ok(successor);
+    assert.equal(successor.preparedArtifactId, failed.preparedArtifactId);
+    assert.equal(successor.weightsSuppliedJson, seeded);
+
+    // A completion that does not mention weights leaves the record alone.
+    await db.update(runs).set({ status: "scoring" }).where(eq(runs.id, successor.id));
+    await postRunnerEvent(runtime, completion(successor.id, successor.preparedArtifactId!));
+    const [completed] = await db.select().from(runs).where(eq(runs.id, successor.id));
+    assert.equal(completed?.status, "succeeded");
+    assert.equal(completed?.weightsSuppliedJson, seeded);
+  });
+}
+
+test("a practice Retry that prepares afresh does not inherit the failed run's weights record", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  // The fixture run is v1; migrations also seed an active Vision v2 row.
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), sql`${benchmarks.version} <> 1`));
+  const runtime = env(binding, "modal", { async send() {} });
+  const [practice] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  const [catalog] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+  // Its recorded job prepared its own inputs. A late completion then left an
+  // artifact and a weights list on the row, neither of which the retried job
+  // will use.
+  const job = buildRunJob(runtime, { ...practice!, preparedArtifactId: null, preparedEnvironmentJson: null }, actor.team, catalog!, []);
+  await db.update(runs).set({
+    status: "failed", failureCategory: "provider", failurePhase: "preparing", refundedAt: null,
+    dispatchJobJson: JSON.stringify(job), preparedArtifactId: "artifact_late_completion",
+    weightsSuppliedJson: SEEDED_WEIGHTS,
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await retryRun(runtime, actor, SURFACE_ID, PRACTICE_RUN_ID);
+  const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+  assert.ok(successor);
+  assert.equal(successor.preparedArtifactId, null);
+  assert.equal(successor.weightsSuppliedJson, "[]");
+
+  // Its own completion reports what the fresh preparation actually held.
+  await db.update(runs).set({ status: "scoring" }).where(eq(runs.id, successor.id));
+  await postRunnerEvent(runtime, completion(successor.id, "artifact_fresh_prepare", ["models/fresh_prepare.pkl"]));
+  const [completed] = await db.select().from(runs).where(eq(runs.id, successor.id));
+  assert.equal(completed?.weightsSuppliedJson, '["models/fresh_prepare.pkl"]');
+});
+
+test("a fixture Retry carries the weights record only when it keeps the saved artifact", async () => {
+  for (const artifact of ["artifact_test", null] as const) {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    await db.update(runs).set({
+      status: "failed", provider: "fixture", preparedArtifactId: artifact, weightsSuppliedJson: SEEDED_WEIGHTS,
+    }).where(eq(runs.id, PRACTICE_RUN_ID));
+    await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+    const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+    assert.equal(successor?.preparedArtifactId, artifact);
+    assert.equal(successor?.weightsSuppliedJson, artifact ? SEEDED_WEIGHTS : "[]");
+  }
+});
+
+test("a Retry of a Retry on the same saved environment still keeps its weights record", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ weightsSuppliedJson: SEEDED_WEIGHTS }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(promotePracticeRun(env(binding, "modal", {
+    async send() { throw new Error("dispatch unavailable"); },
+  }), actor, PRACTICE_RUN_ID));
+  const [original] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  const runtime = env(binding, "modal", { async send() {} });
+  await retryRun(runtime, actor, SURFACE_ID, original!.id);
+  const [first] = await db.select().from(runs).where(eq(runs.retryOfRunId, original!.id));
+  await db.update(runs).set({ status: "failed", failureCategory: "provider", finishedAt: Date.now() }).where(eq(runs.id, first!.id));
+
+  await retryRun(runtime, actor, SURFACE_ID, first!.id);
+  const [second] = await db.select().from(runs).where(eq(runs.retryOfRunId, first!.id));
+  assert.equal(second?.preparedArtifactId, original!.preparedArtifactId);
+  assert.equal(second?.weightsSuppliedJson, SEEDED_WEIGHTS);
+});

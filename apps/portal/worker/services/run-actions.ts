@@ -619,6 +619,13 @@ export async function retryRun(
     ? await prepareRetryJob(env, failed, actor.team, benchmark, runId)
     : null;
   const now = Date.now();
+  // Only the dispatch record says whether the failed execution reused a saved
+  // artifact or prepared its own; a late completion can leave a different id
+  // on the row (validateRetryInputs). Reusing that exact artifact reuses its
+  // weights, so the record of which weights it holds comes along. A fresh
+  // prepare starts with none recorded, and its completion reports what it used.
+  const preparedArtifactId = job ? job.preparedArtifactId : failed.preparedArtifactId;
+  const sameArtifact = preparedArtifactId !== null && preparedArtifactId === failed.preparedArtifactId;
   const insertRun = insertRunWithCapacity(db, {
     id: runId,
     teamId: failed.teamId,
@@ -636,8 +643,9 @@ export async function retryRun(
     dispatchJobJson: job ? JSON.stringify(job) : null,
     provider: failed.provider,
     protocolVersion: failed.protocolVersion,
-    preparedArtifactId: job ? job.preparedArtifactId : failed.preparedArtifactId,
+    preparedArtifactId,
     preparedEnvironmentJson: job?.preparedEnvironment ? JSON.stringify(job.preparedEnvironment) : null,
+    ...(sameArtifact ? { weightsSuppliedJson: failed.weightsSuppliedJson } : {}),
     datasetVersion: failed.datasetVersion,
     scorerVersion: failed.scorerVersion,
     runtimeVersion: failed.runtimeVersion,
