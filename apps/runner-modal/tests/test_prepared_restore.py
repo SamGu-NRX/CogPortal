@@ -53,6 +53,8 @@ def job():
 
 
 def functions(*names, **globals_):
+    if set(names) & {"_prepare", "_evaluate", "_evaluate_v2", "_evaluate_week1", "_evaluate_week3"}:
+        names = tuple(dict.fromkeys((*names, "_terminate_sandbox")))
     nodes = []
     for node in ast.parse(SOURCE.read_text()).body:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names:
