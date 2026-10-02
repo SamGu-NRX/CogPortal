@@ -40,10 +40,10 @@ The CLI covers the four benchmarks written for the course: song identification, 
 
 The runner asks for very little. It can find a team’s code through one `submission.py` at a known path, because when we checked all 13 real 2026 team repositories, none had Python packaging, and a tool that demands packaging from high schoolers fails on day one.
 
-I also wrote a discovery step for repositories without that file. It finds a team’s functions however they’re named, split or wrapped in classes, by calling them in sequence and keeping only a chain that passes the benchmark’s own test, such as naming an enrolled song back from a two-second clip. It reproduces two instructor-written adapters’ scores to four decimal places and clears the 13-repository corpus in 36 seconds. Before profiling, one repository alone took 272 seconds.
+I also wrote a discovery step for repositories without that file. It finds a team’s functions however they’re named, split or wrapped in classes, by calling them in sequence and keeping only a chain that passes the benchmark’s own test, such as naming an enrolled song back from a two-second clip. It reproduces two instructor-written adapters’ scores to four decimal places. A recorded run cleared the 13-repository corpus in 36 seconds. Before profiling, one repository alone took 272 seconds.
 
 ## Rules the build enforces
 
 Two rules are tests, not guidelines. A benchmark that explains its metrics in the course’s own vocabulary has to explain every metric it labels, or the build fails; older benchmarks without explanations are skipped. And the signals the portal derives from a team’s process can’t carry a per-person number, because a seventeen-year-old reads any per-person number as a grade.
 
-Hosted runs go through a staging beta with its own Modal app, and production waits on the release gates in the deployment runbook. I’m now working with BWSI to extend CogPortal to the institute’s other courses, starting with a connector for the Edly LMS.
+I test changes on a separate staging beta with its own Modal app. I’m now working with BWSI to extend CogPortal to the institute’s other courses, starting with a connector for the Edly LMS.
