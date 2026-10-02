@@ -98,25 +98,40 @@ synced report for that repository and commit.
 
 ## Week 3
 
-Same deploy. Two smoke tests, because Week 3 has a problem Week 1 does not:
-its reference submission lives in this monorepo and is deliberately not
-published, so a tarball fetch cannot reach it.
+Same deploy, and the same `smoke_modal.py` for discovery against a public
+repository. Expect adapter_missing for any student repository until one
+carries a submission.py.
 
-    # Discovery, against a public repository. Expect adapter_missing for any
-    # student repository until one carries a submission.py.
     .venv-deploy/bin/python apps/runner-modal/tools/smoke_modal.py \
         --benchmark language-search --repo BagelBreaker/week3_capstone
 
-    # Evaluation, against the private reference. Uploads it into a sandbox
-    # built from the published image and runs the same EVALUATE_SCRIPT.
-    .venv-deploy/bin/python apps/runner-modal/tools/smoke_week3_sandbox.py
+## Score the private reference
 
-The second should print `overall 0.4329` against `chance_mrr 0.0102`, the
-three query rungs (`search_mrr_keywords` 0.2735, `search_mrr_truncated`
-0.1671, `search_mrr_typo` 0.2256), and `student python 3.8.20` in the
-submission log. Those numbers match what
-`examples/week3-language-submission/README.md` documents for the evaluation
-tier, which is the point: the harness measures a known-good system correctly.
+The Week 1 and Week 3 references live in this monorepo and are deliberately
+not published, so a tarball fetch cannot reach them. This uploads one through
+Modal's filesystem API into a network-blocked sandbox built from an exact
+image id, runs the runner's prepare script and `_evaluate_week3` or
+`_evaluate_week1` on it, and scores the result here:
+
+    .venv-deploy/bin/python apps/runner-modal/tools/smoke_reference_sandbox.py \
+        --benchmark language-search \
+        --image-id im-XXXXXXXXXXXXXXXXXXXXXX \
+        --catalog-row build/language-search-row.json \
+        --sdk-commit <commit the release advertises> \
+        --result build/language-search-smoke.json
+
+The image id comes from a probe receipt. The catalog row is that benchmark's
+`benchmarks` row from the target D1, saved as one JSON object, so the versions
+are checked against the database runs are dispatched from rather than against
+the image. The tool refuses a dirty tree, a name instead of an id, and any
+sandbox with network access, and it writes a result file for every remote
+attempt, pass or fail.
+
+A pass is sandbox evidence only. The portal's queue, sign-in, callback and run
+page are not exercised, and nor is the PyPI access a real prepare step has.
+`examples/week3-language-submission/README.md` documents earlier
+evaluation-tier numbers; compare against them only when the result's scorer
+and dataset versions are the ones that README measured.
 
 ## When it fails
 
