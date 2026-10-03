@@ -101,13 +101,17 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   // the platform's own replay raised in B-44, and this title once told that
   // team the crash was theirs. The copy stays neutral and lets the detail's
   // file and line speak; it never promises a repeat fixes a benchmark bug.
+  // Staff cannot open a team's run (GET /api/runs/:id answers only that
+  // team), so the escalations here and below ask for what a student can
+  // hand over: the error and the run number the run page shows at its top.
+  // FailureCard on the run page is the only place these actions render.
   student_runtime: {
     code: "E-RUNTIME",
     title: "The evaluation stopped on an exception",
     explanation:
       "The error below shows what was raised and where.",
     action:
-      "If it points to a file in your repository, reproduce it with the command below. If it points elsewhere, share the run with course staff and retry once they've fixed it.",
+      "If it points to a file in your repository, reproduce it with the command below. If it points elsewhere, send course staff the error above and the run number at the top of this page, then retry once they've fixed it.",
     reproCommand: "cogworks run --benchmark {benchmark}",
     remedy: "either",
   },
@@ -153,7 +157,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your predictions were produced and retrieved, but the trusted scorer failed. This is a platform problem, not a problem with your code.",
     action:
-      "If scoring keeps failing, share the run's details with course staff.",
+      "If scoring keeps failing, send course staff the run number at the top of this page.",
     reproCommand: null,
     remedy: "retry",
   },
@@ -163,7 +167,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "The hosted execution could not finish. The recorded details may identify where it stopped.",
     action:
-      "If the run keeps failing, share its details with course staff.",
+      "If the run keeps failing, send course staff the run number at the top of this page.",
     reproCommand: null,
     remedy: "retry",
   },
