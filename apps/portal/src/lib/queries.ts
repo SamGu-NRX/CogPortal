@@ -14,7 +14,7 @@ import {
   type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
 import { useNavigate } from "react-router";
-import { api, type RunSurfaceMutationInput } from "./api";
+import { api, ApiRequestError, type RunSurfaceMutationInput } from "./api";
 import { rememberLeftTeam } from "./left-team";
 import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
 
@@ -388,6 +388,38 @@ export class LeftButNotRefreshed extends Error {
  * queries are then refetched, awaited so the mutation stays pending until
  * fresh data has arrived.
  */
+/** The answer to a leave that may have gone through: the connection dropped,
+ *  the server failed, or what came back could not be read. */
+export const LEAVE_UNCONFIRMED = "We couldn't confirm whether you left. Reload to see where you stand.";
+
+/** A refusal the server gave and the student can act on (a 4xx with its own
+ *  code) has a known outcome: nothing was removed. Anything else may have
+ *  removed the membership before failing. */
+function leaveOutcomeUnknown(error: unknown): boolean {
+  return !(error instanceof ApiRequestError) || error.code === "network" || error.code === "unknown" || error.status >= 500;
+}
+
+const leaveUnconfirmedKey = (teamId: string) => ["leave-unconfirmed", teamId] as const;
+
+/**
+ * What to say after a leave of this team whose outcome is unknown, or null.
+ *
+ * Kept in the query client, not the component, so moving to another page and
+ * back does not bring Leave back; only a full page load, which starts a new
+ * client and reads current membership, clears it. Pressing Leave again could
+ * otherwise remove a membership made since, elsewhere: the same team joined
+ * again leaves a row indistinguishable from the one the lost request deleted.
+ */
+export function useLeaveUnconfirmed(teamId: string): string | null {
+  return useQuery({
+    queryKey: leaveUnconfirmedKey(teamId),
+    queryFn: () => null as string | null,
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  }).data ?? null;
+}
+
 export function useLeaveTeam() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -417,6 +449,10 @@ export function useLeaveTeam() {
       rememberLeftTeam({ name: teamName, alreadyLeft, archive });
       navigate("/connect", { replace: true });
       await qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
+    },
+    onError: (error, { teamId }) => {
+      if (!leaveOutcomeUnknown(error)) return;
+      qc.setQueryData(leaveUnconfirmedKey(teamId), error instanceof LeftButNotRefreshed ? error.message : LEAVE_UNCONFIRMED);
     },
   });
 }
