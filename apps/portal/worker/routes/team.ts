@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import { z } from "zod";
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   ChangeTeamRepoRequestSchema,
@@ -67,6 +67,7 @@ export async function getTeamDetail(
     db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
     db
       .select({
+        userId: users.id,
         login: users.githubLogin,
         email: users.email,
         name: users.name,
@@ -118,6 +119,7 @@ export async function getTeamDetail(
       name: member.name,
       avatarUrl: member.avatarUrl,
       role: memberRole(member.role),
+      isYou: member.userId === callerId,
     })),
     tas: tas.map((ta) => ({
       login: displayLogin(ta),
@@ -199,6 +201,26 @@ export async function reconcileTeamRole(
   if (!written) return { role: "write", checked: "repository_changed" };
   return { role: current, checked: "github" };
 }
+
+/**
+ * Whether the actor is an admin of the team when the statement runs, for a
+ * team write to carry. The gate above checks it once, but routes await
+ * GitHub after it (POST /team/repository asks about the destination), and a
+ * leave or a demotion can land in between; checked inside the write, that
+ * write does nothing instead.
+ */
+export function actorIsTeamAdmin(db: Database, teamId: string, userId: string) {
+  return exists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+    eq(teamMembers.teamId, teamId),
+    eq(teamMembers.userId, userId),
+    eq(teamMembers.role, "admin"),
+  )));
+}
+
+/** A guarded team write changed nothing because the actor is no longer an
+ *  admin of the team, or no longer on it. */
+export const TEAM_AUTHORITY_LOST =
+  "You're no longer an admin of this team, so nothing was changed. Reload to see where you stand.";
 
 export async function requireTeamAdmin(
   c: Context<AppEnv>,
@@ -502,7 +524,9 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
     const updates: { name?: string; description?: string | null } = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
-    await db.update(teams).set(updates).where(eq(teams.id, auth.team.id));
+    const renamed = await db.update(teams).set(updates)
+      .where(and(eq(teams.id, auth.team.id), actorIsTeamAdmin(db, auth.team.id, auth.user.id)));
+    if (!renamed.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
     return respond(
       c,
       TeamDetailSchema,
@@ -617,9 +641,15 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
     }
 
     // One batch, so no reader sees the new repository alongside the cached
-    // history or the stored roles that belonged to the previous one.
+    // history or the stored roles that belonged to the previous one. Each
+    // statement also requires the actor to be an admin now: GitHub was asked
+    // above, after the gate, and a leave or demotion meanwhile must change
+    // nothing. No statement here alters the actor's row before the last, so
+    // the three apply together or not at all.
+    const stillAdmin = actorIsTeamAdmin(db, auth.team.id, auth.user.id);
+    let moved: { meta: { changes?: number } };
     try {
-      await db.batch([
+      [moved] = await db.batch([
         db
           .update(teams)
           .set({
@@ -631,18 +661,18 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
             repoId: repository.id,
             templateSourceRepoId: repository.sourceRepositoryId,
           })
-          .where(eq(teams.id, auth.team.id)),
+          .where(and(eq(teams.id, auth.team.id), stillAdmin)),
         // The cached history is the repository that was connected a moment
         // ago. Serving it for another thirty minutes shows the old
         // repository's stages and commits under the new repository's name.
-        db.delete(teamProcessSignals).where(eq(teamProcessSignals.teamId, auth.team.id)),
+        db.delete(teamProcessSignals).where(and(eq(teamProcessSignals.teamId, auth.team.id), stillAdmin)),
         // Stored roles were GitHub's answer about the previous repository.
         // The actor was just checked against this one; everyone else holds
         // "write" until their next team read asks GitHub about it.
         db
           .update(teamMembers)
           .set({ role: sql`CASE WHEN ${teamMembers.userId} = ${auth.user.id} THEN 'admin' ELSE 'write' END` })
-          .where(eq(teamMembers.teamId, auth.team.id)),
+          .where(and(eq(teamMembers.teamId, auth.team.id), stillAdmin)),
       ]);
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -664,6 +694,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       }
       throw error;
     }
+    if (!moved.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
     return respond(
       c,
       TeamDetailSchema,

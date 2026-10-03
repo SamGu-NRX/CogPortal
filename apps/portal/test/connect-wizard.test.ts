@@ -19,7 +19,7 @@ const TEAM = {
   description: null,
   provenance: "live",
   repo: { fullName: "octo/face-finder", url: "https://github.com/octo/face-finder" },
-  members: [{ login: "teammate", name: null, avatarUrl: null, role: "admin" }],
+  members: [{ login: "teammate", name: null, avatarUrl: null, role: "admin", isYou: false }],
   adminLogin: "teammate",
 };
 
@@ -45,6 +45,10 @@ function sessionFor(team: boolean) {
 function portal(teams: typeof TEAM[] = [TEAM]) {
   let joined = false;
   let releaseJoin: (() => void) | null = null;
+  // What the join answers: its success, the server's refusal for a student a
+  // membership elsewhere already holds, or a dropped connection.
+  let joinAnswer: "ok" | "already_on_team" | "network" = "ok";
+  let joinWrites = 0;
   const requests: string[] = [];
   const fetch = async (input: string) => {
     const path = new URL(input, "https://portal.example").pathname;
@@ -53,12 +57,17 @@ function portal(teams: typeof TEAM[] = [TEAM]) {
     if (path === "/api/cohorts/teams") return Response.json(teams);
     if (path === "/api/github/repositories") return new Promise<Response>(() => {});
     if (path === "/api/team/join") {
+      if (joinAnswer === "network") throw new TypeError("Failed to fetch");
+      if (joinAnswer === "already_on_team") {
+        return Response.json({ error: { code: "already_on_team", message: "You are already on a team." } }, { status: 409 });
+      }
+      joinWrites += 1;
       return new Promise<Response>((resolve) => {
         releaseJoin = () => {
           joined = true;
           resolve(Response.json({
             ...sessionFor(true).team,
-            members: [...TEAM.members, { login: "student", name: null, avatarUrl: null, role: "write" }],
+            members: [...TEAM.members, { login: "student", name: null, avatarUrl: null, role: "write", isYou: true }],
             tas: [],
             isAdmin: false,
           }));
@@ -70,6 +79,8 @@ function portal(teams: typeof TEAM[] = [TEAM]) {
   return {
     fetch,
     requests,
+    answerJoin: (mode: "ok" | "already_on_team" | "network") => { joinAnswer = mode; },
+    joinWrites: () => joinWrites,
     releaseJoin() {
       assert.ok(releaseJoin, "the join request was never sent");
       releaseJoin();
@@ -219,4 +230,36 @@ test("a long cohort folds the rest behind one press", async (t) => {
 
   assert.equal(joinButtons(container).length, 5);
   assert.match(container.textContent ?? "", /See 3 more teams/);
+});
+
+test("a join refused because a membership elsewhere already holds the student offers the current team", async (t) => {
+  // This Connect page loaded with no team; a join in another window, on
+  // another device or by staff landed since. The refusal is right; the page
+  // just cannot show that team, so it offers a full load of /team.
+  const { container, server, flush } = await mountWizard(t, "/connect?path=join");
+  server.answerJoin("already_on_team");
+  const join = container.querySelector<HTMLButtonElement>('button[aria-label="Join Vision Squad"]');
+  await act(async () => join!.click());
+  await flush();
+  const alert = container.querySelector('[role="alert"]');
+  assert.match(alert?.textContent ?? "", /You're already on a team; this page was opened before you joined it\./);
+  const open = [...(alert?.querySelectorAll("a") ?? [])].find((a) => a.textContent === "Open your current team");
+  assert.equal(open?.getAttribute("href"), "/team");
+  // A plain link, so the browser loads the page afresh; a router Link would
+  // keep this page's stale session and its pending callbacks.
+  assert.equal(open?.hasAttribute("data-discover"), false, "the recovery is a router Link");
+  assert.equal(server.joinWrites(), 0, "the refused join wrote a membership");
+});
+
+test("a join whose connection drops keeps the try-again message, not the current-team link", async (t) => {
+  const { container, server, flush } = await mountWizard(t, "/connect?path=join");
+  server.answerJoin("network");
+  const join = container.querySelector<HTMLButtonElement>('button[aria-label="Join Vision Squad"]');
+  await act(async () => join!.click());
+  await flush();
+  const alert = container.querySelector('[role="alert"]');
+  assert.equal(alert?.textContent, "Could not reach the portal. Check your connection and try again.");
+  assert.equal(container.querySelector('a[href="/team"]'), null);
+  // The row stays pressable for the retry.
+  assert.equal(join?.disabled, false);
 });

@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, leaderboardSelections, outboxEvents, runEvents, runMetrics, runPhases, runs, teams } from "../worker/db/schema.ts";
+import { cohorts, leaderboardSelections, outboxEvents, runEvents, runMetrics, runPhases, runs, teamMembers, teams, users } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
 import { hmacSignature } from "../worker/execution/runner.ts";
 import { handleError } from "../worker/http/errors.ts";
@@ -858,6 +858,10 @@ test("two deliveries of one event racing each other settle it once", async () =>
 async function publicationActor(db: Database): Promise<RunActor> {
   await db.update(teams).set({ repoId: 1, repoFullName: FIXTURE_REPO.fullName }).where(eq(teams.id, "team_1"));
   const [team] = await db.select().from(teams).where(eq(teams.id, "team_1"));
+  // Publication requires the actor to be on the team when the selection is written.
+  await db.insert(users).values({ id: "test_user", name: "Test", email: "test@example.test", cohortId: team!.cohortId })
+    .onConflictDoNothing();
+  await db.insert(teamMembers).values({ teamId: "team_1", userId: "test_user", role: "write" }).onConflictDoNothing();
   return { userId: "test_user", githubLogin: null, role: "write", team };
 }
 

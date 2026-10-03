@@ -28,6 +28,7 @@ export function RemoveButton({
   onConfirm,
   busy = false,
   disabled = false,
+  onArmedChange,
 }: {
   label?: string;
   /** The consequence, said in the label itself. */
@@ -40,8 +41,15 @@ export function RemoveButton({
   onConfirm: () => void;
   busy?: boolean;
   disabled?: boolean;
+  /** For a row whose consequence needs more words than a label holds: it
+   *  can say them while the control is armed, and only then. */
+  onArmedChange?: (armed: boolean) => void;
 }) {
-  const [armed, setArmed] = useState(false);
+  const [armed, setArmedState] = useState(false);
+  const setArmed = (next: boolean) => {
+    setArmedState(next);
+    onArmedChange?.(next);
+  };
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(

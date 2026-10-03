@@ -1,11 +1,13 @@
 import type { Hono } from "hono";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   AddTeamMemberRequestSchema,
   CohortTeamListSchema,
   InvitableUserListSchema,
   JoinTeamRequestSchema,
+  LeaveTeamRequestSchema,
+  LeaveTeamResponseSchema,
   TeamDetailSchema,
 } from "@cogworks/contracts/schema";
 import type { CohortTeam, TeamMember } from "@cogworks/contracts/schema";
@@ -15,6 +17,7 @@ import { getGithubToken } from "../auth/better-auth";
 import { authFor, requireUser } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import { getDb } from "../db/client";
+import { insertWhere } from "../db/insert-where";
 import type { Database } from "../db/client";
 import { teamMembers, teams, users } from "../db/schema";
 import { RealGitHubClient } from "../github/client";
@@ -25,7 +28,9 @@ import { parseBody, respond } from "../http/respond";
 import {
   getTeamDetail,
   isUniqueConstraintError,
+  actorIsTeamAdmin,
   requireTeamAdmin,
+  TEAM_AUTHORITY_LOST,
 } from "./team";
 
 type CohortAuth = AuthState & { cohort: NonNullable<AuthState["cohort"]> };
@@ -196,6 +201,46 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
     );
   });
 
+  /**
+   * Take the caller, and only the caller, off a team.
+   *
+   * Everything else stays with the team: its repository, runs, attempts,
+   * publications, TAs and Discord channel. GitHub is untouched, so a GitHub
+   * collaborator can join a live team again through /team/join and gets
+   * whatever role GitHub gives them then; an archive team refuses that join,
+   * and only staff can add them back. Any member may leave, the last admin
+   * and the last member included.
+   *
+   * Cookie session only (requireUser). A device credential cannot reach this.
+   * The one DELETE is scoped to the named team and this user. A repeat while
+   * the person is still off that team removes nothing and answers
+   * alreadyLeft, and a stale tab after they joined another team gets a 409.
+   * It is not bound to one membership: the row holds only team and user, so
+   * after they join the same team again, a repeat removes that new
+   * membership. The Team page therefore offers no second Leave after an
+   * unknown outcome until a reload (useLeaveUnconfirmed).
+   */
+  app.post("/team/leave", async (c) => {
+    const auth = await requireUser(c);
+    const body = await parseBody(c, LeaveTeamRequestSchema);
+    const db = getDb(c.env);
+    const removed = await db
+      .delete(teamMembers)
+      .where(and(eq(teamMembers.teamId, body.teamId), eq(teamMembers.userId, auth.user.id)))
+      .returning({ teamId: teamMembers.teamId });
+    if (removed.length > 0) return respond(c, LeaveTeamResponseSchema, { alreadyLeft: false });
+
+    const current = await findMembership(db, auth.user.id);
+    if (current) {
+      throw new ApiHttpError(
+        409,
+        "already_on_team",
+        `You're on ${current.teamName ?? "another team"} now, not the team this page showed. Reload to see it.`,
+      );
+    }
+    return respond(c, LeaveTeamResponseSchema, { alreadyLeft: true });
+  });
+
   app.get("/team/invitable", async (c) => {
     const auth = await requireTeamAdmin(c);
     const invitable = await getDb(c.env)
@@ -255,11 +300,14 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
     }
 
     try {
-      await db.insert(teamMembers).values({
+      // Only while the actor is still an admin of this team; checked in the
+      // write, so a leave or demotion since the gate adds nobody.
+      const added = await insertWhere(db, teamMembers, {
         teamId: auth.team.id,
         userId: user.id,
         role: "write",
-      });
+      }, actorIsTeamAdmin(db, auth.team.id, auth.user.id));
+      if (!added.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         const racingMembership = await findMembership(db, user.id);
@@ -304,14 +352,37 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         "A team admin can't be removed.",
       );
     }
-    await db
+    const removed = await db
       .delete(teamMembers)
       .where(
         and(
           eq(teamMembers.teamId, auth.team.id),
           eq(teamMembers.userId, membership.userId),
+          ne(teamMembers.role, "admin"),
+          actorIsTeamAdmin(db, auth.team.id, auth.user.id),
         ),
       );
+    if (!removed.meta.changes) {
+      // Nothing was deleted, and the read above no longer says why: the actor
+      // may have lost the admin role, or the target may have left or been
+      // made an admin since. Ask again, actor first; nothing is written.
+      const [actor] = await db.select({ role: teamMembers.role }).from(teamMembers)
+        .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, auth.user.id))).limit(1);
+      if (actor?.role !== "admin") throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
+      const [target] = await db.select({ role: teamMembers.role }).from(teamMembers)
+        .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, membership.userId))).limit(1);
+      if (target?.role === "admin") {
+        throw new ApiHttpError(403, "cannot_remove_creator", "A team admin can't be removed.");
+      }
+      // On the team again after a delete that found them gone: the team
+      // changed more than once during this request, and no answer from
+      // these reads would be true for long. Nothing is retried.
+      if (target) {
+        throw new ApiHttpError(409, "invalid_request", "The team changed while this request was running. Reload and try again.");
+      }
+      // Already off the team, which is what was asked; the roster below shows
+      // the team as it is now.
+    }
     return respond(
       c,
       TeamDetailSchema,

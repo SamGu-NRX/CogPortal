@@ -37,8 +37,13 @@ type ApiBody = {
 };
 type Result = { status: number; body: ApiBody };
 
-function freshBinding(t: TestContext): unknown {
+/** Runs once, just before the next statement whose SQL matches: a change
+ *  another request commits between this request's read and its write. */
+type Race = { beforeStatement?: { match: RegExp; run: () => void } };
+
+function freshBinding(t: TestContext): { race: Race; exec(query: string, ...params: string[]): void } {
   const sqlite = new DatabaseSync(":memory:");
+  const race: Race = {};
   t.after(() => sqlite.close());
   const files = readdirSync(MIGRATIONS)
     .filter((file) => file.endsWith(".sql"))
@@ -47,6 +52,11 @@ function freshBinding(t: TestContext): unknown {
   for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
 
   function prepare(query: string) {
+    const hook = race.beforeStatement;
+    if (hook?.match.test(query)) {
+      delete race.beforeStatement;
+      hook.run();
+    }
     const statement = sqlite.prepare(query);
     let bound: never[] = [];
     const prepared = {
@@ -75,6 +85,9 @@ function freshBinding(t: TestContext): unknown {
     return prepared;
   }
   return {
+    race,
+    /** A write committed synchronously, as another request's would be. */
+    exec(query: string, ...params: string[]) { sqlite.prepare(query).run(...params); },
     prepare,
     // D1 commits a batch as one transaction; the repository switch relies on it.
     async batch(statements: ReturnType<typeof prepare>[]) {
@@ -114,6 +127,8 @@ async function harness(t: TestContext, configured = true) {
 
   return {
     db,
+    race: binding.race,
+    exec: binding.exec,
     async signIn(login: string): Promise<Person> {
       // Dev email sign-up is disabled when GitHub is configured. Create the
       // session locally, then use it with configured GitHub route bindings.
@@ -522,3 +537,165 @@ test("the unconfigured local fixture keeps creator admin without any GitHub fetc
   assert.equal((await membership(h, person)).role, "admin");
   assert.deepEqual(requests, []);
 });
+
+/*
+ * POST /team/repository asks GitHub about the destination after its gate. A
+ * leave or a demotion landing during that wait once still moved the team and
+ * reset everyone else's role; the writes now require the actor to be an admin
+ * when they run (actorIsTeamAdmin), and change nothing otherwise.
+ */
+const AUTHORITY_LOST = "You're no longer an admin of this team, so nothing was changed. Reload to see where you stand.";
+
+for (const change of ["leaves the team", "is demoted to write"] as const) {
+  test(`a repository change whose actor ${change} while GitHub answers moves nothing`, async (t) => {
+    const h = await harness(t);
+    const github = mockGithub(t);
+    const actor = await h.signIn("Ada");
+    const teammate = await h.signIn("Grace");
+    await seedTeam(h, actor, "admin");
+    await h.db.insert(teamMembers).values({ teamId: "team_test", userId: teammate.userId, role: "maintain" });
+    github.set(actor, CURRENT_REPO, "admin");
+    github.set(actor, DESTINATION_REPO, "admin");
+    let asked!: () => void;
+    const destinationAsked = new Promise<void>((resolve) => { asked = resolve; });
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    github.holdPermission(async (_login, repo) => {
+      if (repo !== DESTINATION_REPO) return;
+      asked();
+      await answered;
+    });
+    const before = await onlyTeam(h);
+    const pending = h.call(actor, "POST", "/team/repository", { fullName: DESTINATION_REPO });
+    await destinationAsked;
+    if (change === "leaves the team") {
+      await h.db.delete(teamMembers).where(eq(teamMembers.userId, actor.userId));
+    } else {
+      await h.db.update(teamMembers).set({ role: "write" }).where(eq(teamMembers.userId, actor.userId));
+    }
+    answer();
+    const result = await pending;
+    assert.equal(result.status, 403);
+    assert.deepEqual(result.body.error, { code: "forbidden", message: AUTHORITY_LOST });
+    assert.deepEqual(await onlyTeam(h), before, "the repository moved");
+    assert.equal((await membership(h, teammate)).role, "maintain", "the remaining member's role was reset");
+  });
+}
+
+/*
+ * DELETE /team/members/:login reads the target, then deletes it only while
+ * the actor is still an admin. A delete that changed nothing used to be
+ * reported as the actor's lost authority even when the target had left in
+ * between, and the admin's roster kept showing them.
+ */
+async function removalSetup(t: TestContext) {
+  const h = await harness(t);
+  const github = mockGithub(t);
+  const actor = await h.signIn("Ada");
+  const target = await h.signIn("Grace");
+  await seedTeam(h, actor, "admin");
+  await h.db.insert(teamMembers).values({ teamId: "team_test", userId: target.userId, role: "write" });
+  github.set(actor, CURRENT_REPO, "admin");
+  return { h, github, actor, target };
+}
+
+const DELETE_MEMBER = /^delete from "team_members"/i;
+
+type Roster = { members: Array<{ login: string }> };
+const rosterLogins = (result: Result) => (result.body as unknown as Roster).members.map((m) => m.login).sort();
+
+test("removing a member deletes them and answers with the roster without them", async (t) => {
+  const { h, actor, target } = await removalSetup(t);
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  assert.equal(result.status, 200);
+  assert.deepEqual(rosterLogins(result), ["Ada"]);
+});
+
+test("a member who leaves between the read and the delete is reported removed, with a current roster", async (t) => {
+  const { h, actor, target } = await removalSetup(t);
+  let left = false;
+  h.race.beforeStatement = {
+    match: DELETE_MEMBER,
+    run: () => {
+      h.exec("DELETE FROM team_members WHERE user_id = ?", target.userId);
+      left = true;
+    },
+  };
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  assert.equal(left, true, "the leave must land between the read and the delete");
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.deepEqual(rosterLogins(result), ["Ada"], "the roster still showed the member who left");
+  assert.equal((await membership(h, actor)).role, "admin");
+});
+
+test("a member made an admin between the read and the delete is not removed", async (t) => {
+  const { h, actor, target } = await removalSetup(t);
+  h.race.beforeStatement = {
+    match: DELETE_MEMBER,
+    run: () => { h.exec("UPDATE team_members SET role = 'admin' WHERE user_id = ?", target.userId); },
+  };
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  assert.equal(result.status, 403);
+  assert.deepEqual(result.body.error, { code: "cannot_remove_creator", message: "A team admin can't be removed." });
+  assert.equal((await membership(h, target)).role, "admin");
+});
+
+test("a member who leaves before the delete and is back before it is explained is neither removed nor reported removed", async (t) => {
+  const { h, actor, target } = await removalSetup(t);
+  const roleReads: string[] = [];
+  const readRole = /^select "role" from "team_members"/i;
+  // The delete finds the target gone; the first role read after it is the
+  // actor's, and the target rejoins just before the second, the target's.
+  h.race.beforeStatement = {
+    match: DELETE_MEMBER,
+    run: () => {
+      h.exec("DELETE FROM team_members WHERE user_id = ?", target.userId);
+      h.race.beforeStatement = {
+        match: readRole,
+        run: () => {
+          roleReads.push("actor");
+          h.race.beforeStatement = {
+            match: readRole,
+            run: () => {
+              roleReads.push("target");
+              h.exec("INSERT INTO team_members (team_id, user_id, role) VALUES ('team_test', ?, 'write')", target.userId);
+            },
+          };
+        },
+      };
+    },
+  };
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  assert.deepEqual(roleReads, ["actor", "target"], "the rejoin must land between the two reads");
+  assert.equal(result.status, 409);
+  assert.deepEqual(result.body.error, {
+    code: "invalid_request",
+    message: "The team changed while this request was running. Reload and try again.",
+  });
+  assert.equal((await membership(h, target)).role, "write", "the rejoined member was removed");
+  assert.equal((await membership(h, actor)).role, "admin");
+});
+
+// The gate before the read asks GitHub and stores the role it answers, so a
+// change during that wait is the gate's to refuse (tested above for the
+// repository change). This is the window after it, which only the write's
+// own guard can see.
+for (const change of ["leaves the team", "is demoted to write"] as const) {
+  test(`a removal whose actor ${change} between the read and the delete removes nobody`, async (t) => {
+    const { h, actor, target } = await removalSetup(t);
+    let landed = false;
+    h.race.beforeStatement = {
+      match: DELETE_MEMBER,
+      run: () => {
+        if (change === "leaves the team") h.exec("DELETE FROM team_members WHERE user_id = ?", actor.userId);
+        else h.exec("UPDATE team_members SET role = 'write' WHERE user_id = ?", actor.userId);
+        landed = true;
+      },
+    };
+    const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+    assert.equal(landed, true);
+    assert.equal(result.status, 403);
+    assert.deepEqual(result.body.error, { code: "forbidden", message: AUTHORITY_LOST });
+    assert.equal((await membership(h, target)).role, "write", "the target was removed");
+  });
+}

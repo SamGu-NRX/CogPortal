@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, eq, exists, lt, notExists } from "drizzle-orm";
+import { and, eq, exists, lt, notExists, sql } from "drizzle-orm";
 import {
   LocalRunEventResponseSchema,
   LocalRunEventBatchResponseSchema,
@@ -14,7 +14,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireDevice } from "../auth/device";
-import { getDb } from "../db/client";
+import { getDb, type Database } from "../db/client";
 import { insertWhere } from "../db/insert-where";
 import {
   benchmarks,
@@ -26,7 +26,7 @@ import {
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
-import { upsertLocalReport } from "../services/local-reports";
+import { guardedLocalReportSave, localReportRow, refuseOthersReportId, reportSavedBy, teamsStillTheirs } from "../services/local-reports";
 import { syncRunSurfaceMessage } from "../services/discord-messages";
 import {
   defaultLocalEventCode,
@@ -82,6 +82,69 @@ function recordedSurfaceId(session: typeof localRunSessions.$inferSelect): strin
   );
 }
 
+/**
+ * Whether this user is on this team right now, as a condition a write can
+ * carry. A device credential belongs to a person, not a team, so every write
+ * a device makes into a team's records has to ask this at the moment it
+ * writes; a check made earlier in the request loses to a leave that lands
+ * between the two.
+ */
+function onTeam(db: Database, teamId: string, userId: string) {
+  return exists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+    eq(teamMembers.teamId, teamId),
+    eq(teamMembers.userId, userId),
+  )));
+}
+
+async function isOnTeam(db: Database, teamId: string, userId: string): Promise<boolean> {
+  const [member] = await db
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+    .limit(1);
+  return Boolean(member);
+}
+
+/**
+ * Before a start is reported as started: the person is still on the team it
+ * was admitted for. The CLI stops on a refused start, so running the command
+ * again is the whole recovery.
+ */
+async function refuseUnlessStillOnTeam(
+  db: Database,
+  userId: string,
+  teamId: string,
+  start: "recorded" | "unrecorded",
+): Promise<void> {
+  const [currentTeam] = await db
+    .select({ teamId: teams.id, name: teams.name })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+    .where(eq(teamMembers.userId, userId))
+    .limit(1);
+  if (!currentTeam) {
+    throw new ApiHttpError(403, "no_team", "Finish joining a team and connecting its repository first.");
+  }
+  if (currentTeam.teamId === teamId) return;
+  throw new ApiHttpError(
+    409,
+    "forbidden",
+    start === "unrecorded"
+      ? `You moved to ${currentTeam.name} while this run was starting, so the portal didn't record it. Run the command again.`
+      : `You moved to ${currentTeam.name} after this run was started for your old team, so the portal won't continue it. Run the command again.`,
+  );
+}
+
+/** For a completed event whose report id already names a report a run on a
+ *  team the author left points at. That report stays as it was. */
+export const REPORT_ID_FROZEN =
+  "This report ID already belongs to a run on a team you've left, so this run can't finish with it. Run the benchmark again to create a new report.";
+
+/** What the CLI prints after "cogworks: live updates paused:" when its
+ *  author has left the team the run was started for. */
+export const LEFT_RUN_TEAM =
+  "You're no longer on this run's team, so the portal stopped recording it. The run still finishes here and saves its report on this machine.";
+
 async function acceptLocalRunEvent(
   env: AppEnv["Bindings"],
   device: { deviceId: string; userId: string },
@@ -101,6 +164,13 @@ async function acceptLocalRunEvent(
     )
     .limit(1);
   if (!current) throw new ApiHttpError(404, "not_found", "Local run session not found.");
+  // Before anything is saved or published, duplicates included: a person who
+  // left the team keeps their device credential, and it must not keep
+  // writing into that team's console or reports. The run is not moved to
+  // whatever team they are on now; it stays the old team's history.
+  if (!(await isOnTeam(db, current.teamId, device.userId))) {
+    throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
+  }
   const surfaceId = recordedSurfaceId(current);
   if (current.status !== "running" || event.sequence <= current.lastEventSequence) {
     return { duplicate: true, surfaceId };
@@ -114,6 +184,7 @@ async function acceptLocalRunEvent(
   let phase: LocalRunPhase = current.phase as LocalRunPhase;
   let code: RunStreamEventCode;
   let nextValues: Partial<typeof localRunSessions.$inferInsert>;
+  let report: ReturnType<typeof localReportRow> | null = null;
   if (event.type === "progress") {
     const phaseOrder: LocalRunPhase[] = ["preparing", "contract_check", "evaluating", "scoring"];
     if (phaseOrder.indexOf(event.phase) < phaseOrder.indexOf(current.phase as LocalRunPhase)) {
@@ -123,19 +194,16 @@ async function acceptLocalRunEvent(
     code = sharedProgressCode(event.code, event.phase);
     nextValues = { phase, lastEventSequence: event.sequence, updatedAt: receivedAt };
   } else if (event.type === "completed") {
-    const report = event.report;
+    const sent = event.report;
     if (
-      report.benchmarkId !== current.benchmarkId ||
-      report.benchmarkVersion !== current.benchmarkVersion ||
-      report.repositoryFullName?.toLowerCase() !== current.repositoryFullName.toLowerCase() ||
-      report.sha !== current.sha
+      sent.benchmarkId !== current.benchmarkId ||
+      sent.benchmarkVersion !== current.benchmarkVersion ||
+      sent.repositoryFullName?.toLowerCase() !== current.repositoryFullName.toLowerCase() ||
+      sent.sha !== current.sha
     ) {
       throw new ApiHttpError(409, "invalid_request", "The completed report does not match this live run.");
     }
-    // Saved before the batch below, not inside it. The save is idempotent for
-    // its owner, so if the batch fails the report stays saved and the CLI's
-    // retry saves it again; the session is what records the run as finished.
-    await upsertLocalReport(env, device.userId, report);
+    report = localReportRow(device.userId, event.report);
     phase = "scoring";
     code = "run.completed";
     nextValues = {
@@ -164,31 +232,78 @@ async function acceptLocalRunEvent(
   // showed it. Both statements carry the same admission condition, and nothing
   // runs between them inside the batch, so the event is written exactly when
   // this request's update applies. A request that lost the race writes neither.
+  //
+  // A completed event's report is saved in the same batch, under the same
+  // condition, and the event and session then also require the saved row: the
+  // report exists exactly when the run is recorded as finished for its team.
   const admitted = and(
     eq(localRunSessions.id, current.id),
     eq(localRunSessions.status, "running"),
     lt(localRunSessions.lastEventSequence, event.sequence),
+    onTeam(db, current.teamId, device.userId),
   );
-  const [, updated] = await db.batch([
-    guardedRunStreamEventInsert(
+  const reportSave = report
+    ? await guardedLocalReportSave(
       db,
-      surfaceId,
-      {
-        eventId: event.eventId,
-        source: "local",
-        sourceRunId: current.id,
-        sourceSequence: event.sequence,
-        phase,
-        code,
-        occurredAt: event.occurredAt,
-        elapsedMs,
-        progress: event.type === "progress" ? (event.progress ?? null) : null,
-      },
+      report,
       exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(admitted)),
-    ),
-    db.update(localRunSessions).set(nextValues).where(admitted),
-  ]);
+    )
+    : null;
+  // The row exists and is the author's whether this payload was saved or a
+  // run on a team the author left froze an older one, so acceptance also
+  // requires what the update required. Otherwise team B's run finished with
+  // team A's old report under the same id.
+  const accepted = report
+    ? and(admitted, reportSavedBy(db, report.reportId, device.userId), teamsStillTheirs(db, report.reportId, device.userId))
+    : admitted;
+  const eventInsert = guardedRunStreamEventInsert(
+    db,
+    surfaceId,
+    {
+      eventId: event.eventId,
+      source: "local",
+      sourceRunId: current.id,
+      sourceSequence: event.sequence,
+      phase,
+      code,
+      occurredAt: event.occurredAt,
+      elapsedMs,
+      progress: event.type === "progress" ? (event.progress ?? null) : null,
+    },
+    exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(accepted)),
+  );
+  const sessionUpdate = db.update(localRunSessions).set(nextValues).where(accepted);
+  const results = reportSave
+    ? await db.batch([reportSave[0], reportSave[1], eventInsert, sessionUpdate])
+    : await db.batch([eventInsert, sessionUpdate]);
+  const updated = results[results.length - 1];
   const duplicate = (updated.meta.changes ?? 0) === 0;
+  // A leave that commits between the membership read above and this batch
+  // also leaves both writes empty. That is a refusal, not a duplicate: the
+  // CLI must not be told the event arrived.
+  if (duplicate && !(await isOnTeam(db, current.teamId, device.userId))) {
+    throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
+  }
+  if (duplicate && report) {
+    // The id was checked before the batch, but another account can save a
+    // report under it in between; the batch then writes nothing. Their
+    // report stands, and this event was not delivered.
+    await refuseOthersReportId(db, report.reportId, device.userId);
+    // Nothing was written because a run on a team the author left points at
+    // this report id: say so, rather than calling the event a duplicate.
+    const [frozenBy] = await db
+      .select({ id: localRunSessions.id })
+      .from(localRunSessions)
+      .where(and(
+        eq(localRunSessions.reportId, report.reportId),
+        notExists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+          eq(teamMembers.teamId, localRunSessions.teamId),
+          eq(teamMembers.userId, device.userId),
+        ))),
+      ))
+      .limit(1);
+    if (frozenBy) throw new ApiHttpError(409, "forbidden", REPORT_ID_FROZEN);
+  }
   if (!duplicate) await settleRunStreamEvents(db, surfaceId);
   return { duplicate, surfaceId };
 }
@@ -306,6 +421,10 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
       if (!isSameStart(existing, body, device, membership.team)) {
         throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
       }
+      // A repeated start (the CLI retrying after a lost answer) skips the
+      // guarded batch below, so it asks about membership itself: reported as
+      // started, it would be refused at its first event.
+      await refuseUnlessStillOnTeam(db, device.userId, existing.teamId, "recorded");
       const existingSurfaceId = recordedSurfaceId(existing);
       return respond(c, StartLocalRunResponseSchema, {
         sessionId,
@@ -338,8 +457,8 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         discordNonceGeneration: 0,
         createdAt: now,
         updatedAt: now,
-      }, notExists(db.select({ id: localRunSessions.id }).from(localRunSessions)
-        .where(eq(localRunSessions.id, sessionId)))).onConflictDoNothing(),
+      }, sql`${notExists(db.select({ id: localRunSessions.id }).from(localRunSessions)
+        .where(eq(localRunSessions.id, sessionId)))} and ${onTeam(db, membership.team.id, device.userId)}`).onConflictDoNothing(),
       insertWhere(db, localRunSessions, {
         id: sessionId,
         teamId: membership.team.id,
@@ -365,20 +484,25 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         updatedAt: now,
         finishedAt: null,
         surfaceId,
-      }, exists(db.select({ id: runSurfaces.id }).from(runSurfaces).where(and(
+      }, sql`${exists(db.select({ id: runSurfaces.id }).from(runSurfaces).where(and(
         eq(runSurfaces.id, surfaceId),
         eq(runSurfaces.teamId, membership.team.id),
         eq(runSurfaces.createdByUserId, device.userId),
         eq(runSurfaces.benchmarkId, body.benchmarkId),
         eq(runSurfaces.benchmarkVersion, body.benchmarkVersion),
         eq(runSurfaces.localRunId, sessionId),
-      )))).onConflictDoNothing(),
+      )))} and ${onTeam(db, membership.team.id, device.userId)}`).onConflictDoNothing(),
     ]);
     const [recorded] = await db
       .select()
       .from(localRunSessions)
       .where(eq(localRunSessions.id, sessionId))
       .limit(1);
+    // Nothing was written: either a console from another run holds this id,
+    // or the person left the team between the read above and the batch.
+    // Something was: possibly by an identical start that raced this one, so
+    // the person must still be on the team before it is reported as started.
+    await refuseUnlessStillOnTeam(db, device.userId, membership.team.id, recorded ? "recorded" : "unrecorded");
     if (!recorded || !isSameStart(recorded, body, device, membership.team)) {
       throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
     }

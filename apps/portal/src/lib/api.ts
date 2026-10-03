@@ -12,6 +12,7 @@ import {
   CohortTeamListSchema,
   ConnectionSummarySchema,
   InvitableUserListSchema,
+  LeaveTeamResponseSchema,
   DashboardSchema,
   DiscordLinkPreviewSchema,
   FamilyLeaderboardSchema,
@@ -173,6 +174,11 @@ export const api = {
     request("/api/team/members", TeamDetailSchema, {
       method: "POST",
       body: { login },
+    }),
+  leaveTeam: (teamId: string) =>
+    request("/api/team/leave", LeaveTeamResponseSchema, {
+      method: "POST",
+      body: { teamId },
     }),
   removeTeamMember: (login: string) =>
     request(`/api/team/members/${encodeURIComponent(login)}`, TeamDetailSchema, {

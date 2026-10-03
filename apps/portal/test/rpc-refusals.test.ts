@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { portalRefusal } from "@cogworks/contracts/discord";
 import { cohorts, discordAccounts, teamMembers, teams, users } from "../worker/db/schema.ts";
@@ -113,6 +114,81 @@ test("a channel bound to another team is refused in a sentence the bot may show"
       "That channel already belongs to Difference Engines. Open /cog in your own team's channel and choose it there.",
   });
 });
+
+const FREE_CHANNEL = "333333333333333333";
+const BOT = "444444444444444444";
+const ALLOWED = String((1n << 10n) | (1n << 11n)); // View Channel, Send Messages
+
+/** Answers Discord's channel check for FREE_CHANNEL, running `during` while
+ *  the first request is pending, the way a leave lands mid-request. */
+async function withDiscord<T>(during: () => Promise<void>, body: () => Promise<T>): Promise<T> {
+  const realFetch = globalThis.fetch;
+  let pending: Promise<void> | null = null;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    pending ??= during();
+    await pending;
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith(`/channels/${FREE_CHANNEL}`)) {
+      return Response.json({ id: FREE_CHANNEL, guild_id: GUILD, type: 0, permission_overwrites: [] });
+    }
+    if (path.endsWith(`/guilds/${GUILD}/roles`)) return Response.json([{ id: GUILD, permissions: ALLOWED }]);
+    if (path.endsWith(`/guilds/${GUILD}/members/${BOT}`)) return Response.json({ user: { id: BOT }, roles: [] });
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  try {
+    return await body();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+function channelRpc(binding: unknown) {
+  const env = {
+    ENVIRONMENT: "development", COURSE_GUILD_ID: GUILD, DISCORD_CLIENT_ID: BOT, DISCORD_BOT_TOKEN: "bot", DB: binding,
+  } as unknown as Env;
+  return new PortalRpc({} as never, env);
+}
+
+for (const role of ["admin", "maintain"] as const) {
+  test(`a team ${role === "admin" ? "admin" : "maintainer"} binds the team channel once Discord confirms CogBot can post there`, async () => {
+    const binding = await seeded();
+    const db = drizzle(binding as never);
+    await db.update(teamMembers).set({ role }).where(eq(teamMembers.userId, "user_ada"));
+    const status = await withDiscord(async () => {}, () => channelRpc(binding).bindTeamChannel(GUILD, "discord_ada", FREE_CHANNEL));
+    assert.equal((status as { discordChannelId?: string }).discordChannelId, FREE_CHANNEL);
+    const [team] = await db.select().from(teams).where(eq(teams.id, "team_ada"));
+    assert.equal(team?.discordChannelId, FREE_CHANNEL);
+  });
+}
+
+for (const [change, expected] of [
+  ["leaves the team", {
+    code: "no_team",
+    message: "You're no longer on this team, so its channel wasn't changed. Run /cog again to see where you are.",
+  }],
+  ["loses the admin role", {
+    code: "forbidden",
+    message: "A team creator or maintainer needs to choose the team channel.",
+  }],
+] as const) {
+  test(`an admin who ${change} while Discord checks the channel changes nothing`, async () => {
+    const binding = await seeded();
+    const db = drizzle(binding as never);
+    let landed = false;
+    const refused = await withDiscord(async () => {
+      if (change === "leaves the team") await db.delete(teamMembers).where(eq(teamMembers.userId, "user_ada"));
+      else await db.update(teamMembers).set({ role: "write" }).where(eq(teamMembers.userId, "user_ada"));
+      landed = true;
+    }, () => channelRpc(binding).bindTeamChannel(GUILD, "discord_ada", FREE_CHANNEL).then(
+      () => assert.fail("bound a channel for someone without the authority"),
+      (error: unknown) => error,
+    ));
+    assert.equal(landed, true, "the change must land while Discord is answering");
+    assert.deepEqual(portalRefusal(refused), { name: "ApiHttpError", ...expected });
+    const [team] = await db.select().from(teams).where(eq(teams.id, "team_ada"));
+    assert.equal(team?.discordChannelId, null, "the old team's channel was changed");
+  });
+}
 
 test("a server outside the course is refused rather than reported as unreachable", async () => {
   const refused = await rpc(await seeded()).getTeamStatus("999999999999999999", "discord_ada").then(

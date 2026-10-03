@@ -14,6 +14,7 @@ import {
   officialAttempts,
   runMetrics,
   runs,
+  teamMembers,
   teams,
   users,
 } from "../worker/db/schema.ts";
@@ -89,6 +90,8 @@ async function seed(db: Database) {
     repoOwner: "course", repoName: "team", repoFullName: "course/team",
     repoUrl: "https://github.com/course/team", defaultBranch: "main", repoId: 7,
   });
+  // The student starts the runs below; admission checks they are on the team.
+  await db.insert(teamMembers).values({ teamId: "team_1", userId: "user_1", role: "write" });
 }
 
 let counter = 0;
@@ -129,7 +132,7 @@ test("three recognition-v1 official attempts stop exhausting the corrected board
   }
   await db.insert(leaderboardSelections).values({ ...SCOPE, runId: "run_0003", selectedAt: NOW });
   assert.equal((await readRunAccounting(db, SCOPE)).officialUsed, 3);
-  assert.equal((await insertRunWithCapacity(db, pending("official"))).meta.changes, 0, "precondition: the old limit holds");
+  assert.equal((await insertRunWithCapacity(db, pending("official"), "user_1")).meta.changes, 0, "precondition: the old limit holds");
 
   const before = {
     runs: await db.select().from(runs),
@@ -140,7 +143,7 @@ test("three recognition-v1 official attempts stop exhausting the corrected board
   release();
 
   assert.equal((await readRunAccounting(db, SCOPE)).officialUsed, 0);
-  assert.equal((await insertRunWithCapacity(db, pending("official"))).meta.changes, 1);
+  assert.equal((await insertRunWithCapacity(db, pending("official"), "user_1")).meta.changes, 1);
   // History is untouched apart from the release time.
   const after = (await db.select().from(runs)).filter((row) => row.id !== "run_new_official");
   assert.deepEqual(after.map(({ refundedAt: _released, ...row }) => row),
@@ -155,12 +158,12 @@ test("ten recognition-v1 practice runs stop exhausting practice", async () => {
   const { db, release } = freshDb();
   await seed(db);
   for (let i = 0; i < 10; i += 1) await run(db, {});
-  assert.equal((await insertRunWithCapacity(db, pending("practice"))).meta.changes, 0, "precondition: the old limit holds");
+  assert.equal((await insertRunWithCapacity(db, pending("practice"), "user_1")).meta.changes, 0, "precondition: the old limit holds");
 
   release();
 
   assert.equal((await readRunAccounting(db, SCOPE)).practiceUsed, 0);
-  assert.equal((await insertRunWithCapacity(db, pending("practice"))).meta.changes, 1);
+  assert.equal((await insertRunWithCapacity(db, pending("practice"), "user_1")).meta.changes, 1);
 });
 
 test("the release touches only recognition-v1 work that counted, and is idempotent", async () => {
@@ -213,7 +216,7 @@ test("an old run still going keeps blocking a start, and completing later does n
   assert.equal(during.practiceReserved, 1);
   assert.equal(during.activeRuns, 1);
   // Drizzle wraps the driver's error; the active-run index is what refused it.
-  await assert.rejects(insertRunWithCapacity(db, pending("practice")),
+  await assert.rejects(insertRunWithCapacity(db, pending("practice"), "user_1"),
     (error: unknown) => /UNIQUE constraint failed/i.test(String((error as { cause?: unknown }).cause)),
     "a start was admitted beside the old active run");
 
@@ -237,5 +240,5 @@ test("an old run still going keeps blocking a start, and completing later does n
   assert.deepEqual(await readRunAccounting(db, SCOPE), {
     practiceUsed: 0, officialUsed: 0, practiceReserved: 0, officialReserved: 0, activeRuns: 0,
   });
-  assert.equal((await insertRunWithCapacity(db, pending("practice"))).meta.changes, 1);
+  assert.equal((await insertRunWithCapacity(db, pending("practice"), "user_1")).meta.changes, 1);
 });

@@ -6,7 +6,7 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { motion, useReducedMotion } from "motion/react";
 import type { CohortTeam, GithubRepo } from "@cogworks/contracts/schema";
@@ -28,6 +28,7 @@ import {
   useRepositories,
   useSession,
 } from "@/lib/queries";
+import { clearLeftTeam, peekLeftTeam, subscribeLeftTeam } from "@/lib/left-team";
 
 const JOIN_TEAMS_VISIBLE = 5;
 // Folding one or two teams away costs a press to save a row or two, and the
@@ -50,6 +51,40 @@ function isWizardEntry(state: unknown): state is WizardEntry {
 
 function readStep(value: string | null): WizardStep | null {
   return value === "join" || value === "start" ? value : null;
+}
+
+/**
+ * What the Leave on the Team page just did, for the person it brought here
+ * (useLeaveTeam). Shown on this arrival only: the note is cleared once drawn,
+ * so a later visit to /connect says nothing.
+ */
+function LeftTeamNotice({ className = "" }: { className?: string }) {
+  const pending = useSyncExternalStore(subscribeLeftTeam, peekLeftTeam);
+  // Kept here once seen, since the note itself is cleared on sight.
+  const [left, setLeft] = useState(peekLeftTeam);
+  useEffect(() => {
+    if (!pending) return;
+    setLeft(pending);
+    clearLeftTeam();
+  }, [pending]);
+  if (!left) return null;
+  return (
+    <div
+      role="status"
+      className={`rounded-control border-l-2 border-ink bg-paper-raised px-4 py-3 text-[14px] leading-[1.55] text-ink-secondary ${className}`}
+    >
+      <p className="font-semibold break-words text-ink">
+        {left.alreadyLeft ? `You'd already left ${left.name}` : `You left ${left.name}`}
+      </p>
+      <p className="mt-1">
+        {left.alreadyLeft
+          ? "Nothing changed this time; another tab or request had already taken you off it."
+          : left.archive
+            ? "Its runs and results stay with the team. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back."
+            : "Its runs and results stay with the team. If GitHub still gives you write access to its repository, you can join it again below."}
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -161,6 +196,7 @@ export function ConnectPage() {
       {/* Outside the keyed step, so the notice survives moving between
           steps; it is consumed on first render and would not come back. */}
       <DroppedLinkNotice className="mt-8 max-w-[31rem]" />
+      <LeftTeamNotice className="mt-8 max-w-[31rem]" />
       <motion.div
         key={step}
         className="mt-10"
@@ -453,6 +489,29 @@ function JoinPath({
   );
 }
 
+/** The server's answer when a membership exists that this page never saw. */
+function isAlreadyOnTeam(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.code === "already_on_team";
+}
+
+/**
+ * A join or a new team refused because the student is already on a team,
+ * made in another window, on another device or by staff after this page
+ * loaded. Nothing here can show that team: the session this page holds says
+ * none. A full page load (a plain link, not a router Link) drops what this
+ * page cached and reads where they stand now.
+ */
+function AlreadyOnTeamNotice({ className = "" }: { className?: string }) {
+  return (
+    <div role="alert" className={`rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep ${className}`}>
+      <p>You're already on a team; this page was opened before you joined it.</p>
+      <a href="/team" className={buttonClass("ghost", "mt-2")}>
+        Open your current team
+      </a>
+    </div>
+  );
+}
+
 function joinErrorMessage(error: unknown): string | null {
   if (error instanceof ApiRequestError) {
     // A team deleted after the list loaded. The server's "Team not found."
@@ -486,7 +545,9 @@ function TeamRow({
   // access yet) often means the student pressed the wrong team.
   const mine = join.variables === team.id;
   const busy = join.isPending && mine;
-  const message = !join.isPending && mine ? joinErrorMessage(join.error) : null;
+  const settled = !join.isPending && mine;
+  const alreadyOnTeam = settled && isAlreadyOnTeam(join.error);
+  const message = settled && !alreadyOnTeam ? joinErrorMessage(join.error) : null;
 
   return (
     <li className={primary ? "pt-2" : "border-b border-rule-soft py-4"}>
@@ -508,6 +569,7 @@ function TeamRow({
         </Button>
       </div>
 
+      {alreadyOnTeam && <AlreadyOnTeamNotice className="mt-3" />}
       {message && (
         <p role="alert" className="mt-3 rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep">
           {message}
@@ -616,7 +678,9 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
         </div>
       )}
 
-      {connect.error && (
+      {isAlreadyOnTeam(connect.error) ? (
+        <AlreadyOnTeamNotice className="mt-4" />
+      ) : connect.error && (
         <p role="alert" className="mt-4 rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep">
           {connect.error instanceof ApiRequestError
             ? connect.error.message

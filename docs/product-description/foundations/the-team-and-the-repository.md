@@ -22,7 +22,7 @@ Three unique indexes carry the consequences:
 - **One team per student, everywhere** (`team_members_user_unique`, `schema.ts:196`). The index closes the race where two simultaneous joins each read "no membership".
 - **One Discord channel, one team** (`teams_discord_channel_unique`, `schema.ts:153`). Any number of teams may have no channel.
 
-A student cannot leave their team or join a second one.
+A student cannot leave their team or join a second one. (`b0e0c55`: a student can leave, which deletes only their membership; the team and its history stay. They still cannot be on two teams at once.)
 
 A team also has a provenance. Rows marked `archive` are past-course demonstrations with names replaced; the cohort team list omits them and a direct join is refused with "This is a past-course demonstration with names replaced, so there's nothing to join. Choose a current team." (`apps/portal/worker/routes/team-membership.ts:81`, `:141-147`).
 
@@ -147,7 +147,7 @@ The student is sent to `/setup` with a note about how they arrived; the setup pa
 
 ## Open questions and verification
 
-- No member can leave a team, and the only removal path refuses admins (`team-membership.ts:304`). B-07.
+- No member can leave a team, and the only removal path refuses admins (`team-membership.ts:304`). B-07; self-leave in `b0e0c55`, and removing another admin is still refused.
 - The Discord status path and the run-actor path disagree about which roles count as members (`discord.ts:154-159`, `run-actions.ts:78-79`). Unreachable while only three roles exist. B-03.
 - A member added from the team page skips the GitHub check (`team-membership.ts:261`). B-29.
 - `connectTeam` writes the team and the membership as two statements (`github/team.ts:53`, `:77`). A failure between them leaves a claimed repository with no members. How reachable this is on D1 was not established.

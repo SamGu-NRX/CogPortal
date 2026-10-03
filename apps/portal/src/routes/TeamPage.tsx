@@ -16,9 +16,10 @@ import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
   useChangeTeamRepo,
+  useLeaveTeam,
+  useLeaveUnconfirmed,
   useRemoveTeamMember,
   useRepositories,
-  useSession,
   useTeam,
   useUpdateTeam,
 } from "@/lib/queries";
@@ -321,8 +322,6 @@ function TeamHeading({ team }: { team: TeamDetail }) {
  *  when someone is added. */
 function PeopleSection({ team }: { team: TeamDetail }) {
   const [adding, setAdding] = useState(false);
-  const { data: session } = useSession();
-  const me = session?.user?.login.toLowerCase() ?? null;
   // Remove unmounts the focused control; hand focus back to the add toggle
   // so keyboard users aren't dropped at the document root.
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -362,12 +361,14 @@ function PeopleSection({ team }: { team: TeamDetail }) {
       <div className="lg:max-w-[42rem]">
         <ul className="divide-y divide-rule-soft">
           {team.members.map((m, i) => {
-            const isMe = me !== null && m.login.toLowerCase() === me;
+            // The server marks the reader's row by user id; two rows can show
+            // the same login, and only one of them is yours to leave.
+            const isMe = m.isYou;
             return (
               // The login is the display name, and two development accounts can
               // share one (demo@dev.local beside a GitHub "demo"); GitHub logins
               // are unique, so the index only ever breaks a tie the server made.
-              <li key={`${m.login}:${i}`} className="flex min-h-16 items-center gap-3.5 py-2.5">
+              <li key={`${m.login}:${i}`} className="flex min-h-16 flex-wrap items-center gap-x-3.5 gap-y-1 py-2.5">
                 <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} size={36} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
@@ -387,8 +388,12 @@ function PeopleSection({ team }: { team: TeamDetail }) {
                     {ROLE_LABELS[m.role]}
                   </span>
                 )}
-                {team.isAdmin && m.role !== "admin" && (
-                  <RemoveMember login={m.login} onRemoved={restoreFocus} />
+                {isMe ? (
+                  <LeaveTeam team={team} />
+                ) : (
+                  team.isAdmin && m.role !== "admin" && (
+                    <RemoveMember login={m.login} onRemoved={restoreFocus} />
+                  )
                 )}
               </li>
             );
@@ -420,6 +425,83 @@ function PeopleSection({ team }: { team: TeamDetail }) {
         )}
       </div>
     </PageSection>
+  );
+}
+
+/**
+ * Leaving, from the student's own row. It removes only their membership; the
+ * label carries the act and the line under the row, shown only while armed,
+ * carries what stays, because that is what someone hesitating here needs to
+ * know and it does not fit in a label. Afterwards they land on the team
+ * choice (useLeaveTeam), where this team is one Join away if GitHub still
+ * gives them write access.
+ */
+function LeaveTeam({ team }: { team: TeamDetail }) {
+  const leave = useLeaveTeam();
+  // Held with the button it describes, so a row that remounts (the roster
+  // reordered, a refetch) loses both together. Lifted to the list, it once
+  // outlived its button and showed under an unarmed control.
+  const [armed, setArmed] = useState(false);
+  // After an outcome the page cannot know, Leave is gone until a full reload:
+  // pressing it again could remove a membership made since, elsewhere.
+  const unconfirmed = useLeaveUnconfirmed(team.id);
+  // The control keeps its column; a failure takes its own row under the name,
+  // as the armed consequence does. In the control column it squeezed the
+  // reader's name to nothing on a phone.
+  const failure = unconfirmed ?? (leave.error instanceof ApiRequestError ? leave.error.message : null);
+  return (
+    <>
+      {!unconfirmed && <span className="shrink-0">
+        <RemoveButton
+          label="Leave"
+          armedLabel="Confirm, you leave"
+          busyLabel="Leaving…"
+          subject={`team ${team.name}`}
+          armedSubject={team.name}
+          busy={leave.isPending}
+          onArmedChange={setArmed}
+          onConfirm={() => leave.mutate({ teamId: team.id, teamName: team.name, archive: team.provenance === "archive" })}
+        />
+      </span>}
+      {failure && (
+        <div role="alert" className={`${ROW_NOTE} text-detect-deep`}>
+          <p>{failure}</p>
+          {unconfirmed && (
+            <Button variant="ghost" className="mt-2" onClick={() => window.location.reload()}>
+              Reload page
+            </Button>
+          )}
+        </div>
+      )}
+      {armed && !unconfirmed && (
+        <LeaveConsequence lastMember={team.members.length === 1} archive={team.provenance === "archive"} />
+      )}
+    </>
+  );
+}
+
+/** A line under a member's row, aligned with their name. */
+const ROW_NOTE = "basis-full max-w-[calc(60ch+36px+0.875rem)] pl-[calc(36px+0.875rem)] text-[13.5px] leading-[1.5]";
+
+/** Each sentence is a server fact: the delete touches one team_members row
+ *  (routes/team-membership.ts), and team report lists are built from the
+ *  current roster (services/local-reports.ts). Students can't join an
+ *  archive team themselves. Staff can add anyone to it (routes/admin.ts), and
+ *  so can a team admin who is still on it (POST /team/members), but whether
+ *  one is left can change before the click lands, so the line names staff
+ *  without saying only staff. */
+function LeaveConsequence({ lastMember, archive }: { lastMember: boolean; archive: boolean }) {
+  const text = archive
+    ? lastMember
+      ? "You're the last member, so the team will be empty. It keeps its runs and results, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back."
+      : "Only you come off the team; its hosted runs, attempts and published results stay, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back."
+    : lastMember
+      ? "You're the last member, so the team will be empty. It keeps its repository, runs and results, and anyone with write access on GitHub can join it again."
+      : "Only you come off the team; its hosted runs, attempts and published results stay. Your local reports leave its list with you, and your GitHub access doesn't change.";
+  return (
+    <p role="status" className={`${ROW_NOTE} text-ink-secondary`}>
+      {text}
+    </p>
   );
 }
 

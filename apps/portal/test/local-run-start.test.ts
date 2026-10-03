@@ -50,7 +50,13 @@ const OTHER_REPO_ID = 999_999_999;
 
 /** Lets a test hide the session lookup once, so the insert races a row that
  *  already exists and the conflict branch is the one under test. */
-interface Race { hideSessionSelect: number; queries: string[] }
+interface Race {
+  hideSessionSelect: number;
+  queries: string[];
+  /** Runs once, just before the next batch: a write another request commits
+   *  between this request's checks and its batch. */
+  beforeBatch?: () => void;
+}
 
 function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Database; binding: unknown; sqlite: DatabaseSync } {
   const sqlite = new DatabaseSync(":memory:");
@@ -105,6 +111,9 @@ function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Data
     // D1 commits a batch as one transaction; mirror that so a failure inside
     // one rolls back what the batch wrote before it.
     async batch(statements: Array<{ execute(): unknown }>) {
+      const before = race.beforeBatch;
+      delete race.beforeBatch;
+      before?.();
       sqlite.exec("BEGIN");
       try {
         const results = statements.map((statement) => statement.execute());
@@ -358,7 +367,8 @@ for (const [name, over, expected] of [
  * batch with the history before it.
  */
 async function liveRun(vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}) {
-  const { db, binding, sqlite } = freshDb();
+  const race: Race = { hideSessionSelect: 0, queries: [] };
+  const { db, binding, sqlite } = freshDb(race);
   await seed(db);
   const env = runtime(binding, vars);
   const hubs = runSurfaceHubs(env);
@@ -377,7 +387,7 @@ async function liveRun(vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}) {
     return (await response.json()) as { duplicate: boolean };
   };
   return {
-    db, env, surfaceId, sqlite, post,
+    db, env, surfaceId, sqlite, post, race,
     hub: hubs.get(surfaceId),
     send: (event: LocalRunEvent) => post("/events", event),
     sendBatch: (events: LocalRunEvent[]) => post("/events/batch", { events }),
@@ -449,6 +459,76 @@ test("a silent live run reads as lost contact and recovers when it reports again
   const finished = await buildRunSurfaceSnapshot(run.env, run.surfaceId);
   assert.equal(finished.status, "succeeded");
   assert.equal(finished.primaryMetric?.value, 0.82);
+});
+
+/**
+ * The author leaves mid-run, so every later event is refused and writes
+ * nothing, terminal ones included (local-runs.ts). The session row stays
+ * running, as it does for a killed CLI, and the old team sees the same lost
+ * contact once the silence deadline passes, on the page and in Discord. No
+ * write by the departed member is needed for that; the hub's tick finds it.
+ */
+test("a live run whose author left reads as lost contact for the old team, not as live", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  const before = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+  run.sqlite.prepare("DELETE FROM team_members WHERE user_id = (SELECT user_id FROM local_run_sessions WHERE id = ?)").run(SESSION);
+  await run.post("/events", heartbeat(1), 403);
+  await run.post("/events/batch", { events: [heartbeat(1), completed(2)] }, 403);
+  assert.deepEqual(
+    await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION)),
+    before,
+    "a refused event changed the session",
+  );
+
+  const lastHeard = await run.goSilent();
+  await run.hub.alarm();
+  const silent = run.hub.messages.at(-1)!;
+  assert.equal(silent.status, "running");
+  assert.equal(silent.silentSince, lastHeard);
+  assert.equal(run.hub.scheduledAlarm, null, "the hub kept ticking a run that cannot report again");
+  const message = JSON.stringify(runSurfaceMessage(run.env, silent));
+  assert.match(message, /Lost contact/);
+  assert.doesNotMatch(message, /Watch live/);
+});
+
+/**
+ * The ownership check on a completed event's report id runs before the batch.
+ * Another account can save a report under the same id in between; the batch
+ * then writes nothing, which must not be reported as a delivered duplicate.
+ */
+for (const route of ["single", "batch"] as const) {
+  test(`a report id another account takes just before the completion batch is refused, not a duplicate (${route})`, async () => {
+    const run = await liveRun();
+    await run.send(heartbeat(0));
+    run.sqlite.prepare("INSERT INTO users (id, name, email, github_login, cohort_id) VALUES ('user_2', 'Bea', 'bea@example.test', 'bea', 'cohort_1')").run();
+    const theirs = `INSERT INTO local_reports (report_id, user_id, benchmark_id, benchmark_version, contract_version,
+      sdk_version, plugin_version, repository_full_name, sha, dirty, started_at, finished_at, metrics_json,
+      diagnostics_json, synced_at) VALUES ('report_late_result', 'user_2', '${BENCHMARK_ID}', 1,
+      'cogworks.submissions.v1', '0.2.0', '1', 'someone/else', '${"c".repeat(40)}', 0, 1, 2, '[]', '[]', 3)`;
+    let raced = false;
+    run.race.beforeBatch = () => { run.sqlite.prepare(theirs).run(); raced = true; };
+    const reportBefore = () => run.sqlite.prepare("SELECT * FROM local_reports WHERE report_id = 'report_late_result'").all();
+    const sessionBefore = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+    const published = run.hub.messages.length;
+    const refused = route === "single"
+      ? await run.post("/events", completed(1), 409)
+      : await run.post("/events/batch", { events: [heartbeat(0), completed(1)] }, 409);
+    assert.equal(raced, true, "the other account's save must land between the check and the batch");
+    assert.deepEqual(refused, { error: { code: "forbidden", message: "That report ID belongs to another account." } });
+    const [row] = reportBefore() as Array<{ user_id: string; repository_full_name: string }>;
+    assert.equal(row?.user_id, "user_2");
+    assert.equal(row?.repository_full_name, "someone/else", "the other account's report was rewritten");
+    assert.deepEqual(await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION)), sessionBefore);
+    assert.equal(run.hub.messages.length, published, "a refused completion was published");
+  });
+}
+
+test("a repeated completion of the author's own report is still a duplicate", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  assert.equal((await run.send(completed(1))).duplicate, false);
+  assert.equal((await run.send(completed(1))).duplicate, true);
 });
 
 /**

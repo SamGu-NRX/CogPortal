@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
   RUNNER_PROTOCOL_VERSION,
@@ -13,7 +13,7 @@ import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
-import { getLatestTeamWeights } from "../services/local-reports";
+import { latestTeamWeightsFor } from "../services/local-reports";
 import { headRecordedWeight, weightManifest, weightObjectKey } from "../services/weights";
 import { preparedEnvironmentMatchesRun, savedEnvironmentEligibility } from "../services/run-eligibility";
 
@@ -59,11 +59,22 @@ export function assertModalConfigured(env: Env): asserts env is Env & {
 
 const RunJobInputsSchema = RunJobV1Schema.omit({ jobId: true, callback: true });
 
+/**
+ * The run columns a job is built from and checked against. Narrower than a
+ * row, so a run can be given its job before it exists: admission builds the
+ * job from the row it is about to insert.
+ */
+export type DispatchInputs = Pick<RunRow,
+  | "id" | "mode" | "sha" | "repositoryId" | "repositoryFullName" | "benchmarkId" | "benchmarkVersion"
+  | "contractVersion" | "datasetVersion" | "scorerVersion" | "protocolVersion" | "provider"
+  | "preparedArtifactId" | "preparedEnvironmentJson"
+>;
+
 // Render-time Retry checks need the same execution inputs without minting a
 // transport ID or requiring callback/provider configuration.
 function buildRunJobInputs(
   env: Env,
-  run: RunRow,
+  run: DispatchInputs,
   team: TeamRow,
   benchmark: BenchmarkRow,
   weights: WeightFile[] = [],
@@ -179,7 +190,7 @@ function callbackFor(env: Env): RunJobV1["callback"] {
 
 export function buildRunJob(
   env: Env,
-  run: RunRow,
+  run: DispatchInputs,
   team: TeamRow,
   benchmark: BenchmarkRow,
   weights: WeightFile[] = [],
@@ -201,7 +212,7 @@ function retryInputError(detail: string): ApiHttpError {
  * what makes it safe to reuse mid-run, where the weight download needs the
  * recorded source rather than today's repository name.
  */
-export function recordedDispatchJob(run: RunRow): RunJobV1 {
+export function recordedDispatchJob(run: DispatchInputs & Pick<RunRow, "dispatchJobJson">): RunJobV1 {
   if (!run.dispatchJobJson) {
     throw retryInputError("This run has no recorded dispatch inputs. Start a new candidate.");
   }
@@ -319,6 +330,46 @@ export async function prepareRetryJob(
 }
 
 /**
+ * The exact job a new Modal run is admitted with, built before its row exists.
+ *
+ * Practice start and promotion call this before the guarded INSERT and save
+ * the result in that INSERT, so every admitted Modal run is born with the
+ * inputs it will be sent with. Built after admission instead, it read the
+ * roster at that later moment: a member leaving in between took their
+ * report's weights with them, and an emptied roster sent weights [] silently.
+ *
+ * `memberUserIds` is the roster the caller captured once and checked the
+ * actor against; it is the only roster read here, so a departure during
+ * preparation cannot turn into an empty manifest under a second read. A
+ * saved environment (promotion) carries its own inputs and reads no weights.
+ */
+export async function prepareAdmissionJob(
+  env: Env,
+  proposed: DispatchInputs,
+  team: TeamRow,
+  benchmark: BenchmarkRow,
+  memberUserIds: readonly string[],
+): Promise<RunJobV1> {
+  assertModalConfigured(env);
+  let weights: WeightFile[] = [];
+  if (!proposed.preparedArtifactId) {
+    const repository = proposed.repositoryFullName ?? team.repoFullName;
+    const report = await latestTeamWeightsFor(
+      env, team.id, memberUserIds, repository, proposed.sha, proposed.repositoryId,
+      proposed.benchmarkId, proposed.benchmarkVersion,
+    );
+    weights = await weightManifest(
+      env.ARTIFACTS, repository, proposed.sha, report.weightsUsed, report.weightsUploaded,
+    );
+  }
+  const job = buildRunJob(env, proposed, team, benchmark, weights);
+  // The same check every later read of the saved job makes, against the row
+  // about to be inserted.
+  recordedDispatchJob({ ...proposed, dispatchJobJson: JSON.stringify(job) });
+  return job;
+}
+
+/**
  * Hand one run to Modal, through the queue when there is one.
  *
  * The queue gives retry with backoff and a dead-letter path, so it stays the
@@ -329,9 +380,8 @@ export async function prepareRetryJob(
  */
 export async function enqueueRun(
   env: Env,
-  run: RunRow,
-  team: TeamRow,
-  benchmark: BenchmarkRow,
+  run: Pick<RunRow, "id">,
+  team: Pick<TeamRow, "id">,
 ): Promise<void> {
   assertModalConfigured(env);
   const db = getDb(env);
@@ -340,30 +390,10 @@ export async function enqueueRun(
   if (stored.provider !== env.EXECUTION_PROVIDER || stored.teamId !== team.id) {
     throw retryInputError("Dispatch provider or team does not match the recorded execution.");
   }
-  if (stored.dispatchJobJson === null) {
-    let weights: WeightFile[] = [];
-    if (!stored.preparedArtifactId) {
-      // Match weights to the run's recorded source and benchmark.
-      const repository = stored.repositoryFullName ?? team.repoFullName;
-      const report = await getLatestTeamWeights(
-        env, stored.teamId, repository, stored.sha, stored.repositoryId, stored.benchmarkId,
-        stored.benchmarkVersion,
-      );
-      weights = await weightManifest(
-        env.ARTIFACTS, repository, stored.sha, report.weightsUsed, report.weightsUploaded,
-      );
-    }
-    const candidate = buildRunJob(env, stored, team, benchmark, weights);
-    const dispatchJobJson = JSON.stringify(candidate);
-    recordedDispatchJob({ ...stored, dispatchJobJson });
-    // Concurrent dispatchers may prepare different jobs. The first persisted
-    // inputs win; every sender reloads that record rather than sending its own.
-    await db.update(runs).set({ dispatchJobJson })
-      .where(and(eq(runs.id, stored.id), isNull(runs.dispatchJobJson)));
-  }
-  const [recorded] = await db.select().from(runs).where(eq(runs.id, run.id)).limit(1);
-  if (!recorded) throw retryInputError("The execution to dispatch no longer exists.");
-  const job = recordedDispatchJob(recorded);
+  // Only the job saved at admission is sent. A Modal row without one is
+  // refused here (recordedDispatchJob), never rebuilt from the roster of the
+  // moment, and dispatch() records that as an unstarted failure.
+  const job = recordedDispatchJob(stored);
   await validateRecordedWeights(env, job);
   if (env.RUN_QUEUE) {
     await env.RUN_QUEUE.send(job, { contentType: "json" });
