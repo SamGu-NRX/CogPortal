@@ -10,6 +10,7 @@ The feature documents were written from the code and the tests. This directory i
 | [terminal.md](terminal.md) | `terminal/*` |
 | [discord.md](discord.md) | `discord/*` |
 | [sandbox.md](sandbox.md) | `sandbox/*`, `cross-cutting/*`, and the `foundations/*` claims that are observable |
+| [checkpoint-edf4de3.md](checkpoint-edf4de3.md) | The current candidate `edf4de3`: what it changes, the two practice runs and the CLI pass on an owned Modal environment, and what was not shown |
 | [checkpoint-17d26d9.md](checkpoint-17d26d9.md) | What was observed on the accepted beta `17d26d9` locally, kept apart from the rows above |
 
 Each file has one table per document. Each row is an item with a stable ID (`STATUS-04`, `RUNPAGE-12`), a priority, what it needs, the claim with a link to the document section, the setup, numbered steps, the expected result, and a Result column for the tester. Items that cannot be checked by hand are listed under each document as "Not checkable by hand".
