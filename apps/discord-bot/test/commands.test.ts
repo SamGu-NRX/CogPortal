@@ -501,7 +501,7 @@ test("team channel setup is explicit and binds only after confirmation", async (
     responseText(preview),
     [
       "### Make this the team bench?",
-      "Cog will post a live bubble here for every hosted run your team starts, practice and official, and edit that same message as the run moves and when its result is published. A local run shows up only when someone shares it.",
+      "Cog will post your team's hosted run progress and results here, including official attempts and publication. A local run shows up only when someone shares it.",
       "",
       "Everyone who can read this channel sees each run's commit, progress and score (self-reported for a shared local run). No one's name is attached, and source code and raw outputs are never posted.",
     ].join("\n"),
