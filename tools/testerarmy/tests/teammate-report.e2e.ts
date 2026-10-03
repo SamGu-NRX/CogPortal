@@ -1,7 +1,9 @@
 import { test } from '@e2e-dev/web';
 import { expect, unique } from 'e2e';
+import { randomUUID } from 'node:crypto';
 import { CliHome } from '../support/cli.ts';
-import { STUDENT, TEAMMATE, approveDevice, cliDevices, devLogin, revokeDevice, startLink } from '../support/link.ts';
+import { findAttemptDevice, revokeAttemptDevice, type AttemptDevice } from '../support/devices.ts';
+import { STUDENT, TEAMMATE, approveDevice, browserPortal, cliDevices, devLogin, startLink } from '../support/link.ts';
 import {
   BENCHMARK,
   ONE_DIMENSIONAL_EMBED_TEXT,
@@ -59,19 +61,25 @@ test(
   { timeout: 300_000, tags: ['open-finding'] },
   async ({ app, agent, browser, screen }) => {
     const home = await CliHome.create({ benchmark: await week3Setup() });
+    const portal = browserPortal(browser);
+    // A name only this attempt uses, so teardown can find its device even if
+    // the CLI collected its token and then failed (support/devices.ts).
+    const deviceName = `E2E pilot ${randomUUID().slice(0, 8)}`;
+    let attempt: AttemptDevice | undefined;
     let deviceId: string | undefined;
     let completed = false;
     try {
       const link = await startLink(home);
       await app.open('/');
       expect(await devLogin(browser, STUDENT)).toBe(200);
-      const devicesBefore = (await cliDevices(browser)).map((device) => device.id);
-      expect(await approveDevice(browser, link.code)).toBe(200);
-      expect(await link.cli.exited(60_000), link.cli.output()).toBe(0);
-      const approved = (await cliDevices(browser)).filter((device) => !devicesBefore.includes(device.id));
-      expect(approved, 'this attempt approved exactly one device').toHaveLength(1);
-      // SAFETY: toHaveLength(1) above throws unless there is exactly one.
-      deviceId = approved[0]!.id;
+      attempt = { login: STUDENT, before: (await cliDevices(browser)).map((device) => device.id), name: deviceName };
+      expect(await approveDevice(browser, link.code, deviceName)).toBe(200);
+      const linkExit = await link.cli.exited(60_000);
+      // Found before the exit code is judged: a CLI that failed after
+      // collecting its token still left this device on the portal.
+      deviceId = await findAttemptDevice(portal, attempt);
+      expect(linkExit, link.cli.output()).toBe(0);
+      expect(deviceId, 'this attempt created its device').toBeTruthy();
 
       const repo = await createTeamRepo(home.path);
       const check = home.start(['check', '--benchmark', BENCHMARK, '--update-setup'], { cwd: repo.path });
@@ -148,15 +156,19 @@ test(
       await app.screenshot('teammate-row');
       completed = true;
     } finally {
-      // This attempt's device and no other, whatever happened above. A failed
-      // revoke fails a test that otherwise passed; after an earlier failure it
-      // is printed, so it doesn't hide that failure.
-      const revoked = deviceId
-        ? await revokeDevice(browser, STUDENT, deviceId).catch((error: unknown) => String(error))
-        : 200;
-      await home.close();
-      if (revoked !== 200) {
-        const message = `Teardown could not revoke this attempt's device ${deviceId}: ${revoked}`;
+      // Stop the CLI first, so it can't collect a token after the revoke.
+      // Then revoke this attempt's device and no other: the recorded id, or
+      // the one carrying this attempt's name if the body stopped before it
+      // was recorded. A failed revoke fails a test that otherwise passed;
+      // after an earlier failure it is printed, so it doesn't hide that one.
+      const closed = await home.close().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      const problem = attempt ? await revokeAttemptDevice(portal, attempt, deviceId) : undefined;
+      if (closed) throw closed;
+      if (problem) {
+        const message = `Teardown could not revoke this attempt's device: ${problem}`;
         if (completed) throw new Error(message);
         console.error(message);
       }

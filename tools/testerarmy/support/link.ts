@@ -3,6 +3,7 @@ import { expect } from 'e2e';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CliHome, CliProcess } from './cli.ts';
+import type { DevicePortal } from './devices.ts';
 import { LOCAL_ORIGIN } from './local-origin.ts';
 
 // Synthetic dev accounts on one synthetic team (fixtures/link-team.sql). The
@@ -42,31 +43,41 @@ export function cliDevices(browser: Browser): Promise<Device[]> {
  * tests about what happens after linking; the approval page itself is
  * covered by cli-link.e2e.ts and cli-link-keyboard.e2e.ts.
  */
-export function approveDevice(browser: Browser, userCode: string): Promise<number> {
+export function approveDevice(browser: Browser, userCode: string, deviceName: string): Promise<number> {
   return browser.evaluate(
-    (code: string) =>
+    (approval: { userCode: string; deviceName: string }) =>
       fetch('/api/v1/cli/device/approve', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ userCode: code, deviceName: 'E2E pilot CLI' }),
+        body: JSON.stringify(approval),
       }).then((response) => response.status),
-    userCode,
+    { userCode, deviceName },
   );
+}
+
+/** The portal's device endpoints through this browser, for support/devices.ts. */
+export function browserPortal(browser: Browser): DevicePortal {
+  return {
+    signIn: (login) => devLogin(browser, login),
+    devices: () => cliDevices(browser),
+    revoke: (deviceId) =>
+      browser.evaluate(
+        (id: string) =>
+          fetch('/api/v1/cli/devices', {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ deviceId: id }),
+          }).then((response) => response.status),
+        deviceId,
+      ),
+  };
 }
 
 /** Signs in as `login` and revokes one of that person's devices; the status of the revoke. */
 export async function revokeDevice(browser: Browser, login: string, deviceId: string): Promise<number> {
-  const signedIn = await devLogin(browser, login);
-  if (signedIn !== 200) return signedIn;
-  return browser.evaluate(
-    (id: string) =>
-      fetch('/api/v1/cli/devices', {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceId: id }),
-      }).then((response) => response.status),
-    deviceId,
-  );
+  const portal = browserPortal(browser);
+  const signedIn = await portal.signIn(login);
+  return signedIn === 200 ? portal.revoke(deviceId) : signedIn;
 }
 
 export interface PrintedLink {
