@@ -261,7 +261,7 @@ test("a write collaborator creates a write membership without team settings acce
   assert.equal(connected.body.team?.id, team.id);
   assert.equal((await membership(h, person)).role, "write");
   adminDetail(await h.call(person, "GET", "/team"), false);
-  forbidden(await h.call(person, "PATCH", "/team", { name: "Not allowed" }));
+  forbidden(await h.call(person, "PATCH", "/team", { teamId: team.id, name: "Not allowed" }));
   assert.equal((await membership(h, person)).role, "write");
   assert.deepEqual(await onlyTeam(h), team);
 });
@@ -338,12 +338,12 @@ test("an added provisional writer regains GitHub admin controls on the next team
   await seedTeam(h, admin, "admin");
   github.set(admin, CURRENT_REPO, "admin");
   github.set(added, CURRENT_REPO, "write");
-  adminDetail(await h.call(admin, "POST", "/team/members", { login: added.login }), true);
+  adminDetail(await h.call(admin, "POST", "/team/members", { teamId: "team_test", login: added.login }), true);
   assert.equal((await membership(h, added)).role, "write");
   github.set(added, CURRENT_REPO, "admin");
   adminDetail(await h.call(added, "GET", "/team"), true);
   assert.equal((await membership(h, added)).role, "admin");
-  const updated = await h.call(added, "PATCH", "/team", { name: "Renamed by Grace" });
+  const updated = await h.call(added, "PATCH", "/team", { teamId: "team_test", name: "Renamed by Grace" });
   adminDetail(updated, true);
   assert.equal(updated.body.name, "Renamed by Grace");
   assert.equal((await onlyTeam(h)).name, "Renamed by Grace");
@@ -358,7 +358,7 @@ test("a GitHub demotion refuses settings changes and removes stale admin control
   adminDetail(await h.call(person, "GET", "/team"), true);
   const before = await onlyTeam(h);
   github.set(person, CURRENT_REPO, "write");
-  forbidden(await h.call(person, "PATCH", "/team", { name: "Refused name", description: "Refused description" }));
+  forbidden(await h.call(person, "PATCH", "/team", { teamId: "team_test", name: "Refused name", description: "Refused description" }));
   assert.deepEqual(await onlyTeam(h), before);
   assert.equal((await membership(h, person)).role, "write");
   adminDetail(await h.call(person, "GET", "/team"), false);
@@ -371,7 +371,7 @@ test("a stored writer verified as GitHub admin can change settings without a pri
   const person = await h.signIn("Ada");
   await seedTeam(h, person, "write");
   github.set(person, CURRENT_REPO, "admin");
-  const updated = await h.call(person, "PATCH", "/team", { name: "Promoted admin's team" });
+  const updated = await h.call(person, "PATCH", "/team", { teamId: "team_test", name: "Promoted admin's team" });
   adminDetail(updated, true);
   assert.equal(updated.body.name, "Promoted admin's team");
   assert.equal((await membership(h, person)).role, "admin");
@@ -388,12 +388,12 @@ test("repository changes require destination admin and reset other members to wr
   github.set(actor, CURRENT_REPO, "admin");
   github.set(actor, DESTINATION_REPO, "write");
   const before = await onlyTeam(h);
-  forbidden(await h.call(actor, "POST", "/team/repository", { fullName: DESTINATION_REPO }));
+  forbidden(await h.call(actor, "POST", "/team/repository", { teamId: "team_test", fullName: DESTINATION_REPO }));
   assert.deepEqual(await onlyTeam(h), before);
   assert.equal((await membership(h, actor)).role, "admin");
   assert.equal((await membership(h, other)).role, "admin");
   github.set(actor, DESTINATION_REPO, "admin");
-  adminDetail(await h.call(actor, "POST", "/team/repository", { fullName: DESTINATION_REPO }), true);
+  adminDetail(await h.call(actor, "POST", "/team/repository", { teamId: "team_test", fullName: DESTINATION_REPO }), true);
   const after = await onlyTeam(h);
   assert.equal(after.repoFullName, DESTINATION_REPO);
   assert.equal(after.repoOwner, "course");
@@ -430,9 +430,9 @@ for (const before of ["write", "admin"] as const) {
       await answered;
     });
 
-    const pending = h.call(teammate, "PATCH", "/team", { name: "Stale admin's name" });
+    const pending = h.call(teammate, "PATCH", "/team", { teamId: "team_test", name: "Stale admin's name" });
     await teammateAsked;
-    adminDetail(await h.call(actor, "POST", "/team/repository", { fullName: DESTINATION_REPO }), true);
+    adminDetail(await h.call(actor, "POST", "/team/repository", { teamId: "team_test", fullName: DESTINATION_REPO }), true);
     answer();
     forbidden(await pending);
     assert.equal((await membership(h, teammate)).role, "write");
@@ -455,11 +455,11 @@ for (const failure of [500, "network-error"] as const) {
     const before = await onlyTeam(h);
     adminDetail(await h.call(writer, "GET", "/team"), false);
     assert.equal((await membership(h, writer)).role, "write");
-    forbidden(await h.call(writer, "PATCH", "/team", { name: "Refused name" }));
+    forbidden(await h.call(writer, "PATCH", "/team", { teamId: "team_test", name: "Refused name" }));
     assert.equal((await membership(h, writer)).role, "write");
     assert.deepEqual(await onlyTeam(h), before);
     adminDetail(await h.call(admin, "GET", "/team"), true);
-    const updated = await h.call(admin, "PATCH", "/team", { name: "Outage fallback" });
+    const updated = await h.call(admin, "PATCH", "/team", { teamId: "team_test", name: "Outage fallback" });
     adminDetail(updated, true);
     assert.equal(updated.body.name, "Outage fallback");
     assert.equal((await onlyTeam(h)).name, "Outage fallback");
@@ -477,11 +477,11 @@ for (const permission of ["maintain", "read", "none"] as const) {
     github.set(person, CURRENT_REPO, permission);
     const before = await onlyTeam(h);
     const actions = [
-      ["PATCH", "/team", { name: "Refused name" }],
-      ["POST", "/team/repository", { fullName: DESTINATION_REPO }],
+      ["PATCH", "/team", { teamId: "team_test", name: "Refused name" }],
+      ["POST", "/team/repository", { teamId: "team_test", fullName: DESTINATION_REPO }],
       ["GET", "/team/invitable", undefined],
-      ["POST", "/team/members", { login: target.login }],
-      ["DELETE", `/team/members/${target.login}`, undefined],
+      ["POST", "/team/members", { teamId: "team_test", login: target.login }],
+      ["DELETE", `/team/members/${target.login}?teamId=team_test`, undefined],
     ] as const;
     for (const [method, path, body] of actions) {
       await h.db.update(teamMembers).set({ role: "admin" }).where(eq(teamMembers.userId, person.userId));
@@ -515,10 +515,114 @@ test("the unconfigured local fixture keeps creator admin without any GitHub fetc
   assert.equal(connected.body.team?.id, team.id);
   assert.equal((await membership(h, person)).role, "admin");
   adminDetail(await h.call(person, "GET", "/team"), true);
-  const updated = await h.call(person, "PATCH", "/team", { name: "Renamed fixture" });
+  const updated = await h.call(person, "PATCH", "/team", { teamId: team.id, name: "Renamed fixture" });
   adminDetail(updated, true);
   assert.equal(updated.body.name, "Renamed fixture");
   assert.equal((await onlyTeam(h)).name, "Renamed fixture");
   assert.equal((await membership(h, person)).role, "admin");
   assert.deepEqual(requests, []);
+});
+
+/*
+ * Each team change names the team the page showed. A window left visible
+ * while another signed in as someone else renamed the second account's team
+ * from a page showing the first's (requireAdminOfShownTeam). A refused change
+ * asks GitHub nothing and writes nothing, the stored role included.
+ */
+const OTHER_REPO = "course/other";
+const OTHER_TEAM_NAME = "Other team";
+
+async function seedOtherTeam(h: Harness, person: Person) {
+  await h.db.insert(teams).values({
+    id: "team_other", cohortId: "cohort_test", name: OTHER_TEAM_NAME, description: null,
+    repoOwner: "course", repoName: "other", repoFullName: OTHER_REPO,
+    repoUrl: `https://github.com/${OTHER_REPO}`, defaultBranch: "main", repoId: 303,
+  });
+  await h.db.insert(teamMembers).values({ teamId: "team_other", userId: person.userId, role: "admin" });
+}
+
+async function tables(h: Harness) {
+  return { teams: await h.db.select().from(teams), members: await h.db.select().from(teamMembers) };
+}
+
+test("each team change runs only for the team the page showed, which is still yours", async (t) => {
+  const h = await harness(t);
+  const github = mockGithub(t);
+  const ada = await h.signIn("Ada");
+  const ben = await h.signIn("Ben");
+  const grace = await h.signIn("Grace");
+  await seedTeam(h, ada, "admin");
+  await seedOtherTeam(h, ben);
+  github.set(ada, CURRENT_REPO, "admin");
+  github.set(ada, DESTINATION_REPO, "admin");
+  github.set(ben, OTHER_REPO, "admin");
+  const actions = [
+    ["PATCH", (shown: string | null) => ["/team", { ...(shown ? { teamId: shown } : {}), name: "Renamed on purpose" }]],
+    ["POST", (shown: string | null) => ["/team/repository", { ...(shown ? { teamId: shown } : {}), fullName: DESTINATION_REPO }]],
+    ["POST", (shown: string | null) => ["/team/members", { ...(shown ? { teamId: shown } : {}), login: grace.login }]],
+    ["DELETE", (shown: string | null) => [`/team/members/${grace.login}${shown ? `?teamId=${shown}` : ""}`, undefined]],
+  ] as const;
+  for (const [method, request] of actions) {
+    const label = `${method} ${request(null)[0]}`;
+    const before = await tables(h);
+    const asked = github.requests.length;
+
+    // A page from before the field: refused, not guessed.
+    const [missingPath, missingBody] = request(null);
+    const missing = await h.call(ada, method, missingPath, missingBody);
+    assert.equal(missing.status, 409, label);
+    assert.deepEqual(missing.body.error, { code: "invalid_request", message: "This page is out of date. Reload it and try again." }, label);
+
+    // Ada's page, in a window now signed in as Ben, an admin of his own team.
+    const [stalePath, staleBody] = request("team_test");
+    const stale = await h.call(ben, method, stalePath, staleBody);
+    assert.equal(stale.status, 409, label);
+    assert.deepEqual(stale.body.error, {
+      code: "already_on_team",
+      message: `You're on ${OTHER_TEAM_NAME} now, not the team this page showed. Reload to see it.`,
+    }, label);
+
+    assert.equal(github.requests.length, asked, `${label}: a refused change asks GitHub nothing`);
+    assert.deepEqual(await tables(h), before, `${label}: a refused change writes nothing`);
+
+    // Ada on her own page: the change goes through as before.
+    const [okPath, okBody] = request("team_test");
+    adminDetail(await h.call(ada, method, okPath, okBody), true);
+  }
+  const [shown] = await h.db.select().from(teams).where(eq(teams.id, "team_test"));
+  assert.equal(shown.name, "Renamed on purpose");
+  assert.equal(shown.repoFullName, DESTINATION_REPO);
+  const [other] = await h.db.select().from(teams).where(eq(teams.id, "team_other"));
+  assert.deepEqual([other.name, other.repoFullName], [OTHER_TEAM_NAME, OTHER_REPO], "Ben's team is untouched");
+  assert.deepEqual((await h.db.select().from(teamMembers).where(eq(teamMembers.userId, grace.userId))), [], "Grace was added, then removed");
+});
+
+test("a GitHub answer that arrives after the caller moved teams changes neither team", async (t) => {
+  // The shown team is checked before GitHub is asked; the role check that
+  // follows writes only to the caller's membership of that team, so a move
+  // that lands while GitHub answers leaves nothing for it to pass on.
+  const h = await harness(t);
+  const github = mockGithub(t);
+  const ada = await h.signIn("Ada");
+  const ben = await h.signIn("Ben");
+  await seedTeam(h, ada, "admin");
+  await seedOtherTeam(h, ben);
+  github.set(ada, CURRENT_REPO, "admin");
+  let arrived!: () => void;
+  const asked = new Promise<void>((resolve) => { arrived = resolve; });
+  let answer!: () => void;
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  github.holdPermission(async (login) => {
+    if (login !== ada.login) return;
+    arrived();
+    await answered;
+  });
+  const pending = h.call(ada, "PATCH", "/team", { teamId: "team_test", name: "Late rename" });
+  await asked;
+  await h.db.delete(teamMembers).where(eq(teamMembers.userId, ada.userId));
+  await h.db.insert(teamMembers).values({ teamId: "team_other", userId: ada.userId, role: "write" });
+  answer();
+  forbidden(await pending);
+  const names = (await h.db.select().from(teams)).map((team) => team.name).sort();
+  assert.deepEqual(names, ["Original team", OTHER_TEAM_NAME]);
 });
