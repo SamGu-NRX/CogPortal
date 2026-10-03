@@ -800,9 +800,15 @@ function PublishSection({ run }: { run: RunDetail }) {
             aria-hidden="true"
           />
           <span>
-            {/* Only publishOfficialRun writes the selection, always for a member,
-                so the choice is the team's; the landing promises the same. */}
-            Your team chose this result as its public entry.{" "}
+            {/* Says what is stored, not who chose it: the staging archive seed
+                writes selections directly (scripts/seed-staging-archive.sql),
+                so "your team chose" isn't always true. Publishing upserts one
+                selection per team, benchmark and version, so another official
+                attempt on this version replaces this one, an attempt on a newer
+                version doesn't, and there is no unpublish; first-time readers
+                asked whether this could be undone. */}
+            This result is your team's public entry; publishing another official attempt on
+            v{run.benchmarkVersion} replaces it.{" "}
             <Link ref={leaderboardRef} to={`/leaderboard?benchmark=${encodeURIComponent(run.benchmarkId)}`} className="u-link">
               See it on the leaderboard.
             </Link>

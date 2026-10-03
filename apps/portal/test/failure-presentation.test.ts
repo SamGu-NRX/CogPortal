@@ -155,13 +155,13 @@ for (const publishable of [false, true]) {
       selected: !publishable,
     })));
     assert.equal(container.textContent.includes("Publish to leaderboard"), publishable);
-    assert.doesNotMatch(container.textContent, /ATTEMPT REFUNDED|returned your attempt|Your team chose this result as its public entry/);
+    assert.doesNotMatch(container.textContent, /ATTEMPT REFUNDED|returned your attempt|This result is your team's public entry/);
   });
 }
 
-// Promotion and publication are always a member's action (publishOfficialRun
-// requires one), and two strangers read the bare forms as things that happened
-// to them (walk r1, 3 Oct 2026). The page names the team as the actor.
+// Promotion is always a member's action (run-actions.ts promote paths), and two
+// first-time readers took the bare "Promoted to" as a practice run spending an
+// attempt on its own (walk r1, 3 Oct 2026), so the page names the team.
 test("a promoted practice run says the team promoted it", async (t) => {
   const { container } = await mount(t, page(t, run({
     status: "succeeded", failure: null,
@@ -170,11 +170,15 @@ test("a promoted practice run says the team promoted it", async (t) => {
   assert.match(container.textContent, /Your team promoted this run to official attempt #1\./);
 });
 
-test("the published entry says the team chose it", async (t) => {
+// A selection can be seeded (the staging archive), so the published line states
+// what is stored and that another official attempt replaces it, never who chose.
+// Selections are per version, so the line names the version that replaces it.
+test("the published entry says another official attempt on its version replaces it", async (t) => {
   const { container } = await mount(t, page(t, run({
     mode: "official", status: "succeeded", failure: null, publishable: true, selected: true,
   })));
-  assert.match(container.textContent, /Your team chose this result as its public entry\./);
+  assert.match(container.textContent, /This result is your team's public entry; publishing another official attempt on\s*v1 replaces it\./);
+  assert.doesNotMatch(container.textContent, /Your team chose/);
 });
 
 test("completed partial evaluation retains findings, supporting results and promotion", async (t) => {
