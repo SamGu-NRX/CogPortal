@@ -710,7 +710,7 @@ const rosterLogins = (result: Result) => (result.body as unknown as Roster).memb
 
 test("removing a member deletes them and answers with the roster without them", async (t) => {
   const { h, actor, target } = await removalSetup(t);
-  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}?teamId=team_test`);
   assert.equal(result.status, 200);
   assert.deepEqual(rosterLogins(result), ["Ada"]);
 });
@@ -725,7 +725,7 @@ test("a member who leaves between the read and the delete is reported removed, w
       left = true;
     },
   };
-  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}?teamId=team_test`);
   assert.equal(left, true, "the leave must land between the read and the delete");
   assert.equal(result.status, 200, JSON.stringify(result.body));
   assert.deepEqual(rosterLogins(result), ["Ada"], "the roster still showed the member who left");
@@ -738,7 +738,7 @@ test("a member made an admin between the read and the delete is not removed", as
     match: DELETE_MEMBER,
     run: () => { h.exec("UPDATE team_members SET role = 'admin' WHERE user_id = ?", target.userId); },
   };
-  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}?teamId=team_test`);
   assert.equal(result.status, 403);
   assert.deepEqual(result.body.error, { code: "cannot_remove_creator", message: "A team admin can't be removed." });
   assert.equal((await membership(h, target)).role, "admin");
@@ -769,7 +769,7 @@ test("a member who leaves before the delete and is back before it is explained i
       };
     },
   };
-  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}?teamId=team_test`);
   assert.deepEqual(roleReads, ["actor", "target"], "the rejoin must land between the two reads");
   assert.equal(result.status, 409);
   assert.deepEqual(result.body.error, {
@@ -796,7 +796,7 @@ for (const change of ["leaves the team", "is demoted to write"] as const) {
         landed = true;
       },
     };
-    const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+    const result = await h.call(actor, "DELETE", `/team/members/${target.login}?teamId=team_test`);
     assert.equal(landed, true);
     assert.equal(result.status, 403);
     assert.deepEqual(result.body.error, { code: "forbidden", message: AUTHORITY_LOST });
