@@ -18,11 +18,18 @@ import { Window } from "happy-dom";
 const TEAM_ID = "team_vision";
 const TEAM_NAME = "Vision Squad";
 
-function sessionFor(onTeam: boolean) {
+const OTHER_TEAM_ID = "team_audio";
+
+function sessionFor(team: boolean | "other") {
   return {
     user: { login: "student", name: null, avatarUrl: null, platformRole: "student", isOwner: false, isTa: false },
     cohort: { slug: "bwsi-2026", name: "BWSI CogWorks 2026" },
-    team: onTeam
+    team: team === "other"
+      ? {
+          id: OTHER_TEAM_ID, name: "Audio Crew", description: null, provenance: "live",
+          repo: { owner: "octo", name: "audio", fullName: "octo/audio", url: "https://github.com/octo/audio", defaultBranch: "main" },
+        }
+      : team
       ? {
           id: TEAM_ID, name: TEAM_NAME, description: null, provenance: "live",
           repo: { owner: "octo", name: "face-finder", fullName: "octo/face-finder", url: "https://github.com/octo/face-finder", defaultBranch: "main" },
@@ -51,13 +58,13 @@ function teamDetail(members: number, teammateLogin = "teammate") {
  *  404 in the API's own error shape, so a panel that wants them renders its
  *  error rather than throwing. */
 function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string }) {
-  let onTeam = true;
+  let onTeam: boolean | "other" = true;
   const leaves: unknown[] = [];
   let release = () => {};
   const fetch = async (input: string, init?: RequestInit) => {
     const path = new URL(input, "https://portal.example").pathname;
     if (path === "/api/session") return Response.json(sessionFor(onTeam));
-    if (path === "/api/team" && onTeam) return Response.json(teamDetail(options.members, options.teammateLogin));
+    if (path === "/api/team" && onTeam === true) return Response.json(teamDetail(options.members, options.teammateLogin));
     if (path === "/api/team/leave") {
       leaves.push(JSON.parse(String(init?.body)));
       onTeam = false;
@@ -70,7 +77,12 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     if (path === "/api/github/repositories") return new Promise<Response>(() => {});
     return Response.json({ error: { code: "not_found", message: "Not here." } }, { status: 404 });
   };
-  return { fetch, leaves, release: () => release() };
+  return {
+    fetch, leaves, release: () => release(),
+    /** Another team's join, landed on the server (the Connect page's own join
+     *  flow is covered in connect-wizard.test.ts). */
+    joinOther: () => { onTeam = "other"; },
+  };
 }
 
 async function mount(t: TestContext, options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string }) {
@@ -122,8 +134,10 @@ async function mount(t: TestContext, options: { members: number; alreadyLeft?: b
   const { TeamPage } = await import("../src/routes/TeamPage.tsx");
   const { ConnectPage } = await import("../src/routes/ConnectPage.tsx");
   let path = "";
+  const visited: string[] = [];
   function Where() {
     path = useLocation().pathname;
+    if (visited.at(-1) !== path) visited.push(path);
     return null;
   }
   const guarded = (stage: "cohort" | "team", page: React.ComponentType) =>
@@ -135,12 +149,13 @@ async function mount(t: TestContext, options: { members: number; alreadyLeft?: b
         React.createElement(Routes, null,
           React.createElement(Route, { path: "/team", element: guarded("team", TeamPage) }),
           React.createElement(Route, { path: "/connect", element: guarded("cohort", ConnectPage) }),
+          React.createElement(Route, { path: "/dashboard", element: guarded("team", () => React.createElement("p", null, "Audio Crew's runs")) }),
         ),
       ),
     ),
   ));
   await flush();
-  return { container, server, client, flush, path: () => path };
+  return { container, server, client, flush, path: () => path, visited };
 }
 
 async function pressLeaveTwice(container: HTMLElement, flush: () => Promise<void>) {
@@ -224,4 +239,31 @@ test("when a teammate shows the same login, only the reader's own row offers Lea
   await act(async () => leave.click());
   await flush();
   assert.equal(container.querySelectorAll("li [role=status]").length, 1, "the consequence showed under more than one row");
+});
+
+test("a leave that answers after the student joined another team leaves that team alone", async (t) => {
+  // The delete commits, a refetch takes the student to /connect, they join
+  // another team, and only then does the old leave answer. Acting on it would
+  // empty the new team from the session and send them back to /connect.
+  const { container, server, client, flush, path, visited } = await mount(t, { members: 2, holdLeave: true });
+  const { peekLeftTeam } = await import("../src/lib/left-team.ts");
+  await pressLeaveTwice(container, flush);
+  await act(async () => { await client.invalidateQueries(); });
+  for (let i = 0; i < 50 && path() !== "/connect"; i += 1) await flush();
+  assert.equal(path(), "/connect");
+
+  server.joinOther();
+  await act(async () => { await client.invalidateQueries({ queryKey: ["session"] }); });
+  for (let i = 0; i < 50 && path() !== "/dashboard"; i += 1) await flush();
+  assert.equal(path(), "/dashboard", "joining did not reach the new team's page");
+
+  const before = visited.length;
+  await act(async () => server.release());
+  await flush();
+  assert.deepEqual(visited.slice(before), [], "the old leave moved the student off the team they joined");
+  assert.equal(path(), "/dashboard");
+  const session = client.getQueryData<{ team: { id: string } | null }>(["session"]);
+  assert.equal(session?.team?.id, OTHER_TEAM_ID, "the old leave emptied the new team from the session");
+  assert.equal(peekLeftTeam(), null, "a notice about the old team was queued for a later visit");
+  assert.match(container.textContent ?? "", /Audio Crew's runs/);
 });

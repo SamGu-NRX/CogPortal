@@ -383,7 +383,13 @@ export function useLeaveTeam() {
   const navigate = useNavigate();
   return useMutation({
     mutationFn: ({ teamId }: { teamId: string; teamName: string }) => api.leaveTeam(teamId),
-    onSuccess: async ({ alreadyLeft }, { teamName }) => {
+    onSuccess: async ({ alreadyLeft }, { teamId, teamName }) => {
+      // A late answer. The delete committed, a refetch already moved the
+      // student on, and they joined or started another team before this
+      // reply arrived: clearing the session now would empty that team and
+      // send them back to /connect. Their new team's own flow stands.
+      const current = qc.getQueryData(sessionQuery.queryKey)?.team;
+      if (current && current.id !== teamId) return;
       rememberLeftTeam({ name: teamName, alreadyLeft });
       qc.setQueryData(sessionQuery.queryKey, (session) => (session ? { ...session, team: null } : session));
       navigate("/connect", { replace: true });
