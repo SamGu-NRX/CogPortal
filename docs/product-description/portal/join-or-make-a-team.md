@@ -118,8 +118,8 @@ A refusal leaves the student where they were, with the code in the field or the 
 
 ## Edge cases
 
-- **The cross-cohort sentence is unreachable.** "You're on a team in your current cohort. Leave it before joining a different cohort." (`cohorts.ts:38`) needs a student with a team to post a code, and `/join` redirects anyone with a cohort. It also names an action that does not exist.
-- **A student on a team cannot leave.** There is no leave control; an admin can remove a member but never another admin (`team-membership.ts:304`).
+- **The cross-cohort sentence is unreachable.** "You're on a team in your current cohort. Leave it before joining a different cohort." (`cohorts.ts:38`) needs a student with a team to post a code, and `/join` redirects anyone with a cohort. It also names an action that does not exist. `b0e0c55`: it reads "Leave it from your Team page, then use this code." (`cohorts.ts:50`), an action that now exists; the sentence is still unreachable from `/join`.
+- **A student on a team cannot leave.** There is no leave control; an admin can remove a member but never another admin (`team-membership.ts:304`). `b0e0c55`: Leave on the team page takes the student back here with "You left {team}" and "Its runs and results stay with the team. If GitHub still gives you write access to its repository, you can join it again below." (`ConnectPage.tsx:61-83`); the old team is in the list like any other.
 - **The collaborator refusal names "Team settings".** "Ask {admin} to add you as a collaborator on GitHub, then accept the invitation GitHub emails you (github.com/notifications) and press Join again. They can also add you here from Team settings." (`team-membership.ts:69`). The team page has a People section and no "Team settings" (`apps/portal/src/routes/TeamPage.tsx:345`).
 - **The list is alphabetical.** Teams are ordered by name (`team-membership.ts:82`) and the first five show. Search exists only above five teams.
 - **The folded teams are inert while closed**, and the veil moves focus into them when opened (`apps/portal/src/components/Veil.tsx`).
@@ -130,7 +130,7 @@ A refusal leaves the student where they were, with the code in the field or the 
 
 ## Open questions and verification
 
-- No member can leave a team (`team-membership.ts:304`). B-07.
+- No member can leave a team (`team-membership.ts:304`). B-07; self-leave in `b0e0c55`.
 - Whether GitHub's collaborator-permission endpoint answers a non-collaborator or refuses them decides whether that student reads the collaborator sentence or the generic "The request could not be completed by the configured backend." (`apps/portal/worker/github/client.ts:135-139`, `apps/portal/worker/http/errors.ts:45-49`). Needs a live GitHub account.
 - The collaborator refusal names "Team settings", which no longer exists by that name. Carried to triage as new.
 - Staff without a team are routed here after sign-in. Carried to triage as new (see [`sign-in.md`](sign-in.md#open-questions-and-verification)).
