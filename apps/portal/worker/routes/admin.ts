@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
@@ -54,11 +54,8 @@ function selectTeamIds(db: Database, teamWhere: SQL) {
 }
 type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
 
-/**
- * When a run's outcome was known: its finish, or its start while it has none.
- * A succeeded run should always have a finish time, but dropping one that
- * lacks it would tell staff the team never ran end to end when it did.
- */
+/** When the last run's outcome was known: its finish, or its start while it
+ *  is still going and has none. */
 const runSettledAt = sql<number>`coalesce(${runs.finishedAt}, ${runs.createdAt})`;
 
 /**
@@ -78,19 +75,27 @@ const runBenchmark = and(
  * One windowed statement for all teams, for the same query budget the
  * summaries below keep. The select lists the only columns read: nothing a
  * team wrote (failure detail, refusal, diagnostics, log) is fetched at all.
+ *
+ * A success with no finish time doesn't count, as on the Team page
+ * (routes/team.ts, the scored runs it reads), so staff and the team name the
+ * same date. Both paths that record a success write one (runner-events.ts,
+ * execution/sync.ts); substituting the start time let an undated row take
+ * first place from a run that really finished first.
  */
 function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
+  // Never null here: the where clause below drops unfinished rows.
+  const finishedAt = sql<number>`${runs.finishedAt}`;
   const ranked = db
     .select({
       teamId: runs.teamId,
       benchmarkId: runs.benchmarkId,
       benchmarkTitle: runBenchmarkTitle.as("benchmark_title"),
-      at: runSettledAt.as("at"),
-      position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runSettledAt}, ${runs.id})`.as("position"),
+      at: finishedAt.as("at"),
+      position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${finishedAt}, ${runs.id})`.as("position"),
     })
     .from(runs)
     .leftJoin(benchmarks, runBenchmark)
-    .where(and(eq(runs.status, "succeeded"), inArray(runs.teamId, teamIds)))
+    .where(and(eq(runs.status, "succeeded"), isNotNull(runs.finishedAt), inArray(runs.teamId, teamIds)))
     .as("first_light");
   return db
     .select({

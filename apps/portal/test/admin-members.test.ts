@@ -24,7 +24,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AdminPage, TeamRunState } from "../src/routes/AdminPage.tsx";
-import { formatDateTime } from "../src/lib/format.ts";
+import { formatDate } from "../src/lib/format.ts";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 // AdminPage reads a held device link from sessionStorage, which Node 24 (what
@@ -852,6 +852,9 @@ test("first light is the earliest finished success across benchmarks, and the la
     // when a run went end to end, so the audio run is first.
     hostedRun("team_mixed", "m_vision_scored", { createdAt: 180, finishedAt: 300 }),
     hostedRun("team_mixed", "m_audio_scored", { benchmarkId: "test_audio", createdAt: 200, finishedAt: 260 }),
+    // A success with no finish time, started before both: the Team page
+    // doesn't count it, so first light doesn't either.
+    hostedRun("team_mixed", "m_undated_success", { createdAt: 120, finishedAt: null }),
     // Finished last, but started before the failure below.
     hostedRun("team_mixed", "m_cancelled", {
       benchmarkId: "test_audio", status: "cancelled", createdAt: 350, finishedAt: 900,
@@ -920,7 +923,7 @@ test("the run state says, in the platform's words, where each kind of team stand
   const firstAt = Date.UTC(2026, 8, 29, 14, 5);
   const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1_000;
   const firstLight = { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: firstAt };
-  const firstSentence = `First ran end to end on Face recognition, ${formatDateTime(firstAt)}.`;
+  const firstSentence = `First ran end to end on Face recognition, ${formatDate(firstAt)}.`;
 
   assert.deepEqual(renderRunState({ firstLight: null, lastHostedRun: null }), ["Hasn't run end to end yet."]);
   assert.deepEqual(
@@ -943,15 +946,15 @@ test("the run state says, in the platform's words, where each kind of team stand
     }),
     [firstSentence, "Last hosted run: Face recognition, 3 h ago, scored."],
   );
-  // Queued is going too: it is one of the statuses the database counts as an
-  // active run.
+  // Queued too: it is one of the statuses the database counts as an active
+  // run. The sentence says what the overview saw, not that a run is going now.
   for (const status of ["queued", "evaluating"] as const) {
     assert.deepEqual(
       renderRunState({
         firstLight,
         lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: threeHoursAgo, status, failure: null },
       }),
-      [firstSentence, "A hosted run on Face recognition is going now."],
+      [firstSentence, "Last hosted run: Face recognition, 3 h ago, no result yet."],
       status,
     );
   }

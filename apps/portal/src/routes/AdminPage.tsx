@@ -16,7 +16,7 @@ import { PageSection } from "@/components/PageSection";
 import { RemoveButton } from "@/components/RemoveButton";
 import { ApiRequestError } from "@/lib/api";
 import { useFocusFallback } from "@/lib/focus";
-import { formatDateTime, formatTimeAgo } from "@/lib/format";
+import { formatDate, formatTimeAgo, isoDate } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
 import { PHASE_LABELS } from "@/lib/run-meta";
 import {
@@ -665,9 +665,11 @@ export function TeamRunState({
       <p className="mt-1.5 max-w-[62ch] text-[14px] text-pretty text-ink">
         {firstLight ? (
           <>
+            {/* The day, not the minute: the time of day says when someone
+                on the team was working, which helping them doesn't need. */}
             First ran end to end on {firstLight.benchmarkTitle},{" "}
-            <time dateTime={new Date(firstLight.at).toISOString()} className="whitespace-nowrap">
-              {formatDateTime(firstLight.at)}
+            <time dateTime={isoDate(firstLight.at)} className="whitespace-nowrap">
+              {formatDate(firstLight.at)}
             </time>
             .
           </>
@@ -677,27 +679,13 @@ export function TeamRunState({
       </p>
       {last ? (
         <p className="mt-1 max-w-[62ch] text-[14px] text-pretty text-ink">
-          {/* "Going now" is every status before a terminal one, queued
-              included: those are the statuses the database itself treats as an
-              active run (the one-active-run index on runs, migration 0015),
-              and the stale-run sweep (worker/execution/maintenance.ts) fails a
-              Modal run that stops reporting, so this can't claim a run is going
-              for longer than that sweep allows. */}
-          {!isTerminal(last.status) ? (
-            `A hosted run on ${last.benchmarkTitle} is going now.`
-          ) : (
-            <>
-              Last hosted run: {last.benchmarkTitle},{" "}
-              <time
-                dateTime={new Date(last.at).toISOString()}
-                title={formatDateTime(last.at)}
-                className="whitespace-nowrap"
-              >
-                {formatTimeAgo(last.at)}
-              </time>
-              , <LastRunOutcome run={last} />
-            </>
-          )}
+          {/* Relative and coarse (minutes, hours, days), with no exact time
+              on hover, for the reason first light shows only the day. */}
+          Last hosted run: {last.benchmarkTitle},{" "}
+          <time dateTime={isoDate(last.at)} className="whitespace-nowrap">
+            {formatTimeAgo(last.at)}
+          </time>
+          , <LastRunOutcome run={last} />
         </p>
       ) : null}
     </div>
@@ -710,6 +698,13 @@ export function TeamRunState({
  * as "The evaluation stopped on an exception" repeated the verb.
  */
 function LastRunOutcome({ run }: { run: NonNullable<AdminTeamSummary["lastHostedRun"]> }) {
+  // Any status before a terminal one, queued included: the statuses the
+  // database treats as an active run (the one-active-run index, migration
+  // 0015). Said as what the overview saw when it loaded, not "going now": the
+  // page doesn't poll, and only Modal runs are swept when they go silent
+  // (worker/execution/maintenance.ts); a fixture run advances only when its
+  // team's own pages sync it.
+  if (!isTerminal(run.status)) return "no result yet.";
   if (run.status === "succeeded") return "scored.";
   if (run.status === "cancelled") return "cancelled.";
   // A failed run that recorded no phase or category has nothing more the
