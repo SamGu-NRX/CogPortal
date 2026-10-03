@@ -187,7 +187,7 @@ Status, `f03ebfa` (2026-10-03): the catalog copy now describes this check (`pack
 >
 > "The line above says what the runner refused and where to look. This runs your adapter on the small cases locally, but it doesn't repeat the runner's check:"
 
-with the same `cogworks test --benchmark {benchmark}`. The vision and language overrides are deleted, so every module shows this copy. Seen locally on the run page for a fixture `vision-clustering` run; that screenshot predates the commit's final next-step wording ([B-62](../bug-triage.md#b-62-the-e-output-card-promises-checks-that-do-not-run)).
+with the same `cogworks test --benchmark {benchmark}`. The vision and language overrides are deleted, so every module shows this copy. Seen locally on the run page for a fixture `vision-clustering` run; the screenshot retaken at `f03ebfa` shows the committed wording (`~/.long-run/cogportal/evidence/student-recovery/screens/runpage-e-output-raw-tuples-f03ebfa.png`; [B-62](../bug-triage.md#b-62-the-e-output-card-promises-checks-that-do-not-run)).
 
 ## The difficulty curve
 
