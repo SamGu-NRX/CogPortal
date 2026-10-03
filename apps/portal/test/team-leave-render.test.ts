@@ -59,11 +59,20 @@ function teamDetail(members: number, teammateLogin = "teammate") {
  *  error rather than throwing. */
 function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string }) {
   let onTeam: boolean | "other" = true;
+  let sessionMode: "answer" | "hold-next" | "fail" = "answer";
+  let releaseSession = () => {};
   const leaves: unknown[] = [];
   let release = () => {};
   const fetch = async (input: string, init?: RequestInit) => {
     const path = new URL(input, "https://portal.example").pathname;
-    if (path === "/api/session") return Response.json(sessionFor(onTeam));
+    if (path === "/api/session") {
+      if (sessionMode === "fail") return Response.json({ error: { code: "not_found", message: "Not here." } }, { status: 503 });
+      // Answered as the server stood when the read arrived, not when it lands.
+      const answer = Response.json(sessionFor(onTeam));
+      if (sessionMode !== "hold-next") return answer;
+      sessionMode = "answer";
+      return new Promise<Response>((resolve) => { releaseSession = () => resolve(answer); });
+    }
     if (path === "/api/team" && onTeam === true) return Response.json(teamDetail(options.members, options.teammateLogin));
     if (path === "/api/team/leave") {
       leaves.push(JSON.parse(String(init?.body)));
@@ -84,6 +93,9 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     joinOther: () => { onTeam = "other"; },
     /** Joining the same team again, as a GitHub collaborator can. */
     rejoin: () => { onTeam = true; },
+    holdNextSession: () => { sessionMode = "hold-next"; },
+    releaseSession: () => releaseSession(),
+    failSessions: () => { sessionMode = "fail"; },
   };
 }
 
@@ -293,4 +305,36 @@ test("a leave that answers after the student rejoined the same team leaves that 
   const session = client.getQueryData<{ team: { id: string } | null }>(["session"]);
   assert.equal(session?.team?.id, TEAM_ID, "the old leave emptied the rejoined team from the session");
   assert.equal(peekLeftTeam(), null, "a 'You left' notice was queued for a team they are on");
+});
+
+test("a session read answered before the delete does not stop the leave from landing", async (t) => {
+  // A read of the old team, sent before the delete and answered after the
+  // leave was sent, once made a late reply look like a newer membership. The
+  // reply now reads the session afresh, after the delete it confirms.
+  const { container, server, client, flush, path } = await mount(t, { members: 2, holdLeave: true });
+  server.holdNextSession();
+  await act(async () => { void client.invalidateQueries({ queryKey: ["session"] }); });
+  await flush();
+  await pressLeaveTwice(container, flush);
+  server.releaseSession();
+  await flush();
+  assert.equal(path(), "/team", "the pre-delete read still shows the team");
+  await act(async () => server.release());
+  const choiceDrawn = () => path() === "/connect" && !/Checking the cohort/.test(container.textContent ?? "");
+  for (let i = 0; i < 50 && !choiceDrawn(); i += 1) await flush();
+  assert.equal(path(), "/connect");
+  const notice = [...container.querySelectorAll('[role="status"]')].find((node) => /left/.test(node.textContent ?? ""));
+  assert.match(notice?.textContent ?? "", /^You left Vision Squad/);
+});
+
+test("a leave whose follow-up session read fails says so on the Team page, with a reload", async (t) => {
+  const { container, server, flush, path } = await mount(t, { members: 2, holdLeave: true });
+  await pressLeaveTwice(container, flush);
+  server.failSessions();
+  await act(async () => server.release());
+  await flush();
+  assert.equal(path(), "/team");
+  const alert = container.querySelector('[role="alert"]');
+  assert.match(alert?.textContent ?? "", /You left Vision Squad, but the page couldn't refresh to show where you are now\. Reload it\./);
+  assert.ok([...(alert?.querySelectorAll("button") ?? [])].some((b) => b.textContent === "Reload page"));
 });

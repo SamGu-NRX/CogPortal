@@ -367,39 +367,52 @@ export function useAddTeamMember() {
   });
 }
 
+/** The leave went through, but the session could not be read afterwards, so
+ *  the page cannot tell where its reader now stands. Shown on the Team page,
+ *  which is still mounted in that case, with a way to reload. */
+export class LeftButNotRefreshed extends Error {
+  constructor(teamName: string) {
+    super(`You left ${teamName}, but the page couldn't refresh to show where you are now. Reload it.`);
+    this.name = "LeftButNotRefreshed";
+  }
+}
+
 /**
  * Leave the team the page showed.
  *
- * Hook-level, not a per-call onSuccess: clearing the team from the session
- * makes the Team page's guard redirect, which unmounts the page that pressed
- * the button. The note for /connect is set before the cache changes, so it is
- * waiting whichever navigation lands there (lib/left-team.ts says why router
- * state cannot carry it). Everything is then refetched, awaited so the
- * mutation stays pending until fresh data has arrived.
+ * Hook-level, not a per-call onSuccess: the fresh session read below clears
+ * the team, the Team page's guard redirects, and the page that pressed the
+ * button unmounts. The /connect notice subscribes to the note
+ * (lib/left-team.ts), so it shows whichever navigation lands first. Other
+ * queries are then refetched, awaited so the mutation stays pending until
+ * fresh data has arrived.
  */
 export function useLeaveTeam() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   return useMutation({
     mutationFn: ({ teamId }: { teamId: string; teamName: string }) => api.leaveTeam(teamId),
-    // Which session read this leave was sent against.
-    onMutate: () => ({ sessionReads: qc.getQueryState(sessionQuery.queryKey)?.dataUpdateCount ?? 0 }),
-    onSuccess: async ({ alreadyLeft }, { teamName }, sent) => {
-      // A late answer. The session was read again after this leave went out
-      // and already shows a team: the student joined one meanwhile, possibly
-      // the same team again, which no team-id comparison can tell from a
-      // leave still in progress. That newer state stands; clearing it would
-      // empty their team and send them back to /connect. Only the refetch
-      // runs, so a read that raced the delete is corrected too.
-      const session = qc.getQueryState(sessionQuery.queryKey);
-      if ((session?.dataUpdateCount ?? 0) > sent.sessionReads && session?.data?.team) {
-        await qc.invalidateQueries();
+    onSuccess: async ({ alreadyLeft }, { teamName }) => {
+      // The delete has committed by the time this answers, so a session read
+      // started now is after it, unlike one already in flight, which may have
+      // been answered before the delete. Cancelled first so it is not joined.
+      await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
+      let fresh: Awaited<ReturnType<typeof api.session>>;
+      try {
+        fresh = await qc.fetchQuery({ ...sessionQuery, staleTime: 0 });
+      } catch {
+        throw new LeftButNotRefreshed(teamName);
+      }
+      // On a team after a confirmed leave: the student joined one since, the
+      // same team again or another. That newer membership stands; clearing it
+      // would empty their team and send them back to /connect.
+      if (fresh.team) {
+        await qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
         return;
       }
       rememberLeftTeam({ name: teamName, alreadyLeft });
-      qc.setQueryData(sessionQuery.queryKey, (session) => (session ? { ...session, team: null } : session));
       navigate("/connect", { replace: true });
-      await qc.invalidateQueries();
+      await qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
     },
   });
 }

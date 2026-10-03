@@ -15,6 +15,7 @@ import { RemoveButton } from "@/components/RemoveButton";
 import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
+  LeftButNotRefreshed,
   useChangeTeamRepo,
   useLeaveTeam,
   useRemoveTeamMember,
@@ -453,7 +454,14 @@ function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (
         onArmedChange={onArmedChange}
         onConfirm={() => leave.mutate({ teamId: team.id, teamName: team.name })}
       />
-      {leave.error && (
+      {leave.error instanceof LeftButNotRefreshed ? (
+        <span role="alert" className="flex max-w-[16rem] flex-col items-end gap-1 text-right text-[12.5px] text-detect-deep">
+          {leave.error.message}
+          <Button variant="ghost" onClick={() => window.location.reload()}>
+            Reload page
+          </Button>
+        </span>
+      ) : leave.error && (
         <span role="alert" className="max-w-[16rem] text-right text-[12.5px] text-detect-deep">
           {leave.error instanceof ApiRequestError
             ? leave.error.message
