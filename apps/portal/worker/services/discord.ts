@@ -7,6 +7,7 @@ import { isTerminal } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
+import { ApiHttpError } from "../http/errors";
 import { discordAccounts, teamMembers, teams, users } from "../db/schema";
 import { syncTeamRuns } from "../execution/sync";
 import { serializeRunSummary, serializeTeam } from "../http/serializers";
@@ -79,7 +80,7 @@ export function effectiveDiscordChannelPermissions(
 
 async function discordGet<T>(env: Env, path: string): Promise<T> {
   if (!env.DISCORD_BOT_TOKEN) {
-    throw new Error("CogBot channel validation is not configured. Ask course staff to add the bot token.");
+    throw new ApiHttpError(500, "provider_unconfigured", "CogBot channel validation is not configured. Ask course staff to add the bot token.");
   }
   const response = await fetch(`${DISCORD_API}${path}`, {
     headers: {
@@ -88,22 +89,21 @@ async function discordGet<T>(env: Env, path: string): Promise<T> {
     },
   });
   if (!response.ok) {
-    throw new Error(
-      response.status === 403 || response.status === 404
-        ? "CogBot cannot view that channel. Give its existing role View Channel and Send Messages, then try again."
-        : "Discord could not validate that channel just now. Nothing changed.",
-    );
+    // Every caller reaches here before writing, so "Nothing changed" is true.
+    throw response.status === 403 || response.status === 404
+      ? new ApiHttpError(403, "forbidden", "CogBot cannot view that channel. Give its existing role View Channel and Send Messages, then try again.")
+      : new ApiHttpError(502, "provider_unconfigured", "Discord could not validate that channel just now. Nothing changed; try again in a moment.");
   }
   return (await response.json()) as T;
 }
 
 export async function assertDiscordChannelWritable(env: Env, channelId: string): Promise<void> {
   if (!env.COURSE_GUILD_ID || !env.DISCORD_CLIENT_ID) {
-    throw new Error("CogBot channel validation is not configured for this course server.");
+    throw new ApiHttpError(500, "provider_unconfigured", "CogBot channel validation is not configured for this course server.");
   }
   const channel = await discordGet<DiscordChannel>(env, `/channels/${encodeURIComponent(channelId)}`);
   if (channel.guild_id !== env.COURSE_GUILD_ID || channel.type !== 0) {
-    throw new Error("Choose a text channel in the CogWorks course server.");
+    throw new ApiHttpError(400, "invalid_request", "Choose a text channel in the CogWorks course server.");
   }
   const [roles, member] = await Promise.all([
     discordGet<DiscordRole[]>(env, `/guilds/${env.COURSE_GUILD_ID}/roles`),
@@ -120,7 +120,9 @@ export async function assertDiscordChannelWritable(env: Env, channelId: string):
     channel.permission_overwrites ?? [],
   );
   if ((permissions & VIEW_CHANNEL) !== VIEW_CHANNEL || (permissions & SEND_MESSAGES) !== SEND_MESSAGES) {
-    throw new Error(
+    throw new ApiHttpError(
+      403,
+      "forbidden",
       "CogBot needs View Channel and Send Messages in this private channel. Ask course staff to update its existing role, then try again.",
     );
   }
@@ -130,7 +132,7 @@ export async function assertDiscordChannelWritable(env: Env, channelId: string):
 // each action separately resolves the linked account and team membership.
 export function assertCourseGuild(env: Env, guildId: string): void {
   if (!env.COURSE_GUILD_ID || guildId !== env.COURSE_GUILD_ID) {
-    throw new Error("This CogBot installation is not enabled for that server.");
+    throw new ApiHttpError(403, "forbidden", "This CogBot installation is not enabled for that server.");
   }
 }
 
@@ -203,9 +205,9 @@ export async function bindDiscordTeamChannel(
   discordUserId: string,
   channelId: string,
 ): Promise<DiscordTeamStatus> {
-  if (!/^\d{10,24}$/.test(channelId)) throw new Error("Discord channel ID is invalid.");
+  if (!/^\d{10,24}$/.test(channelId)) throw new ApiHttpError(400, "invalid_request", "Discord channel ID is invalid.");
   const identity = await discordIdentity(env, discordUserId);
-  if (!identity) throw new Error("Link Discord to your Cog*Portal account first.");
+  if (!identity) throw new ApiHttpError(401, "unauthorized", "Link Discord to your Cog*Portal account first.");
   const db = getDb(env);
   const [membership] = await db
     .select({ team: teams, role: teamMembers.role })
@@ -213,16 +215,22 @@ export async function bindDiscordTeamChannel(
     .innerJoin(teams, eq(teamMembers.teamId, teams.id))
     .where(eq(teamMembers.userId, identity.userId))
     .limit(1);
-  if (!membership) throw new Error("Finish joining a team and connecting its repository first.");
+  if (!membership) throw new ApiHttpError(409, "no_team", "Finish joining a team and connecting its repository first.");
   if (membership.role !== "admin" && membership.role !== "maintain") {
-    throw new Error("A team creator or maintainer needs to choose the team channel.");
+    throw new ApiHttpError(403, "forbidden", "A team creator or maintainer needs to choose the team channel.");
   }
   const [claimed] = await db
     .select({ name: teams.name })
     .from(teams)
     .where(and(eq(teams.discordChannelId, channelId), ne(teams.id, membership.team.id)))
     .limit(1);
-  if (claimed) throw new Error(`That channel already belongs to ${claimed.name}.`);
+  if (claimed) {
+    throw new ApiHttpError(
+      409,
+      "link_conflict",
+      `That channel already belongs to ${claimed.name}. Open /cog in your own team's channel and choose it there.`,
+    );
+  }
   await assertDiscordChannelWritable(env, channelId);
   await db
     .update(teams)

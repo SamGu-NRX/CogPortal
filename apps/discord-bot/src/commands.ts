@@ -41,7 +41,7 @@ type SurfaceMutation = "verify_hosted" | "promote_official" | "publish_result" |
 
 const VIEW_IDS = new Set<View>(["home", "leaderboard", "benchmarks", "local", "connect"]);
 
-function safePortalUrl(origin: string | undefined, path: string): string | null {
+export function safePortalUrl(origin: string | undefined, path: string): string | null {
   if (!origin) return null;
   try {
     const url = new URL(path, origin);

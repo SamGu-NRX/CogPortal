@@ -197,6 +197,9 @@ test("a fixture log stops at the stage that failed", () => {
   const evaluating = log("null-descriptor");
   assert.match(evaluating, /eval case 016\/032 complete/);
   assert.doesNotMatch(evaluating, /eval case 017\/032/);
+  // An output refusal is an evaluating failure that follows a complete
+  // evaluation, as the runner reports it (prediction_validation.py).
+  assert.equal(scriptedFailure("raw-tuples").phase, "evaluating");
   assert.match(log("raw-tuples"), /eval case 032\/032 complete/);
   assert.match(log("main"), /run completed successfully/);
 });

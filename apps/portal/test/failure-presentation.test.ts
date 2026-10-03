@@ -53,13 +53,13 @@ async function mount(t: TestContext, element: React.ReactNode) {
   return { window, container, root };
 }
 
-function page(t: TestContext, record: RunDetail) {
+function page(t: TestContext, record: RunDetail, officialUsed = 1) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } } });
   client.setQueryData(["run", record.id], record);
   client.setQueryData(["session"], { auth: { executionProvider: "fixture" } });
   client.setQueryData(["benchmarks"], []);
   client.setQueryData(["dashboard", record.benchmarkId], {
-    quota: { officialUsed: 1, officialLimit: 3, practiceUsed: 2, practiceLimit: 10 },
+    quota: { officialUsed, officialLimit: 3, practiceUsed: 2, practiceLimit: 10 },
   });
   t.after(() => client.clear());
   return React.createElement(QueryClientProvider, { client },
@@ -100,12 +100,27 @@ for (const mode of ["practice", "official"] as const) {
 
 test("a failure the submission caused shows its evidence open and folds the explanation", async (t) => {
   const { window, container } = await mount(t, page(t, run({
-    failure: { category: "output_invalid", phase: "evaluating", consumedAttempt: false, detail: "returned 3 predictions for 5 cases" },
+    // The runner's own sentence for a short list (prediction_validation.py).
+    failure: {
+      category: "output_invalid", phase: "evaluating", consumedAttempt: false,
+      detail: "Scoring received 3 results for 5 cases and needs one per case. If your adapter builds this list, check its length. Otherwise, tell course staff.",
+    },
   })));
-  const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("returned 3 predictions"));
+  const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("Scoring received 3 results"));
   assert.ok(detail);
   assert.equal(detail.closest('[aria-hidden="true"]'), null);
-  const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.includes("failed schema validation"));
+  // The next step is open and names a command that exists, and it says that
+  // command does not repeat the hosted check. It used to send students to
+  // "the schema check", which is not a thing they can run.
+  // It defers to that line rather than assuming it names a result: this one
+  // names none and may not be the team's list at all.
+  const next = [...container.querySelectorAll("p")].find((node) => node.textContent.startsWith("The line above says what the runner refused"));
+  assert.ok(next);
+  assert.equal(next.closest('[aria-hidden="true"]'), null);
+  assert.match(next.textContent, /doesn't repeat the runner's check/);
+  assert.match(container.textContent, /cogworks test --benchmark /);
+  assert.doesNotMatch(container.textContent, /schema check|schema validation/);
+  const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.startsWith("Before scoring, the runner checks every result"));
   assert.ok(explanation?.closest('[aria-hidden="true"][inert]'));
   const toggle = [...container.querySelectorAll("button")].find((node) => node.textContent === "Show details");
   assert.ok(toggle);
@@ -117,6 +132,20 @@ test("a failure the submission caused shows its evidence open and folds the expl
   await act(async () => toggle.click());
   assert.ok(explanation.closest('[aria-hidden="true"][inert]'));
   assert.equal(window.document.activeElement, toggle);
+});
+
+test("an exception's next step asks for what staff can use, and that run number is on the page", async (t) => {
+  // Staff can't open a team's run, so "share the run" was advice nobody
+  // could act on. The step names the error and the run number instead.
+  const { container } = await mount(t, page(t, run()));
+  const next = [...container.querySelectorAll("p")].find((node) => node.textContent.startsWith("If it points to a file in your repository"));
+  assert.ok(next);
+  assert.equal(next.closest('[aria-hidden="true"]'), null);
+  assert.match(next.textContent, /send course staff the error above and the run number at the top of this page/);
+  assert.doesNotMatch(container.textContent, /share the run/);
+  assert.match(container.textContent, /Run #_123/);
+  const error = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("RuntimeError: fixture exception"));
+  assert.ok(error && (error.compareDocumentPosition(next) & 4), "the error sits above the step that points at it");
 });
 
 test("failed late findings stay hidden history, with no publication or promotion", async (t) => {
@@ -158,6 +187,14 @@ for (const publishable of [false, true]) {
     assert.doesNotMatch(container.textContent, /ATTEMPT REFUNDED|returned your attempt|This result is your team's public entry/);
   });
 }
+
+test("with no official attempts left, the page doesn't promise that every success can be published", async (t) => {
+  // publishOfficialRun also refuses refunded attempts, runs from a former
+  // repository, outdated rules and a missing primary metric.
+  const { container } = await mount(t, page(t, run({ status: "succeeded", failure: null }), 3));
+  assert.match(container.textContent, /All official attempts on this version are used\. An official attempt that already succeeded may still be publishable; its run page says whether it is\./);
+  assert.doesNotMatch(container.textContent, /publish any successful/);
+});
 
 test("completed partial evaluation retains findings, supporting results and promotion", async (t) => {
   const { container } = await mount(t, page(t, run({
