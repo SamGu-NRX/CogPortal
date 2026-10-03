@@ -5,7 +5,7 @@ import { URL } from "node:url";
 import { test } from "node:test";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { buildRunJob, enqueueRun, prepareRetryJob, validateRetryInputs } from "../worker/execution/runner.ts";
+import { buildRunJob, enqueueRun, prepareAdmissionJob, prepareRetryJob, validateRetryInputs } from "../worker/execution/runner.ts";
 import { readRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
 import { runs, teams, cohorts, benchmarks, users, runSurfaces, localReports, teamMembers, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
@@ -474,38 +474,35 @@ test("unexpected errors in Retry reconstruction are not converted to eligibility
   }
 });
 
-test("enqueue records inputs before sending and reuses the first saved job", async () => {
+test("enqueue sends only the saved job and refuses a run that has none", async () => {
+  // Every admitted Modal run is born with its job (prepareAdmissionJob). A
+  // row without one is refused, never rebuilt from the roster of the moment.
   const { db, binding, queries, sqlite } = await database();
   try {
     const { env, run } = original();
-    run.dispatchJobJson = null;
-    await db.insert(runs).values(run);
     env.DB = binding;
     const sent: RunJobV1[] = [];
-    env.RUN_QUEUE = runQueue(async (job) => {
-      const [stored] = await db.select().from(runs).where(eq(runs.id, run.id));
-      assert.ok(stored?.dispatchJobJson);
-      assert.deepEqual(JSON.parse(stored.dispatchJobJson), job);
-      sent.push(job);
-    });
-    await Promise.all([enqueueRun(env, run, team, benchmark), enqueueRun(env, run, team, benchmark)]);
-    assert.equal(sent.length, 2);
-    assert.deepEqual(sent[0], sent[1]);
-    queries.length = 0;
-    run.preparedArtifactId = "im-late";
+    env.RUN_QUEUE = runQueue(async (job) => { sent.push(job); });
+    const missing = { ...run, id: "run_without_job", dispatchJobJson: null };
+    await db.insert(runs).values(missing);
+    await assert.rejects(enqueueRun(env, missing, team), conflict);
+    assert.equal(sent.length, 0, "a run without a saved job was sent");
+    assert.ok(!queries.some((query) => /local_reports|team_members/.test(query)), "the roster was read to build a job");
+
+    await db.insert(runs).values(run);
+    await Promise.all([enqueueRun(env, run, team), enqueueRun(env, run, team)]);
+    assert.deepEqual(sent, [JSON.parse(run.dispatchJobJson!), JSON.parse(run.dispatchJobJson!)]);
     await db.update(runs).set({ preparedArtifactId: "im-late" }).where(eq(runs.id, run.id));
-    await enqueueRun(env, run, { ...team, repoName: "ignored" }, benchmark);
-    assert.deepEqual(sent[2], sent[0]);
-    assert.ok(!queries.some((query) => /local_reports|team_members/.test(query)));
+    await enqueueRun(env, run, team);
+    assert.deepEqual(sent[2], sent[0], "a late row change altered the saved job");
   } finally { sqlite.close(); }
 });
 
-test("new dispatch selects B while an existing dispatch and Retry retain A", async () => {
+test("admission prepares weights from the roster it captured, and saved jobs keep theirs", async () => {
   const { db, binding, sqlite } = await database();
   try {
     const { env, run } = original();
     env.DB = binding;
-    run.dispatchJobJson = null;
     await db.insert(users).values({ id: "weight_author", email: "weight@example.test", name: "Weight author" });
     await db.insert(teamMembers).values({ teamId: team.id, userId: "weight_author", role: "member" });
     const report = {
@@ -523,24 +520,29 @@ test("new dispatch selects B while an existing dispatch and Retry retain A", asy
       [`weight-objects/course/team/${run.sha}/${newerDigest}/model.pkl`, object(9, newerDigest)],
     ]);
     env.ARTIFACTS = weightBucket(async (key) => stored.get(key) ?? null);
-    const sent: RunJobV1[] = [];
-    env.RUN_QUEUE = runQueue(async (job) => { sent.push(job); });
-    await db.insert(runs).values(run);
-    await enqueueRun(env, run, team, benchmark);
+    const proposed = { ...run, dispatchJobJson: null, preparedArtifactId: null, preparedEnvironmentJson: null };
+
+    // Only the captured selection counts: an author outside it supplies nothing.
+    const outside = await prepareAdmissionJob(env, proposed, team, benchmark, ["someone_else"]);
+    assert.deepEqual(outside.weights, []);
+
+    const jobA = await prepareAdmissionJob(env, proposed, team, benchmark, ["weight_author"]);
+    assert.deepEqual(jobA.weights, [{ path: "model.pkl", size: 3, sha256: digest }]);
+    const savedA = { ...proposed, dispatchJobJson: JSON.stringify(jobA) };
+    await db.insert(runs).values(savedA);
+
     await db.insert(localReports).values({ ...report, reportId: "report_b", syncedAt: 20,
       weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: newerDigest }]) });
-    const newerRun = { ...run, id: "run_new_candidate" };
-    await db.insert(runs).values(newerRun);
-    await enqueueRun(env, newerRun, team, benchmark);
-    await enqueueRun(env, run, team, benchmark);
-    assert.deepEqual(sent.map((job) => job.weights), [
-      [{ path: "model.pkl", size: 3, sha256: digest }],
-      [{ path: "model.pkl", size: 9, sha256: newerDigest }],
-      [{ path: "model.pkl", size: 3, sha256: digest }],
-    ]);
-    const [recorded] = await db.select().from(runs).where(eq(runs.id, run.id));
+    const jobB = await prepareAdmissionJob(env, { ...proposed, id: "run_new_candidate" }, team, benchmark, ["weight_author"]);
+    assert.deepEqual(jobB.weights, [{ path: "model.pkl", size: 9, sha256: newerDigest }]);
+
+    const sent: RunJobV1[] = [];
+    env.RUN_QUEUE = runQueue(async (job) => { sent.push(job); });
+    await enqueueRun(env, savedA, team);
+    assert.deepEqual(sent[0], jobA, "a saved job was rebuilt with newer weights");
+    const [recorded] = await db.select().from(runs).where(eq(runs.id, savedA.id));
     const retry = await prepareRetryJob(env, recorded, team, benchmark, "run_retry_a");
-    assert.deepEqual(retry.weights, sent[0].weights);
+    assert.deepEqual(retry.weights, jobA.weights);
     assert.equal(retry.source.repositoryId, team.repoId);
   } finally { sqlite.close(); }
 });
@@ -555,7 +557,7 @@ test("enqueue rejects a saved job for another run without sending or rebuilding"
     env.DB = binding;
     let sent = false;
     env.RUN_QUEUE = runQueue(async () => { sent = true; });
-    await assert.rejects(enqueueRun(env, run, team, benchmark), conflict);
+    await assert.rejects(enqueueRun(env, run, team), conflict);
     assert.equal(sent, false);
     assert.ok(!queries.some((query) => /local_reports|team_members/.test(query)));
     const [stored] = await db.select().from(runs).where(eq(runs.id, run.id));
@@ -563,23 +565,10 @@ test("enqueue rejects a saved job for another run without sending or rebuilding"
   } finally { sqlite.close(); }
 });
 
-test("invalid new jobs and persistence failure cannot send an unrecorded execution", async () => {
-  for (const failPersistence of [false, true]) {
-    const { db, binding, sqlite } = await database(failPersistence);
-    try {
-      const { env, run } = original();
-      run.dispatchJobJson = null;
-      await db.insert(runs).values(run);
-      env.DB = binding;
-      let sent = false;
-      env.RUN_QUEUE = runQueue(async () => { sent = true; });
-      await assert.rejects(enqueueRun(env, run, team,
-        failPersistence ? benchmark : { ...benchmark, pluginVersion: "" }));
-      assert.equal(sent, false);
-      const [stored] = await db.select().from(runs).where(eq(runs.id, run.id));
-      assert.equal(stored.dispatchJobJson, null);
-    } finally { sqlite.close(); }
-  }
+test("an invalid job is refused at admission, before any run could hold it", async () => {
+  const { env, run } = original();
+  const proposed = { ...run, dispatchJobJson: null };
+  await assert.rejects(prepareAdmissionJob(env, proposed, team, { ...benchmark, pluginVersion: "" }, []));
 });
 
 test("enqueue retains a recorded job through queue failure and rejects changed saved weight bytes", async () => {
@@ -590,13 +579,13 @@ test("enqueue retains a recorded job through queue failure and rejects changed s
     env.DB = binding;
     env.ARTIFACTS = weightBucket(async () => object());
     env.RUN_QUEUE = runQueue(async () => { throw new Error("queue unavailable"); });
-    await assert.rejects(enqueueRun(env, run, team, benchmark), /queue unavailable/);
+    await assert.rejects(enqueueRun(env, run, team), /queue unavailable/);
     const [stored] = await db.select().from(runs).where(eq(runs.id, run.id));
     assert.equal(stored.dispatchJobJson, run.dispatchJobJson);
     let sent = false;
     env.RUN_QUEUE = runQueue(async () => { sent = true; });
     env.ARTIFACTS = weightBucket(async () => object(4));
-    await assert.rejects(enqueueRun(env, run, team, benchmark), conflict);
+    await assert.rejects(enqueueRun(env, run, team), conflict);
     assert.equal(sent, false);
     assert.ok(!queries.some((query) => /local_reports|team_members/.test(query)));
   } finally { sqlite.close(); }

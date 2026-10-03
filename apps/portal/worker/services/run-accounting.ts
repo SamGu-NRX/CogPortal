@@ -1,7 +1,7 @@
-import { and, eq, getTableColumns, inArray, isNull, or, sql, SQL } from "drizzle-orm";
+import { and, eq, exists, getTableColumns, inArray, isNull, or, sql, SQL } from "drizzle-orm";
 import { OFFICIAL_LIMIT, PRACTICE_LIMIT, RUN_PHASES } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
-import { runs, teams } from "../db/schema";
+import { runs, teamMembers, teams } from "../db/schema";
 
 type BenchmarkScope = { teamId: string; benchmarkId: string; benchmarkVersion: number };
 type AccountingScope = BenchmarkScope | { teamId: string; allBenchmarks: true };
@@ -69,8 +69,11 @@ export async function readUsedRunsByTeam(db: Database, teamWhere: SQL) {
 }
 
 /** Admission is checked by the INSERT itself, not by a preceding read. A run
- * completing between requests therefore cannot let a stale quota check win. */
-export function insertRunWithCapacity(db: Database, value: typeof runs.$inferInsert) {
+ * completing between requests therefore cannot let a stale quota check win,
+ * and a person who left the team between the request's own reads and this
+ * write cannot start a run on it: the actor must be a member when it runs.
+ * Zero changes means one of the two failed; isAdmittingMember tells which. */
+export function insertRunWithCapacity(db: Database, value: typeof runs.$inferInsert, actorUserId: string) {
   const scope = { teamId: value.teamId, benchmarkId: value.benchmarkId, benchmarkVersion: value.benchmarkVersion };
   const columns = getTableColumns(runs);
   // Drizzle's INSERT SELECT uses every table column in declaration order.
@@ -91,5 +94,20 @@ export function insertRunWithCapacity(db: Database, value: typeof runs.$inferIns
     scopePredicate(scope), eq(runs.mode, value.mode), or(acceptedRunPredicate(), activeRunPredicate()),
   )})`;
   const limit = value.mode === "practice" ? PRACTICE_LIMIT : OFFICIAL_LIMIT;
-  return db.insert(runs).select(sql`select ${values} where ${occupied} < ${limit}`);
+  return db.insert(runs).select(sql`select ${values} where ${occupied} < ${limit} and ${actorOnTeam(db, value.teamId, actorUserId)}`);
+}
+
+function actorOnTeam(db: Database, teamId: string, userId: string) {
+  return exists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+    eq(teamMembers.teamId, teamId),
+    eq(teamMembers.userId, userId),
+  )));
+}
+
+/** After an admission that changed nothing: whether the actor is still on
+ *  the team, so a departure is not reported as a used-up quota. */
+export async function isAdmittingMember(db: Database, teamId: string, userId: string): Promise<boolean> {
+  const [row] = await db.select({ userId: teamMembers.userId }).from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId))).limit(1);
+  return Boolean(row);
 }

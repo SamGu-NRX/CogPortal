@@ -442,7 +442,28 @@ export async function getLatestTeamWeights(
   benchmarkId: string,
   benchmarkVersion: number,
 ): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
-  const memberUserIds = await teamMemberUserIds(env, teamId);
+  return latestTeamWeightsFor(
+    env, teamId, await teamMemberUserIds(env, teamId), repositoryFullName, sha, repositoryId,
+    benchmarkId, benchmarkVersion,
+  );
+}
+
+/**
+ * The same choice from a roster the caller already holds. Run admission
+ * passes the roster it captured once and checked its actor against, so the
+ * report is chosen from that selection and not from a second read that a
+ * departure in between could leave empty (prepareAdmissionJob).
+ */
+export async function latestTeamWeightsFor(
+  env: Env,
+  teamId: string,
+  memberUserIds: readonly string[],
+  repositoryFullName: string,
+  sha: string,
+  repositoryId: number | null,
+  benchmarkId: string,
+  benchmarkVersion: number,
+): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
   if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
   const db = getDb(env);
   const [report] = await db
@@ -456,7 +477,7 @@ export async function getLatestTeamWeights(
     .from(localReports)
     .where(
       and(
-        inArray(localReports.userId, memberUserIds),
+        inArray(localReports.userId, [...memberUserIds]),
         reportRepositoryIs(repositoryFullName),
         reportNotFromAnotherTeam(db, teamId),
         eq(localReports.sha, sha),

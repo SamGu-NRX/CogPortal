@@ -95,7 +95,7 @@ When a hosted run is dispatched, the portal takes the newest report any team mem
 
 The commit is the link. A run on a different commit finds no report and gets no weights, so a team that syncs, pushes one more commit, and starts a hosted run is back to a withheld image score. No screen says so, and the Week 3 sentence that sends teams down this path does not mention the commit: "Keep that weights file out of git. Then run `cogworks run` locally and `cogworks sync`; the hosted run will fetch the weights the local run used." (`benchmarks/week3/language_search_benchmark/roles.py:931` at the pinned submodule commit `94c7e64f`).
 
-When the newest report at that commit names a weight that was never uploaded, the run fails before it starts with "Required weight {path} has not been uploaded; sync the report again." (`weights.ts:369`). Two ordinary ways to get there: an upload that failed part way, or a `cogworks run --live` at that commit after the last sync, because a live run stores its report with receipts and uploads no bytes.
+When the newest report at that commit names a weight that was never uploaded, the run fails before it starts with "Required weight {path} has not been uploaded; sync the report again." (`weights.ts:369`). `a6eef75` (2026-10-03): the start is now refused with that sentence before any run exists, because a hosted run's job, weights included, is built before it is admitted (`prepareAdmissionJob`, `apps/portal/worker/execution/runner.ts`); nothing is added to the team's history. Two ordinary ways to get there: an upload that failed part way, or a `cogworks run --live` at that commit after the last sync, because a live run stores its report with receipts and uploads no bytes.
 
 ## Modifiers
 
