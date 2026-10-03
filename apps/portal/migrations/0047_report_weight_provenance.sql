@@ -18,8 +18,14 @@
 -- and before the new Worker deploys. Those teams run once more locally and
 -- sync; dispatch says so (services/local-reports.ts, getLatestTeamWeights).
 --
--- Reports synced after this migration are known: the Worker sets the flag on
--- every write, and the report schema requires weightsUsed.
+-- Reports synced after this migration are marked known: the Worker sets the
+-- flag on every write, and the report schema requires weightsUsed. That is
+-- only as good as the client. The CLI from ecae617 keeps a saved report's
+-- missing weightsUsed as missing and refuses to sync it; older installed CLIs
+-- turn it into [] before sending, so a report they re-sync can still claim no
+-- weights. The client's version or the report's date cannot show where the
+-- value came from, so nothing here guesses; those students update the CLI
+-- and run again.
 ALTER TABLE local_reports ADD COLUMN weights_used_known INTEGER NOT NULL DEFAULT 0;
 UPDATE local_reports
 SET weights_used_known = 1

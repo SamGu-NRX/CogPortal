@@ -37,7 +37,7 @@ export interface BenchmarkPackage {
  * this page describes.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@ebb9f383bfc967cae22f0a0057fdd530a6f38229#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@ecae6171521d59cc3e66a737df154c7e2c2bb5d1#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",

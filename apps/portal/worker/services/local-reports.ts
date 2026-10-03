@@ -334,6 +334,11 @@ export async function getWeightUploadTarget(
  * run of the clean commit would score inputs the commit does not produce.
  * Choosing an older clean report instead would hide that the newest one
  * needs attention.
+ *
+ * "Known" is what the client sent. The pinned CLI (COGBENCH_SOURCE) refuses to
+ * sync a saved report that never recorded its weights; older installed CLIs
+ * send [] for it, which reads as known and empty here. Nothing in the report
+ * shows which client wrote it, so this does not try to tell them apart.
  */
 export async function getLatestTeamWeights(
   env: Env,
