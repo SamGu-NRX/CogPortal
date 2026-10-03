@@ -326,7 +326,6 @@ function PeopleSection({ team }: { team: TeamDetail }) {
   // so keyboard users aren't dropped at the document root.
   const toggleRef = useRef<HTMLButtonElement>(null);
   const restoreFocus = () => toggleRef.current?.focus();
-  const [leaveArmed, setLeaveArmed] = useState(false);
 
   return (
     <PageSection
@@ -390,14 +389,11 @@ function PeopleSection({ team }: { team: TeamDetail }) {
                   </span>
                 )}
                 {isMe ? (
-                  <LeaveTeam team={team} onArmedChange={setLeaveArmed} />
+                  <LeaveTeam team={team} />
                 ) : (
                   team.isAdmin && m.role !== "admin" && (
                     <RemoveMember login={m.login} onRemoved={restoreFocus} />
                   )
-                )}
-                {isMe && leaveArmed && (
-                  <LeaveConsequence lastMember={team.members.length === 1} archive={team.provenance === "archive"} />
                 )}
               </li>
             );
@@ -440,8 +436,12 @@ function PeopleSection({ team }: { team: TeamDetail }) {
  * choice (useLeaveTeam), where this team is one Join away if GitHub still
  * gives them write access.
  */
-function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (armed: boolean) => void }) {
+function LeaveTeam({ team }: { team: TeamDetail }) {
   const leave = useLeaveTeam();
+  // Held with the button it describes, so a row that remounts (the roster
+  // reordered, a refetch) loses both together. Lifted to the list, it once
+  // outlived its button and showed under an unarmed control.
+  const [armed, setArmed] = useState(false);
   // After an outcome the page cannot know, Leave is gone until a full reload:
   // pressing it again could remove a membership made since, elsewhere.
   const unconfirmed = useLeaveUnconfirmed(team.id);
@@ -459,7 +459,7 @@ function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (
           subject={`team ${team.name}`}
           armedSubject={team.name}
           busy={leave.isPending}
-          onArmedChange={onArmedChange}
+          onArmedChange={setArmed}
           onConfirm={() => leave.mutate({ teamId: team.id, teamName: team.name, archive: team.provenance === "archive" })}
         />
       </span>}
@@ -472,6 +472,9 @@ function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (
             </Button>
           )}
         </div>
+      )}
+      {armed && !unconfirmed && (
+        <LeaveConsequence lastMember={team.members.length === 1} archive={team.provenance === "archive"} />
       )}
     </>
   );
