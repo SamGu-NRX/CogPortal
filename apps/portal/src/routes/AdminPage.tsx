@@ -133,6 +133,9 @@ function Enrollment({
   const [changing, setChanging] = useState(false);
   const [rotated, setRotated] = useState(0);
   const foldRef = useRef<HTMLDivElement>(null);
+  // Whether focus was in the fold when a pointer pressed the toggle: WebKit
+  // moves focus off an action to the body at mousedown, before click.
+  const focusWasInFold = useRef(false);
   const reduce = useReducedMotion();
   const foldId = useId();
   const titleId = useId();
@@ -221,10 +224,17 @@ function Enrollment({
           type="button"
           aria-expanded={changing}
           aria-controls={foldId}
+          onPointerDown={() => {
+            focusWasInFold.current = Boolean(foldRef.current?.contains(document.activeElement));
+          }}
           onClick={(event) => {
-            // Safari doesn't focus a clicked button, so focus can still be on
-            // an action inside the fold; going inert would drop it to the body.
-            if (changing && foldRef.current?.contains(document.activeElement)) {
+            // Safari doesn't focus a clicked button, so focus can be on an
+            // action inside the fold (assistive-technology activation) or,
+            // after a mouse press, already on the body; going inert would
+            // leave it there.
+            const wasInFold = focusWasInFold.current;
+            focusWasInFold.current = false;
+            if (changing && (wasInFold || foldRef.current?.contains(document.activeElement))) {
               event.currentTarget.focus();
             }
             setChanging(!changing);
