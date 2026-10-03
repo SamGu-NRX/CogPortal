@@ -528,6 +528,38 @@ const LOCAL_REPORTS: LocalReport[] = [
   }),
 ];
 
+/** Several folded rows, one commit synced twice in the same minute, and a
+ *  metric whose label and unit are long unbroken tokens. Each notes control
+ *  should read its own report to a screen reader. */
+const LOCAL_REPORT_EDGES: LocalReport[] = [
+  localReport("4c1f0e2", {
+    reportId: "local_4c1f0e2d8a3b4f61c09e7d25a1b3c4e8",
+    value: 0.1703,
+    minutesAgo: 30,
+    metrics: [
+      metric({
+        key: "overall",
+        label: "Mean_reciprocal_rank_over_every_rewritten_query_and_typo_variant",
+        unit: "ranks_per_thousand_locally_measured_queries",
+        value: 0.1703,
+        help: null,
+      }),
+    ],
+    diagnostics: [WEEK3_NOTES.brokenComparison, WEEK3_NOTES.brokenFallback, "third note", "fourth note"],
+  }),
+  localReport("4c1f0e2", {
+    reportId: "local_4c1f0e2f7b16e93d40a2c58b6e9d71f3",
+    value: 0.1709,
+    minutesAgo: 30,
+    diagnostics: [WEEK3_NOTES.brokenComparison, WEEK3_NOTES.brokenFallback, "third note", "fourth note"],
+  }),
+  localReport("9b3d7e1", {
+    value: 0.2214,
+    minutesAgo: 90,
+    diagnostics: ["first note", "second note", "third note", "fourth note", "fifth note"],
+  }),
+];
+
 /** A version no track shows, with no catalog to name it, so the id stands in. */
 const UNTRACKED_REPORT = localReport("5e1d7a0", {
   value: 0.3311,
@@ -810,6 +842,12 @@ export function GalleryPage() {
       </p>
       <div className="mt-6 max-w-[42rem]">
         <LocalReportsTable reports={LOCAL_REPORTS} caption="Gallery: self-reported local CogBench results" />
+      </div>
+      <h3 className="mt-8 font-serif text-lg font-semibold text-ink">
+        …several folded rows, a repeated commit, and a long metric name
+      </h3>
+      <div className="mt-3 max-w-[42rem]">
+        <LocalReportsTable reports={LOCAL_REPORT_EDGES} caption="Gallery: folded rows and a long metric name" />
       </div>
       <div className="mt-8 max-w-[42rem]">
         <LocalReportsTable

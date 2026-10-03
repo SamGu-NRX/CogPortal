@@ -71,6 +71,8 @@ async function press(window: Window, toggle: Element, detail: 0 | 1) {
 
 test("a keyboard expansion moves focus into the region; collapsing keeps it on the toggle", async (t) => {
   const { window, toggle, folded } = await mount(t);
+  // A caller that passes no labelContext gets exactly its visible label as the name.
+  assert.equal(toggle.textContent, "See 2 more");
   (toggle as unknown as HTMLButtonElement).focus();
 
   await press(window, toggle, 0);

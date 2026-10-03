@@ -5,7 +5,7 @@ import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { LocalReportSchema, type LocalReport } from "@cogworks/contracts/schema";
+import { LocalReportSchema, MetricSchema, type LocalReport } from "@cogworks/contracts/schema";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -154,7 +154,7 @@ test("the row keeps its identity: commit, dirty marker, command and sync time, a
   assert.match(row, /text-ink-secondary">cogworks test<\/p>/);
   assert.match(row, /Overall 0\.1709<\/span>\u00a0· <span class="whitespace-nowrap">synced [^<]+ ago<\/span>/);
   // A smoke test's score sits one step lighter than a run's.
-  assert.match(row, /<span class="text-ink-faint">Overall 0\.1709<\/span>/);
+  assert.match(row, /<span class="\[overflow-wrap:anywhere\] text-ink-faint">Overall 0\.1709<\/span>/);
   assert.ok(!row.includes("ada") && !row.includes("Ada Lovelace"), "no author");
   assert.match(html, /A <code[^>]*>test<\/code> row scored only the small/);
 });
@@ -162,6 +162,64 @@ test("the row keeps its identity: commit, dirty marker, command and sync time, a
 test("a report from before the CLI recorded the command says so", () => {
   const row = rowOf(render([report("ccccccc", [], { command: undefined })]), "ccccccc");
   assert.match(row, /text-ink-faint">command not recorded<\/p>/);
+});
+
+test("a long metric label and unit may wrap instead of widening the row", () => {
+  // The schema bounds neither string, so a self-reported metric can carry
+  // a long unbroken token; this one parses as it is.
+  const label = "Mean_reciprocal_rank_over_every_rewritten_query_and_typo_variant";
+  const unit = "ranks_per_thousand_locally_measured_queries";
+  const metric = MetricSchema.parse({ key: "overall", label, value: 0.17, unit, higherIsBetter: true, primary: true, precision: 2 });
+  const row = rowOf(render([report("c29e5b5", ["first"], { metrics: [metric] })]), "c29e5b5");
+
+  assert.ok(
+    row.includes(`<span class="[overflow-wrap:anywhere] text-ink-secondary">${label} 0.17 ${unit}</span>`),
+    "label, value and unit sit in a span that may wrap anywhere",
+  );
+});
+
+/** Each notes control's accessible name: its visible label plus its screen-reader-only context. */
+function controlNames(html: string): string[] {
+  return [...html.matchAll(/<button[^>]*aria-expanded="[^"]*"[^>]*>([\s\S]*?)<\/button>/g)].map((match) =>
+    decode(match[1]!.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim(),
+  );
+}
+
+test("each row's notes control names its own report, while the visible label stays short", () => {
+  const html = render([
+    report("c29e5b1", FIVE),
+    report("4c1f0e2", FIVE.slice(0, 4), { dirty: true, command: "test" }),
+  ]);
+
+  assert.deepEqual(controlNames(html), [
+    "See 2 more notes for commit c29e5b1 (cogworks run, synced 1 min ago)",
+    "See 1 more note for commit 4c1f0e2 (dirty, cogworks test, synced 1 min ago)",
+  ]);
+  // The context is for assistive technology; the visible label is unchanged.
+  assert.match(html, />See 2 more notes<span class="sr-only"> for commit c29e5b1 /);
+});
+
+test("rows that would read alike are told apart by the end of their report id", () => {
+  // The same commit synced twice in the same minute with the same command.
+  const twin = (reportId: string) => report("c29e5b1", FIVE.slice(0, 4), { reportId });
+  const names = controlNames(render([twin("local_0000000000aaaaaa111111"), twin("local_0000000000aaaaaa222222")]));
+
+  assert.equal(new Set(names).size, 2, "two distinct names");
+  assert.match(names[0]!, /^See 1 more note for commit c29e5b1 \(cogworks run, synced 1 min ago, report 111111\)$/);
+  assert.match(names[1]!, /^See 1 more note for commit c29e5b1 \(cogworks run, synced 1 min ago, report 222222\)$/);
+});
+
+test("in the table for benchmarks without a track, the name leads with the benchmark", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(LocalReportsTable, {
+      reports: [report("c29e5b1", FIVE)],
+      caption: "Untracked",
+      catalog: [],
+    }),
+  );
+  assert.deepEqual(controlNames(html), [
+    "See 2 more notes for language-search v1, commit c29e5b1 (cogworks run, synced 1 min ago)",
+  ]);
 });
 
 /* ── The fold, operated ──────────────────────────────────────────────────── */
@@ -225,6 +283,23 @@ test("the fold opens, closes and opens again from its control, and only open not
     expectState(open);
   }
   assert.ok(notes()?.textContent?.includes("fifth note"));
+});
+
+test("open or closed, two rows' notes controls keep names of their own", async (t) => {
+  const container = await mount(t, [report("c29e5b1", FIVE), report("4c1f0e2", FIVE)]);
+  const toggles = Array.from(container.querySelectorAll("button[aria-expanded]"));
+  assert.equal(toggles.length, 2);
+  const names = () => toggles.map((toggle) => (toggle.textContent ?? "").replace(/\s+/g, " ").trim());
+
+  assert.deepEqual(names(), [
+    "See 2 more notes for commit c29e5b1 (cogworks run, synced 1 min ago)",
+    "See 2 more notes for commit 4c1f0e2 (cogworks run, synced 1 min ago)",
+  ]);
+  for (const toggle of toggles) await act(async () => (toggle as unknown as HTMLButtonElement).click());
+  assert.deepEqual(names(), [
+    "Show fewer notes for commit c29e5b1 (cogworks run, synced 1 min ago)",
+    "Show fewer notes for commit 4c1f0e2 (cogworks run, synced 1 min ago)",
+  ]);
 });
 
 test("focusing the fold doesn't make a table that fits a tab stop of its own", async (t) => {

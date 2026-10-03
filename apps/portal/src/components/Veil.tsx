@@ -39,6 +39,7 @@ export function Veil({
   moreLabel,
   fewerLabel = "Show fewer",
   detail,
+  labelContext,
   peek = 52,
   focusSelector,
   children,
@@ -51,6 +52,11 @@ export function Veil({
   fewerLabel?: string;
   /** Mono sub-line under the toggle label, e.g. "Older repositories · newest first". */
   detail?: string;
+  /**
+   * Read after the visible label by assistive technology only, to tell this
+   * toggle from others like it on the page: "for commit c29e5b1 (…)".
+   */
+  labelContext?: string;
   /** Height (px) of legible content peeking above the veil. */
   peek?: number;
   /** CSS selector focused inside the region on keyboard expand. */
@@ -137,6 +143,7 @@ export function Veil({
         <span>
           <span className="block text-[14px] font-semibold text-ink">
             {open ? fewerLabel : moreLabel}
+            {labelContext && <span className="sr-only"> {labelContext}</span>}
           </span>
           {detail && (
             <span className="block text-[12.5px] text-ink-faint">

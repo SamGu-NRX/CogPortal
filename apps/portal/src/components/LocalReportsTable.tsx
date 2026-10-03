@@ -45,6 +45,7 @@ export function LocalReportsTable({
   catalog?: Benchmark[];
 }) {
   const shown = reports.slice(0, SHOWN);
+  const identities = rowIdentities(shown, catalog);
   const captionId = useId();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const overflows = useHorizontalOverflow(scrollerRef);
@@ -115,7 +116,7 @@ export function LocalReportsTable({
                   </p>
                 </td>
                 <td className="py-3">
-                  <ReportNotes report={report} />
+                  <ReportNotes report={report} identity={identities.get(report.reportId) ?? ""} />
                 </td>
               </tr>
             ))}
@@ -144,7 +145,7 @@ export function LocalReportsTable({
  * note in the serif, the next two as hairline-marked lines, anything past
  * NOTES_SHOWN behind a Veil.
  */
-function ReportNotes({ report }: { report: LocalReport }) {
+function ReportNotes({ report, identity }: { report: LocalReport; identity: string }) {
   const [first, ...rest] = report.diagnostics;
   const supporting = rest.slice(0, NOTES_SHOWN - 1);
   const folded = rest.slice(NOTES_SHOWN - 1);
@@ -169,6 +170,7 @@ function ReportNotes({ report }: { report: LocalReport }) {
             count={folded.length}
             moreLabel={`See ${folded.length} more ${folded.length === 1 ? "note" : "notes"}`}
             fewerLabel="Show fewer notes"
+            labelContext={`for ${identity}`}
           >
             <NoteList notes={folded} />
           </Veil>
@@ -179,7 +181,11 @@ function ReportNotes({ report }: { report: LocalReport }) {
           sits one step lighter than a run's; the line below the table says
           why. */}
       <p className="u-tnum mt-2 font-mono text-[12.5px] text-ink-faint">
-        <span className={report.command === "test" ? "text-ink-faint" : "text-ink-secondary"}>
+        {/* A metric's label and unit are the report's own strings, unbounded
+            by the schema, so they may wrap anywhere like the notes. */}
+        <span
+          className={`[overflow-wrap:anywhere] ${report.command === "test" ? "text-ink-faint" : "text-ink-secondary"}`}
+        >
           {primary ? `${primary.label} ${formatMetricValue(primary)}` : "no primary metric"}
         </span>
         {/* The dot stays with the score, so a narrow row breaks after it. */}
@@ -222,13 +228,43 @@ function useHorizontalOverflow(ref: RefObject<HTMLElement | null>): boolean {
   return overflows;
 }
 
-function BenchmarkName({ report, catalog }: { report: LocalReport; catalog: Benchmark[] }) {
+/**
+ * How a screen reader tells one row's notes control from another's: "commit
+ * c29e5b1 (cogworks run, synced 25 h ago)", with the benchmark first in the
+ * catalog table. A commit can be synced more than once, so rows that would
+ * still read alike get the end of their report id as well.
+ */
+function rowIdentities(reports: LocalReport[], catalog: Benchmark[] | undefined): Map<string, string> {
+  const base = (report: LocalReport) => {
+    const benchmark = catalog
+      ? `${benchmarkTitle(report, catalog) ?? report.benchmarkId} v${report.benchmarkVersion}, `
+      : "";
+    const commit = report.sha ? `commit ${report.sha.slice(0, 7)}` : "no recorded commit";
+    const command = report.command ? `cogworks ${report.command}` : "command not recorded";
+    return `${benchmark}${commit} (${report.dirty ? "dirty, " : ""}${command}, synced ${formatTimeAgo(report.syncedAt)}`;
+  };
+  const counts = new Map<string, number>();
+  for (const report of reports) counts.set(base(report), (counts.get(base(report)) ?? 0) + 1);
+  return new Map(
+    reports.map((report) => {
+      const text = base(report);
+      const repeated = (counts.get(text) ?? 0) > 1;
+      return [report.reportId, `${text}${repeated ? `, report ${report.reportId.slice(-6)}` : ""})`];
+    }),
+  );
+}
+
+function benchmarkTitle(report: LocalReport, catalog: Benchmark[]): string | undefined {
   // The exact version's row first; a version the catalog doesn't carry still
   // belongs to a benchmark whose title we know.
-  const title = (
+  return (
     catalog.find((b) => b.id === report.benchmarkId && b.version === report.benchmarkVersion) ??
     catalog.find((b) => b.id === report.benchmarkId)
   )?.title;
+}
+
+function BenchmarkName({ report, catalog }: { report: LocalReport; catalog: Benchmark[] }) {
+  const title = benchmarkTitle(report, catalog);
   return (
     <>
       {title ?? <span className="font-mono [overflow-wrap:anywhere]">{report.benchmarkId}</span>}{" "}
