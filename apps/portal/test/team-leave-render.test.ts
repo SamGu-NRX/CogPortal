@@ -58,10 +58,11 @@ function teamDetail(members: number, teammateLogin = "teammate", archive = false
 /** Stands in for the worker. Requests the test does not care about answer
  *  404 in the API's own error shape, so a panel that wants them renders its
  *  error rather than throwing. */
-function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string; archive?: boolean }) {
+function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string; archive?: boolean; loseLeave?: boolean }) {
   let onTeam: boolean | "other" = true;
   let sessionMode: "answer" | "hold-next" | "fail" | "offline" = "answer";
   let joinWrites = 0;
+  let loseNextLeave = options.loseLeave ?? false;
   let releaseSession = () => {};
   const leaves: unknown[] = [];
   let release = () => {};
@@ -79,7 +80,13 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     if (path === "/api/team" && onTeam === true) return Response.json(teamDetail(options.members, options.teammateLogin, options.archive));
     if (path === "/api/team/leave") {
       leaves.push(JSON.parse(String(init?.body)));
+      // The server's answer for a page whose team is no longer the caller's.
+      if (onTeam === "other") {
+        return Response.json({ error: { code: "already_on_team", message: "You're on Audio Crew now, not the team this page showed. Reload to see it." } }, { status: 409 });
+      }
       onTeam = false;
+      // The delete commits and the answer never arrives.
+      if (loseNextLeave) { loseNextLeave = false; throw new TypeError("Failed to fetch"); }
       const answer = Response.json({ alreadyLeft: options.alreadyLeft ?? false });
       if (!options.holdLeave) return answer;
       // The delete has committed; only the response is late.
@@ -122,8 +129,28 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
   };
 }
 
-async function mount(t: TestContext, options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string; archive?: boolean }) {
-  const server = portal(options);
+const teardowns = new WeakMap<TestContext, Array<() => Promise<void>>>();
+function onTeardown(t: TestContext, work: () => Promise<void>) {
+  let stack = teardowns.get(t);
+  if (!stack) {
+    const created: Array<() => Promise<void>> = [];
+    stack = created;
+    teardowns.set(t, created);
+    t.after(async () => {
+      for (const step of created.reverse()) await step();
+    });
+  }
+  stack.push(work);
+}
+
+async function mount(
+  t: TestContext,
+  options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string; archive?: boolean; loseLeave?: boolean },
+  // The same server across two mounts stands in for a full page reload: a new
+  // document, query client and session read against unchanged server state.
+  existing?: ReturnType<typeof portal>,
+) {
+  const server = existing ?? portal(options);
   const window = new Window({ url: "https://portal.example/team" });
   const globals: Record<string, unknown> = {
     window, document: window.document, navigator: window.navigator,
@@ -152,7 +179,8 @@ async function mount(t: TestContext, options: { members: number; alreadyLeft?: b
   // SAFETY: Happy DOM implements the Element operations React DOM uses.
   const root = createRoot(container as unknown as Element);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  t.after(async () => {
+  // Newest mount first: each restores the globals the one before it set.
+  onTeardown(t, async () => {
     await act(async () => root.unmount());
     client.clear();
     await window.happyDOM.close();
@@ -443,4 +471,43 @@ test("leaving a past-course team lands without promising a way back in", async (
     notice?.textContent,
     `You left ${TEAM_NAME}Its runs and results stay with the team. It's a past-course demonstration, so only course staff can add you back.`,
   );
+});
+
+test("after a leave whose answer is lost, the page offers no second Leave until a reload", async (t) => {
+  // The delete commits, the answer is lost, and the student joins the same
+  // team again elsewhere. That membership is indistinguishable from the one
+  // deleted, so a second press from this page would remove it.
+  const first = await mount(t, { members: 2, loseLeave: true });
+  await pressLeaveTwice(first.container, first.flush);
+  assert.equal(first.server.leaves.length, 1);
+  const alert = first.container.querySelector('[role="alert"]');
+  assert.match(alert?.textContent ?? "", /^We couldn't confirm whether you left\. Reload to see where you stand\./);
+  assert.doesNotMatch(first.container.textContent ?? "", /Leaving again is safe/);
+  assert.ok([...(alert?.querySelectorAll("button") ?? [])].some((b) => b.textContent === "Reload page"));
+
+  first.server.rejoin();
+  const leaveButtons = () => [...first.container.querySelectorAll("li button")].filter((b) => /^(Leave|Confirm, you leave)/.test(b.textContent ?? ""));
+  assert.equal(leaveButtons().length, 0, "Leave was still offered after an unknown outcome");
+  await act(async () => { await first.client.invalidateQueries({ queryKey: ["team"] }); });
+  await first.flush();
+  assert.equal(leaveButtons().length, 0, "a refetch brought Leave back before a reload");
+  assert.equal(first.server.leaves.length, 1, "a second leave request went out");
+
+  // A full reload reads the rejoined membership, and leaving is offered again.
+  const reloaded = await mount(t, { members: 2 }, first.server);
+  assert.equal(reloaded.path(), "/team");
+  assert.equal(reloaded.container.querySelector('[role="alert"]'), null);
+  await pressLeaveTwice(reloaded.container, reloaded.flush);
+  assert.equal(first.server.leaves.length, 2, "the reloaded page could not leave");
+});
+
+test("a leave the server refused keeps Leave, since nothing was removed", async (t) => {
+  // A 409 for a stale tab is an answer: the membership is untouched, so the
+  // student may act again once they have read it.
+  const { container, server, flush } = await mount(t, { members: 2 });
+  server.joinOther();
+  await pressLeaveTwice(container, flush);
+  const alert = container.querySelector('[role="alert"]');
+  assert.ok(alert, "the refusal was not shown");
+  assert.ok([...container.querySelectorAll("li button")].some((b) => (b.textContent ?? "").startsWith("Leave")));
 });

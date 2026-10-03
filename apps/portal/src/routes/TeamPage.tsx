@@ -15,9 +15,9 @@ import { RemoveButton } from "@/components/RemoveButton";
 import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
-  LeftButNotRefreshed,
   useChangeTeamRepo,
   useLeaveTeam,
+  useLeaveUnconfirmed,
   useRemoveTeamMember,
   useRepositories,
   useTeam,
@@ -442,19 +442,16 @@ function PeopleSection({ team }: { team: TeamDetail }) {
  */
 function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (armed: boolean) => void }) {
   const leave = useLeaveTeam();
+  // After an outcome the page cannot know, Leave is gone until a full reload:
+  // pressing it again could remove a membership made since, elsewhere.
+  const unconfirmed = useLeaveUnconfirmed(team.id);
   // The control keeps its column; a failure takes its own row under the name,
   // as the armed consequence does. In the control column it squeezed the
   // reader's name to nothing on a phone.
-  const failure = leave.error instanceof LeftButNotRefreshed
-    ? leave.error.message
-    : leave.error instanceof ApiRequestError
-      ? leave.error.message
-      : leave.error
-        ? "We couldn't confirm whether you left. Leaving again is safe; if you'd already left, it will say so."
-        : null;
+  const failure = unconfirmed ?? (leave.error instanceof ApiRequestError ? leave.error.message : null);
   return (
     <>
-      <span className="shrink-0">
+      {!unconfirmed && <span className="shrink-0">
         <RemoveButton
           label="Leave"
           armedLabel="Confirm, you leave"
@@ -465,11 +462,11 @@ function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (
           onArmedChange={onArmedChange}
           onConfirm={() => leave.mutate({ teamId: team.id, teamName: team.name, archive: team.provenance === "archive" })}
         />
-      </span>
+      </span>}
       {failure && (
         <div role="alert" className={`${ROW_NOTE} text-detect-deep`}>
           <p>{failure}</p>
-          {leave.error instanceof LeftButNotRefreshed && (
+          {unconfirmed && (
             <Button variant="ghost" className="mt-2" onClick={() => window.location.reload()}>
               Reload page
             </Button>
