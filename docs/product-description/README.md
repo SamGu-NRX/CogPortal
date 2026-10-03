@@ -88,7 +88,7 @@ Progress is tracked in the [coverage table](#coverage) below.
 - **2026-10-01, current behavior.** Every document was re-read against Cog\*Portal `2ff32fa` (branch `docs/product-review-20261001`, the redesigned notebook UI) and now cites it in its footer, replacing the mixed `f74e087`, `5a74e74` and `a0e8eac` references. Hosted beta is a different build: `4984730` in the adjacent `CogPortal-beta-20260930` worktree. It forked from this line at `8052b12`, before the redesign, and carries 31 commits the candidate lacks (among them #46, #53 and `26aa861`). The candidate carries 17 that beta lacks. A sole beta owner will combine them. Where beta behaves differently, the document says so in a bullet that begins "Hosted beta (`4984730`) differs:". Beta evidence is never written up as the candidate's.
 - **Evidence levels.** Three kinds of observation exist, and every claim that rests on one names it. *Local fixture*: the paired screenshots in `/tmp/cogshots/matched/pairs/` and the QA clips in `CogPortal-qa-video-20260930/outputs/beta-qa/` (at `8052b12` and `05f9827`), and the native Sol pass at `2ff32fa` under `beta-qa/final-2ff32fa/`. Fixture runs are labeled Simulated and prove UI states, not execution. *Hosted beta*: practice runs `run_f5fc5babe5` (failed in Evaluate before beta's `468655c`) and `run_f93ba19397` (its Retry, succeeded at 0.925 with persisted D1 proof), both Recognition on `SamGu-NRX/week2_capstone@29f9cf94`. They prove that one hosted path only. *Sol's reliability pass*: the two live-session and history-cache findings now owned by Opus thread `58cdb791` (B-13, B-14). Anything else is read from code.
 - **Deployed build and repair branch.** The documents describe `2ff32fa`. The deployed redesigned beta is `ed2b194` (`2ff32fa` merged with `4984730`; Worker version `0b452503-80b8-44bc-b60d-a04a38cc5175`, runner Modal v44 unchanged from `4984730`). It was observed in a combined local acceptance and in one real hosted Language run with a real CLI pass, and `bug-triage.md` has a column for it. `cbd8266`, on top of `ed2b194`, carries the B-13 and B-14 source repairs and is not deployed.
-- **Current candidate `edf4de3`.** What it changes since these documents' `2ff32fa` basis, what was seen running on it, and what wasn't shown is in [`verification/checkpoint-edf4de3.md`](verification/checkpoint-edf4de3.md).
+- **Current candidate `edf4de3`.** [`verification/checkpoint-edf4de3.md`](verification/checkpoint-edf4de3.md) covers what was seen running on it and what wasn't shown, plus a selection of source changes since `93dfa5e`. It is not a full changelog; changes it doesn't list are not described anywhere in these documents yet.
 - **Local `17d26d9` checkpoint.** The accepted beta `17d26d9` changed some behaviors these documents describe at `2ff32fa`. What was observed on it locally, with the fixture provider and synthetic accounts, is in [`verification/checkpoint-17d26d9.md`](verification/checkpoint-17d26d9.md), and affected documents carry a bullet beginning "Local `17d26d9` differs:". The documents themselves are still read against `2ff32fa`.
 - **Full hosted path at `f618038`.** Two Language practice runs went from a local Worker through the deployed beta runner v48 to the reloaded run page; [`verification/README.md`](verification/README.md#evidence-gaps) says what they cover and what they don't. Documents that changed after `17d26d9` carry an "Integrated `93dfa5e` source differs:" bullet, read from code unless it says otherwise.
 - **Evidence gaps that block `verified`.** A withheld Language run; hosted Audio and Clustering; official promotion and publication; a fresh setup from the page's lines alone; instructor writes; Discord and the Activity; physical phones. The commands are in [`verification/README.md`](verification/README.md#evidence-gaps).
@@ -115,6 +115,8 @@ verification/
   terminal.md                    checklists for terminal/*
   discord.md                     checklists for discord/*
   sandbox.md                     checklists for sandbox/* and cross-cutting/*
+  checkpoint-17d26d9.md          what was observed on the accepted beta 17d26d9
+  checkpoint-edf4de3.md          what was observed on candidate edf4de3 and what wasn't shown
 
 foundations/
   the-ask.md                     the unit of interaction: the five phases, what commits, what
@@ -176,6 +178,8 @@ Status is one of `not started`, `drafted`, or `verified`. Every document is `dra
 | verification/terminal.md | drafted |
 | verification/discord.md | drafted |
 | verification/sandbox.md | drafted |
+| verification/checkpoint-17d26d9.md | drafted (dated receipt for `17d26d9`) |
+| verification/checkpoint-edf4de3.md | drafted (dated receipt for `edf4de3`) |
 | foundations/the-ask.md | drafted |
 | foundations/identity-and-roles.md | drafted |
 | foundations/the-team-and-the-repository.md | drafted |

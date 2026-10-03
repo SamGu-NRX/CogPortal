@@ -12,7 +12,7 @@ The feature documents still describe `2ff32fa`, and [`checkpoint-17d26d9.md`](ch
 - **A working submission.** Practice run `run_3c844cb2a1` at `bb08255` succeeded at Overall 0.154000, and its page leads with the benchmark's finding.
 - **Callbacks.** All were answered `200`: seven for the malformed run, eight for the working one.
 - **Phases.** In both runs' raw receipts, every phase after `queued` closed in order with an `ended_at`. `queued` was not stamped under this direct dispatch ([the run](../foundations/the-run.md#edge-cases)).
-- **The CLI on Python 3.8.** The real `ecae617` CLI was installed and linked through the local approval API. It ran a live local run and synced one report, which made one session and one console with eight stored events. The console's "Show all 7" deliberately folds two identical progress rows into one.
+- **The CLI on Python 3.8.** The real `ecae617` CLI was installed and linked through the local approval API. It ran a live local run and synced one report, which made one session and one console with eight stored events. The console's toggle read "Show all 7": the label is `Show all {n}` over the collapsed timeline (`apps/portal/src/components/RunConsole.tsx:234`), and `collapseRepeatedRunEvents` (`:185`) folded two identical progress rows into one.
 
 The approval URL the CLI printed pointed at the callback-only tunnel. So a student opening that link in a browser and approving there was not tested.
 
@@ -26,7 +26,7 @@ Each of these has suite coverage. None was exercised by the runs above unless th
   - A refusal states only what the refused report establishes (`1b5864f`).
   - The pinned `ecae617` CLI refuses to sync a saved report that never recorded its weights (`f66402b`, `ecae617`); Setup now pins that CLI (`39dd90e`). An older installed CLI turns the missing field into `[]` and sends it, so the portal can accept it as a known-empty record. The portal can't tell where that value came from. Those students update the CLI and run again. The limitation is stated in migration 0047 and in code comments, not on the Setup page. See [the weights record](../cross-cutting/what-the-benchmark-supplied.md#the-second-kind-weights-from-the-teams-own-local-run).
 - **Retry.** Retry is refused for a failure whose remedy is a fix in the team's code. Where it is unavailable, the page says so instead of predicting the rerun (`4389759`, `01827f6`).
-- **The stale-run sweep.** It judges a silent execution by its last accepted callback, with grace for runs that predate the change (`f8358de`).
+- **The stale-run sweep.** It judges a silent reporting execution by its last accepted callback. Executions already in a reporting phase when the change lands get a grace period. A `queued` run is still failed ten minutes after creation, with no grace (`f8358de`; `apps/portal/worker/execution/maintenance.ts:16`, `:34`, `:62-69`, `:85-88`).
 - **Recognition quota.** Quota consumed by `recognition-v1` runs after migration 0044 is released (`c81878b`).
 - **The admin page.** It tells a team whose hosted runs failed apart from one that never ran (`d068212`).
 - **Stored-link notice.** When the browser denies storage, only the dropped-link notice is lost, not onboarding (`d304897`).

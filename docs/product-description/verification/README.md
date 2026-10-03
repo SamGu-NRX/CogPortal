@@ -10,7 +10,7 @@ The feature documents were written from the code and the tests. This directory i
 | [terminal.md](terminal.md) | `terminal/*` |
 | [discord.md](discord.md) | `discord/*` |
 | [sandbox.md](sandbox.md) | `sandbox/*`, `cross-cutting/*`, and the `foundations/*` claims that are observable |
-| [checkpoint-edf4de3.md](checkpoint-edf4de3.md) | The current candidate `edf4de3`: what it changes, the two practice runs and the CLI pass on an owned Modal environment, and what was not shown |
+| [checkpoint-edf4de3.md](checkpoint-edf4de3.md) | The current candidate `edf4de3`: two practice runs on an owned Modal environment, a separate local CLI pass, selected source changes, and what was not shown |
 | [checkpoint-17d26d9.md](checkpoint-17d26d9.md) | What was observed on the accepted beta `17d26d9` locally, kept apart from the rows above |
 
 Each file has one table per document. Each row is an item with a stable ID (`STATUS-04`, `RUNPAGE-12`), a priority, what it needs, the claim with a link to the document section, the setup, numbered steps, the expected result, and a Result column for the tester. Items that cannot be checked by hand are listed under each document as "Not checkable by hand".
@@ -86,7 +86,7 @@ The full hosted path at `f618038` is a separate receipt. A local Worker dispatch
 - `run_6867b9fefa` on `bb08255` succeeded at Overall 0.1540, opening on the benchmark's finding (B-68).
 - `run_e9206870c0` on a deliberately malformed `4c6d54d` succeeded with notes, leading "What this run shows" with "text component scored 0: embed_text returned an array with 1 dimensions; expected a 2-D (rows, D) matrix."
 
-Every callback was answered `200`, and an unsigned one `401`. This run did not exercise sign-in, Cloudflare Queues, hosted D1, promotion, publication, weights or Discord. Later integrated commits have local evidence only.
+Every callback was answered `200`, and an unsigned one `401`. This run did not exercise sign-in, Cloudflare Queues, hosted D1, promotion, publication, weights or Discord. Commits after `f618038` had local evidence only until the `edf4de3` checkpoint. That checkpoint adds two practice runs on an owned Modal environment, still dispatched from a local Worker and D1; Cloudflare bindings were not exercised ([checkpoint-edf4de3.md](checkpoint-edf4de3.md)).
 
 What still blocks `verified`, with what each needs. The release owner decides which of these matter for a given delivery.
 
