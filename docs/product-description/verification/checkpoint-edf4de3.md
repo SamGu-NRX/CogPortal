@@ -29,7 +29,7 @@ Each of these has suite coverage. None was exercised by the runs above unless th
 - **The stale-run sweep.** It judges a silent reporting execution by its last accepted callback. Legacy reporting executions with no accepted callback recorded get one grace window when a sweep first finds them past the inactivity limit. A `queued` run is still failed ten minutes after creation, with no grace (`f8358de`; `apps/portal/worker/execution/maintenance.ts:16`, `:34`, `:62-69`, `:85-88`).
 - **Recognition quota.** Migration 0048 releases used quota left charged after 0044 for older Recognition v2 executions recorded under `recognition-v1`, while old active executions keep their reservations until they finish and then incur no charge (`c81878b`; `apps/portal/migrations/0048_recognition_v1_capacity_release.sql:23-29`, `apps/portal/worker/services/run-accounting.ts:15-16`, `:29-38`).
 - **The admin page.** It tells a team whose hosted runs failed apart from one that never ran (`d068212`).
-- **Stored-link notice.** When the browser denies storage, only the dropped-link notice is lost, not onboarding (`d304897`).
+- **Stored-link notice.** For a signed-in student redirected to finish onboarding, denied storage loses the dropped-link notice without breaking that redirect (`d304897`; `apps/portal/src/lib/pending-return.ts:76-93`). For a signed-out visitor, denied storage can also lose the saved return path across sign-in (`:41-51`); this fix does not preserve that link.
 - **Discord consent.** It discloses hosted runs before a team binds its channel, and no longer promises one post per run (`9984b31`, `b19959c`).
 
 ## Not shown on this build
