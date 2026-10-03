@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   AddTeamMemberRequestSchema,
@@ -358,10 +358,25 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         and(
           eq(teamMembers.teamId, auth.team.id),
           eq(teamMembers.userId, membership.userId),
+          ne(teamMembers.role, "admin"),
           actorIsTeamAdmin(db, auth.team.id, auth.user.id),
         ),
       );
-    if (!removed.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
+    if (!removed.meta.changes) {
+      // Nothing was deleted, and the read above no longer says why: the actor
+      // may have lost the admin role, or the target may have left or been
+      // made an admin since. Ask again, actor first; nothing is written.
+      const [actor] = await db.select({ role: teamMembers.role }).from(teamMembers)
+        .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, auth.user.id))).limit(1);
+      if (actor?.role !== "admin") throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
+      const [target] = await db.select({ role: teamMembers.role }).from(teamMembers)
+        .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, membership.userId))).limit(1);
+      if (target?.role === "admin") {
+        throw new ApiHttpError(403, "cannot_remove_creator", "A team admin can't be removed.");
+      }
+      // Otherwise they are already off the team, which is what was asked, and
+      // the roster below shows the team as it is now.
+    }
     return respond(
       c,
       TeamDetailSchema,
