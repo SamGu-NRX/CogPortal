@@ -97,7 +97,8 @@ export function insertRunWithCapacity(db: Database, value: typeof runs.$inferIns
   return db.insert(runs).select(sql`select ${values} where ${occupied} < ${limit} and ${actorOnTeam(db, value.teamId, actorUserId)}`);
 }
 
-function actorOnTeam(db: Database, teamId: string, userId: string) {
+/** Whether the actor is on the team when the statement it guards runs. */
+export function actorOnTeam(db: Database, teamId: string, userId: string) {
   return exists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
     eq(teamMembers.teamId, teamId),
     eq(teamMembers.userId, userId),
