@@ -474,6 +474,8 @@ async function seedOfficial(
     log: null,
     createdAt: NOW + 1_000,
     finishedAt: NOW + 2_000,
+    // Admitted by current code, which records runner activity (0049).
+    legacyGraceUntil: 0,
     provider: "modal",
     preparedArtifactId: "artifact_test",
     datasetVersion: "official-v1",
@@ -2798,4 +2800,31 @@ test("a Retry of a Retry on the same saved environment still keeps its weights r
   const [second] = await db.select().from(runs).where(eq(runs.retryOfRunId, first!.id));
   assert.equal(second?.preparedArtifactId, original!.preparedArtifactId);
   assert.equal(second?.weightsSuppliedJson, SEEDED_WEIGHTS);
+});
+
+test("every new execution starts with no runner activity and no rollout grace, never its parent's", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  // The parent carries activity and a grace of its own (0049).
+  await db.update(runs).set({ acceptedActivityAt: 123, legacyGraceUntil: 456 }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await promotePracticeRun(env(binding, "modal", { async send() {} }), actor, PRACTICE_RUN_ID);
+  const [official] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.deepEqual([official?.acceptedActivityAt, official?.legacyGraceUntil], [null, 0], "promotion copied the parent's clock");
+
+  await db.update(runs).set({
+    status: "failed", provider: "fixture", acceptedActivityAt: 789, legacyGraceUntil: 1_011,
+  }).where(eq(runs.id, official!.id));
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, official!.id);
+  const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, official!.id));
+  assert.deepEqual([successor?.acceptedActivityAt, successor?.legacyGraceUntil], [null, 0], "Retry copied the failed run's clock");
+
+  // Settle the Retry so a new practice start is admitted.
+  await db.update(runs).set({ status: "failed", finishedAt: Date.now() }).where(eq(runs.id, successor!.id));
+  const started = await startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID, exactSha: "c".repeat(40),
+  });
+  const [fresh] = await db.select().from(runs).where(eq(runs.id, started.runId));
+  assert.deepEqual([fresh?.acceptedActivityAt, fresh?.legacyGraceUntil], [null, 0]);
 });

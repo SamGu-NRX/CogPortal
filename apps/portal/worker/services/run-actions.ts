@@ -170,6 +170,11 @@ function repeatPromotion(promotion: ExistingPromotion, surfaceId: string) {
   return { runId: promotion.promotedTo.runId, surfaceId };
 }
 
+/** Every new execution starts with no runner activity and no rollout grace,
+ *  never a parent's: promotion copies the parent row, and the stale-run sweep
+ *  would otherwise judge the new execution by the old one's silence. */
+const NEW_EXECUTION_ACTIVITY = { acceptedActivityAt: null, legacyGraceUntil: 0 } as const;
+
 /** Phase rows for a run admitted earlier in the same batch. A refused capacity
  *  insert leaves the run absent, so these write nothing either. */
 function guardedPhaseInserts(db: Database, runId: string) {
@@ -351,6 +356,7 @@ export async function startPracticeRun(
       runtimeVersion: benchmark.runtimeVersion,
       dispatchAttempts: 0,
       lastEventSequence: -1,
+      ...NEW_EXECUTION_ACTIVITY,
       surfaceId,
     });
     // One D1 batch is one transaction: the console is written only if this
@@ -460,6 +466,7 @@ export async function promotePracticeRun(
       runtimeVersion: benchmark.runtimeVersion,
       dispatchAttempts: 0,
       lastEventSequence: -1,
+      ...NEW_EXECUTION_ACTIVITY,
       surfaceId: parent.surfaceId,
     });
     // A phase-write failure must not leave an admitted run without its phases.
@@ -654,6 +661,7 @@ export async function retryRun(
     datasetVersion: failed.datasetVersion,
     scorerVersion: failed.scorerVersion,
     runtimeVersion: failed.runtimeVersion,
+    ...NEW_EXECUTION_ACTIVITY,
     surfaceId,
     createdAt: now,
   });

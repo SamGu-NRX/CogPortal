@@ -407,6 +407,14 @@ export const runs = sqliteTable("runs", {
   scorerVersion: text("scorer_version").notNull().default("1"),
   runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
   dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
+  /** Server time of the last runner callback that advanced this execution's
+   *  sequence while it was active (0049). Null until one does. */
+  acceptedActivityAt: integer("accepted_activity_at"),
+  /** Inactivity grace for executions that predate acceptedActivityAt (0049).
+   *  Null: such a row the stale-run sweep has not reached. 0: written by code
+   *  that records activity, so no grace. Otherwise the time before which the
+   *  sweep will not fail it for silence. */
+  legacyGraceUntil: integer("legacy_grace_until"),
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
   surfaceId: text("surface_id"),
 }, (table) => [

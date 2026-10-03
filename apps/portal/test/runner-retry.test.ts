@@ -54,6 +54,7 @@ function original(mode: "practice" | "official" = "practice", withWeights = fals
     preparedArtifactId: mode === "official" ? "im-prepared" : null,
     preparedEnvironmentJson: null,
     createdAt: 1, finishedAt: null, lastEventSequence: -1, dispatchAttempts: 0,
+    acceptedActivityAt: null, legacyGraceUntil: 0,
     parentRunId: null, retryOfRunId: null, dispatchJobJson: null, attemptNumber: null,
     failureCategory: null, failurePhase: null, failureDetail: null, failureConsumedAttempt: false,
     refundedAt: null, log: null, diagnosticsJson: null, wiringJson: null, refusalJson: null,

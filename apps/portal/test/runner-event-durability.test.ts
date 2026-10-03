@@ -260,6 +260,8 @@ async function seedRun(db: Database, options: { mode?: "practice" | "official" }
     scorerVersion: "identification-v1",
     mode,
     status: "evaluating",
+    // Admitted by current code, which records runner activity (0049).
+    legacyGraceUntil: 0,
     branch: "main",
     sha: "a".repeat(40),
     repositoryId: null,
@@ -552,7 +554,9 @@ test("a failure read before the reaper settled the run closes nothing afterwards
   await barrier.reached;
   let reaped: Awaited<ReturnType<typeof phaseTimes>>;
   try {
-    await maintainPlatform(env(harness.binding), NOW + 3_600_001);
+    // An hour after the callbacks were received: silence is now measured from
+    // the server's receipt of the last accepted one, not from NOW.
+    await maintainPlatform(env(harness.binding), Date.now() + 3_600_001);
     assert.equal((await counts(harness.db)).run.status, "failed");
     reaped = await phaseTimes(harness.db);
   } finally {
@@ -596,7 +600,8 @@ test("a completion closes the stage that is open even if scoring was never repor
 test("the stale reaper closes the stage that is open at its own settlement time", async () => {
   const harness = freshHarness();
   await seedStartedInstall(harness);
-  const reapedAt = NOW + 3_600_001;
+  // An hour after the callbacks were received, as above.
+  const reapedAt = Date.now() + 3_600_001;
   await maintainPlatform(env(harness.binding), reapedAt);
   assert.equal((await counts(harness.db)).run.status, "failed");
   const settled = await phaseTimes(harness.db);
@@ -618,18 +623,23 @@ test("a reaper that read the run before a callback settled it closes nothing", a
   const harness = freshHarness();
   const app = await seedStartedInstall(harness);
   const barrier = harness.pauseAfterRead(/^select "id", "team_id", "status" from "runs"/i);
-  const sweep = maintainPlatform(env(harness.binding), NOW + 3_600_001);
+  // An hour after the callbacks were received, so the sweep selects this run.
+  const sweep = maintainPlatform(env(harness.binding), Date.now() + 3_600_001);
   await barrier.reached;
   let settled: Awaited<ReturnType<typeof phaseTimes>>;
+  let reaperSettlementRan = false;
   try {
     const failure = { ...infrastructureFailureEvent(), sequence: 3, occurredAt: NOW + 5_000 };
     assert.equal((await post(app, harness.binding, failure)).status, 200);
     settled = await phaseTimes(harness.db);
     assert.deepEqual(settled.installing, [NOW + 2_000, NOW + 5_000]);
+    // From here, only the reaper's own settlement writes a notice.
+    harness.observeAt(/^insert into "outbox_events"/i, () => { reaperSettlementRan = true; });
   } finally {
     barrier.release();
   }
   await sweep;
+  assert.ok(reaperSettlementRan, "the sweep never selected the run, so this tested nothing");
   assert.deepEqual(await phaseTimes(harness.db), settled);
   assert.equal((await counts(harness.db)).run.failureDetail, "the sandbox went away");
 });
