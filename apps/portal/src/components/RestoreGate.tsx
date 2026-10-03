@@ -53,10 +53,11 @@ const GateContext = createContext<{
  * A window that stays visible beside another is never hidden, so focus
  * checks too (TanStack Query v5 listens only to visibilitychange). That check
  * leaves the page showing while it reads, because a click back into the
- * window should not blank a page that is still right; only a different
- * account conceals it, and then for good, until the reload. Team changes made
- * from it in the meantime are refused by the server, which compares the team
- * the page showed (requireAdminOfShownTeam).
+ * window should not blank a page that is still right. A different account
+ * conceals it for good, until the reload; a read that fails conceals it
+ * behind the gate's own error and Retry, since who is signed in is then
+ * unknown. Team changes made from it in the meantime are refused by the
+ * server, which compares the team the page showed (requireAdminOfShownTeam).
  */
 export function RestoreGate({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
@@ -116,35 +117,6 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     setGate({ state: "open" });
   }, [qc]);
 
-  // Focus on a page that was never hidden. A return from hidden is the
-  // visibility path's: the gate is closed by then, so this stands aside, and a
-  // check already running (from either path) answers for both events.
-  const verify = useCallback(async () => {
-    if (replacing.current || !open.current || running.current) return;
-    const painted = qc.getQueryData<Session>(sessionQuery.queryKey);
-    // Nothing is painted for anyone until the first read lands.
-    if (!painted) return;
-    const mine = ++attempt.current;
-    running.current = true;
-    await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
-    let session: Session;
-    try {
-      session = await qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" });
-    } catch {
-      // The page was showing and stays so; the next focus or return asks again.
-      if (mine === attempt.current) running.current = false;
-      return;
-    }
-    if (mine !== attempt.current) return;
-    running.current = false;
-    if (sameAccount(painted, session)) return;
-    open.current = false;
-    replacing.current = true;
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
-    flushSync(() => setGate({ state: "closed" }));
-    window.location.reload();
-  }, [qc]);
-
   const close = useCallback(() => {
     if (replacing.current) return;
     attempt.current += 1;
@@ -161,6 +133,40 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     // freezes whatever the DOM holds at that point.
     flushSync(() => setGate({ state: "closed" }));
   }, [qc]);
+
+  // Focus on a page that was never hidden. A return from hidden is the
+  // visibility path's: the gate is closed by then, so this stands aside, and a
+  // check already running (from either path) answers for both events. Placed
+  // after `close`, which a failed read uses to conceal and record the account.
+  const verify = useCallback(async () => {
+    if (replacing.current || !open.current || running.current) return;
+    const painted = qc.getQueryData<Session>(sessionQuery.queryKey);
+    // Nothing is painted for anyone until the first read lands.
+    if (!painted) return;
+    const mine = ++attempt.current;
+    running.current = true;
+    await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
+    let session: Session;
+    try {
+      session = await qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" });
+    } catch (error) {
+      if (mine !== attempt.current) return;
+      // Who is signed in is unknown, so the page is not left to act as
+      // anyone. Retry runs `check` against the account recorded here.
+      running.current = false;
+      close();
+      setGate({ state: "failed", error });
+      return;
+    }
+    if (mine !== attempt.current) return;
+    running.current = false;
+    if (sameAccount(painted, session)) return;
+    open.current = false;
+    replacing.current = true;
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
+    flushSync(() => setGate({ state: "closed" }));
+    window.location.reload();
+  }, [qc, close]);
 
   const reopen = useCallback(() => {
     if (open.current) close();
