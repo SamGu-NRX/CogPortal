@@ -253,10 +253,10 @@ export const api = {
     ),
   run: (runId: string) =>
     request(`/api/runs/${encodeURIComponent(runId)}`, RunDetailSchema),
-  startPractice: (benchmarkId: string, branch?: string) =>
+  startPractice: (teamId: string, benchmarkId: string, branch?: string) =>
     request("/api/runs/practice", StartRunResponseSchema, {
       method: "POST",
-      body: { benchmarkId, branch },
+      body: { teamId, benchmarkId, branch },
     }),
   promote: (runId: string) =>
     request(`/api/runs/${encodeURIComponent(runId)}/promote`, StartRunResponseSchema, {

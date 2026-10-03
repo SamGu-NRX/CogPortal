@@ -525,10 +525,12 @@ export function useAdminRemoveStaff() {
   return useMutation({ mutationFn: api.adminRemoveStaff, onSuccess: setRoster });
 }
 
-export function useStartPractice(benchmarkId: string) {
+/** `teamId` is the team the Runs page shows; the server refuses the start if
+ *  that is no longer the caller's team (requireShownTeam). */
+export function useStartPractice(teamId: string, benchmarkId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (branch?: string) => api.startPractice(benchmarkId, branch),
+    mutationFn: (branch?: string) => api.startPractice(teamId, benchmarkId, branch),
     // Returning this promise keeps the launch pending until the stale
     // zero-run dashboard has been replaced by the refetched state.
     onSuccess: () =>

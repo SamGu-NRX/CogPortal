@@ -1368,6 +1368,10 @@ export const AddTeamMemberRequestSchema = z.object({
 /* ── Requests ─────────────────────────────────────────────────────────── */
 
 export const StartPracticeRequestSchema = z.object({
+  /** The team the Runs page showed. Optional here only so a page older than
+   *  this field gets "reload" rather than a validation error; the server
+   *  refuses a start without it (requireShownTeam). */
+  teamId: z.string().min(1).optional(),
   benchmarkId: z.string(),
   branch: z.string().optional(),
 });
