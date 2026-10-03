@@ -382,13 +382,20 @@ export function useLeaveTeam() {
   const navigate = useNavigate();
   return useMutation({
     mutationFn: ({ teamId }: { teamId: string; teamName: string }) => api.leaveTeam(teamId),
-    onSuccess: async ({ alreadyLeft }, { teamId, teamName }) => {
-      // A late answer. The delete committed, a refetch already moved the
-      // student on, and they joined or started another team before this
-      // reply arrived: clearing the session now would empty that team and
-      // send them back to /connect. Their new team's own flow stands.
-      const current = qc.getQueryData(sessionQuery.queryKey)?.team;
-      if (current && current.id !== teamId) return;
+    // Which session read this leave was sent against.
+    onMutate: () => ({ sessionReads: qc.getQueryState(sessionQuery.queryKey)?.dataUpdateCount ?? 0 }),
+    onSuccess: async ({ alreadyLeft }, { teamName }, sent) => {
+      // A late answer. The session was read again after this leave went out
+      // and already shows a team: the student joined one meanwhile, possibly
+      // the same team again, which no team-id comparison can tell from a
+      // leave still in progress. That newer state stands; clearing it would
+      // empty their team and send them back to /connect. Only the refetch
+      // runs, so a read that raced the delete is corrected too.
+      const session = qc.getQueryState(sessionQuery.queryKey);
+      if ((session?.dataUpdateCount ?? 0) > sent.sessionReads && session?.data?.team) {
+        await qc.invalidateQueries();
+        return;
+      }
       rememberLeftTeam({ name: teamName, alreadyLeft });
       qc.setQueryData(sessionQuery.queryKey, (session) => (session ? { ...session, team: null } : session));
       navigate("/connect", { replace: true });
