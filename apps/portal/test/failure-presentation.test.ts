@@ -196,6 +196,29 @@ test("with no official attempts left, the page doesn't promise that every succes
   assert.doesNotMatch(container.textContent, /publish any successful/);
 });
 
+// Promotion is always a member's action (run-actions.ts promote paths), and two
+// fresh model readers given screenshots took the bare "Promoted to" as a
+// practice run spending an attempt on its own (walk r1, 3 Oct 2026), so the
+// page names the team.
+test("a promoted practice run says the team promoted it", async (t) => {
+  const { container } = await mount(t, page(t, run({
+    status: "succeeded", failure: null,
+    promotedTo: { runId: "run_official_1", attemptNumber: 1 },
+  })));
+  assert.match(container.textContent, /Your team promoted this run to official attempt #1\./);
+});
+
+// A selection can be seeded (the staging archive), so the published line states
+// what is stored and that another official attempt replaces it, never who chose.
+// Selections are per version, so the line names the version that replaces it.
+test("the published entry says another official attempt on its version replaces it", async (t) => {
+  const { container } = await mount(t, page(t, run({
+    mode: "official", status: "succeeded", failure: null, publishable: true, selected: true,
+  })));
+  assert.match(container.textContent, /This result is your team's public entry; publishing another official attempt on\s*v1 replaces it\./);
+  assert.doesNotMatch(container.textContent, /Your team chose/);
+});
+
 test("completed partial evaluation retains findings, supporting results and promotion", async (t) => {
   const { container } = await mount(t, page(t, run({
     status: "succeeded", failure: null,

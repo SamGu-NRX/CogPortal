@@ -729,6 +729,45 @@ for (const official of ["succeeded", "failed"] as const) {
   });
 }
 
+test("a track with no runs counts the team's runs on other open tracks, at the version each tab opens", async () => {
+  // A track with no runs names where the team's runs are (DashboardPage
+  // RunsElsewhere). The count is the team's, at versions a tab can open, and a
+  // track with runs of its own skips it (only the first-run panel reads it).
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [other] = await db.select().from(benchmarks)
+    .where(and(eq(benchmarks.active, true), ne(benchmarks.id, BENCHMARK_ID))).limit(1);
+  assert.ok(other, "the migrations seed a second active benchmark");
+  await historyRun(db, "elsewhere_failed", {
+    benchmarkId: other.id, benchmarkVersion: other.version,
+    status: "failed", failureCategory: "student_runtime", failurePhase: "evaluating",
+  });
+  await historyRun(db, "elsewhere_succeeded", { benchmarkId: other.id, benchmarkVersion: other.version });
+  await historyRun(db, "elsewhere_old_version", { benchmarkId: other.id, benchmarkVersion: other.version + 100 });
+  await historyRun(db, "elsewhere_retired", { benchmarkId: "retired-benchmark" });
+  await db.insert(teams).values({ ...actor.team, id: "other_team", repoFullName: "other/repo" });
+  await historyRun(db, "other_team_elsewhere", { teamId: "other_team", benchmarkId: other.id, benchmarkVersion: other.version });
+  const { app, runtime, cookie } = await authenticatedPromotion(db, binding);
+
+  const read = async (id: string) => DashboardSchema.parse(await (await app.fetch(
+    new Request(`http://localhost:5173/dashboard?benchmark=${id}`, { headers: { cookie } }), runtime)).json());
+  // The seed makes Recognition v1 active beside the migrations' v2, and its
+  // practice run is on v1. The tab opens v2, so that run counts nowhere.
+  const empty = await read(BENCHMARK_ID);
+  assert.equal(empty.benchmark.version, 2);
+  assert.deepEqual(empty.runs, []);
+  assert.deepEqual(empty.runsOnOtherTracks, [{ benchmarkId: other.id, title: other.title, runs: 2 }]);
+  const [third] = await db.select().from(benchmarks).where(and(
+    eq(benchmarks.active, true), ne(benchmarks.id, BENCHMARK_ID), ne(benchmarks.id, other.id))).limit(1);
+  assert.ok(third, "the migrations seed a third active benchmark");
+  assert.deepEqual((await read(third.id)).runsOnOtherTracks, [{ benchmarkId: other.id, title: other.title, runs: 2 }]);
+
+  await historyRun(db, "here_now", { benchmarkVersion: empty.benchmark.version });
+  const withRuns = await read(BENCHMARK_ID);
+  assert.equal(withRuns.runs.length, 1);
+  assert.deepEqual(withRuns.runsOnOtherTracks, []);
+});
+
 test("a practice run with no console says why it can't be promoted, on every path", async () => {
   // Rows from before run consoles have no surface to attach an official
   // attempt to. Promotion always refused them while both pages offered it.
