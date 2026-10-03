@@ -13,7 +13,9 @@ import {
   type AdminOverview,
   type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
+import { useNavigate } from "react-router";
 import { api, type RunSurfaceMutationInput } from "./api";
+import { rememberLeftTeam } from "./left-team";
 import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
 
 /** Only used before the benchmark list resolves, as a first-render probe.
@@ -361,6 +363,30 @@ export function useAddTeamMember() {
       void qc.invalidateQueries({ queryKey: ["invitable"] });
       void qc.invalidateQueries({ queryKey: ["cohort-teams"] });
       void qc.invalidateQueries({ queryKey: ["admin"] });
+    },
+  });
+}
+
+/**
+ * Leave the team the page showed.
+ *
+ * Hook-level, not a per-call onSuccess: clearing the team from the session
+ * makes the Team page's guard redirect, which unmounts the page that pressed
+ * the button. The note for /connect is set before the cache changes, so it is
+ * waiting whichever navigation lands there (lib/left-team.ts says why router
+ * state cannot carry it). Everything is then refetched, awaited so the
+ * mutation stays pending until fresh data has arrived.
+ */
+export function useLeaveTeam() {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  return useMutation({
+    mutationFn: ({ teamId }: { teamId: string; teamName: string }) => api.leaveTeam(teamId),
+    onSuccess: async ({ alreadyLeft }, { teamName }) => {
+      rememberLeftTeam({ name: teamName, alreadyLeft });
+      qc.setQueryData(sessionQuery.queryKey, (session) => (session ? { ...session, team: null } : session));
+      navigate("/connect", { replace: true });
+      await qc.invalidateQueries();
     },
   });
 }

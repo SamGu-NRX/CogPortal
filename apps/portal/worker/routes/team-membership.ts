@@ -6,6 +6,8 @@ import {
   CohortTeamListSchema,
   InvitableUserListSchema,
   JoinTeamRequestSchema,
+  LeaveTeamRequestSchema,
+  LeaveTeamResponseSchema,
   TeamDetailSchema,
 } from "@cogworks/contracts/schema";
 import type { CohortTeam, TeamMember } from "@cogworks/contracts/schema";
@@ -194,6 +196,41 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       TeamDetailSchema,
       await getTeamDetail(db, team.id, auth.user.id),
     );
+  });
+
+  /**
+   * Take the caller, and only the caller, off a team.
+   *
+   * Everything else stays with the team: its repository, runs, attempts,
+   * publications, TAs and Discord channel. GitHub is untouched, so a GitHub
+   * collaborator can join again through /team/join and gets whatever role
+   * GitHub gives them then. Any member may leave, the last admin and the last
+   * member included; the team stays joinable.
+   *
+   * Cookie session only (requireUser). A device credential cannot reach this.
+   * The one DELETE is scoped to the named team and this user, so a retry
+   * after success, or a stale tab after the person joined another team,
+   * removes nothing else.
+   */
+  app.post("/team/leave", async (c) => {
+    const auth = await requireUser(c);
+    const body = await parseBody(c, LeaveTeamRequestSchema);
+    const db = getDb(c.env);
+    const removed = await db
+      .delete(teamMembers)
+      .where(and(eq(teamMembers.teamId, body.teamId), eq(teamMembers.userId, auth.user.id)))
+      .returning({ teamId: teamMembers.teamId });
+    if (removed.length > 0) return respond(c, LeaveTeamResponseSchema, { alreadyLeft: false });
+
+    const current = await findMembership(db, auth.user.id);
+    if (current) {
+      throw new ApiHttpError(
+        409,
+        "already_on_team",
+        `You're on ${current.teamName ?? "another team"} now, not the team this page showed. Reload to see it.`,
+      );
+    }
+    return respond(c, LeaveTeamResponseSchema, { alreadyLeft: true });
   });
 
   app.get("/team/invitable", async (c) => {

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notExists, sql } from "drizzle-orm";
 import {
   type LocalReportInput,
   LocalReportSchema,
@@ -7,8 +7,8 @@ import {
   type LocalReport,
 } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
-import { getDb } from "../db/client";
-import { benchmarks, localReports, teamMembers, teams, users } from "../db/schema";
+import { getDb, type Database } from "../db/client";
+import { benchmarks, localReports, localRunSessions, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 
 /**
@@ -31,6 +31,20 @@ function reportRepositoryIdAgrees(repoId: number | null) {
   return repoId === null
     ? sql`1 = 1`
     : sql`(${localReports.repositoryId} is null or ${localReports.repositoryId} = ${repoId})`;
+}
+
+/**
+ * Reports carry no team, so a team's lists find them by author and
+ * repository. A report a live run on another team points at is that team's
+ * history: after its author leaves and joins a team on the same repository,
+ * it must not appear in the new team's list or supply its hosted-run weights.
+ * Reports no live run points at are the author's alone and follow them.
+ */
+function reportNotFromAnotherTeam(db: Database, teamId: string) {
+  return notExists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(and(
+    eq(localRunSessions.reportId, localReports.reportId),
+    sql`${localRunSessions.teamId} <> ${teamId}`,
+  )));
 }
 
 function parseReportRow(row: {
@@ -104,6 +118,7 @@ export async function listTeamLocalReports(
     inArray(localReports.userId, scope.memberUserIds),
     reportRepositoryIs(scope.repoFullName),
     reportRepositoryIdAgrees(scope.repoId),
+    reportNotFromAnotherTeam(db, scope.teamId),
   ];
   if (benchmarkId) {
     // A benchmark bump keeps the id and raises the version, so an id-only
@@ -144,7 +159,8 @@ export async function listUntrackedLocalReports(env: Env, userId: string): Promi
   // maximum, and `<>` against null would drop exactly the reports this is for.
   const trackVersion = sql`(select max(${benchmarks.version}) from ${benchmarks}
     where ${benchmarks.id} = ${localReports.benchmarkId} and ${benchmarks.active} = 1)`;
-  const rows = await getDb(env)
+  const db = getDb(env);
+  const rows = await db
     .select({ report: localReports, login: users.githubLogin, email: users.email, name: users.name })
     .from(localReports)
     .innerJoin(users, eq(localReports.userId, users.id))
@@ -152,6 +168,7 @@ export async function listUntrackedLocalReports(env: Env, userId: string): Promi
       inArray(localReports.userId, scope.memberUserIds),
       reportRepositoryIs(scope.repoFullName),
       reportRepositoryIdAgrees(scope.repoId),
+      reportNotFromAnotherTeam(db, scope.teamId),
       sql`${localReports.benchmarkVersion} is not ${trackVersion}`,
     ))
     .orderBy(desc(localReports.syncedAt))
@@ -210,10 +227,31 @@ export async function upsertLocalReport(
     command: body.command ?? null,
     syncedAt: Date.now(),
   };
-  const update = () => db
-    .update(localReports)
-    .set(values)
-    .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId)));
+  // A live run's console reads its report by id, so rewriting a report that a
+  // run of another team points at would change what that team sees. That is
+  // only the author's to do while they are still on the team; after they
+  // leave, the report stays as it was. Checked inside the UPDATE so a leave
+  // landing mid-request cannot slip between check and write.
+  const teamsStillTheirs = notExists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(and(
+    eq(localRunSessions.reportId, body.reportId),
+    notExists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+      eq(teamMembers.teamId, localRunSessions.teamId),
+      eq(teamMembers.userId, userId),
+    ))),
+  )));
+  const update = async () => {
+    const result = await db
+      .update(localReports)
+      .set(values)
+      .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId), teamsStillTheirs));
+    if (!result.meta.changes) {
+      throw new ApiHttpError(
+        403,
+        "forbidden",
+        "This report belongs to a run on a team you've left, so it can't be changed now. Your copy on this machine is unchanged.",
+      );
+    }
+  };
   let created = !existing;
   if (existing) {
     await update();
@@ -351,7 +389,8 @@ export async function getLatestTeamWeights(
 ): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
   const memberUserIds = await teamMemberUserIds(env, teamId);
   if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
-  const [report] = await getDb(env)
+  const db = getDb(env);
+  const [report] = await db
     .select({
       repositoryId: localReports.repositoryId,
       dirty: localReports.dirty,
@@ -364,6 +403,7 @@ export async function getLatestTeamWeights(
       and(
         inArray(localReports.userId, memberUserIds),
         reportRepositoryIs(repositoryFullName),
+        reportNotFromAnotherTeam(db, teamId),
         eq(localReports.sha, sha),
         eq(localReports.benchmarkId, benchmarkId),
         eq(localReports.benchmarkVersion, benchmarkVersion),

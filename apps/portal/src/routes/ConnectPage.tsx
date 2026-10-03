@@ -6,7 +6,7 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { motion, useReducedMotion } from "motion/react";
 import type { CohortTeam, GithubRepo } from "@cogworks/contracts/schema";
@@ -28,6 +28,7 @@ import {
   useRepositories,
   useSession,
 } from "@/lib/queries";
+import { clearLeftTeam, peekLeftTeam, subscribeLeftTeam } from "@/lib/left-team";
 
 const JOIN_TEAMS_VISIBLE = 5;
 // Folding one or two teams away costs a press to save a row or two, and the
@@ -50,6 +51,38 @@ function isWizardEntry(state: unknown): state is WizardEntry {
 
 function readStep(value: string | null): WizardStep | null {
   return value === "join" || value === "start" ? value : null;
+}
+
+/**
+ * What the Leave on the Team page just did, for the person it brought here
+ * (useLeaveTeam). Shown on this arrival only: the note is cleared once drawn,
+ * so a later visit to /connect says nothing.
+ */
+function LeftTeamNotice({ className = "" }: { className?: string }) {
+  const pending = useSyncExternalStore(subscribeLeftTeam, peekLeftTeam);
+  // Kept here once seen, since the note itself is cleared on sight.
+  const [left, setLeft] = useState(peekLeftTeam);
+  useEffect(() => {
+    if (!pending) return;
+    setLeft(pending);
+    clearLeftTeam();
+  }, [pending]);
+  if (!left) return null;
+  return (
+    <div
+      role="status"
+      className={`rounded-control border-l-2 border-ink bg-paper-raised px-4 py-3 text-[14px] leading-[1.55] text-ink-secondary ${className}`}
+    >
+      <p className="font-semibold break-words text-ink">
+        {left.alreadyLeft ? `You'd already left ${left.name}` : `You left ${left.name}`}
+      </p>
+      <p className="mt-1">
+        {left.alreadyLeft
+          ? "Nothing changed this time; another tab or request had already taken you off it."
+          : "Its runs and results stay with the team. If GitHub still gives you write access to its repository, you can join it again below."}
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -161,6 +194,7 @@ export function ConnectPage() {
       {/* Outside the keyed step, so the notice survives moving between
           steps; it is consumed on first render and would not come back. */}
       <DroppedLinkNotice className="mt-8 max-w-[31rem]" />
+      <LeftTeamNotice className="mt-8 max-w-[31rem]" />
       <motion.div
         key={step}
         className="mt-10"

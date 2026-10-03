@@ -47,7 +47,7 @@ export function registerCohortRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(
         409,
         "already_on_team",
-        "You're on a team in your current cohort. Leave it before joining a different cohort.",
+        "You're on a team in your current cohort. Leave it from your Team page, then use this code.",
       );
     }
     await db

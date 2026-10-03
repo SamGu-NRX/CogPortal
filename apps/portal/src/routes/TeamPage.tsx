@@ -16,6 +16,7 @@ import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
   useChangeTeamRepo,
+  useLeaveTeam,
   useRemoveTeamMember,
   useRepositories,
   useSession,
@@ -327,6 +328,7 @@ function PeopleSection({ team }: { team: TeamDetail }) {
   // so keyboard users aren't dropped at the document root.
   const toggleRef = useRef<HTMLButtonElement>(null);
   const restoreFocus = () => toggleRef.current?.focus();
+  const [leaveArmed, setLeaveArmed] = useState(false);
 
   return (
     <PageSection
@@ -367,7 +369,7 @@ function PeopleSection({ team }: { team: TeamDetail }) {
               // The login is the display name, and two development accounts can
               // share one (demo@dev.local beside a GitHub "demo"); GitHub logins
               // are unique, so the index only ever breaks a tie the server made.
-              <li key={`${m.login}:${i}`} className="flex min-h-16 items-center gap-3.5 py-2.5">
+              <li key={`${m.login}:${i}`} className="flex min-h-16 flex-wrap items-center gap-x-3.5 gap-y-1 py-2.5">
                 <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} size={36} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
@@ -387,8 +389,15 @@ function PeopleSection({ team }: { team: TeamDetail }) {
                     {ROLE_LABELS[m.role]}
                   </span>
                 )}
-                {team.isAdmin && m.role !== "admin" && (
-                  <RemoveMember login={m.login} onRemoved={restoreFocus} />
+                {isMe ? (
+                  <LeaveTeam team={team} onArmedChange={setLeaveArmed} />
+                ) : (
+                  team.isAdmin && m.role !== "admin" && (
+                    <RemoveMember login={m.login} onRemoved={restoreFocus} />
+                  )
+                )}
+                {isMe && leaveArmed && (
+                  <LeaveConsequence lastMember={team.members.length === 1} />
                 )}
               </li>
             );
@@ -420,6 +429,52 @@ function PeopleSection({ team }: { team: TeamDetail }) {
         )}
       </div>
     </PageSection>
+  );
+}
+
+/**
+ * Leaving, from the student's own row. It removes only their membership; the
+ * label carries the act and the line under the row, shown only while armed,
+ * carries what stays, because that is what someone hesitating here needs to
+ * know and it does not fit in a label. Afterwards they land on the team
+ * choice (useLeaveTeam), where this team is one Join away if GitHub still
+ * gives them write access.
+ */
+function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (armed: boolean) => void }) {
+  const leave = useLeaveTeam();
+  return (
+    <span className="flex shrink-0 flex-col items-end">
+      <RemoveButton
+        label="Leave"
+        armedLabel="Confirm, you leave"
+        busyLabel="Leaving…"
+        subject={`team ${team.name}`}
+        armedSubject={team.name}
+        busy={leave.isPending}
+        onArmedChange={onArmedChange}
+        onConfirm={() => leave.mutate({ teamId: team.id, teamName: team.name })}
+      />
+      {leave.error && (
+        <span role="alert" className="max-w-[16rem] text-right text-[12.5px] text-detect-deep">
+          {leave.error instanceof ApiRequestError
+            ? leave.error.message
+            : "We couldn't confirm whether you left. Leaving again is safe; if you'd already left, it will say so."}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Each sentence is a server fact: the delete touches one team_members row
+ *  (routes/team-membership.ts), and team report lists are built from the
+ *  current roster (services/local-reports.ts). */
+function LeaveConsequence({ lastMember }: { lastMember: boolean }) {
+  return (
+    <p role="status" className="basis-full max-w-[calc(60ch+36px+0.875rem)] pl-[calc(36px+0.875rem)] text-[13.5px] leading-[1.5] text-ink-secondary">
+      {lastMember
+        ? "You're the last member, so the team will be empty. It keeps its repository, runs and results, and anyone with write access on GitHub can join it again."
+        : "Only you come off the team; its hosted runs, attempts and published results stay. Your local reports leave its list with you, and your GitHub access doesn't change."}
+    </p>
   );
 }
 
