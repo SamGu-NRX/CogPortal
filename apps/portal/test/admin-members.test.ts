@@ -423,7 +423,7 @@ test("admin totals span benchmarks and versions without per-version quota denomi
   const html = renderToStaticMarkup(React.createElement(
     QueryClientProvider, { client }, React.createElement(AdminPage),
   ));
-  assert.match(html, /30 practice runs · 9 official attempts/);
+  assert.match(html, /39 hosted runs · 30 practice and 9\u00a0official\u00a0counted/);
   assert.doesNotMatch(html, /30\/10|9\/3/);
   client.clear();
   assert.equal(team.published?.benchmarkName, "Face recognition");
@@ -489,11 +489,14 @@ test("the overview reads every team at once and keeps each team's figures on its
     id: "test_vision", version: 1, title: "Face recognition", contractVersion: "test-v1",
     entryPointName: "test_vision", module: "vision", summary: "Test", active: true, primaryMetricKey: "accuracy",
   });
-  const run = (teamId: string, id: string, mode: "practice" | "official") => ({
+  const run = (teamId: string, id: string, mode: "practice" | "official", status: "succeeded" | "failed" = "succeeded") => ({
     id, teamId, mode, benchmarkId: "test_vision", benchmarkVersion: 1, contractVersion: "test-v1",
-    status: "succeeded" as const, branch: "main", sha: "a".repeat(40), createdAt: 1,
+    status, branch: "main", sha: "a".repeat(40), createdAt: 1,
   });
   await h.db.insert(runs).values([
+    // team_02 has run twice and both failed: no charged usage, but not idle.
+    run("team_02", "c_practice_failed", "practice", "failed"),
+    run("team_02", "c_official_failed", "official", "failed"),
     run("team_00", "a_practice_1", "practice"),
     run("team_00", "a_practice_2", "practice"),
     run("team_00", "a_official", "official"),
@@ -519,12 +522,18 @@ test("the overview reads every team at once and keeps each team's figures on its
     assert.ok(team, `${id} is missing from the overview`);
     return team;
   };
-  const [a, b, empty] = [row("team_00"), row("team_01"), row("team_59")];
+  const [a, b, failedOnly, empty] = [row("team_00"), row("team_01"), row("team_02"), row("team_59")];
   assert.deepEqual(a.members.map((member) => member.login), ["alice"]);
   assert.deepEqual(b.members.map((member) => member.login), ["bob"]);
   assert.deepEqual(a.tas, []);
   assert.deepEqual(b.tas.map((ta) => ta.login), ["tara"]);
   assert.deepEqual([a.practiceUsed, a.officialUsed, b.practiceUsed, b.officialUsed], [2, 1, 1, 0]);
+  assert.deepEqual([a.hostedRuns, b.hostedRuns, empty.hostedRuns], [3, 1, 0]);
+  assert.deepEqual(
+    [failedOnly.hostedRuns, failedOnly.practiceUsed, failedOnly.officialUsed],
+    [2, 0, 0],
+    "failed runs are executions, never charged usage",
+  );
   assert.equal(a.published?.score, 0.9);
   assert.equal(b.published, null);
   assert.deepEqual(
@@ -640,6 +649,7 @@ const TEAM = {
   tas: [],
   practiceUsed: 3,
   officialUsed: 1,
+  hostedRuns: 6,
   refundsGiven: 0,
   published: null,
 };
@@ -671,7 +681,7 @@ test("a team row gives its identity the whole width before it gives any to count
   // The data itself is untouched at every width.
   assert.match(html, /Cosine Similarity Club/);
   assert.match(html, /cogworks-demo\/cosine-similarity-club/);
-  assert.match(html, /3 practice runs · 1 official attempt</);
+  assert.match(html, /6 hosted runs · 3 practice and 1\u00a0official\u00a0counted</);
 });
 
 test("staff with no assignments is not told the cohort is empty", () => {
@@ -684,4 +694,19 @@ test("staff with no assignments is not told the cohort is empty", () => {
   const owner = renderAdmin(overviewFixture());
   assert.match(owner, /No teams yet\./);
   assert.doesNotMatch(owner, /No teams assigned to you yet\./);
+});
+
+test("a team whose runs all failed reads and sorts as one that ran, not one that never started", () => {
+  const never = { ...TEAM, id: "team_never", name: "Zeta never ran", practiceUsed: 0, officialUsed: 0, hostedRuns: 0 };
+  const failed = { ...TEAM, id: "team_failed", name: "Alpha all failed", practiceUsed: 0, officialUsed: 0, hostedRuns: 2 };
+  const counted = { ...TEAM, id: "team_counted", name: "Beta counted", practiceUsed: 1, officialUsed: 0, hostedRuns: 1 };
+  const html = renderAdmin(overviewFixture({ teams: [counted, failed, never] }));
+
+  assert.match(html, /2 hosted runs · none counted</, "the failed team's activity is shown");
+  assert.match(html, /1 hosted run · 1 practice and 0\u00a0official\u00a0counted</);
+  assert.equal((html.match(/No hosted runs yet/g) ?? []).length, 1, "only the team that never ran says so");
+  // Never-ran first, then the rest by name: the failed team is among those that ran.
+  const order = ["Zeta never ran", "Alpha all failed", "Beta counted"].map((name) => html.indexOf(name));
+  assert.ok(order.every((position) => position >= 0));
+  assert.deepEqual([...order].sort((x, y) => x - y), order);
 });

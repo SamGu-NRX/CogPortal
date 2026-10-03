@@ -20,7 +20,7 @@ function team(id: string, name: string): AdminTeamSummary {
   return {
     id, name, provenance: "live", repoFullName: `demo/${id}`,
     members: [{ login: `${id}-admin`, name: null, role: "admin" }], tas: [],
-    practiceUsed: 0, officialUsed: 0, refundsGiven: 0, published: null,
+    practiceUsed: 0, officialUsed: 0, hostedRuns: 0, refundsGiven: 0, published: null,
   };
 }
 

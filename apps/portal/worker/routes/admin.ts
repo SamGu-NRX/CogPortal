@@ -60,7 +60,7 @@ async function readAdminTeamSummaries(
   db: Database,
   teamWhere: SQL,
 ): Promise<AdminTeamSummary[]> {
-  const [teamRows, members, tas, used, published] = await Promise.all([
+  const [teamRows, members, tas, used, executed, published] = await Promise.all([
     db.select().from(teams).where(teamWhere).orderBy(asc(teams.name)),
     db
       .select({
@@ -89,6 +89,14 @@ async function readAdminTeamSummaries(
       .orderBy(asc(users.githubLogin)),
     // Admin team totals intentionally span every benchmark and version.
     readUsedRunsByTeam(db, teamWhere),
+    // Every hosted execution in any state, so a team whose runs all failed
+    // is not mistaken for one that never ran. Teams as a subquery, for the
+    // reason readUsedRunsByTeam gives (runs has no team_id index).
+    db
+      .select({ teamId: runs.teamId, count: sql<number>`count(*)`.mapWith(Number) })
+      .from(runs)
+      .where(inArray(runs.teamId, db.select({ id: teams.id }).from(teams).where(teamWhere)))
+      .groupBy(runs.teamId),
     // Every team's selections, newest first. The first per team that the
     // board would rank is the one shown (`rankingRefusal` below).
     db
@@ -132,6 +140,7 @@ async function readAdminTeamSummaries(
       .where(teamWhere)
       .orderBy(desc(leaderboardSelections.selectedAt)),
   ]);
+  const executions = new Map(executed.map((row) => [row.teamId, row.count]));
   const roleOrder: Record<TeamMember["role"], number> = {
     admin: 0,
     maintain: 1,
@@ -166,6 +175,7 @@ async function readAdminTeamSummaries(
         })),
       practiceUsed: usage?.practiceUsed ?? 0,
       officialUsed: usage?.officialUsed ?? 0,
+      hostedRuns: executions.get(team.id) ?? 0,
       // Retained for older clients. Failures no longer require a refund decision.
       refundsGiven: 0,
       published:

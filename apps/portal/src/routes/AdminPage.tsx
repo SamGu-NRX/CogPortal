@@ -98,20 +98,19 @@ function Count({ n }: { n: number }) {
   return <span className="u-tnum font-mono text-[13px] text-ink-faint">{n}</span>;
 }
 
-function hostedRuns(team: AdminTeamSummary): number {
-  return team.practiceUsed + team.officialUsed;
-}
-
 /**
  * A team the platform has never run for is the row a TA has to act on, so it
- * sorts first. Aging the rest by their last run needs a last-run field that
- * AdminTeamSummary (packages/contracts/src/schema.ts) does not carry, so they
- * stay alphabetical.
+ * sorts first. "Never run" is read from every hosted execution, not from the
+ * charged counts: a failure never adds to those, so a team whose runs all
+ * failed used to sort and read as one that had never started. Aging the rest
+ * by their last run needs a last-run field that AdminTeamSummary
+ * (packages/contracts/src/schema.ts) does not carry, so they stay
+ * alphabetical.
  */
 function triageOrder(teams: AdminTeamSummary[]): AdminTeamSummary[] {
   return [...teams].sort((left, right) => {
-    const leftIdle = hostedRuns(left) === 0;
-    const rightIdle = hostedRuns(right) === 0;
+    const leftIdle = left.hostedRuns === 0;
+    const rightIdle = right.hostedRuns === 0;
     if (leftIdle !== rightIdle) return leftIdle ? -1 : 1;
     return left.name.localeCompare(right.name);
   });
@@ -424,7 +423,8 @@ function TeamRow({
   const removeMember = useAdminRemoveMember();
   const assignTa = useAdminAssignTa();
   const removeTa = useAdminRemoveTa();
-  const idle = hostedRuns(team) === 0;
+  const idle = team.hostedRuns === 0;
+  const counted = team.practiceUsed + team.officialUsed;
   const detailsId = `team-${team.id}`;
   // A removed row takes its focused control with it; the row's own toggle is
   // the nearest stable place to put focus back.
@@ -473,9 +473,15 @@ function TeamRow({
             </span>
           ) : (
             <span className="u-tnum text-[13.5px] text-ink-secondary">
-              {/* Totals span benchmark versions, so a single version's quota is not a denominator. */}
-              {team.practiceUsed} practice run{team.practiceUsed === 1 ? "" : "s"} ·{" "}
-              {team.officialUsed} official attempt{team.officialUsed === 1 ? "" : "s"}
+              {/* What ran, then what counted against quota: a failed run is
+                  activity a TA may need to open and never counts. Totals span
+                  benchmark versions, so a single version's quota is not a
+                  denominator. */}
+              {team.hostedRuns} hosted run{team.hostedRuns === 1 ? "" : "s"} ·{" "}
+              {counted === 0
+                ? "none counted"
+                : // Non-breaking, so a narrow row never leaves "counted" alone on a line.
+                  `${team.practiceUsed} practice and ${team.officialUsed}\u00a0official\u00a0counted`}
               {/* Only when there are any. A team that keeps hitting real
                   infrastructure trouble and a team whose submission provokes the
                   same platform-side failure both show up here, and both are worth
