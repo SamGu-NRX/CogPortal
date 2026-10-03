@@ -2,7 +2,9 @@ import { ArrowDown01Icon, Copy01Icon, Tick02Icon } from "@hugeicons/core-free-ic
 import { HugeiconsIcon } from "@hugeicons/react";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useRef, useState } from "react";
+import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import type { AdminTeamSummary } from "@cogworks/contracts/schema";
+import { isTerminal } from "@cogworks/contracts/schema";
 import { CornerBrackets } from "@/components/Brackets";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -14,8 +16,9 @@ import { PageSection } from "@/components/PageSection";
 import { RemoveButton } from "@/components/RemoveButton";
 import { ApiRequestError } from "@/lib/api";
 import { useFocusFallback } from "@/lib/focus";
-import { formatTimeAgo } from "@/lib/format";
+import { formatDate, formatTimeAgo, isoDate } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
+import { PHASE_LABELS } from "@/lib/run-meta";
 import {
   useAdminAddMember,
   useAdminAddStaff,
@@ -99,21 +102,20 @@ function Count({ n }: { n: number }) {
 }
 
 /**
- * A team the platform has never run for is the row a TA has to act on, so it
- * sorts first. "Never run" is read from every hosted execution, not from the
- * charged counts: a failure never adds to those, so a team whose runs all
- * failed used to sort and read as one that had never started. Aging the rest
- * by their last run needs a last-run field that AdminTeamSummary
- * (packages/contracts/src/schema.ts) does not carry, so they stay
- * alphabetical.
+ * The rows a TA has to act on sort first: a team the platform has never run
+ * for, then a team that has run but never end to end, which is the team the
+ * design doc's Wednesday nudge is for (docs/design/the-instrument-not-the-judge.md).
+ * "Never run" is read from every hosted execution, not from the charged
+ * counts: a failure never adds to those, so a team whose runs all failed used
+ * to sort and read as one that had never started. Within a group the order is
+ * by name.
  */
 function triageOrder(teams: AdminTeamSummary[]): AdminTeamSummary[] {
-  return [...teams].sort((left, right) => {
-    const leftIdle = left.hostedRuns === 0;
-    const rightIdle = right.hostedRuns === 0;
-    if (leftIdle !== rightIdle) return leftIdle ? -1 : 1;
-    return left.name.localeCompare(right.name);
-  });
+  const group = (team: AdminTeamSummary) =>
+    team.hostedRuns === 0 ? 0 : team.firstLight === null ? 1 : 2;
+  return [...teams].sort(
+    (left, right) => group(left) - group(right) || left.name.localeCompare(right.name),
+  );
 }
 
 /* ── Enrollment: the join code, large enough to read off a projector ───── */
@@ -131,6 +133,9 @@ function Enrollment({
   const [changing, setChanging] = useState(false);
   const [rotated, setRotated] = useState(0);
   const foldRef = useRef<HTMLDivElement>(null);
+  // Whether focus was in the fold when a pointer pressed the toggle: WebKit
+  // moves focus off an action to the body at mousedown, before click.
+  const focusWasInFold = useRef(false);
   const reduce = useReducedMotion();
   const foldId = useId();
   const titleId = useId();
@@ -219,10 +224,17 @@ function Enrollment({
           type="button"
           aria-expanded={changing}
           aria-controls={foldId}
+          onPointerDown={() => {
+            focusWasInFold.current = Boolean(foldRef.current?.contains(document.activeElement));
+          }}
           onClick={(event) => {
-            // Safari doesn't focus a clicked button, so focus can still be on
-            // an action inside the fold; going inert would drop it to the body.
-            if (changing && foldRef.current?.contains(document.activeElement)) {
+            // Safari doesn't focus a clicked button, so focus can be on an
+            // action inside the fold (assistive-technology activation) or,
+            // after a mouse press, already on the body; going inert would
+            // leave it there.
+            const wasInFold = focusWasInFold.current;
+            focusWasInFold.current = false;
+            if (changing && (wasInFold || foldRef.current?.contains(document.activeElement))) {
               event.currentTarget.focus();
             }
             setChanging(!changing);
@@ -430,6 +442,11 @@ function TeamRow({
   // the nearest stable place to put focus back.
   const toggleRef = useRef<HTMLButtonElement>(null);
   const refocus = () => toggleRef.current?.focus();
+  const detailsRef = useRef<HTMLDivElement>(null);
+  // Whether focus was inside the details when a pointer pressed the toggle.
+  // WebKit moves focus off a field to the body at mousedown, before click,
+  // so by click time the details no longer hold it.
+  const focusWasInside = useRef(false);
 
   const memberError = errorText(
     [addMember.error, removeMember.error],
@@ -448,7 +465,21 @@ function TeamRow({
         type="button"
         aria-expanded={open}
         aria-controls={detailsId}
-        onClick={() => setOpen((v) => !v)}
+        onPointerDown={() => {
+          focusWasInside.current = Boolean(detailsRef.current?.contains(document.activeElement));
+        }}
+        onClick={(event) => {
+          // Safari doesn't focus a clicked button, so focus can be on a field
+          // inside the details (assistive-technology activation) or, after a
+          // mouse press, already on the body; either way unmounting the
+          // details would leave it there.
+          const wasInside = focusWasInside.current;
+          focusWasInside.current = false;
+          if (open && (wasInside || detailsRef.current?.contains(document.activeElement))) {
+            event.currentTarget.focus();
+          }
+          setOpen((v) => !v);
+        }}
         className={`grid min-h-16 w-full grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-x-5 gap-y-0.5 px-4 py-3 text-left transition-colors duration-150 hover:bg-paper-sunken/60 focus-visible:outline-offset-[-3px] sm:grid-cols-[minmax(0,1fr)_auto_auto_1.5rem] sm:px-5 ${
           open ? "bg-paper-sunken/60" : ""
         }`}
@@ -461,38 +492,43 @@ function TeamRow({
             {team.repoFullName}
           </span>
         </span>
-        {/* The column a TA sweeps. A team the platform has never run for is
-            said in words, in ink, with the one attention mark on the row, so
-            forty rows resolve to the handful worth opening without reading a
-            single number. */}
+        {/* The column a TA sweeps. A team the platform has never run for, or
+            with no completed run recorded for its repository, is said in
+            words, in ink, with the one attention mark on the row, so forty
+            rows resolve to the handful worth opening without reading a single
+            number. */}
         <span className="col-start-1 row-start-2 sm:col-start-2 sm:row-start-1 sm:max-w-[13.5rem] sm:text-right">
           {idle ? (
-            <span className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-ink">
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-detect" />
-              No hosted runs yet
-            </span>
+            <AttentionLine>No hosted runs yet</AttentionLine>
           ) : (
-            <span className="u-tnum text-[13.5px] text-ink-secondary">
-              {/* What ran, then what counted against quota: a failed run is
-                  activity a TA may need to open and never counts. Totals span
-                  benchmark versions, so a single version's quota is not a
-                  denominator. */}
-              {team.hostedRuns} hosted run{team.hostedRuns === 1 ? "" : "s"} ·{" "}
-              {counted === 0
-                ? "none counted"
-                : // Non-breaking, so a narrow row never leaves "counted" alone on a line.
-                  `${team.practiceUsed} practice and ${team.officialUsed}\u00a0official\u00a0counted`}
-              {/* Only when there are any. A team that keeps hitting real
-                  infrastructure trouble and a team whose submission provokes the
-                  same platform-side failure both show up here, and both are worth
-                  looking at; a "0 refunded" on every other row would bury that. */}
-              {team.refundsGiven > 0 ? (
-                <span title="Official attempts given back after a run failed on the platform's side.">
-                  {" · "}
-                  {team.refundsGiven} refunded
+            <>
+              {team.firstLight === null ? (
+                <span className="block">
+                  <AttentionLine>No completion recorded</AttentionLine>
                 </span>
               ) : null}
-            </span>
+              <span className="u-tnum block text-[13.5px] text-ink-secondary">
+                {/* What ran, then what counted against quota: a failed run is
+                    activity a TA may need to open and never counts. Totals span
+                    benchmark versions, so a single version's quota is not a
+                    denominator. */}
+                {team.hostedRuns} hosted run{team.hostedRuns === 1 ? "" : "s"} ·{" "}
+                {counted === 0
+                  ? "none counted"
+                  : // Non-breaking, so a narrow row never leaves "counted" alone on a line.
+                    `${team.practiceUsed} practice and ${team.officialUsed}\u00a0official\u00a0counted`}
+                {/* Only when there are any. A team that keeps hitting real
+                    infrastructure trouble and a team whose submission provokes the
+                    same platform-side failure both show up here, and both are worth
+                    looking at; a "0 refunded" on every other row would bury that. */}
+                {team.refundsGiven > 0 ? (
+                  <span title="Official attempts given back after a run failed on the platform's side.">
+                    {" · "}
+                    {team.refundsGiven} refunded
+                  </span>
+                ) : null}
+              </span>
+            </>
           )}
         </span>
         <span className="col-start-1 row-start-3 truncate text-[13px] text-ink-faint sm:col-start-3 sm:row-start-1 sm:max-w-[8rem]">
@@ -508,10 +544,12 @@ function TeamRow({
         </motion.span>
       </button>
 
-      <div id={detailsId}>
+      <div id={detailsId} ref={detailsRef}>
         {open && (
           <div className="anim-reveal">
               <div className="grid gap-x-8 gap-y-6 border-t border-rule-soft px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-5">
+                <TeamRunState team={team} />
+
                 <div className="min-w-0">
                   <h3 className="u-label">Members</h3>
                   {team.members.length === 0 ? (
@@ -625,6 +663,100 @@ function TeamRow({
         )}
       </div>
     </li>
+  );
+}
+
+/** A row's one attention mark: detector red, beside a state said in ink. */
+function AttentionLine({ children }: { children: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-ink">
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-detect" />
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Whether a completed hosted run is recorded for the team's repository, and
+ * where its last hosted run stopped, for staff who can't open the team's run
+ * pages. Everything here is a
+ * platform enum or a time: the phase label and the failure title and code are
+ * the platform's own words (PHASE_LABELS, FAILURE_CATALOG), never the team's
+ * failure detail or log.
+ */
+export function TeamRunState({
+  team,
+}: {
+  team: Pick<AdminTeamSummary, "firstLight" | "lastHostedRun">;
+}) {
+  const { firstLight, lastHostedRun: last } = team;
+  return (
+    <div className="min-w-0 sm:col-span-2">
+      <h3 className="u-label">Run state</h3>
+      <p className="mt-1.5 max-w-[62ch] text-[14px] text-pretty text-ink">
+        {firstLight ? (
+          <>
+            {/* The day, not the minute: the time of day says when someone
+                on the team was working, which helping them doesn't need. */}
+            {/* "From this repository": both sentences count only the
+                repository this row names (worker/routes/admin.ts). */}
+            First ran end to end from this repository on {firstLight.benchmarkTitle},{" "}
+            <time dateTime={isoDate(firstLight.at)} className="whitespace-nowrap">
+              {formatDate(firstLight.at)}
+            </time>
+            .
+          </>
+        ) : (
+          // What is recorded, not that the team never ran: a run from before
+          // migration 0013 has no repository id, so it can't be attributed to
+          // this repository even if it came from it.
+          "No completed hosted run is recorded for this repository."
+        )}
+      </p>
+      {last ? (
+        <p className="mt-1 max-w-[62ch] text-[14px] text-pretty text-ink">
+          {/* Relative and coarse (minutes, hours, days), with no exact time
+              on hover, for the reason first light shows only the day. */}
+          Last hosted run: {last.benchmarkTitle},{" "}
+          <time dateTime={isoDate(last.at)} className="whitespace-nowrap">
+            {formatTimeAgo(last.at)}
+          </time>
+          , <LastRunOutcome run={last} />
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The end of the last-run sentence. A failure names its phase, then gives the
+ * catalog title as a sentence of its own: joined to "stopped at", a title such
+ * as "The evaluation stopped on an exception" repeated the verb.
+ */
+function LastRunOutcome({ run }: { run: NonNullable<AdminTeamSummary["lastHostedRun"]> }) {
+  // Any status before a terminal one, queued included: the statuses the
+  // database treats as an active run (the one-active-run index, migration
+  // 0015). Said as what the overview saw when it loaded, not "going now": the
+  // page doesn't poll, and only Modal runs are swept when they go silent
+  // (worker/execution/maintenance.ts); a fixture run advances only when its
+  // team's own pages sync it.
+  if (!isTerminal(run.status)) return "no result yet.";
+  // First light counts only a success with a finish time, as the Team page
+  // does. One without would otherwise follow "No completed hosted run is
+  // recorded for this repository." with "scored."; say what is recorded.
+  if (run.status === "succeeded") {
+    return run.finishRecorded ? "scored." : "succeeded with no finish time recorded.";
+  }
+  if (run.status === "cancelled") return "cancelled.";
+  // A failed run that recorded no phase or category has nothing more the
+  // platform can say about where it stopped.
+  if (!run.failure) return "failed.";
+  const failure = FAILURE_CATALOG[run.failure.category];
+  return (
+    <>
+      failed at {PHASE_LABELS[run.failure.phase]}. {failure.title} (
+      <span className="font-mono text-[13px] whitespace-nowrap">{failure.code}</span>).
+    </>
   );
 }
 
