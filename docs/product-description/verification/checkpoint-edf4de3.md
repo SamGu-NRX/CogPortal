@@ -20,14 +20,14 @@ The approval URL the CLI printed pointed at the callback-only tunnel. So a stude
 
 Each of these has suite coverage. None was exercised by the runs above unless the list says so.
 
-- **Local runs.** Two separate D1 batches. Starting a local run writes its console and session together. Accepting an event writes the event and advances the session together. A report saved twice by a race is stored once (`2e88571`, `166624a`). The CLI path above went through each once.
+- **Local runs.** Two separate D1 batches. Starting a local run writes its console and session together. Accepting an event writes the event and advances the session together. The CLI path above exercised ordinary start and event handling. The simultaneous first-save race is covered by the suite, not that runtime pass: both saves succeed and leave one report (`2e88571`, `166624a`; `apps/portal/test/local-reports.test.ts:615-630`).
 - **Weights.**
   - A report's weights attach to a hosted run only when they belong to that run (`d1ab349`).
   - A refusal states only what the refused report establishes (`1b5864f`).
   - The pinned `ecae617` CLI refuses to sync a saved report that never recorded its weights (`f66402b`, `ecae617`); Setup now pins that CLI (`39dd90e`). An older installed CLI turns the missing field into `[]` and sends it, so the portal can accept it as a known-empty record. The portal can't tell where that value came from. Those students update the CLI and run again. The limitation is stated in migration 0047 and in code comments, not on the Setup page. See [the weights record](../cross-cutting/what-the-benchmark-supplied.md#the-second-kind-weights-from-the-teams-own-local-run).
-- **Retry.** Retry is refused for a failure whose remedy is a fix in the team's code. Where it is unavailable, the page says so instead of predicting the rerun (`4389759`, `01827f6`).
+- **Retry.** A failure whose remedy is a code fix has no Retry action. That policy alone does not populate `retryRefusal`, so the page does not display its refusal sentence; a direct Retry API call receives it (`4389759`, `01827f6`; `apps/portal/worker/services/run-surfaces.ts:413-435`, `apps/portal/worker/services/run-actions.ts:584-587`).
 - **The stale-run sweep.** It judges a silent reporting execution by its last accepted callback. Legacy reporting executions with no accepted callback recorded get one grace window when a sweep first finds them past the inactivity limit. A `queued` run is still failed ten minutes after creation, with no grace (`f8358de`; `apps/portal/worker/execution/maintenance.ts:16`, `:34`, `:62-69`, `:85-88`).
-- **Recognition quota.** Quota consumed by `recognition-v1` runs after migration 0044 is released (`c81878b`).
+- **Recognition quota.** Migration 0048 releases quota that remained charged after 0044 for older Recognition v2 executions recorded under `recognition-v1`, including old executions still active when the release applies (`c81878b`; `apps/portal/migrations/0048_recognition_v1_capacity_release.sql:23-29`).
 - **The admin page.** It tells a team whose hosted runs failed apart from one that never ran (`d068212`).
 - **Stored-link notice.** When the browser denies storage, only the dropped-link notice is lost, not onboarding (`d304897`).
 - **Discord consent.** It discloses hosted runs before a team binds its channel, and no longer promises one post per run (`9984b31`, `b19959c`).
