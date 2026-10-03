@@ -50,14 +50,14 @@ const GateContext = createContext<{
  * signed for it. The same account gets the same mounted tree back; a
  * different one gets a fresh document.
  *
- * A window that stays visible beside another is never hidden, so focus
- * checks too (TanStack Query v5 listens only to visibilitychange). That check
- * leaves the page showing while it reads, because a click back into the
- * window should not blank a page that is still right. A different account
- * conceals it for good, until the reload; a read that fails conceals it
- * behind the gate's own error and Retry, since who is signed in is then
- * unknown. Team changes made from it in the meantime are refused by the
- * server, which compares the team the page showed (requireAdminOfShownTeam).
+ * A window that stays visible beside another is never hidden, so blur and
+ * focus are treated like hide and return (TanStack Query v5 listens only to
+ * visibilitychange). Blur ends what the page knows: a read already in flight
+ * can no longer answer for whoever is there at the next focus. Focus conceals
+ * at once, before the click or key that brought it can act, and checks with
+ * a fresh read. A page left showing while that read ran once accepted a start
+ * aimed at a team its label did not name, and an answer requested before a
+ * blur once satisfied the focus after it.
  */
 export function RestoreGate({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
@@ -134,40 +134,6 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     flushSync(() => setGate({ state: "closed" }));
   }, [qc]);
 
-  // Focus on a page that was never hidden. A return from hidden is the
-  // visibility path's: the gate is closed by then, so this stands aside, and a
-  // check already running (from either path) answers for both events. Placed
-  // after `close`, which a failed read uses to conceal and record the account.
-  const verify = useCallback(async () => {
-    if (replacing.current || !open.current || running.current) return;
-    const painted = qc.getQueryData<Session>(sessionQuery.queryKey);
-    // Nothing is painted for anyone until the first read lands.
-    if (!painted) return;
-    const mine = ++attempt.current;
-    running.current = true;
-    await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
-    let session: Session;
-    try {
-      session = await qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" });
-    } catch (error) {
-      if (mine !== attempt.current) return;
-      // Who is signed in is unknown, so the page is not left to act as
-      // anyone. Retry runs `check` against the account recorded here.
-      running.current = false;
-      close();
-      setGate({ state: "failed", error });
-      return;
-    }
-    if (mine !== attempt.current) return;
-    running.current = false;
-    if (sameAccount(painted, session)) return;
-    open.current = false;
-    replacing.current = true;
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
-    flushSync(() => setGate({ state: "closed" }));
-    window.location.reload();
-  }, [qc, close]);
-
   const reopen = useCallback(() => {
     if (open.current) close();
     // pageshow and visibilitychange both announce a restore.
@@ -189,19 +155,29 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       reopen();
     };
     const onFocus = () => {
-      if (document.visibilityState === "visible") void verify();
+      if (document.visibilityState !== "visible") return;
+      // Nothing is painted for anyone until the first read lands.
+      if (!qc.getQueryData(sessionQuery.queryKey)) return;
+      reopen();
+    };
+    const onBlur = () => {
+      if (replacing.current) return;
+      attempt.current += 1;
+      running.current = false;
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("pageshow", onPageShow);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", onPageShow);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
     };
-  }, [close, reopen, verify]);
+  }, [qc, close, reopen]);
 
   // Closing blurs whatever was focused inside the hidden tree.
   useEffect(() => {
