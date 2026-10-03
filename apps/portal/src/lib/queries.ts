@@ -139,7 +139,11 @@ export function useRepositories(enabled = true) {
 export function useDeviceLinkStatus(userCode: string | undefined) {
   return useQuery({
     queryKey: ["device-link-status", userCode],
-    queryFn: () => api.deviceLinkStatus(userCode ?? ""),
+    // Reading `signal` makes TanStack cancel and abort a request still out
+    // when the visit that sent it ends. Without it, the next visit joins that
+    // request, and an answer from before (say) an approval in another tab
+    // counts as the new visit's own.
+    queryFn: ({ signal }) => api.deviceLinkStatus(userCode ?? "", signal),
     enabled: userCode !== undefined,
     retry: false,
     // Every visit asks, even when a cached answer looks fresh: a clock set

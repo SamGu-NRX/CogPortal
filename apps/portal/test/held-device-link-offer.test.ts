@@ -40,7 +40,7 @@ const stored = (path: string, login = "octocat") =>
   JSON.stringify({ path, userCode: /user_code=([^&#]*)/.exec(path)?.[1]?.toUpperCase() ?? "", login });
 
 /** Answers one request; return undefined for a request the test did not expect. */
-type Reply = (url: URL, init: { method?: string }) => Response | Promise<Response> | undefined;
+type Reply = (url: URL, init: { method?: string; signal?: AbortSignal }) => Response | Promise<Response> | undefined;
 
 async function mount(t: TestContext, entry: string, reply: Reply, session: unknown = SESSION) {
   const window = new Window({ url: `${ORIGIN}${entry}` });
@@ -49,7 +49,7 @@ async function mount(t: TestContext, entry: string, reply: Reply, session: unkno
     window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, Element: window.Element, SVGElement: window.SVGElement,
     sessionStorage: window.sessionStorage, React, IS_REACT_ACT_ENVIRONMENT: true,
-    fetch: async (input: string, init: { method?: string } = {}) => {
+    fetch: async (input: string, init: { method?: string; signal?: AbortSignal } = {}) => {
       const url = new URL(input, ORIGIN);
       requests.push(`${init.method ?? "GET"} ${url.pathname}${url.search}`);
       const response = await reply(url, init);
@@ -624,6 +624,47 @@ test("when the card goes on its own while one of its controls has focus, focus g
       const heading = container.querySelector("h1");
       const expected = focus === "outside" ? target : heading;
       assert.ok(window.document.activeElement === expected, `focus is on ${window.document.activeElement?.tagName}, expected ${expected?.tagName}`);
+    });
+  }
+});
+
+test("leaving Setup aborts its status request, the next visit sends its own, and the old answer counts for nothing", async (t) => {
+  const cases = [
+    { name: "old answer open, fresh answer approved", old: OPEN, fresh: APPROVED, offerAfter: false, heldAfter: false },
+    { name: "old answer expired, fresh answer open", old: EXPIRED, fresh: OPEN, offerAfter: true, heldAfter: true },
+  ] as const;
+  for (const { name, old, fresh, offerAfter, heldAfter } of cases) {
+    await t.test(name, async (t) => {
+      // Like a server that answers late, and answers even after the browser
+      // gave up: these promises ignore the abort, so only the client can
+      // discard what they deliver.
+      const sent: Array<{ signal: AbortSignal | undefined; answer: (response: Response) => void }> = [];
+      const { window, container, render, settle } = await mount(t, "/setup", (url, init) =>
+        url.pathname === "/api/v1/cli/device/status"
+          ? new Promise<Response>((resolve) => { sent.push({ signal: init.signal, answer: resolve }); })
+          : undefined);
+      window.sessionStorage.setItem(KEY, stored(PRINTED));
+      const HeldDeviceLinkOffer = await offer();
+      await render(React.createElement(HeldDeviceLinkOffer, { key: "first visit", login: "octocat" }));
+      await settle();
+      assert.equal(sent.length, 1);
+      await render(null);
+      await settle();
+      await render(React.createElement(HeldDeviceLinkOffer, { key: "second visit", login: "octocat" }));
+      await settle();
+      assert.equal(sent.length, 2, "the second visit sends its own request instead of joining the first");
+      assert.equal(sent[0]!.signal?.aborted, true, "leaving the page aborted the first visit's request");
+      assert.equal(sent[1]!.signal?.aborted, false);
+
+      sent[0]!.answer(Response.json(old()));
+      await settle();
+      assert.equal(offerShown(container), false, "the first visit's answer doesn't show the offer");
+      assert.ok(window.sessionStorage.getItem(KEY), "nor does it clear the held link while this visit's answer is out");
+
+      sent[1]!.answer(Response.json(fresh()));
+      await settle();
+      assert.equal(offerShown(container), offerAfter);
+      assert.equal(window.sessionStorage.getItem(KEY) !== null, heldAfter);
     });
   }
 });

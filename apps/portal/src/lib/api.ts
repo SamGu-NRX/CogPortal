@@ -55,12 +55,13 @@ export class ApiRequestError extends Error {
 async function request<T>(
   path: string,
   schema: z.ZodType<T>,
-  init?: { method?: string; body?: unknown },
+  init?: { method?: string; body?: unknown; signal?: AbortSignal },
 ): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       method: init?.method ?? "GET",
+      signal: init?.signal,
       credentials: "same-origin",
       headers:
         init?.body !== undefined
@@ -131,10 +132,11 @@ export const api = {
       method: "DELETE",
     }),
   /** Whether a printed device code is still open and whether it has been approved; approves nothing. */
-  deviceLinkStatus: (userCode: string) =>
+  deviceLinkStatus: (userCode: string, signal?: AbortSignal) =>
     request(
       `/api/v1/cli/device/status?user_code=${encodeURIComponent(userCode)}`,
       z.object({ valid: z.boolean(), approved: z.boolean(), expiresAt: z.number().nullable() }),
+      { signal },
     ),
   approveDevice: (userCode: string, deviceName: string) =>
     request("/api/v1/cli/device/approve", z.object({ ok: z.boolean() }), {
