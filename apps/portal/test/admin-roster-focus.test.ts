@@ -281,7 +281,7 @@ test("an opened team row leads with its run state", async (t) => {
         ? {
             ...entry, hostedRuns: 1,
             lastHostedRun: {
-              benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: Date.now() - 3 * 60 * 60 * 1_000, status: "failed",
+              benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: Date.now() - 3 * 60 * 60 * 1_000, status: "failed", finishRecorded: true,
               failure: { phase: "contract_check", category: "adapter_missing" },
             },
           }

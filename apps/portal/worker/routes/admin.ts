@@ -141,6 +141,9 @@ function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
       benchmarkTitle: runBenchmarkTitle.as("benchmark_title"),
       at: runSettledAt.as("at"),
       status: runs.status,
+      // First light needs a finish time, so the row can't call a success
+      // without one scored (see `LastRunOutcome`).
+      finishRecorded: sql<number>`${runs.finishedAt} is not null`.as("finish_recorded"),
       failurePhase: runs.failurePhase,
       failureCategory: runs.failureCategory,
       position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as("position"),
@@ -157,6 +160,7 @@ function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
       benchmarkTitle: ranked.benchmarkTitle,
       at: ranked.at,
       status: ranked.status,
+      finishRecorded: ranked.finishRecorded,
       failurePhase: ranked.failurePhase,
       failureCategory: ranked.failureCategory,
     })
@@ -310,6 +314,7 @@ async function readAdminTeamSummaries(
             benchmarkTitle: last.benchmarkTitle,
             at: last.at,
             status: last.status,
+            finishRecorded: Boolean(last.finishRecorded),
             failure:
               last.status === "failed" && last.failurePhase !== null && last.failureCategory !== null
                 ? { phase: last.failurePhase, category: last.failureCategory }

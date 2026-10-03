@@ -1437,7 +1437,9 @@ export const AdminTeamSummarySchema = z.object({
   /**
    * The team's most recently started hosted run from its connected
    * repository, or null when there is none.
-   * `at` is when it finished, or when it started if it has not finished.
+   * `at` is when it finished, or when it started if it has not finished;
+   * `finishRecorded` says which. A `succeeded` run with no finish time is
+   * not counted by `firstLight`, so the console must not call it scored.
    * `failure` is set only for a failed run that recorded both its phase and
    * its category.
    */
@@ -1447,6 +1449,7 @@ export const AdminTeamSummarySchema = z.object({
       benchmarkTitle: z.string(),
       at: z.number().int(),
       status: RunStatusSchema,
+      finishRecorded: z.boolean(),
       failure: z.object({ phase: RunPhaseSchema, category: FailureCategorySchema }).nullable(),
     })
     .nullable(),

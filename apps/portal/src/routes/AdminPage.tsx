@@ -736,7 +736,12 @@ function LastRunOutcome({ run }: { run: NonNullable<AdminTeamSummary["lastHosted
   // (worker/execution/maintenance.ts); a fixture run advances only when its
   // team's own pages sync it.
   if (!isTerminal(run.status)) return "no result yet.";
-  if (run.status === "succeeded") return "scored.";
+  // First light counts only a success with a finish time, as the Team page
+  // does. One without would otherwise follow "Hasn't run end to end from
+  // this repository yet." with "scored."; say what is recorded instead.
+  if (run.status === "succeeded") {
+    return run.finishRecorded ? "scored." : "succeeded with no finish time recorded.";
+  }
   if (run.status === "cancelled") return "cancelled.";
   // A failed run that recorded no phase or category has nothing more the
   // platform can say about where it stopped.
