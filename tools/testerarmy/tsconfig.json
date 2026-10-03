@@ -1,0 +1,18 @@
+{
+  // Typecheck only; the e2e runner and `node --test` strip types themselves.
+  // TypeScript and the Node types come from the portal package rather than
+  // being installed a second time here.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "typeRoots": ["../../apps/portal/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["e2e.config.ts", "support/**/*.ts", "tests/**/*.ts"]
+}
