@@ -222,7 +222,7 @@ export function localReportRow(userId: string, body: LocalReportInput) {
 type LocalReportRow = ReturnType<typeof localReportRow>;
 
 /** A report id names one account's report for good; refuse it to anyone else. */
-async function refuseOthersReportId(db: Database, reportId: string, userId: string): Promise<boolean> {
+export async function refuseOthersReportId(db: Database, reportId: string, userId: string): Promise<boolean> {
   const [existing] = await db
     .select({ userId: localReports.userId })
     .from(localReports)
