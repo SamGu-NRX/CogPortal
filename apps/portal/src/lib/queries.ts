@@ -15,6 +15,7 @@ import {
 } from "@cogworks/contracts/schema";
 import { useNavigate } from "react-router";
 import { api, ApiRequestError, type RunSurfaceMutationInput } from "./api";
+import { releaseHeldDeviceLink } from "./held-device-link";
 import { rememberLeftTeam } from "./left-team";
 import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
 
@@ -128,6 +129,29 @@ export function useRepositories(enabled = true) {
   });
 }
 
+/**
+ * The status of a device code the student opened earlier (held-device-link.ts).
+ * No retries: an unanswered check leaves the offer unshown and the held link
+ * kept, which is the right outcome for a moment, not a reason to keep asking.
+ * The offer counts only an answer completed during its own visit
+ * (HeldDeviceLinkOffer), so a cached one from an earlier visit is never shown.
+ */
+export function useDeviceLinkStatus(userCode: string | undefined) {
+  return useQuery({
+    queryKey: ["device-link-status", userCode],
+    // Reading `signal` makes TanStack cancel and abort a request still out
+    // when the visit that sent it ends. Without it, the next visit joins that
+    // request, and an answer from before (say) an approval in another tab
+    // counts as the new visit's own.
+    queryFn: ({ signal }) => api.deviceLinkStatus(userCode ?? "", signal),
+    enabled: userCode !== undefined,
+    retry: false,
+    // Every visit asks, even when a cached answer looks fresh: a clock set
+    // back makes an old answer's time lie in the future.
+    refetchOnMount: "always",
+  });
+}
+
 export function useConnections() {
   return useQuery({
     queryKey: ["connections"],
@@ -168,9 +192,21 @@ export function useUnlinkDiscord() {
 }
 
 export function useApproveDevice() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ userCode, deviceName }: { userCode: string; deviceName: string }) =>
       api.approveDevice(userCode, deviceName),
+    // Setup stops offering this code (a different held code stays). Here, not
+    // in the page's own callback, which doesn't run if the page has gone by
+    // the time the server answers. Setup may be up by then with an answer
+    // from before the approval, so a check still out is cancelled and the
+    // answer becomes what the server now holds: approved.
+    onSuccess: async (_result, { userCode }) => {
+      releaseHeldDeviceLink(userCode);
+      const statusKey = ["device-link-status", userCode];
+      await qc.cancelQueries({ queryKey: statusKey });
+      qc.setQueryData(statusKey, { valid: true, approved: true, expiresAt: null });
+    },
   });
 }
 

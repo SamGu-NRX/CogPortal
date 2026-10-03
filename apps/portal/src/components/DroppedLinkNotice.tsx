@@ -12,8 +12,11 @@ import { deviceLinkCommand } from "@/lib/setup-progress";
  * approval page: it said nothing, so the terminal appeared to poll for no
  * reason. The authorization itself survives. Measured on 2026-09-10: a fresh
  * account was bounced to /join, joined a team, reopened the original approval
- * URL, and the waiting CLI completed. Naming the loss is most of the fix,
- * because the recovery is reopening that link or running one command.
+ * URL, and the waiting CLI completed. So the notice names the loss, and once
+ * they have a team Setup offers the same approval again while its code is
+ * still valid (HeldDeviceLinkOffer). Ctrl+C is named for a wait they'd rather
+ * abandon, since telling them only to run the command again left the first
+ * terminal polling until its code ran out.
  *
  * Staff without a team land on the console instead (`nextStagePath`), where a
  * team is not owed, so `teamOptional` says the terminal can be stopped and
@@ -45,19 +48,29 @@ export function DroppedLinkNotice({
         <>
           <p className="mt-1">
             {kind === "device"
-              ? "Linking a machine needs a team, and this account isn't on one, so the terminal will keep waiting until its code expires. Ctrl+C stops it."
+              ? "Linking a machine needs a team, and this account isn't on one. If that terminal is still waiting, Ctrl+C stops it."
               : "Linking Discord needs a team, and this account isn't on one."}
           </p>
           <p className="mt-2">
             The console doesn't need a team. To use {kind === "device" ? "the CLI" : "Discord"} yourself,{" "}
-            <Link to="/connect" className="u-link">join a team</Link>, then{" "}
-            {kind === "device" ? <>run {command} again.</> : "start the link again from Discord."}
+            <Link to="/connect" className="u-link">join a team</Link>
+            {kind === "device" ? (
+              <>; Setup in this tab then offers this link while its code is still valid, or run {command} again.</>
+            ) : (
+              <>, then start the link again from Discord.</>
+            )}
           </p>
         </>
       ) : kind === "device" ? (
-        <p className="mt-1">
-          It needs a team first. Finish getting started, then run {command} again.
-        </p>
+        <>
+          <p className="mt-1">
+            It needs a team first. Once you've joined one, Setup in this tab offers the link again while its
+            code is still valid.
+          </p>
+          <p className="mt-2">
+            If you'd rather not wait, press Ctrl+C in that terminal; run {command} again when you're ready.
+          </p>
+        </>
       ) : (
         <p className="mt-1">
           It needs a team first. Finish getting started, then start the link

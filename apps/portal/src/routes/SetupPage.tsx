@@ -14,6 +14,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { CopyBlock } from "@/components/CopyBlock";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { PageHeader } from "@/components/Note";
+import { HeldDeviceLinkOffer } from "@/components/HeldDeviceLinkOffer";
 import { Panel } from "@/components/Panel";
 import { RepoName } from "@/components/RepoName";
 import { Step, StepCells, StepRail, type StepState } from "@/components/StepRail";
@@ -286,6 +287,8 @@ function SetupGuide({
           <TrackSwitcher tracks={track.tracks} benchmark={track.benchmark} onSelect={track.select} />
         }
       />
+
+      <HeldDeviceLinkOffer key={login} login={login} />
 
       <div className="mt-8 flex max-w-[42rem] flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule pt-4">
         {!evidenceFailed && <StepCells states={states} />}

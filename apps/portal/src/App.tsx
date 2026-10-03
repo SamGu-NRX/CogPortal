@@ -22,6 +22,8 @@ import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
 import { TeamPage } from "@/routes/TeamPage";
 import { clearPendingReturn, rememberDroppedDeviceLink, rememberReturn } from "@/lib/pending-return";
+import { holdDeviceLink } from "@/lib/held-device-link";
+import { HeldDeviceLinkAccountCheck } from "@/components/HeldDeviceLinkOffer";
 import { canOpenAdmin } from "@/lib/roles";
 
 const queryClient = new QueryClient({
@@ -82,6 +84,9 @@ export function RequireStage({
     // (DroppedLinkNotice). A dropped run link is not: a run belongs to a
     // team, and whoever has none yet has no run of their own to see.
     rememberDroppedDeviceLink(here);
+    // A device approval is also held, for this account, so Setup can offer it
+    // once they have a team (HeldDeviceLinkOffer). Never navigated to.
+    holdDeviceLink(here, session.user.login);
     // A team page sends whoever lacks a team to their own next stage: the
     // onboarding step a student owes, or the console for staff. /connect is
     // itself onboarding, asked for by name, so it only ever owes a cohort.
@@ -113,6 +118,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <MotionConfig reducedMotion="user">
         <BrowserRouter>
+          <HeldDeviceLinkAccountCheck />
           {/* Inside the router, because its failure state links out. */}
           <RestoreGate>
           <Routes>
