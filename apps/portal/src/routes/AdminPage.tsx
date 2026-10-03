@@ -493,9 +493,10 @@ function TeamRow({
           </span>
         </span>
         {/* The column a TA sweeps. A team the platform has never run for, or
-            has never run end to end, is said in words, in ink, with the one
-            attention mark on the row, so forty rows resolve to the handful
-            worth opening without reading a single number. */}
+            with no completed run recorded for its repository, is said in
+            words, in ink, with the one attention mark on the row, so forty
+            rows resolve to the handful worth opening without reading a single
+            number. */}
         <span className="col-start-1 row-start-2 sm:col-start-2 sm:row-start-1 sm:max-w-[13.5rem] sm:text-right">
           {idle ? (
             <AttentionLine>No hosted runs yet</AttentionLine>
@@ -503,7 +504,7 @@ function TeamRow({
             <>
               {team.firstLight === null ? (
                 <span className="block">
-                  <AttentionLine>Not end to end yet</AttentionLine>
+                  <AttentionLine>No completion recorded</AttentionLine>
                 </span>
               ) : null}
               <span className="u-tnum block text-[13.5px] text-ink-secondary">
@@ -676,8 +677,9 @@ function AttentionLine({ children }: { children: string }) {
 }
 
 /**
- * Whether the team's code has run end to end, and where its last hosted run
- * stopped, for staff who can't open the team's run pages. Everything here is a
+ * Whether a completed hosted run is recorded for the team's repository, and
+ * where its last hosted run stopped, for staff who can't open the team's run
+ * pages. Everything here is a
  * platform enum or a time: the phase label and the failure title and code are
  * the platform's own words (PHASE_LABELS, FAILURE_CATALOG), never the team's
  * failure detail or log.
@@ -705,7 +707,10 @@ export function TeamRunState({
             .
           </>
         ) : (
-          "Hasn't run end to end from this repository yet."
+          // What is recorded, not that the team never ran: a run from before
+          // migration 0013 has no repository id, so it can't be attributed to
+          // this repository even if it came from it.
+          "No completed hosted run is recorded for this repository."
         )}
       </p>
       {last ? (
@@ -737,8 +742,8 @@ function LastRunOutcome({ run }: { run: NonNullable<AdminTeamSummary["lastHosted
   // team's own pages sync it.
   if (!isTerminal(run.status)) return "no result yet.";
   // First light counts only a success with a finish time, as the Team page
-  // does. One without would otherwise follow "Hasn't run end to end from
-  // this repository yet." with "scored."; say what is recorded instead.
+  // does. One without would otherwise follow "No completed hosted run is
+  // recorded for this repository." with "scored."; say what is recorded.
   if (run.status === "succeeded") {
     return run.finishRecorded ? "scored." : "succeeded with no finish time recorded.";
   }

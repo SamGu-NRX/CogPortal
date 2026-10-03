@@ -1424,7 +1424,7 @@ export const AdminTeamSummarySchema = z.object({
    * `firstLight` is the team's first hosted run from that repository that
    * finished `succeeded`, across every benchmark, at the time it finished (the
    * definition `firstLight` in worker/services/process-signals.ts and the
-   * Discord nudges already use). Null when none has gone end to end.
+   * Discord nudges already use). Null when none is recorded.
    *
    * `benchmarkTitle` in both fields is the catalog title of the run's own
    * benchmark version, or the id when the catalog has no such row. It is

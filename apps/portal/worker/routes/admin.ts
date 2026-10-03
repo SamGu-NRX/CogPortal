@@ -73,8 +73,8 @@ const runBenchmark = and(
  * Run state describes the repository the row prints: a run counts only if it
  * came from the repository the team is connected to now, the rule the Team
  * page's first light uses (routes/team.ts `forConnectedRepository`). Otherwise
- * a success from a repository the team has left kept a team whose current
- * repository never ran end to end out of the attention group. A team with no
+ * a success from a repository the team has left kept a team with no completed
+ * run recorded for its current repository out of the attention group. A team with no
  * recorded repository id, or a run without one (before migration 0013),
  * matches nothing, because NULL equals nothing in SQL. Hosted-run counts and
  * quota are read elsewhere and stay team-wide.

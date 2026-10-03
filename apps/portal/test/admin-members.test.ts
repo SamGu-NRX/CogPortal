@@ -933,7 +933,7 @@ test("the run state says, in the platform's words, where each kind of team stand
   const firstLight = { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: firstAt };
   const firstSentence = `First ran end to end from this repository on Face recognition, ${formatDate(firstAt)}.`;
 
-  assert.deepEqual(renderRunState({ firstLight: null, lastHostedRun: null }), ["Hasn't run end to end from this repository yet."]);
+  assert.deepEqual(renderRunState({ firstLight: null, lastHostedRun: null }), ["No completed hosted run is recorded for this repository."]);
   assert.deepEqual(
     renderRunState({
       firstLight: null,
@@ -943,7 +943,7 @@ test("the run state says, in the platform's words, where each kind of team stand
       },
     }),
     [
-      "Hasn't run end to end from this repository yet.",
+      "No completed hosted run is recorded for this repository.",
       "Last hosted run: Audio identification, 3 h ago, failed at Install. Dependency installation failed (E-INSTALL).",
     ],
   );
@@ -992,7 +992,7 @@ test("the run state says, in the platform's words, where each kind of team stand
   );
 });
 
-test("only teams that haven't run end to end carry the attention mark, and they sort first", () => {
+test("only teams with no completion recorded carry the attention mark, and they sort first", () => {
   const ran = { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1, status: "succeeded" as const, finishRecorded: true, failure: null };
   const teams = [
     { ...TEAM, id: "t_scored", name: "Alpha scored", lastHostedRun: ran },
@@ -1015,12 +1015,12 @@ test("only teams that haven't run end to end carry the attention mark, and they 
   assert.equal(marked(rowFor("Zeta never")), 1);
   assert.match(rowFor("Zeta never"), /No hosted runs yet/);
   assert.equal(marked(rowFor("Gamma not yet")), 1);
-  assert.match(rowFor("Gamma not yet"), /Not end to end yet/);
+  assert.match(rowFor("Gamma not yet"), /No completion recorded/);
   // The counts stay beneath it, so a TA still sees that the team ran.
-  assert.match(rowFor("Gamma not yet"), /Not end to end yet<\/span><\/span><span class="[^"]*text-ink-secondary[^"]*">2 hosted runs · none counted</);
+  assert.match(rowFor("Gamma not yet"), /No completion recorded<\/span><\/span><span class="[^"]*text-ink-secondary[^"]*">2 hosted runs · none counted</);
   for (const name of ["Alpha scored", "Beta going"]) {
     assert.equal(marked(rowFor(name)), 0, `${name} is marked`);
-    assert.doesNotMatch(rowFor(name), /Not end to end yet|No hosted runs yet/);
+    assert.doesNotMatch(rowFor(name), /No completion recorded|No hosted runs yet/);
   }
 
   const order = ["Zeta never", "Gamma not yet", "Alpha scored", "Beta going"].map((name) => html.indexOf(`>${name}<`));
@@ -1086,10 +1086,10 @@ test("run state counts only the connected repository, and moving repository keep
 });
 
 // A success with no finish time doesn't count as first light (as on the Team
-// page), so when it is the last run the row said "Hasn't run end to end from
-// this repository yet." and then "scored." The summary says whether a finish
+// page), so when it is the last run the row said "No completed hosted run is
+// recorded for this repository." and then "scored." The summary says whether a finish
 // was recorded, and the row says so instead of "scored".
-test("an undated success as the last run is not called scored after 'hasn't run end to end'", async () => {
+test("an undated success as the last run is not called scored when no completion is recorded", async () => {
   const h = harness();
   await h.seedCohorts();
   await h.seedTeam("team_undated");
@@ -1112,7 +1112,7 @@ test("an undated success as the last run is not called scored after 'hasn't run 
     lastHostedRun: { ...team!.lastHostedRun!, at: threeHoursAgo },
   });
   assert.deepEqual(rendered, [
-    "Hasn't run end to end from this repository yet.",
+    "No completed hosted run is recorded for this repository.",
     "Last hosted run: Face recognition, 3 h ago, succeeded with no finish time recorded.",
   ]);
   assert.ok(!rendered.join(" ").includes("scored"), "an undated success is called scored");
