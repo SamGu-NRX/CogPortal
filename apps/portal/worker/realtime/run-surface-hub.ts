@@ -234,11 +234,9 @@ export class RunSurfaceHub extends DurableObject<Env> {
           return;
         }
         console.warn(JSON.stringify({ event: "run_surface_delivery_refused", surfaceId, status: error.status }));
-        const refusal: DeliveryRefusal = {
-          channel: await runSurfaceDiscordChannel(this.env, surfaceId).catch(() => null),
-          status: read.snapshot.status,
-          at: Date.now(),
-        };
+        // The channel the request went to, not today's binding: a rebind
+        // while it was in flight must still get its own try next tick.
+        const refusal: DeliveryRefusal = { channel: error.channelId, status: read.snapshot.status, at: Date.now() };
         await this.ctx.storage.put("deliveryRefused", refusal);
       }
     }

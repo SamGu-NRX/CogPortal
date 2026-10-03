@@ -529,11 +529,16 @@ async function discordChannel(t: TestContext, run: Awaited<ReturnType<typeof liv
   const discord = {
     answer: (): Response => new Response(null, { status: 403 }),
     requests: [] as string[],
+    /** Runs once, while the next request is in flight. */
+    during: null as null | (() => Promise<unknown>),
   };
   t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input));
     assert.equal(url.host, "discord.com", "only Discord is reached over the network");
     discord.requests.push(`${init?.method} ${url.pathname}`);
+    const during = discord.during;
+    discord.during = null;
+    if (during) await during();
     return discord.answer();
   });
   return discord;
@@ -620,6 +625,22 @@ test("binding the run to another channel asks that channel once", async (t) => {
   // Refused again there, so the next tick stays quiet too.
   await run.hub.alarm();
   assert.equal(discord.requests.length, 2);
+});
+
+test("a channel bound while a refused request is in flight still gets its try", async (t) => {
+  // The refusal belongs to the channel that was asked. Reading the binding
+  // after the request failed would record the new channel as refused and keep
+  // it quiet for the whole interval.
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  const other = "423456789012345678";
+  discord.during = () => run.db.update(runSurfaces).set({ discordChannelId: other }).where(eq(runSurfaces.id, run.surfaceId));
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  assert.deepEqual(discord.requests, [`POST /api/v10/channels/${CHANNEL}/messages`]);
+  await run.hub.alarm();
+  assert.equal(discord.requests.at(-1), `POST /api/v10/channels/${other}/messages`);
 });
 
 test("a refused channel is asked again after the retry interval and can deliver", async (t) => {
