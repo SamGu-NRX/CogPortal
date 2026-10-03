@@ -152,7 +152,7 @@ test("an internal failure crosses as a fixed sentence and keeps its detail in th
   });
 });
 
-test("a GitHub permission lookup is refused for the reason GitHub gave", () => {
+test("a GitHub permission lookup is refused for the reason GitHub gave", async () => {
   const expired = permissionCheckFailure(new GitHubApiError(401));
   assert.deepEqual([expired.status, expired.code, expired.message], [403, "forbidden", GITHUB_SIGN_IN_EXPIRED]);
 
@@ -167,16 +167,23 @@ test("a GitHub permission lookup is refused for the reason GitHub gave", () => {
 
   // None of these is about the student, so none of them says to sign in or
   // that access was lost. A rate limit can arrive as a 403.
-  const limited = (status: number, headers: Record<string, string>) =>
-    GitHubApiError.from(new Response(null, { status, headers }));
-  assert.equal(limited(403, { "x-ratelimit-remaining": "0" }).rateLimited, true);
-  assert.equal(limited(403, { "retry-after": "60" }).rateLimited, true);
-  assert.equal(limited(403, { "x-ratelimit-remaining": "4999" }).rateLimited, false);
+  const limited = (status: number, headers: Record<string, string>, message?: string) =>
+    GitHubApiError.from(new Response(message === undefined ? null : JSON.stringify({ message }), { status, headers }));
+  // A secondary limit can arrive with neither header, saying so only in its
+  // message (GitHub's REST troubleshooting docs).
+  const secondary = "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.";
+  assert.equal((await limited(403, { "x-ratelimit-remaining": "0" })).rateLimited, true);
+  assert.equal((await limited(403, { "retry-after": "60" })).rateLimited, true);
+  assert.equal((await limited(403, {}, secondary)).rateLimited, true);
+  assert.equal((await limited(403, { "x-ratelimit-remaining": "4999" })).rateLimited, false);
+  assert.equal((await limited(403, {}, "Must have admin rights to Repository.")).rateLimited, false);
+  assert.equal((await GitHubApiError.from(new Response("<html>Forbidden</html>", { status: 403 }))).rateLimited, false);
   for (const error of [
     new GitHubApiError(502),
-    limited(429, {}),
-    limited(403, { "x-ratelimit-remaining": "0" }),
-    limited(403, { "retry-after": "60" }),
+    await limited(429, {}),
+    await limited(403, { "x-ratelimit-remaining": "0" }),
+    await limited(403, { "retry-after": "60" }),
+    await limited(403, {}, secondary),
     new TypeError("fetch failed"),
     new Error("GitHub returned an invalid permission."),
   ]) {
