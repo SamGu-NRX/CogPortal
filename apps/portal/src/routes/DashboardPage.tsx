@@ -685,11 +685,12 @@ function Launcher({
 
 /**
  * On a track with no runs, where the team's runs are. "Run it for the first
- * time" alone read as if the team's earlier runs were gone: four of four
- * first-time readers of a team whose runs were all on another track said so
- * (stranger walk, 3 Oct 2026). The sentence opens by saying it's this
+ * time" alone read as if the team's earlier runs were gone: four of four fresh
+ * model readers (Sonnet and Luna scouts given only screenshots, stranger walks
+ * r1 and r2, 3 Oct 2026; not a study with students) of a team whose runs were
+ * all on another track said so. The sentence opens by saying it's this
  * benchmark that hasn't run, because "Your team has 2 runs" directly under
- * that heading read as a contradiction to both readers of the next walk.
+ * that heading read as a contradiction to both model readers of walk r3.
  * Each name selects that track like its tab.
  */
 function RunsElsewhere({

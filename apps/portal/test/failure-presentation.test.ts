@@ -160,8 +160,9 @@ for (const publishable of [false, true]) {
 }
 
 // Promotion is always a member's action (run-actions.ts promote paths), and two
-// first-time readers took the bare "Promoted to" as a practice run spending an
-// attempt on its own (walk r1, 3 Oct 2026), so the page names the team.
+// fresh model readers given screenshots took the bare "Promoted to" as a
+// practice run spending an attempt on its own (walk r1, 3 Oct 2026), so the
+// page names the team.
 test("a promoted practice run says the team promoted it", async (t) => {
   const { container } = await mount(t, page(t, run({
     status: "succeeded", failure: null,

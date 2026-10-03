@@ -966,10 +966,11 @@ export const DashboardSchema = z.object({
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
   /** The team's hosted runs on the other open tracks, counted per benchmark at
-   *  its active version. A track with no runs uses it to say where the team's
-   *  work is: without it, four of four first-time readers of a team whose runs
-   *  were all on another track concluded the runs had vanished (stranger walk,
-   *  3 Oct 2026). Team counts only, never a person's. Empty when this track
+   *  the version its tab opens (the highest active one). A track with no runs
+   *  uses it to say where the team's work is: without it, four of four fresh
+   *  model readers given screenshots of a team whose runs were all on another
+   *  track concluded the runs had vanished (stranger walks r1 and r2, 3 Oct
+   *  2026; not a study with students). Team counts only, never a person's. Empty when this track
    *  has runs, because only the first-run panel reads it. */
   runsOnOtherTracks: z.array(z.object({
     benchmarkId: z.string(),
