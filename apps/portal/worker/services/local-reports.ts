@@ -370,10 +370,9 @@ export async function getLatestTeamWeights(
   if (repositoryId != null && report.repositoryId != null && report.repositoryId !== repositoryId) {
     throw new ApiHttpError(409, "invalid_request", "The newest synced report names a different repository than this execution; sync the report again.");
   }
-  const rerun = `run \`cogworks run --benchmark ${benchmarkId}\` at this commit, then \`cogworks sync\`, and start the hosted run again.`;
   if (!report.weightsUsedKnown) {
     throw new ApiHttpError(409, "invalid_request",
-      `The newest report for this commit was synced before the portal recorded which weight files a run used. To give the hosted run the same files, ${rerun}`);
+      `The newest report for this commit doesn't establish which weight files the run used. To give the hosted run the same files, run \`cogworks run --benchmark ${benchmarkId}\` at this commit, then \`cogworks sync\`, and start the hosted run again.`);
   }
   const weights = LocalReportWeightsSchema.safeParse({
     weightsUsed: JSON.parse(report.weightsUsedJson),
@@ -386,7 +385,7 @@ export async function getLatestTeamWeights(
   }
   if (report.dirty && weights.data.weightsUsed.length > 0) {
     throw new ApiHttpError(409, "invalid_request",
-      `The newest report for this commit ran with uncommitted changes, so its weight files may not be what this commit produces. Either commit and push those changes and start a hosted run of the new commit, or discard them, ${rerun}`);
+      `The newest report for this commit ran with uncommitted changes, so its weight files may not be what this commit produces. Commit and push those changes, run \`cogworks run --benchmark ${benchmarkId}\` at the new commit, then \`cogworks sync\`, and start a hosted run of that commit.`);
   }
   return weights.data;
 }

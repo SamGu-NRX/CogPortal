@@ -679,7 +679,8 @@ test("a dirty newest report that names weights is refused, never stepped over", 
   await assert.rejects(getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1),
     (error: unknown) => error instanceof Error && "status" in error && error.status === 409 &&
       /ran with uncommitted changes/.test(error.message) &&
-      error.message.includes(`cogworks run --benchmark ${BENCHMARK}`));
+      error.message.includes(`cogworks run --benchmark ${BENCHMARK}\` at the new commit`) &&
+      !/discard/i.test(error.message));
 });
 
 test("a dirty newest report that names no weights attaches nothing and is not refused", async () => {
@@ -702,7 +703,7 @@ test("a newest report whose weight record is unknown stops dispatch until it is 
     { ...reportRow("report_legacy_newest", 1), sha, weightsUsedJson: "[]", weightsUsedKnown: false, syncedAt: 20 },
   ]);
   await assert.rejects(getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1),
-    /synced before the portal recorded which weight files a run used/);
+    /doesn't establish which weight files the run used/);
   // Still readable as history.
   assert.equal((await getLocalReport(env, "report_legacy_newest"))?.reportId, "report_legacy_newest");
   // Syncing it again is a write by the current Worker, which records an answer.
