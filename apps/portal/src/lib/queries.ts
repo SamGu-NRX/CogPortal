@@ -378,16 +378,6 @@ export class LeftButNotRefreshed extends Error {
   }
 }
 
-/**
- * Leave the team the page showed.
- *
- * Hook-level, not a per-call onSuccess: the fresh session read below clears
- * the team, the Team page's guard redirects, and the page that pressed the
- * button unmounts. The /connect notice subscribes to the note
- * (lib/left-team.ts), so it shows whichever navigation lands first. Other
- * queries are then refetched, awaited so the mutation stays pending until
- * fresh data has arrived.
- */
 /** The answer to a leave that may have gone through: the connection dropped,
  *  the server failed, or what came back could not be read. */
 export const LEAVE_UNCONFIRMED = "We couldn't confirm whether you left. Reload to see where you stand.";
@@ -413,13 +403,23 @@ const leaveUnconfirmedKey = (teamId: string) => ["leave-unconfirmed", teamId] as
 export function useLeaveUnconfirmed(teamId: string): string | null {
   return useQuery({
     queryKey: leaveUnconfirmedKey(teamId),
-    queryFn: () => null as string | null,
+    queryFn: (): string | null => null,
     enabled: false,
     staleTime: Infinity,
     gcTime: Infinity,
   }).data ?? null;
 }
 
+/**
+ * Leave the team the page showed.
+ *
+ * Hook-level, not a per-call onSuccess: the fresh session read below clears
+ * the team, the Team page's guard redirects, and the page that pressed the
+ * button unmounts. The /connect notice subscribes to the note
+ * (lib/left-team.ts), so it shows whichever navigation lands first. Other
+ * queries are then refetched, awaited so the mutation stays pending until
+ * fresh data has arrived.
+ */
 export function useLeaveTeam() {
   const qc = useQueryClient();
   const navigate = useNavigate();
