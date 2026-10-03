@@ -810,11 +810,58 @@ test("a first read sent as alice before a blur cannot paint the page after bob s
   assert.equal(h.reloads(), 0, "a page that painted nobody was reloaded");
 });
 
-test("focus before the first session read lands does nothing", async (t) => {
+test("a first read sent as alice is replaced by the first focus even with no blur before it", async (t) => {
+  // A window shown beside another can open without focus and never blur. Its
+  // first read goes out as alice; bob signs in next door; the first focus
+  // here is the only sign of it.
+  const h = await harness(t, "shared", "/setup", true);
+  const sawAlice = h.watchExposed(tokenFor("alice"));
+  const sawAliceMenu = h.watchExposed("Account menu for alice");
+  h.server.signInDirectly("bob");
+  const before = h.server.sessionRequests.length;
+  await h.focusWindow();
+  assert.deepEqual(h.server.sessionRequests.slice(before), ["bob"], "the focus did not read the session afresh");
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.equal(sawAlice(), false, "alice's signed setup command was painted");
+  assert.equal(sawAliceMenu(), false, "alice's account menu was painted");
+  h.server.releaseSession("bob");
+  await h.flush();
+  assert.ok(h.exposed().includes("Account menu for bob"));
+  assert.ok(h.exposed().includes(tokenFor("bob")));
+  assert.equal(h.reloads(), 0, "a page that painted nobody was reloaded");
+});
+
+test("focus before the first read lands reads once, and more focus waits for that read", async (t) => {
   const h = await harness(t, "shared", "/setup", true);
   const before = h.server.sessionRequests.length;
   await h.focusWindow();
-  assert.equal(h.server.sessionRequests.length, before);
+  await h.focusWindow();
+  await h.focusWindow();
+  assert.deepEqual(h.server.sessionRequests.slice(before), ["alice"], "repeated focus asked more than once");
+  h.server.releaseSession("alice");
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.ok(h.exposed().includes(tokenFor("alice")));
+  assert.equal(h.reloads(), 0);
+});
+
+test("a blur after a focus's fresh first read makes the next focus read again", async (t) => {
+  const h = await harness(t, "shared", "/setup", true);
+  const sawAlice = h.watchExposed(tokenFor("alice"));
+  await h.focusWindow();
+  await h.blurWindow();
+  h.server.signInDirectly("bob");
+  const before = h.server.sessionRequests.length;
+  await h.focusWindow();
+  assert.deepEqual(h.server.sessionRequests.slice(before), ["bob"], "the return trusted a read sent before the blur");
+  h.server.releaseSession("alice");
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.equal(sawAlice(), false, "a read sent as alice painted the page");
+  h.server.releaseSession("bob");
+  await h.flush();
+  assert.ok(h.exposed().includes(tokenFor("bob")));
   assert.equal(h.reloads(), 0);
 });
 

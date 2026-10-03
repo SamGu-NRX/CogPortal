@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   AddTeamMemberRequestSchema,
@@ -359,10 +359,31 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         and(
           eq(teamMembers.teamId, auth.team.id),
           eq(teamMembers.userId, membership.userId),
+          ne(teamMembers.role, "admin"),
           actorIsTeamAdmin(db, auth.team.id, auth.user.id),
         ),
       );
-    if (!removed.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
+    if (!removed.meta.changes) {
+      // Nothing was deleted, and the read above no longer says why: the actor
+      // may have lost the admin role, or the target may have left or been
+      // made an admin since. Ask again, actor first; nothing is written.
+      const [actor] = await db.select({ role: teamMembers.role }).from(teamMembers)
+        .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, auth.user.id))).limit(1);
+      if (actor?.role !== "admin") throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
+      const [target] = await db.select({ role: teamMembers.role }).from(teamMembers)
+        .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, membership.userId))).limit(1);
+      if (target?.role === "admin") {
+        throw new ApiHttpError(403, "cannot_remove_creator", "A team admin can't be removed.");
+      }
+      // On the team again after a delete that found them gone: the team
+      // changed more than once during this request, and no answer from
+      // these reads would be true for long. Nothing is retried.
+      if (target) {
+        throw new ApiHttpError(409, "invalid_request", "The team changed while this request was running. Reload and try again.");
+      }
+      // Already off the team, which is what was asked; the roster below shows
+      // the team as it is now.
+    }
     return respond(
       c,
       TeamDetailSchema,
