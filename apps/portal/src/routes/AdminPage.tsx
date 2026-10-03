@@ -433,6 +433,10 @@ function TeamRow({
   const toggleRef = useRef<HTMLButtonElement>(null);
   const refocus = () => toggleRef.current?.focus();
   const detailsRef = useRef<HTMLDivElement>(null);
+  // Whether focus was inside the details when a pointer pressed the toggle.
+  // WebKit moves focus off a field to the body at mousedown, before click,
+  // so by click time the details no longer hold it.
+  const focusWasInside = useRef(false);
 
   const memberError = errorText(
     [addMember.error, removeMember.error],
@@ -451,10 +455,17 @@ function TeamRow({
         type="button"
         aria-expanded={open}
         aria-controls={detailsId}
+        onPointerDown={() => {
+          focusWasInside.current = Boolean(detailsRef.current?.contains(document.activeElement));
+        }}
         onClick={(event) => {
-          // Safari doesn't focus a clicked button, so focus can still be on a
-          // field inside the details; unmounting them would drop it to the body.
-          if (open && detailsRef.current?.contains(document.activeElement)) {
+          // Safari doesn't focus a clicked button, so focus can be on a field
+          // inside the details (assistive-technology activation) or, after a
+          // mouse press, already on the body; either way unmounting the
+          // details would leave it there.
+          const wasInside = focusWasInside.current;
+          focusWasInside.current = false;
+          if (open && (wasInside || detailsRef.current?.contains(document.activeElement))) {
             event.currentTarget.focus();
           }
           setOpen((v) => !v);

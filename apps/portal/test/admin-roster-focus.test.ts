@@ -317,3 +317,42 @@ test("closing a row while a field inside it has focus puts focus on the row's to
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
   assertFocused(window.document.activeElement, toggle, "after closing");
 });
+
+// WebKit moves focus off a field to the body at mousedown, before the click,
+// so the toggle reads at pointerdown whether focus was inside its row.
+test("closing a row by mouse after WebKit has already taken focus off its field puts focus on the toggle", async (t) => {
+  const { window, container } = await mount(t, []);
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+    .find((button) => button.textContent?.includes("Team B"));
+  assert.ok(toggle, "Team B's row");
+  await act(async () => { toggle.click(); });
+  const field = container.querySelector<HTMLInputElement>(`#${toggle.getAttribute("aria-controls")} input`);
+  assert.ok(field, "a field inside the opened row");
+  field.focus();
+  await act(async () => {
+    toggle.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+    field.blur();
+  });
+  assert.equal(window.document.activeElement, window.document.body, "WebKit's mousedown left focus on the body");
+  await act(async () => { toggle.click(); });
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assertFocused(window.document.activeElement, toggle, "after closing");
+});
+
+test("opening another row by mouse leaves focus where it was", async (t) => {
+  const { window, container } = await mount(t, []);
+  const toggles = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")];
+  const first = toggles.find((button) => button.textContent?.includes("Team A"));
+  const second = toggles.find((button) => button.textContent?.includes("Team B"));
+  assert.ok(first && second, "both rows");
+  await act(async () => { first.click(); });
+  const field = container.querySelector<HTMLInputElement>(`#${first.getAttribute("aria-controls")} input`);
+  assert.ok(field, "a field inside the first row");
+  field.focus();
+  await act(async () => {
+    second.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+    second.click();
+  });
+  assert.equal(second.getAttribute("aria-expanded"), "true");
+  assertFocused(window.document.activeElement, field, "after opening the other row");
+});
