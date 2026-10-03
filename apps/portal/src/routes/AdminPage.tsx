@@ -432,6 +432,7 @@ function TeamRow({
   // the nearest stable place to put focus back.
   const toggleRef = useRef<HTMLButtonElement>(null);
   const refocus = () => toggleRef.current?.focus();
+  const detailsRef = useRef<HTMLDivElement>(null);
 
   const memberError = errorText(
     [addMember.error, removeMember.error],
@@ -450,7 +451,14 @@ function TeamRow({
         type="button"
         aria-expanded={open}
         aria-controls={detailsId}
-        onClick={() => setOpen((v) => !v)}
+        onClick={(event) => {
+          // Safari doesn't focus a clicked button, so focus can still be on a
+          // field inside the details; unmounting them would drop it to the body.
+          if (open && detailsRef.current?.contains(document.activeElement)) {
+            event.currentTarget.focus();
+          }
+          setOpen((v) => !v);
+        }}
         className={`grid min-h-16 w-full grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-x-5 gap-y-0.5 px-4 py-3 text-left transition-colors duration-150 hover:bg-paper-sunken/60 focus-visible:outline-offset-[-3px] sm:grid-cols-[minmax(0,1fr)_auto_auto_1.5rem] sm:px-5 ${
           open ? "bg-paper-sunken/60" : ""
         }`}
@@ -514,7 +522,7 @@ function TeamRow({
         </motion.span>
       </button>
 
-      <div id={detailsId}>
+      <div id={detailsId} ref={detailsRef}>
         {open && (
           <div className="anim-reveal">
               <div className="grid gap-x-8 gap-y-6 border-t border-rule-soft px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-5">

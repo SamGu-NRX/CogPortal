@@ -299,3 +299,21 @@ test("an opened team row leads with its run state", async (t) => {
   assert.match(text, /Hasn't run end to end yet\./);
   assert.match(text, /Last hosted run: Face recognition, 3 h ago, failed at Contract check\. Nothing here could be scored \(E-ADAPTER\)\./);
 });
+
+// Safari doesn't focus a clicked button, so closing a row by pointer can find
+// focus still on a field inside it, and unmounting the details dropped it to
+// the body. Happy DOM's click() doesn't move focus either, as in Safari.
+test("closing a row while a field inside it has focus puts focus on the row's toggle", async (t) => {
+  const { window, container } = await mount(t, []);
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+    .find((button) => button.textContent?.includes("Team B"));
+  assert.ok(toggle, "Team B's row");
+  await act(async () => { toggle.click(); });
+  const field = container.querySelector<HTMLInputElement>(`#${toggle.getAttribute("aria-controls")} input`);
+  assert.ok(field, "a field inside the opened row");
+  field.focus();
+  assertFocused(window.document.activeElement, field, "before closing");
+  await act(async () => { toggle.click(); });
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assertFocused(window.document.activeElement, toggle, "after closing");
+});
