@@ -1409,6 +1409,36 @@ export const AdminTeamSummarySchema = z.object({
    */
   refundsGiven: z.number().int(),
   /**
+   * Where the team's code stands, for the staff who can see this row (owners,
+   * and TAs on their assigned teams). The team's run pages stay member-only
+   * because they hold unpublished results, logs and process notes, so these
+   * two fields carry platform enums and times and nothing else. They must
+   * never carry, or be derived from, a run's failure detail, refusal,
+   * diagnostics, sweep, log, metrics or wiring: detail and refusal text can
+   * hold the team's own exception messages and file paths, and a finding can
+   * hold a measured number. "Hosted" is the same set `hostedRuns` counts.
+   *
+   * `firstLight` is the team's first hosted run that finished `succeeded`,
+   * across every benchmark, at the time it finished (the definition
+   * `firstLight` in worker/services/process-signals.ts and the Discord nudges
+   * already use). Null when no run has gone end to end.
+   */
+  firstLight: z.object({ benchmarkId: z.string(), at: z.number().int() }).nullable(),
+  /**
+   * The team's most recently started hosted run, or null when there is none.
+   * `at` is when it finished, or when it started if it has not finished.
+   * `failure` is set only for a failed run that recorded both its phase and
+   * its category.
+   */
+  lastHostedRun: z
+    .object({
+      benchmarkId: z.string(),
+      at: z.number().int(),
+      status: RunStatusSchema,
+      failure: z.object({ phase: RunPhaseSchema, category: FailureCategorySchema }).nullable(),
+    })
+    .nullable(),
+  /**
    * The team's latest published selection across all benchmarks, or null. The
    * score is inseparable from what it scored: a Vision number and a Language
    * number are not the same quantity and do not compare, so they travel in one

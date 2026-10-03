@@ -48,6 +48,75 @@ function memberRole(role: string): TeamMember["role"] {
   throw new Error("Team member has an invalid role.");
 }
 
+/** The ids of the teams `teamWhere` selects, as a subquery for an IN. */
+function selectTeamIds(db: Database, teamWhere: SQL) {
+  return db.select({ id: teams.id }).from(teams).where(teamWhere);
+}
+type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
+
+/**
+ * When a run's outcome was known: its finish, or its start while it has none.
+ * A succeeded run should always have a finish time, but dropping one that
+ * lacks it would tell staff the team never ran end to end when it did.
+ */
+const runSettledAt = sql<number>`coalesce(${runs.finishedAt}, ${runs.createdAt})`;
+
+/**
+ * Each scoped team's first succeeded hosted run, one row per team.
+ *
+ * One windowed statement for all teams, for the same query budget the
+ * summaries below keep. The select lists the only columns read: nothing a
+ * team wrote (failure detail, refusal, diagnostics, log) is fetched at all.
+ */
+function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
+  const ranked = db
+    .select({
+      teamId: runs.teamId,
+      benchmarkId: runs.benchmarkId,
+      at: runSettledAt.as("at"),
+      position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runSettledAt}, ${runs.id})`.as("position"),
+    })
+    .from(runs)
+    .where(and(eq(runs.status, "succeeded"), inArray(runs.teamId, teamIds)))
+    .as("first_light");
+  return db
+    .select({ teamId: ranked.teamId, benchmarkId: ranked.benchmarkId, at: ranked.at })
+    .from(ranked)
+    .where(eq(ranked.position, 1));
+}
+
+/**
+ * Each scoped team's most recently started hosted run, one row per team, with
+ * the two failure enums and no failure text. Same shape of query as
+ * `readFirstLights`.
+ */
+function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
+  const ranked = db
+    .select({
+      teamId: runs.teamId,
+      benchmarkId: runs.benchmarkId,
+      at: runSettledAt.as("at"),
+      status: runs.status,
+      failurePhase: runs.failurePhase,
+      failureCategory: runs.failureCategory,
+      position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as("position"),
+    })
+    .from(runs)
+    .where(inArray(runs.teamId, teamIds))
+    .as("last_hosted_run");
+  return db
+    .select({
+      teamId: ranked.teamId,
+      benchmarkId: ranked.benchmarkId,
+      at: ranked.at,
+      status: ranked.status,
+      failurePhase: ranked.failurePhase,
+      failureCategory: ranked.failureCategory,
+    })
+    .from(ranked)
+    .where(eq(ranked.position, 1));
+}
+
 /**
  * Console summaries for every team `teamWhere` selects, in name order.
  *
@@ -60,7 +129,8 @@ async function readAdminTeamSummaries(
   db: Database,
   teamWhere: SQL,
 ): Promise<AdminTeamSummary[]> {
-  const [teamRows, members, tas, used, executed, published] = await Promise.all([
+  const scopedTeamIds = selectTeamIds(db, teamWhere);
+  const [teamRows, members, tas, used, executed, published, firstLights, lastRuns] = await Promise.all([
     db.select().from(teams).where(teamWhere).orderBy(asc(teams.name)),
     db
       .select({
@@ -95,7 +165,7 @@ async function readAdminTeamSummaries(
     db
       .select({ teamId: runs.teamId, count: sql<number>`count(*)`.mapWith(Number) })
       .from(runs)
-      .where(inArray(runs.teamId, db.select({ id: teams.id }).from(teams).where(teamWhere)))
+      .where(inArray(runs.teamId, scopedTeamIds))
       .groupBy(runs.teamId),
     // Every team's selections, newest first. The first per team that the
     // board would rank is the one shown (`rankingRefusal` below).
@@ -139,8 +209,12 @@ async function readAdminTeamSummaries(
       .innerJoin(teams, eq(teams.id, leaderboardSelections.teamId))
       .where(teamWhere)
       .orderBy(desc(leaderboardSelections.selectedAt)),
+    readFirstLights(db, scopedTeamIds),
+    readLastHostedRuns(db, scopedTeamIds),
   ]);
   const executions = new Map(executed.map((row) => [row.teamId, row.count]));
+  const firstLightByTeam = new Map(firstLights.map((row) => [row.teamId, row]));
+  const lastRunByTeam = new Map(lastRuns.map((row) => [row.teamId, row]));
   const roleOrder: Record<TeamMember["role"], number> = {
     admin: 0,
     maintain: 1,
@@ -150,6 +224,8 @@ async function readAdminTeamSummaries(
     const latest = published.find((row) => row.teamId === team.id &&
       rankingRefusal(row.run, row.benchmark, row.metricKey === null ? [] : [{ key: row.metricKey }]) === null);
     const usage = used.get(team.id);
+    const first = firstLightByTeam.get(team.id);
+    const last = lastRunByTeam.get(team.id);
     return {
       id: team.id,
       name: team.name,
@@ -178,6 +254,18 @@ async function readAdminTeamSummaries(
       hostedRuns: executions.get(team.id) ?? 0,
       // Retained for older clients. Failures no longer require a refund decision.
       refundsGiven: 0,
+      firstLight: first ? { benchmarkId: first.benchmarkId, at: first.at } : null,
+      lastHostedRun: last
+        ? {
+            benchmarkId: last.benchmarkId,
+            at: last.at,
+            status: last.status,
+            failure:
+              last.status === "failed" && last.failurePhase !== null && last.failureCategory !== null
+                ? { phase: last.failurePhase, category: last.failureCategory }
+                : null,
+          }
+        : null,
       published:
         latest?.value == null
           ? null

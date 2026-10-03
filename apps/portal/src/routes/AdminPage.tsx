@@ -2,7 +2,9 @@ import { ArrowDown01Icon, Copy01Icon, Tick02Icon } from "@hugeicons/core-free-ic
 import { HugeiconsIcon } from "@hugeicons/react";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useRef, useState } from "react";
+import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import type { AdminTeamSummary } from "@cogworks/contracts/schema";
+import { isTerminal } from "@cogworks/contracts/schema";
 import { CornerBrackets } from "@/components/Brackets";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -14,8 +16,9 @@ import { PageSection } from "@/components/PageSection";
 import { RemoveButton } from "@/components/RemoveButton";
 import { ApiRequestError } from "@/lib/api";
 import { useFocusFallback } from "@/lib/focus";
-import { formatTimeAgo } from "@/lib/format";
+import { formatDateTime, formatTimeAgo } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
+import { PHASE_LABELS } from "@/lib/run-meta";
 import {
   useAdminAddMember,
   useAdminAddStaff,
@@ -26,6 +29,7 @@ import {
   useAdminRemoveStaff,
   useAdminRemoveTa,
   useAdminStaffRoster,
+  useBenchmarks,
 } from "@/lib/queries";
 
 /**
@@ -42,6 +46,10 @@ import {
  */
 export function AdminPage() {
   const overview = useAdminOverview();
+  // The catalog, for the benchmark titles in each team's run state. It is the
+  // same cached list the dashboard and leaderboard read; until it arrives, or
+  // for a benchmark it no longer lists, the run state names the id instead.
+  const catalog = useBenchmarks();
 
   if (overview.isPending) return <LoadingMark label="Loading cohort" />;
   if (overview.isError) {
@@ -54,6 +62,7 @@ export function AdminPage() {
 
   const { cohort, teams, unassigned } = overview.data;
   const isOwner = overview.data.scope === "owner";
+  const titleOf = benchmarkTitles(catalog.data ?? []);
 
   return (
     <div className="page anim-rise">
@@ -80,6 +89,7 @@ export function AdminPage() {
                   team={team}
                   canAssignTas={isOwner}
                   suggestions={unassigned.map((student) => student.login)}
+                  titleOf={titleOf}
                 />
               ))}
             </ul>
@@ -99,21 +109,32 @@ function Count({ n }: { n: number }) {
 }
 
 /**
- * A team the platform has never run for is the row a TA has to act on, so it
- * sorts first. "Never run" is read from every hosted execution, not from the
- * charged counts: a failure never adds to those, so a team whose runs all
- * failed used to sort and read as one that had never started. Aging the rest
- * by their last run needs a last-run field that AdminTeamSummary
- * (packages/contracts/src/schema.ts) does not carry, so they stay
- * alphabetical.
+ * The rows a TA has to act on sort first: a team the platform has never run
+ * for, then a team that has run but never end to end, which is the team the
+ * design doc's Wednesday nudge is for (docs/design/the-instrument-not-the-judge.md).
+ * "Never run" is read from every hosted execution, not from the charged
+ * counts: a failure never adds to those, so a team whose runs all failed used
+ * to sort and read as one that had never started. Within a group the order is
+ * by name.
  */
 function triageOrder(teams: AdminTeamSummary[]): AdminTeamSummary[] {
-  return [...teams].sort((left, right) => {
-    const leftIdle = left.hostedRuns === 0;
-    const rightIdle = right.hostedRuns === 0;
-    if (leftIdle !== rightIdle) return leftIdle ? -1 : 1;
-    return left.name.localeCompare(right.name);
-  });
+  const group = (team: AdminTeamSummary) =>
+    team.hostedRuns === 0 ? 0 : team.firstLight === null ? 1 : 2;
+  return [...teams].sort(
+    (left, right) => group(left) - group(right) || left.name.localeCompare(right.name),
+  );
+}
+
+/**
+ * Benchmark id to title. The catalog lists every version, active ones first,
+ * so the first title seen for an id is its current one.
+ */
+function benchmarkTitles(catalog: { id: string; title: string }[]): (id: string) => string {
+  const titles = new Map<string, string>();
+  for (const benchmark of catalog) {
+    if (!titles.has(benchmark.id)) titles.set(benchmark.id, benchmark.title);
+  }
+  return (id) => titles.get(id) ?? id;
 }
 
 /* ── Enrollment: the join code, large enough to read off a projector ───── */
@@ -412,10 +433,12 @@ function TeamRow({
   team,
   canAssignTas,
   suggestions,
+  titleOf,
 }: {
   team: AdminTeamSummary;
   canAssignTas: boolean;
   suggestions: string[];
+  titleOf: (benchmarkId: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
@@ -461,38 +484,42 @@ function TeamRow({
             {team.repoFullName}
           </span>
         </span>
-        {/* The column a TA sweeps. A team the platform has never run for is
-            said in words, in ink, with the one attention mark on the row, so
-            forty rows resolve to the handful worth opening without reading a
-            single number. */}
+        {/* The column a TA sweeps. A team the platform has never run for, or
+            has never run end to end, is said in words, in ink, with the one
+            attention mark on the row, so forty rows resolve to the handful
+            worth opening without reading a single number. */}
         <span className="col-start-1 row-start-2 sm:col-start-2 sm:row-start-1 sm:max-w-[13.5rem] sm:text-right">
           {idle ? (
-            <span className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-ink">
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-detect" />
-              No hosted runs yet
-            </span>
+            <AttentionLine>No hosted runs yet</AttentionLine>
           ) : (
-            <span className="u-tnum text-[13.5px] text-ink-secondary">
-              {/* What ran, then what counted against quota: a failed run is
-                  activity a TA may need to open and never counts. Totals span
-                  benchmark versions, so a single version's quota is not a
-                  denominator. */}
-              {team.hostedRuns} hosted run{team.hostedRuns === 1 ? "" : "s"} ·{" "}
-              {counted === 0
-                ? "none counted"
-                : // Non-breaking, so a narrow row never leaves "counted" alone on a line.
-                  `${team.practiceUsed} practice and ${team.officialUsed}\u00a0official\u00a0counted`}
-              {/* Only when there are any. A team that keeps hitting real
-                  infrastructure trouble and a team whose submission provokes the
-                  same platform-side failure both show up here, and both are worth
-                  looking at; a "0 refunded" on every other row would bury that. */}
-              {team.refundsGiven > 0 ? (
-                <span title="Official attempts given back after a run failed on the platform's side.">
-                  {" · "}
-                  {team.refundsGiven} refunded
+            <>
+              {team.firstLight === null ? (
+                <span className="block">
+                  <AttentionLine>Not end to end yet</AttentionLine>
                 </span>
               ) : null}
-            </span>
+              <span className="u-tnum block text-[13.5px] text-ink-secondary">
+                {/* What ran, then what counted against quota: a failed run is
+                    activity a TA may need to open and never counts. Totals span
+                    benchmark versions, so a single version's quota is not a
+                    denominator. */}
+                {team.hostedRuns} hosted run{team.hostedRuns === 1 ? "" : "s"} ·{" "}
+                {counted === 0
+                  ? "none counted"
+                  : // Non-breaking, so a narrow row never leaves "counted" alone on a line.
+                    `${team.practiceUsed} practice and ${team.officialUsed}\u00a0official\u00a0counted`}
+                {/* Only when there are any. A team that keeps hitting real
+                    infrastructure trouble and a team whose submission provokes the
+                    same platform-side failure both show up here, and both are worth
+                    looking at; a "0 refunded" on every other row would bury that. */}
+                {team.refundsGiven > 0 ? (
+                  <span title="Official attempts given back after a run failed on the platform's side.">
+                    {" · "}
+                    {team.refundsGiven} refunded
+                  </span>
+                ) : null}
+              </span>
+            </>
           )}
         </span>
         <span className="col-start-1 row-start-3 truncate text-[13px] text-ink-faint sm:col-start-3 sm:row-start-1 sm:max-w-[8rem]">
@@ -512,6 +539,8 @@ function TeamRow({
         {open && (
           <div className="anim-reveal">
               <div className="grid gap-x-8 gap-y-6 border-t border-rule-soft px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-5">
+                <TeamRunState team={team} titleOf={titleOf} />
+
                 <div className="min-w-0">
                   <h3 className="u-label">Members</h3>
                   {team.members.length === 0 ? (
@@ -626,6 +655,92 @@ function TeamRow({
       </div>
     </li>
   );
+}
+
+/** A row's one attention mark: detector red, beside a state said in ink. */
+function AttentionLine({ children }: { children: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-ink">
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-detect" />
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Whether the team's code has run end to end, and where its last hosted run
+ * stopped, for staff who can't open the team's run pages. Everything here is a
+ * platform enum or a time: the phase label and the failure title and code are
+ * the platform's own words (PHASE_LABELS, FAILURE_CATALOG), never the team's
+ * failure detail or log.
+ */
+export function TeamRunState({
+  team,
+  titleOf,
+}: {
+  team: Pick<AdminTeamSummary, "firstLight" | "lastHostedRun">;
+  titleOf: (benchmarkId: string) => string;
+}) {
+  const { firstLight, lastHostedRun: last } = team;
+  return (
+    <div className="min-w-0 sm:col-span-2">
+      <h3 className="u-label">Run state</h3>
+      <p className="mt-1.5 max-w-[62ch] text-[14px] text-pretty text-ink">
+        {firstLight ? (
+          <>
+            First ran end to end on {titleOf(firstLight.benchmarkId)},{" "}
+            <time dateTime={new Date(firstLight.at).toISOString()} className="whitespace-nowrap">{formatDateTime(firstLight.at)}</time>.
+          </>
+        ) : (
+          "Hasn't run end to end yet."
+        )}
+      </p>
+      {last ? (
+        <p className="mt-1 max-w-[62ch] text-[14px] text-pretty text-ink">
+          {/* "Going now" is every status before a terminal one, queued
+              included: those are the statuses the database itself treats as an
+              active run (the one-active-run index on runs, migration 0015),
+              and the stale-run sweep (worker/execution/maintenance.ts) fails a
+              Modal run that stops reporting, so this can't claim a run is going
+              for longer than that sweep allows. */}
+          {!isTerminal(last.status) ? (
+            `A hosted run on ${titleOf(last.benchmarkId)} is going now.`
+          ) : (
+            <>
+              Last hosted run: {titleOf(last.benchmarkId)},{" "}
+              <time
+                dateTime={new Date(last.at).toISOString()}
+                title={formatDateTime(last.at)}
+                className="whitespace-nowrap"
+              >
+                {formatTimeAgo(last.at)}
+              </time>
+              , <LastRunOutcome run={last} />.
+            </>
+          )}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function LastRunOutcome({ run }: { run: NonNullable<AdminTeamSummary["lastHostedRun"]> }) {
+  if (run.status === "succeeded") return "scored";
+  if (run.status === "cancelled") return "cancelled";
+  // A failed run that recorded no phase or category has nothing more the
+  // platform can say about where it stopped.
+  if (!run.failure) return "failed";
+  const failure = FAILURE_CATALOG[run.failure.category];
+  return (
+    <>
+      stopped at {PHASE_LABELS[run.failure.phase]}: {lowerFirst(failure.title)} (
+      <span className="font-mono text-[13px] whitespace-nowrap">{failure.code}</span>)
+    </>
+  );
+}
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 /* ── Unassigned students: name, tenure, and a direct assignment ────────── */

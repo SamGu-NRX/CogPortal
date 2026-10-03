@@ -23,7 +23,8 @@ import {
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AdminPage } from "../src/routes/AdminPage.tsx";
+import { AdminPage, TeamRunState } from "../src/routes/AdminPage.tsx";
+import { formatDateTime } from "../src/lib/format.ts";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 // AdminPage reads a held device link from sessionStorage, which Node 24 (what
@@ -651,6 +652,8 @@ const TEAM = {
   officialUsed: 1,
   hostedRuns: 6,
   refundsGiven: 0,
+  firstLight: { benchmarkId: "test_vision", at: 1 },
+  lastHostedRun: { benchmarkId: "test_vision", at: 1, status: "succeeded", failure: null },
   published: null,
 };
 
@@ -697,8 +700,8 @@ test("staff with no assignments is not told the cohort is empty", () => {
 });
 
 test("a team whose runs all failed reads and sorts as one that ran, not one that never started", () => {
-  const never = { ...TEAM, id: "team_never", name: "Zeta never ran", practiceUsed: 0, officialUsed: 0, hostedRuns: 0 };
-  const failed = { ...TEAM, id: "team_failed", name: "Alpha all failed", practiceUsed: 0, officialUsed: 0, hostedRuns: 2 };
+  const never = { ...TEAM, id: "team_never", name: "Zeta never ran", practiceUsed: 0, officialUsed: 0, hostedRuns: 0, firstLight: null, lastHostedRun: null };
+  const failed = { ...TEAM, id: "team_failed", name: "Alpha all failed", practiceUsed: 0, officialUsed: 0, hostedRuns: 2, firstLight: null };
   const counted = { ...TEAM, id: "team_counted", name: "Beta counted", practiceUsed: 1, officialUsed: 0, hostedRuns: 1 };
   const html = renderAdmin(overviewFixture({ teams: [counted, failed, never] }));
 
@@ -707,6 +710,279 @@ test("a team whose runs all failed reads and sorts as one that ran, not one that
   assert.equal((html.match(/No hosted runs yet/g) ?? []).length, 1, "only the team that never ran says so");
   // Never-ran first, then the rest by name: the failed team is among those that ran.
   const order = ["Zeta never ran", "Alpha all failed", "Beta counted"].map((name) => html.indexOf(name));
+  assert.ok(order.every((position) => position >= 0));
+  assert.deepEqual([...order].sort((x, y) => x - y), order);
+});
+
+/**
+ * Run state for staff (an assigned TA, or an owner): whether the team has run
+ * end to end, and where its last hosted run stopped. The team's run pages are
+ * member-only because they hold the team's own text and numbers, so the
+ * server reads only platform enums and times for this, and these tests check
+ * that by planting a sentinel in every field that holds the team's text.
+ */
+
+const SENTINEL = "STUDENT-TEXT-7731";
+const MEASURED = "0.8731";
+
+function hostedRun(teamId: string, id: string, over: Partial<typeof runs.$inferInsert> = {}) {
+  return {
+    id, teamId, benchmarkId: "test_vision", benchmarkVersion: 1, contractVersion: "test-v1",
+    mode: "practice" as const, status: "succeeded" as const, branch: "main", sha: "a".repeat(40),
+    createdAt: 1_000, finishedAt: 1_100, ...over,
+  };
+}
+
+async function seedCatalog(h: ReturnType<typeof harness>) {
+  for (const [id, title] of [["test_vision", "Face recognition"], ["test_audio", "Audio identification"]] as const) {
+    await h.db.insert(benchmarks).values({
+      id, version: 1, title, contractVersion: "test-v1", entryPointName: id,
+      module: "vision", summary: "Test", active: true, primaryMetricKey: "accuracy",
+    });
+  }
+}
+
+test("the overview carries a run's phase and category and none of the team's own text or numbers", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  await h.seedTeam("team_a");
+  await seedCatalog(h);
+  const owner = await h.signIn(OWNER, null);
+  const ta = await h.signIn("tara", null);
+  await h.db.insert(teamTas).values({ teamId: "team_a", userId: await h.userId("tara"), assignedAt: 1 });
+  const theirs = `${SENTINEL} at /home/student/vision.py scored ${MEASURED}`;
+  await h.db.insert(runs).values([
+    hostedRun("team_a", "a_scored", {
+      createdAt: 1_000, finishedAt: 1_100,
+      diagnosticsJson: JSON.stringify([theirs]), sweepJson: JSON.stringify({ note: theirs, value: 0.8731 }),
+      wiringJson: JSON.stringify({ found: theirs }), log: theirs,
+    }),
+    hostedRun("team_a", "a_failed", {
+      status: "failed", createdAt: 2_000, finishedAt: 2_100,
+      failurePhase: "evaluating", failureCategory: "student_runtime",
+      failureDetail: theirs, refusalJson: JSON.stringify({ reason: theirs }),
+      diagnosticsJson: JSON.stringify([theirs]), log: theirs,
+    }),
+  ]);
+  await h.db.insert(runMetrics).values({
+    runId: "a_scored", key: "accuracy", label: "Accuracy", value: 0.8731,
+    higherIsBetter: true, isPrimary: true, precision: 4,
+  });
+
+  for (const [who, cookie] of [["owner", owner], ["TA", ta]] as const) {
+    const result = await h.call("GET", "/admin/overview", { cookie });
+    assert.equal(result.status, 200);
+    const team = result.body.teams[0];
+    // The enums arrive, so the absence below is not a missing field.
+    assert.deepEqual(team.lastHostedRun, {
+      benchmarkId: "test_vision", at: 2_100, status: "failed",
+      failure: { phase: "evaluating", category: "student_runtime" },
+    }, `${who}: last hosted run`);
+    assert.deepEqual(team.firstLight, { benchmarkId: "test_vision", at: 1_100 }, `${who}: first light`);
+    const serialized = JSON.stringify(result.body);
+    assert.ok(!serialized.includes(SENTINEL), `${who}: the team's own text reached the overview`);
+    assert.ok(!serialized.includes(MEASURED), `${who}: a measured number reached the overview`);
+    assert.ok(!serialized.includes("vision.py"), `${who}: the team's file path reached the overview`);
+  }
+});
+
+test("a TA's overview has run state for assigned teams only, and an unassigned team is absent", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  await h.seedTeam("team_mine");
+  await h.seedTeam("team_theirs");
+  await seedCatalog(h);
+  const owner = await h.signIn(OWNER, null);
+  const ta = await h.signIn("tara", null);
+  await h.db.insert(teamTas).values({ teamId: "team_mine", userId: await h.userId("tara"), assignedAt: 1 });
+  await h.db.insert(runs).values([
+    hostedRun("team_mine", "mine_scored"),
+    hostedRun("team_theirs", "theirs_failed", {
+      benchmarkId: "test_audio", status: "failed", createdAt: 5_000, finishedAt: 5_500,
+      failurePhase: "installing", failureCategory: "dependency_install",
+    }),
+  ]);
+
+  const mine = await h.call("GET", "/admin/overview", { cookie: ta });
+  assert.equal(mine.status, 200);
+  assert.deepEqual(
+    mine.body.teams.map((team: AdminOverview["teams"][number]) => ({
+      id: team.id, firstLight: team.firstLight, lastHostedRun: team.lastHostedRun,
+    })),
+    [{
+      id: "team_mine",
+      firstLight: { benchmarkId: "test_vision", at: 1_100 },
+      lastHostedRun: { benchmarkId: "test_vision", at: 1_100, status: "succeeded", failure: null },
+    }],
+  );
+  const serialized = JSON.stringify(mine.body);
+  for (const leaked of ["team_theirs", "test_audio", "dependency_install", "5500"]) {
+    assert.ok(!serialized.includes(leaked), `the unassigned team's ${leaked} reached the TA`);
+  }
+
+  // The owner reads the same fields for every team, so the TA's view above is
+  // the assignment filter at work and not a field that is never filled in.
+  const all = await h.call("GET", "/admin/overview", { cookie: owner });
+  const theirs = all.body.teams.find((team: AdminOverview["teams"][number]) => team.id === "team_theirs");
+  assert.deepEqual(theirs?.lastHostedRun, {
+    benchmarkId: "test_audio", at: 5_500, status: "failed",
+    failure: { phase: "installing", category: "dependency_install" },
+  });
+  assert.equal(theirs?.firstLight, null);
+});
+
+test("first light is the earliest finished success across benchmarks, and the last run is the latest started", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  for (const id of ["team_mixed", "team_running", "team_unrecorded", "team_never"]) await h.seedTeam(id);
+  await seedCatalog(h);
+  const owner = await h.signIn(OWNER, null);
+  await h.db.insert(runs).values([
+    hostedRun("team_mixed", "m_failed_first", {
+      status: "failed", createdAt: 100, finishedAt: 150,
+      failurePhase: "installing", failureCategory: "dependency_install",
+    }),
+    // Started before the audio success but finished after it: first light is
+    // when a run went end to end, so the audio run is first.
+    hostedRun("team_mixed", "m_vision_scored", { createdAt: 180, finishedAt: 300 }),
+    hostedRun("team_mixed", "m_audio_scored", { benchmarkId: "test_audio", createdAt: 200, finishedAt: 260 }),
+    // Finished last, but started before the failure below.
+    hostedRun("team_mixed", "m_cancelled", {
+      benchmarkId: "test_audio", status: "cancelled", createdAt: 350, finishedAt: 900,
+    }),
+    hostedRun("team_mixed", "m_failed_last", {
+      status: "failed", createdAt: 400, finishedAt: 420,
+      failurePhase: "contract_check", failureCategory: "adapter_missing",
+    }),
+    hostedRun("team_running", "r_failed", {
+      status: "failed", createdAt: 100, finishedAt: 120,
+      failurePhase: "scoring", failureCategory: "scorer",
+    }),
+    hostedRun("team_running", "r_evaluating", { status: "evaluating", createdAt: 500, finishedAt: null }),
+    // Failed with no phase or category recorded: nothing to say where.
+    hostedRun("team_unrecorded", "u_failed", { status: "failed", createdAt: 100, finishedAt: 130 }),
+  ]);
+
+  const result = await h.call("GET", "/admin/overview", { cookie: owner });
+  assert.equal(result.status, 200);
+  const state = Object.fromEntries(
+    (result.body as AdminOverview).teams.map((team) => [team.id, { firstLight: team.firstLight, lastHostedRun: team.lastHostedRun }]),
+  );
+  assert.deepEqual(state, {
+    team_mixed: {
+      firstLight: { benchmarkId: "test_audio", at: 260 },
+      lastHostedRun: {
+        benchmarkId: "test_vision", at: 420, status: "failed",
+        failure: { phase: "contract_check", category: "adapter_missing" },
+      },
+    },
+    team_running: {
+      firstLight: null,
+      lastHostedRun: { benchmarkId: "test_vision", at: 500, status: "evaluating", failure: null },
+    },
+    team_unrecorded: {
+      firstLight: null,
+      lastHostedRun: { benchmarkId: "test_vision", at: 130, status: "failed", failure: null },
+    },
+    team_never: { firstLight: null, lastHostedRun: null },
+  });
+});
+
+/** The text of each paragraph, tags removed: the times and the failure code
+ *  are wrapped in their own elements, and a reader sees one sentence. */
+function sentences(html: string): string[] {
+  const entities: Record<string, string> = { "&#x27;": "'", "&quot;": "\"", "&lt;": "<", "&gt;": ">", "&amp;": "&" };
+  return [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)].map((match) =>
+    match[1]!.replace(/<[^>]+>/g, "").replace(/&#x27;|&quot;|&lt;|&gt;|&amp;/g, (entity) => entities[entity]!));
+}
+
+function renderRunState(team: Pick<AdminOverview["teams"][number], "firstLight" | "lastHostedRun">): string[] {
+  const titles: Record<string, string> = { test_vision: "Face recognition", test_audio: "Audio identification" };
+  return sentences(renderToStaticMarkup(React.createElement(TeamRunState, {
+    team, titleOf: (id: string) => titles[id] ?? id,
+  })));
+}
+
+test("the run state says, in the platform's words, where each kind of team stands", () => {
+  const firstAt = Date.UTC(2026, 8, 29, 14, 5);
+  const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1_000;
+  const firstLight = { benchmarkId: "test_vision", at: firstAt };
+  const firstSentence = `First ran end to end on Face recognition, ${formatDateTime(firstAt)}.`;
+
+  assert.deepEqual(renderRunState({ firstLight: null, lastHostedRun: null }), ["Hasn't run end to end yet."]);
+  assert.deepEqual(
+    renderRunState({
+      firstLight: null,
+      lastHostedRun: {
+        benchmarkId: "test_audio", at: threeHoursAgo, status: "failed",
+        failure: { phase: "installing", category: "dependency_install" },
+      },
+    }),
+    [
+      "Hasn't run end to end yet.",
+      "Last hosted run: Audio identification, 3 h ago, stopped at Install: dependency installation failed (E-INSTALL).",
+    ],
+  );
+  assert.deepEqual(
+    renderRunState({
+      firstLight,
+      lastHostedRun: { benchmarkId: "test_vision", at: threeHoursAgo, status: "succeeded", failure: null },
+    }),
+    [firstSentence, "Last hosted run: Face recognition, 3 h ago, scored."],
+  );
+  // Queued is going too: it is one of the statuses the database counts as an
+  // active run. A benchmark the catalog doesn't list is named by its id.
+  for (const status of ["queued", "evaluating"] as const) {
+    assert.deepEqual(
+      renderRunState({
+        firstLight,
+        lastHostedRun: { benchmarkId: "test_unlisted", at: threeHoursAgo, status, failure: null },
+      }),
+      [firstSentence, "A hosted run on test_unlisted is going now."],
+      status,
+    );
+  }
+  assert.deepEqual(
+    renderRunState({
+      firstLight,
+      lastHostedRun: { benchmarkId: "test_vision", at: threeHoursAgo, status: "cancelled", failure: null },
+    })[1],
+    "Last hosted run: Face recognition, 3 h ago, cancelled.",
+  );
+});
+
+test("only teams that haven't run end to end carry the attention mark, and they sort first", () => {
+  const ran = { benchmarkId: "test_vision", at: 1, status: "succeeded" as const, failure: null };
+  const teams = [
+    { ...TEAM, id: "t_scored", name: "Alpha scored", lastHostedRun: ran },
+    { ...TEAM, id: "t_going", name: "Beta going", lastHostedRun: { ...ran, status: "evaluating" as const } },
+    {
+      ...TEAM, id: "t_not_yet", name: "Gamma not yet", practiceUsed: 0, officialUsed: 0, hostedRuns: 2, firstLight: null,
+      lastHostedRun: { ...ran, status: "failed" as const, failure: { phase: "contract_check" as const, category: "adapter_missing" as const } },
+    },
+    { ...TEAM, id: "t_never", name: "Zeta never", practiceUsed: 0, officialUsed: 0, hostedRuns: 0, firstLight: null, lastHostedRun: null },
+  ];
+  const html = renderAdmin(overviewFixture({ scope: "ta", teams }));
+  const rows = html.split("<li").slice(1);
+  const rowFor = (name: string) => {
+    const row = rows.find((candidate) => candidate.includes(`>${name}<`));
+    assert.ok(row, `no row for ${name}`);
+    return row;
+  };
+  const marked = (row: string) => (row.match(/rounded-full bg-detect/g) ?? []).length;
+
+  assert.equal(marked(rowFor("Zeta never")), 1);
+  assert.match(rowFor("Zeta never"), /No hosted runs yet/);
+  assert.equal(marked(rowFor("Gamma not yet")), 1);
+  assert.match(rowFor("Gamma not yet"), /Not end to end yet/);
+  // The counts stay beneath it, so a TA still sees that the team ran.
+  assert.match(rowFor("Gamma not yet"), /Not end to end yet<\/span><\/span><span class="[^"]*text-ink-secondary[^"]*">2 hosted runs · none counted</);
+  for (const name of ["Alpha scored", "Beta going"]) {
+    assert.equal(marked(rowFor(name)), 0, `${name} is marked`);
+    assert.doesNotMatch(rowFor(name), /Not end to end yet|No hosted runs yet/);
+  }
+
+  const order = ["Zeta never", "Gamma not yet", "Alpha scored", "Beta going"].map((name) => html.indexOf(`>${name}<`));
   assert.ok(order.every((position) => position >= 0));
   assert.deepEqual([...order].sort((x, y) => x - y), order);
 });

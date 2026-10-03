@@ -21,8 +21,14 @@ function team(id: string, name: string): AdminTeamSummary {
     id, name, provenance: "live", repoFullName: `demo/${id}`,
     members: [{ login: `${id}-admin`, name: null, role: "admin" }], tas: [],
     practiceUsed: 0, officialUsed: 0, hostedRuns: 0, refundsGiven: 0, published: null,
+    firstLight: null, lastHostedRun: null,
   };
 }
+
+const CATALOG = [{
+  id: "test_vision", version: 1, contractVersion: "test-v1", entryPointName: "test_vision", title: "Face recognition",
+  module: "vision", summary: "Test", active: true, pluginVersion: "1", datasetVersion: "1", scorerVersion: "1", runtimeVersion: "python-3.8",
+}];
 
 async function mount(t: TestContext, unassigned: string[], addGate: Promise<void> = Promise.resolve()) {
   const requests: string[] = [];
@@ -60,6 +66,7 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
       if (input === "/api/admin/overview") return Response.json(overview);
       if (input === "/api/admin/staff") return Response.json(staff);
       if (input.startsWith("/api/leaderboard")) return Response.json([]);
+      if (input === "/api/benchmarks") return Response.json(CATALOG);
       throw new Error(`unexpected request ${init.method ?? "GET"} ${input}`);
     },
   };
@@ -269,4 +276,34 @@ test("a login form keeps focus in its field after the login is added", async (t)
   assert.equal(field.value, "");
   assert.equal(submit.disabled, true, "an empty field still can't be submitted");
   assertFocused(window.document.activeElement, field, "focus");
+});
+
+test("an opened team row leads with its run state, named from the catalog", async (t) => {
+  const { container, settle, client } = await mount(t, []);
+  await act(async () => {
+    client.setQueryData<AdminOverview>(["admin", "overview"], (current) => current && {
+      ...current,
+      teams: current.teams.map((entry) => entry.id === "team_b"
+        ? {
+            ...entry, hostedRuns: 1,
+            lastHostedRun: {
+              benchmarkId: "test_vision", at: Date.now() - 3 * 60 * 60 * 1_000, status: "failed",
+              failure: { phase: "contract_check", category: "adapter_missing" },
+            },
+          }
+        : entry),
+    });
+  });
+  // The catalog request the page makes for titles.
+  await settle();
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+    .find((button) => button.textContent?.includes("Team B"));
+  assert.ok(toggle, "Team B's row");
+  await act(async () => { toggle.click(); });
+  const details = container.querySelector(`#${toggle.getAttribute("aria-controls")}`);
+  const headings = [...(details?.querySelectorAll("h3") ?? [])].map((heading) => heading.textContent);
+  assert.deepEqual(headings.slice(0, 2), ["Run state", "Members"]);
+  const text = details?.textContent ?? "";
+  assert.match(text, /Hasn't run end to end yet\./);
+  assert.match(text, /Last hosted run: Face recognition, 3 h ago, stopped at Contract check: nothing here could be scored \(E-ADAPTER\)\./);
 });
