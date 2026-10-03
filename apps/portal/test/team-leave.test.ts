@@ -19,6 +19,7 @@ import { handleError } from "../worker/http/errors.ts";
 import { registerLocalReportRoutes } from "../worker/routes/local-reports.ts";
 import { LEFT_RUN_TEAM, registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
 import { registerTeamMembershipRoutes } from "../worker/routes/team-membership.ts";
+import { getTeamDetail } from "../worker/routes/team.ts";
 import { getLatestTeamWeights } from "../worker/services/local-reports.ts";
 import { sha256Hex } from "../worker/util/crypto.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
@@ -471,4 +472,18 @@ test("after moving to a team on the same repository, the old team's run reports 
     { weightsUsed: [], weightsUploaded: null },
   );
   assert.equal(h.rows("local_run_sessions")[0].team_id, "team_a", "the run stays team A's history");
+});
+
+test("the reader's own row is marked by user id, not by the login shown", async (t) => {
+  // A development account shows its email prefix, so it can read "ada"
+  // beside the GitHub account ada (displayLogin in routes/team.ts).
+  const h = await harness(t);
+  await h.db.insert(users).values({
+    id: "user_dev_ada", email: "ada@dev.local", emailVerified: true, name: "Ada (dev)", githubLogin: null,
+    cohortId: "cohort_test", createdAt: new Date(NOW), updatedAt: new Date(NOW),
+  });
+  await h.db.insert(teamMembers).values({ teamId: "team_a", userId: "user_dev_ada", role: "write" });
+  const detail = await getTeamDetail(h.db, "team_a", h.userId);
+  assert.deepEqual(detail.members.map((m) => [m.login, m.isYou]).sort(), [["ada", false], ["ada", true]]);
+  assert.equal(detail.members.find((m) => m.isYou)?.role, "admin", "the marked row is the caller's own membership");
 });

@@ -35,12 +35,12 @@ function sessionFor(onTeam: boolean) {
   };
 }
 
-function teamDetail(members: number) {
+function teamDetail(members: number, teammateLogin = "teammate") {
   return {
     ...sessionFor(true).team,
     members: [
-      { login: "student", name: null, avatarUrl: null, role: "write" },
-      ...(members > 1 ? [{ login: "teammate", name: null, avatarUrl: null, role: "admin" }] : []),
+      { login: "student", name: null, avatarUrl: null, role: "write", isYou: true },
+      ...(members > 1 ? [{ login: teammateLogin, name: null, avatarUrl: null, role: "admin", isYou: false }] : []),
     ],
     tas: [],
     isAdmin: false,
@@ -50,14 +50,14 @@ function teamDetail(members: number) {
 /** Stands in for the worker. Requests the test does not care about answer
  *  404 in the API's own error shape, so a panel that wants them renders its
  *  error rather than throwing. */
-function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean }) {
+function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string }) {
   let onTeam = true;
   const leaves: unknown[] = [];
   let release = () => {};
   const fetch = async (input: string, init?: RequestInit) => {
     const path = new URL(input, "https://portal.example").pathname;
     if (path === "/api/session") return Response.json(sessionFor(onTeam));
-    if (path === "/api/team" && onTeam) return Response.json(teamDetail(options.members));
+    if (path === "/api/team" && onTeam) return Response.json(teamDetail(options.members, options.teammateLogin));
     if (path === "/api/team/leave") {
       leaves.push(JSON.parse(String(init?.body)));
       onTeam = false;
@@ -73,7 +73,7 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
   return { fetch, leaves, release: () => release() };
 }
 
-async function mount(t: TestContext, options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean }) {
+async function mount(t: TestContext, options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string }) {
   const server = portal(options);
   const window = new Window({ url: "https://portal.example/team" });
   const globals: Record<string, unknown> = {
@@ -207,4 +207,21 @@ test("a refetch that reaches /connect before the leave answers still shows the n
   await act(async () => server.release());
   await flush();
   assert.match(leftNotice()?.textContent ?? "", /^You left Vision Squad/);
+});
+
+test("when a teammate shows the same login, only the reader's own row offers Leave", async (t) => {
+  // Two accounts can display one login (a development account beside a GitHub
+  // one); the row is chosen by the server's isYou, not by comparing logins.
+  const { container, flush } = await mount(t, { members: 2, teammateLogin: "student" });
+  const rows = [...container.querySelectorAll("li")].filter((row) => /student/.test(row.textContent ?? ""));
+  assert.equal(rows.length, 2);
+  const withLeave = rows.filter((row) => [...row.querySelectorAll("button")].some((b) => b.textContent?.startsWith("Leave")));
+  assert.equal(withLeave.length, 1, "Leave appeared on more than the reader's row");
+  const saysYou = (row: Element) => [...row.querySelectorAll("span")].some((span) => span.textContent === "you");
+  assert.ok(saysYou(withLeave[0]), "the row with Leave is not the one marked as the reader");
+  assert.equal(rows.filter(saysYou).length, 1, "more than one row says you");
+  const leave = [...withLeave[0].querySelectorAll("button")].find((b) => b.textContent?.startsWith("Leave"))!;
+  await act(async () => leave.click());
+  await flush();
+  assert.equal(container.querySelectorAll("li [role=status]").length, 1, "the consequence showed under more than one row");
 });
