@@ -17,7 +17,7 @@ import {
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerLocalReportRoutes } from "../worker/routes/local-reports.ts";
-import { LEFT_RUN_TEAM, registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
+import { LEFT_RUN_TEAM, REPORT_ID_FROZEN, registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
 import { registerTeamMembershipRoutes } from "../worker/routes/team-membership.ts";
 import { getTeamDetail } from "../worker/routes/team.ts";
 import { getLatestTeamWeights } from "../worker/services/local-reports.ts";
@@ -41,9 +41,16 @@ function freshDb() {
     .filter((name) => !/^(0002_seed|0016_backfill)/.test(name))) {
     sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
   }
-  const race: { beforeBatch?: () => void } = {};
+  const race: { beforeBatch?: () => void; beforeQuery?: { matching: RegExp; run: () => void } } = {};
   const binding = {
     prepare(query: string) {
+      // Something can commit after the request's earlier reads but before
+      // this one; the test names the statement it lands in front of.
+      const hook = race.beforeQuery;
+      if (hook && hook.matching.test(query)) {
+        delete race.beforeQuery;
+        hook.run();
+      }
       const statement = sqlite.prepare(query);
       let bound: SQLInputValue[] = [];
       const prepared = {
@@ -131,6 +138,13 @@ async function harness(t: TestContext) {
     createdAt: NOW, expiresAt: Date.now() + 86_400_000,
   });
 
+  // An accepted event publishes its console in the background.
+  const background: Promise<unknown>[] = [];
+  const executionCtx = {
+    waitUntil: (work: Promise<unknown>) => { background.push(work); },
+    passThroughOnException: () => {},
+    props: {},
+  } as unknown as ExecutionContext;
   async function call(method: string, path: string, options: {
     cookie?: string; device?: boolean; body?: unknown;
   } = {}) {
@@ -142,7 +156,7 @@ async function harness(t: TestContext) {
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    }), env);
+    }), env, executionCtx);
     return { status: response.status, body: await response.json() as unknown };
   }
   const leave = (teamId = "team_a") => call("POST", "/team/leave", { cookie, body: { teamId } });
@@ -487,3 +501,136 @@ test("the reader's own row is marked by user id, not by the login shown", async 
   assert.deepEqual(detail.members.map((m) => [m.login, m.isYou]).sort(), [["ada", false], ["ada", true]]);
   assert.equal(detail.members.find((m) => m.isYou)?.role, "admin", "the marked row is the caller's own membership");
 });
+
+for (const transport of ["single", "batch"] as const) {
+  test(`a ${transport} completed event racing a leave saves no report, so none can follow its author`, async (t) => {
+    // The report used to be saved before the guarded batch. A leave in that
+    // gap left a saved report no run pointed at, which then read as personal
+    // and could follow its author into another team on the same repository.
+    const h = await harness(t);
+    await h.seedSession();
+    let raced = false;
+    h.race.beforeBatch = () => {
+      h.sqlite.prepare("DELETE FROM team_members WHERE team_id = ? AND user_id = ?").run("team_a", h.userId);
+      raced = true;
+    };
+    const result = await h.call("POST", `/v1/local-runs/${SESSION}/events${transport === "batch" ? "/batch" : ""}`, {
+      device: true, body: transport === "batch" ? { events: [event("completed")] } : event("completed"),
+    });
+    assert.equal(raced, true, "the request must reach the guarded batch");
+    assert.deepEqual(result, { status: 403, body: { error: { code: "forbidden", message: LEFT_RUN_TEAM } } });
+    assert.deepEqual(h.rows("local_reports"), [], "a report was saved for a run that was not recorded");
+    assert.equal(h.rows("local_run_sessions")[0].status, "running");
+    assert.equal(h.rows("local_run_sessions")[0].report_id, null);
+    assert.deepEqual(h.rows("run_stream_events"), []);
+    assert.deepEqual(h.hubs.requests, []);
+  });
+
+  test(`a ${transport} completed event from a member saves its report and links it to the run`, async (t) => {
+    const h = await harness(t);
+    await h.seedSession();
+    const result = await h.call("POST", `/v1/local-runs/${SESSION}/events${transport === "batch" ? "/batch" : ""}`, {
+      device: true, body: transport === "batch" ? { events: [event("completed")] } : event("completed"),
+    });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    const [saved] = h.rows("local_reports");
+    assert.equal(saved?.report_id, "report_team_leave");
+    assert.equal(saved?.user_id, h.userId);
+    const [session] = h.rows("local_run_sessions");
+    assert.deepEqual([session.status, session.report_id], ["succeeded", "report_team_leave"]);
+    assert.equal(h.rows("run_stream_events").length, 1);
+  });
+}
+
+test("a repeated start answers only while its sender is still on the run's team", async (t) => {
+  // The CLI repeats a start whose answer it lost. That replay skips the
+  // guarded batch, so it once reported an old team's run as started after its
+  // sender had moved, and every event after it was refused.
+  const h = await harness(t);
+  await h.seedSession();
+  // A start answers with a well-formed console id; the shared seed's is not.
+  const surface = `surface_${"a".repeat(20)}`;
+  h.sqlite.prepare("UPDATE run_surfaces SET id = ? WHERE id = 'surface_test'").run(surface);
+  h.sqlite.prepare("UPDATE local_run_sessions SET surface_id = ? WHERE id = ?").run(surface, SESSION);
+  await h.db.insert(teams).values({
+    id: "team_b", cohortId: "cohort_test", name: "Difference Engines",
+    repoOwner: "synthetic", repoName: "team-b", repoFullName: "synthetic/team-b",
+    repoUrl: "https://github.com/synthetic/team-b", defaultBranch: "main", discordChannelId: "channel_b",
+  });
+  const replay = () => h.call("POST", "/v1/local-runs", { device: true, body: {
+    clientRunId: SESSION, benchmarkId: BENCHMARK, benchmarkVersion: 1,
+    repositoryId: null, repositoryFullName: FIXTURE_REPO.fullName,
+    sha: SHA, branch: "main", dirty: false,
+  } });
+
+  // Still on team A: the same session comes back.
+  const same = await replay();
+  assert.equal(same.status, 200);
+  assert.equal((same.body as { sessionId: string }).sessionId, SESSION);
+
+  // The move commits after the membership read, before the existing session
+  // is looked up.
+  let moved = false;
+  h.race.beforeQuery = {
+    matching: /from "local_run_sessions" where "local_run_sessions"\."id" = \?/,
+    run: () => {
+      h.sqlite.prepare("DELETE FROM team_members WHERE team_id = ? AND user_id = ?").run("team_a", h.userId);
+      h.sqlite.prepare("INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'write')").run("team_b", h.userId);
+      moved = true;
+    },
+  };
+  const before = { sessions: h.rows("local_run_sessions"), surfaces: h.rows("run_surfaces") };
+  const result = await replay();
+  assert.equal(moved, true, "the move must land after the membership read");
+  assert.deepEqual(result, { status: 409, body: { error: {
+    code: "forbidden",
+    message: "You moved to Difference Engines after this run was started for your old team, so the portal won't continue it. Run the command again.",
+  } } });
+  assert.deepEqual({ sessions: h.rows("local_run_sessions"), surfaces: h.rows("run_surfaces") }, before, "the old run moved or changed");
+});
+
+for (const transport of ["single", "batch"] as const) {
+  test(`a ${transport} completed event reusing a report id frozen by a left team finishes nothing`, async (t) => {
+    // The old report row is the author's, so its mere existence once admitted
+    // team B's completion while the frozen update kept team A's numbers.
+    const h = await harness(t);
+    await h.seedSession();
+    const path = `/v1/local-runs/${SESSION}/events${transport === "batch" ? "/batch" : ""}`;
+    const done = await h.call("POST", path, { device: true, body: transport === "batch" ? { events: [event("completed")] } : event("completed") });
+    assert.equal(done.status, 200);
+    const frozenRow = h.rows("local_reports");
+    assert.equal(frozenRow.length, 1);
+
+    assert.equal((await h.leave()).status, 200);
+    await h.joinB();
+    const sessionB = `localrun_${"c".repeat(32)}`;
+    await h.db.insert(runSurfaces).values({
+      id: "surface_team_b", teamId: "team_b", createdByUserId: h.userId,
+      benchmarkId: BENCHMARK, benchmarkVersion: 1, localRunId: sessionB,
+      discordChannelId: "channel_b", createdAt: NOW, updatedAt: NOW,
+    });
+    await h.db.insert(localRunSessions).values({
+      id: sessionB, teamId: "team_b", userId: h.userId, deviceId: "device_test",
+      benchmarkId: BENCHMARK, benchmarkVersion: 1, repositoryId: null,
+      repositoryFullName: "synthetic/team-b", sha: "c".repeat(40), branch: "main", dirty: false,
+      status: "running", phase: "evaluating", lastEventSequence: 0,
+      reportId: null, surfaceId: "surface_team_b", createdAt: NOW, updatedAt: NOW,
+    });
+    const reused = LocalReportInputSchema.parse({
+      ...report("report_team_leave", 0.12),
+      repositoryId: null, repositoryFullName: "synthetic/team-b", sha: "c".repeat(40),
+    });
+    const completedB: LocalRunEvent = { eventId: "localevent_team_b_completed", sequence: 1, occurredAt: NOW + 2_000, type: "completed", report: reused };
+    const publishesBefore = h.hubs.requests.length;
+    const streamBefore = h.rows("run_stream_events");
+    const result = await h.call("POST", `/v1/local-runs/${sessionB}/events${transport === "batch" ? "/batch" : ""}`, {
+      device: true, body: transport === "batch" ? { events: [completedB] } : completedB,
+    });
+    assert.deepEqual(result, { status: 409, body: { error: { code: "forbidden", message: REPORT_ID_FROZEN } } });
+    const [b] = h.rows("local_run_sessions").filter((row) => row.id === sessionB);
+    assert.deepEqual([b.status, b.report_id, b.last_event_sequence], ["running", null, 0]);
+    assert.deepEqual(h.rows("run_stream_events"), streamBefore, "team B's console got a stream event");
+    assert.equal(h.hubs.requests.length, publishesBefore, "team B's console was published");
+    assert.deepEqual(h.rows("local_reports"), frozenRow, "team A's report changed");
+  });
+}

@@ -15,6 +15,7 @@ import { RemoveButton } from "@/components/RemoveButton";
 import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
+  LeftButNotRefreshed,
   useChangeTeamRepo,
   useLeaveTeam,
   useRemoveTeamMember,
@@ -441,35 +442,53 @@ function PeopleSection({ team }: { team: TeamDetail }) {
  */
 function LeaveTeam({ team, onArmedChange }: { team: TeamDetail; onArmedChange: (armed: boolean) => void }) {
   const leave = useLeaveTeam();
+  // The control keeps its column; a failure takes its own row under the name,
+  // as the armed consequence does. In the control column it squeezed the
+  // reader's name to nothing on a phone.
+  const failure = leave.error instanceof LeftButNotRefreshed
+    ? leave.error.message
+    : leave.error instanceof ApiRequestError
+      ? leave.error.message
+      : leave.error
+        ? "We couldn't confirm whether you left. Leaving again is safe; if you'd already left, it will say so."
+        : null;
   return (
-    <span className="flex shrink-0 flex-col items-end">
-      <RemoveButton
-        label="Leave"
-        armedLabel="Confirm, you leave"
-        busyLabel="Leaving…"
-        subject={`team ${team.name}`}
-        armedSubject={team.name}
-        busy={leave.isPending}
-        onArmedChange={onArmedChange}
-        onConfirm={() => leave.mutate({ teamId: team.id, teamName: team.name })}
-      />
-      {leave.error && (
-        <span role="alert" className="max-w-[16rem] text-right text-[12.5px] text-detect-deep">
-          {leave.error instanceof ApiRequestError
-            ? leave.error.message
-            : "We couldn't confirm whether you left. Leaving again is safe; if you'd already left, it will say so."}
-        </span>
+    <>
+      <span className="shrink-0">
+        <RemoveButton
+          label="Leave"
+          armedLabel="Confirm, you leave"
+          busyLabel="Leaving…"
+          subject={`team ${team.name}`}
+          armedSubject={team.name}
+          busy={leave.isPending}
+          onArmedChange={onArmedChange}
+          onConfirm={() => leave.mutate({ teamId: team.id, teamName: team.name })}
+        />
+      </span>
+      {failure && (
+        <div role="alert" className={`${ROW_NOTE} text-detect-deep`}>
+          <p>{failure}</p>
+          {leave.error instanceof LeftButNotRefreshed && (
+            <Button variant="ghost" className="mt-2" onClick={() => window.location.reload()}>
+              Reload page
+            </Button>
+          )}
+        </div>
       )}
-    </span>
+    </>
   );
 }
+
+/** A line under a member's row, aligned with their name. */
+const ROW_NOTE = "basis-full max-w-[calc(60ch+36px+0.875rem)] pl-[calc(36px+0.875rem)] text-[13.5px] leading-[1.5]";
 
 /** Each sentence is a server fact: the delete touches one team_members row
  *  (routes/team-membership.ts), and team report lists are built from the
  *  current roster (services/local-reports.ts). */
 function LeaveConsequence({ lastMember }: { lastMember: boolean }) {
   return (
-    <p role="status" className="basis-full max-w-[calc(60ch+36px+0.875rem)] pl-[calc(36px+0.875rem)] text-[13.5px] leading-[1.5] text-ink-secondary">
+    <p role="status" className={`${ROW_NOTE} text-ink-secondary`}>
       {lastMember
         ? "You're the last member, so the team will be empty. It keeps its repository, runs and results, and anyone with write access on GitHub can join it again."
         : "Only you come off the team; its hosted runs, attempts and published results stay. Your local reports leave its list with you, and your GitHub access doesn't change."}
