@@ -626,3 +626,47 @@ test("a GitHub answer that arrives after the caller moved teams changes neither 
   const names = (await h.db.select().from(teams)).map((team) => team.name).sort();
   assert.deepEqual(names, ["Original team", OTHER_TEAM_NAME]);
 });
+
+/*
+ * POST /team/repository asks GitHub about the destination after its gate. A
+ * leave or a demotion landing during that wait once still moved the team and
+ * reset everyone else's role; the writes now require the actor to be an admin
+ * when they run (actorIsTeamAdmin), and change nothing otherwise.
+ */
+const AUTHORITY_LOST = "You're no longer an admin of this team, so nothing was changed. Reload to see where you stand.";
+
+for (const change of ["leaves the team", "is demoted to write"] as const) {
+  test(`a repository change whose actor ${change} while GitHub answers moves nothing`, async (t) => {
+    const h = await harness(t);
+    const github = mockGithub(t);
+    const actor = await h.signIn("Ada");
+    const teammate = await h.signIn("Grace");
+    await seedTeam(h, actor, "admin");
+    await h.db.insert(teamMembers).values({ teamId: "team_test", userId: teammate.userId, role: "maintain" });
+    github.set(actor, CURRENT_REPO, "admin");
+    github.set(actor, DESTINATION_REPO, "admin");
+    let asked!: () => void;
+    const destinationAsked = new Promise<void>((resolve) => { asked = resolve; });
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    github.holdPermission(async (_login, repo) => {
+      if (repo !== DESTINATION_REPO) return;
+      asked();
+      await answered;
+    });
+    const before = await onlyTeam(h);
+    const pending = h.call(actor, "POST", "/team/repository", { teamId: "team_test", fullName: DESTINATION_REPO });
+    await destinationAsked;
+    if (change === "leaves the team") {
+      await h.db.delete(teamMembers).where(eq(teamMembers.userId, actor.userId));
+    } else {
+      await h.db.update(teamMembers).set({ role: "write" }).where(eq(teamMembers.userId, actor.userId));
+    }
+    answer();
+    const result = await pending;
+    assert.equal(result.status, 403);
+    assert.deepEqual(result.body.error, { code: "forbidden", message: AUTHORITY_LOST });
+    assert.deepEqual(await onlyTeam(h), before, "the repository moved");
+    assert.equal((await membership(h, teammate)).role, "maintain", "the remaining member's role was reset");
+  });
+}
