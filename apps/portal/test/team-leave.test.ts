@@ -131,6 +131,13 @@ async function harness(t: TestContext) {
     createdAt: NOW, expiresAt: Date.now() + 86_400_000,
   });
 
+  // An accepted event publishes its console in the background.
+  const background: Promise<unknown>[] = [];
+  const executionCtx = {
+    waitUntil: (work: Promise<unknown>) => { background.push(work); },
+    passThroughOnException: () => {},
+    props: {},
+  } as unknown as ExecutionContext;
   async function call(method: string, path: string, options: {
     cookie?: string; device?: boolean; body?: unknown;
   } = {}) {
@@ -142,7 +149,7 @@ async function harness(t: TestContext) {
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    }), env);
+    }), env, executionCtx);
     return { status: response.status, body: await response.json() as unknown };
   }
   const leave = (teamId = "team_a") => call("POST", "/team/leave", { cookie, body: { teamId } });
@@ -487,3 +494,43 @@ test("the reader's own row is marked by user id, not by the login shown", async 
   assert.deepEqual(detail.members.map((m) => [m.login, m.isYou]).sort(), [["ada", false], ["ada", true]]);
   assert.equal(detail.members.find((m) => m.isYou)?.role, "admin", "the marked row is the caller's own membership");
 });
+
+for (const transport of ["single", "batch"] as const) {
+  test(`a ${transport} completed event racing a leave saves no report, so none can follow its author`, async (t) => {
+    // The report used to be saved before the guarded batch. A leave in that
+    // gap left a saved report no run pointed at, which then read as personal
+    // and could follow its author into another team on the same repository.
+    const h = await harness(t);
+    await h.seedSession();
+    let raced = false;
+    h.race.beforeBatch = () => {
+      h.sqlite.prepare("DELETE FROM team_members WHERE team_id = ? AND user_id = ?").run("team_a", h.userId);
+      raced = true;
+    };
+    const result = await h.call("POST", `/v1/local-runs/${SESSION}/events${transport === "batch" ? "/batch" : ""}`, {
+      device: true, body: transport === "batch" ? { events: [event("completed")] } : event("completed"),
+    });
+    assert.equal(raced, true, "the request must reach the guarded batch");
+    assert.deepEqual(result, { status: 403, body: { error: { code: "forbidden", message: LEFT_RUN_TEAM } } });
+    assert.deepEqual(h.rows("local_reports"), [], "a report was saved for a run that was not recorded");
+    assert.equal(h.rows("local_run_sessions")[0].status, "running");
+    assert.equal(h.rows("local_run_sessions")[0].report_id, null);
+    assert.deepEqual(h.rows("run_stream_events"), []);
+    assert.deepEqual(h.hubs.requests, []);
+  });
+
+  test(`a ${transport} completed event from a member saves its report and links it to the run`, async (t) => {
+    const h = await harness(t);
+    await h.seedSession();
+    const result = await h.call("POST", `/v1/local-runs/${SESSION}/events${transport === "batch" ? "/batch" : ""}`, {
+      device: true, body: transport === "batch" ? { events: [event("completed")] } : event("completed"),
+    });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    const [saved] = h.rows("local_reports");
+    assert.equal(saved?.report_id, "report_team_leave");
+    assert.equal(saved?.user_id, h.userId);
+    const [session] = h.rows("local_run_sessions");
+    assert.deepEqual([session.status, session.report_id], ["succeeded", "report_team_leave"]);
+    assert.equal(h.rows("run_stream_events").length, 1);
+  });
+}

@@ -26,7 +26,7 @@ import {
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
-import { upsertLocalReport } from "../services/local-reports";
+import { guardedLocalReportSave, localReportRow, reportSavedBy } from "../services/local-reports";
 import { syncRunSurfaceMessage } from "../services/discord-messages";
 import {
   defaultLocalEventCode,
@@ -149,6 +149,7 @@ async function acceptLocalRunEvent(
   let phase: LocalRunPhase = current.phase as LocalRunPhase;
   let code: RunStreamEventCode;
   let nextValues: Partial<typeof localRunSessions.$inferInsert>;
+  let report: ReturnType<typeof localReportRow> | null = null;
   if (event.type === "progress") {
     const phaseOrder: LocalRunPhase[] = ["preparing", "contract_check", "evaluating", "scoring"];
     if (phaseOrder.indexOf(event.phase) < phaseOrder.indexOf(current.phase as LocalRunPhase)) {
@@ -158,19 +159,16 @@ async function acceptLocalRunEvent(
     code = sharedProgressCode(event.code, event.phase);
     nextValues = { phase, lastEventSequence: event.sequence, updatedAt: receivedAt };
   } else if (event.type === "completed") {
-    const report = event.report;
+    const sent = event.report;
     if (
-      report.benchmarkId !== current.benchmarkId ||
-      report.benchmarkVersion !== current.benchmarkVersion ||
-      report.repositoryFullName?.toLowerCase() !== current.repositoryFullName.toLowerCase() ||
-      report.sha !== current.sha
+      sent.benchmarkId !== current.benchmarkId ||
+      sent.benchmarkVersion !== current.benchmarkVersion ||
+      sent.repositoryFullName?.toLowerCase() !== current.repositoryFullName.toLowerCase() ||
+      sent.sha !== current.sha
     ) {
       throw new ApiHttpError(409, "invalid_request", "The completed report does not match this live run.");
     }
-    // Saved before the batch below, not inside it. The save is idempotent for
-    // its owner, so if the batch fails the report stays saved and the CLI's
-    // retry saves it again; the session is what records the run as finished.
-    await upsertLocalReport(env, device.userId, report);
+    report = localReportRow(device.userId, event.report);
     phase = "scoring";
     code = "run.completed";
     nextValues = {
@@ -199,31 +197,45 @@ async function acceptLocalRunEvent(
   // showed it. Both statements carry the same admission condition, and nothing
   // runs between them inside the batch, so the event is written exactly when
   // this request's update applies. A request that lost the race writes neither.
+  //
+  // A completed event's report is saved in the same batch, under the same
+  // condition, and the event and session then also require the saved row: the
+  // report exists exactly when the run is recorded as finished for its team.
   const admitted = and(
     eq(localRunSessions.id, current.id),
     eq(localRunSessions.status, "running"),
     lt(localRunSessions.lastEventSequence, event.sequence),
     onTeam(db, current.teamId, device.userId),
   );
-  const [, updated] = await db.batch([
-    guardedRunStreamEventInsert(
+  const reportSave = report
+    ? await guardedLocalReportSave(
       db,
-      surfaceId,
-      {
-        eventId: event.eventId,
-        source: "local",
-        sourceRunId: current.id,
-        sourceSequence: event.sequence,
-        phase,
-        code,
-        occurredAt: event.occurredAt,
-        elapsedMs,
-        progress: event.type === "progress" ? (event.progress ?? null) : null,
-      },
+      report,
       exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(admitted)),
-    ),
-    db.update(localRunSessions).set(nextValues).where(admitted),
-  ]);
+    )
+    : null;
+  const accepted = report ? and(admitted, reportSavedBy(db, report.reportId, device.userId)) : admitted;
+  const eventInsert = guardedRunStreamEventInsert(
+    db,
+    surfaceId,
+    {
+      eventId: event.eventId,
+      source: "local",
+      sourceRunId: current.id,
+      sourceSequence: event.sequence,
+      phase,
+      code,
+      occurredAt: event.occurredAt,
+      elapsedMs,
+      progress: event.type === "progress" ? (event.progress ?? null) : null,
+    },
+    exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(accepted)),
+  );
+  const sessionUpdate = db.update(localRunSessions).set(nextValues).where(accepted);
+  const results = reportSave
+    ? await db.batch([reportSave[0], reportSave[1], eventInsert, sessionUpdate])
+    : await db.batch([eventInsert, sessionUpdate]);
+  const updated = results[results.length - 1];
   const duplicate = (updated.meta.changes ?? 0) === 0;
   // A leave that commits between the membership read above and this batch
   // also leaves both writes empty. That is a refusal, not a duplicate: the
