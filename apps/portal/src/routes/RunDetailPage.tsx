@@ -724,7 +724,9 @@ function PromoteSection({
       ) : run.promotedTo ? (
         <>
           <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            Promoted to {officialAttemptLabel(run.promotedTo.attemptNumber)}.
+            {/* Named as the team's choice: two strangers read the bare "Promoted to"
+                as a practice run spending an attempt on its own (walk r1, 3 Oct). */}
+            Your team promoted this run to {officialAttemptLabel(run.promotedTo.attemptNumber)}.
           </p>
           <PromotedAttemptLink promotedTo={run.promotedTo} />
         </>
@@ -798,7 +800,9 @@ function PublishSection({ run }: { run: RunDetail }) {
             aria-hidden="true"
           />
           <span>
-            This result is your team's public entry.{" "}
+            {/* Only publishOfficialRun writes the selection, always for a member,
+                so the choice is the team's; the landing promises the same. */}
+            Your team chose this result as its public entry.{" "}
             <Link ref={leaderboardRef} to={`/leaderboard?benchmark=${encodeURIComponent(run.benchmarkId)}`} className="u-link">
               See it on the leaderboard.
             </Link>
