@@ -10,6 +10,7 @@ import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
 import { RunList } from "@/components/RunList";
 import { RunConsole } from "@/components/RunConsole";
 import { LocalReportsTable } from "@/components/LocalReportsTable";
+import { HeldDeviceLinkCard } from "@/components/HeldDeviceLinkOffer";
 import { setupCommandLines, stepState } from "@/lib/setup-progress";
 import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
 import {
@@ -689,6 +690,20 @@ export function GalleryPage() {
             </div>
           </section>
         ))}
+      </div>
+
+      {/* Reaching it for real takes a teamless account, a printed code that
+          hasn't run out, and a join in between. Setup shows it below its
+          heading only after the status endpoint says the code is open. */}
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">A device link held from before the team</h2>
+      <p className="mb-4 max-w-prose text-[13px] text-ink-faint">
+        Setup&apos;s offer once the student has joined. The link opens the approval page; Dismiss is inert here.
+      </p>
+      <div className="max-w-[42rem]">
+        <HeldDeviceLinkCard
+          held={{ path: "/connections?user_code=3F9A-0C7E-B21D&return_to=setup", userCode: "3F9A-0C7E-B21D", login: "gallery" }}
+          onDismiss={() => undefined}
+        />
       </div>
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Finding</h2>

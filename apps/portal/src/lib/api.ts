@@ -130,6 +130,12 @@ export const api = {
     request("/api/v1/connections/discord", ConnectionSummarySchema, {
       method: "DELETE",
     }),
+  /** Whether a printed device code is still open and whether it has been approved; approves nothing. */
+  deviceLinkStatus: (userCode: string) =>
+    request(
+      `/api/v1/cli/device/status?user_code=${encodeURIComponent(userCode)}`,
+      z.object({ valid: z.boolean(), approved: z.boolean(), expiresAt: z.number().nullable() }),
+    ),
   approveDevice: (userCode: string, deviceName: string) =>
     request("/api/v1/cli/device/approve", z.object({ ok: z.boolean() }), {
       method: "POST",
