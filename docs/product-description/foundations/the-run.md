@@ -45,6 +45,8 @@ Access, source and capacity are checked before an execution is admitted, and che
 
 **Who is asking, and may they.** Every start, promotion, publication and Retry asks GitHub whether the account still has write access to the connected repository (`apps/portal/worker/services/run-actions.ts:118`). The one exception is the development fixture repository, which skips the lookup (`:122`). The refusals are "Sign in to GitHub on Cog*Portal before changing a run." (`:125`), "GitHub access expired. Sign in to Cog*Portal again." (`:135`), and "Current write permission to the connected repository is required." (`:138`). Portal, Activity and CogBot share this one function, so eligibility rendered in an earlier snapshot is never trusted (`:674`).
 
+Status, `f03ebfa` (2026-10-03): "GitHub access expired" is gone. A failed lookup is sorted by what GitHub answered (`permissionCheckFailure`, `run-actions.ts:149-161`): a 401 gives "GitHub no longer accepts this portal's sign-in for you. Sign out, sign in with GitHub again, and retry this action." (403); a 403 or 404 that is not a rate limit gives "Current write permission to the connected repository is required." (403); anything else, rate limits included, gives "GitHub didn't answer the write-access check, so this didn't go through. Try again in a moment." (502). A 403 counts as a rate limit when it carries `x-ratelimit-remaining: 0` or `retry-after` (`apps/portal/worker/github/client.ts:21-26`). Read from code and `apps/portal/test/rpc-refusals.test.ts`; no real GitHub rate limit was observed.
+
 **Which commit.** The branch is resolved to a SHA before anything starts, and that SHA is what the run is about for the rest of its life. A branch GitHub cannot resolve gets "GitHub has no branch named {branch}." (`:306`).
 
 **Whether there is room.** One execution may be active per team and benchmark, across versions. The mode's completed evaluations plus its active reservations must be under the limit for that benchmark version (`:256`, `:257`).
@@ -54,7 +56,7 @@ Access, source and capacity are checked before an execution is admitted, and che
 These refusals write no run and dispatch nothing:
 
 - **A run is already active.** `active_run_exists`; the Runs page shows "A run is already in progress; runs go one at a time per benchmark." (`apps/portal/src/routes/DashboardPage.tsx:666`). While a run is active the launcher is replaced by "Runs go one at a time on each benchmark, so the next one can start once this one finishes." (`:243`). The lock is a partial unique index over the six active statuses (`apps/portal/worker/db/schema.ts:416`), so a race loses at the database.
-- **The quota is used up.** "The practice-run quota is exhausted." or "The official-attempt quota is exhausted." (`run-actions.ts:258`, `:421`); Retry says "The completed-evaluation quota is exhausted." (`:611`).
+- **The quota is used up.** "The practice-run quota is exhausted." or "The official-attempt quota is exhausted." (`run-actions.ts:258`, `:421`); Retry says "The completed-evaluation quota is exhausted." (`:611`). Status, `f03ebfa` (2026-10-03): "All 10 hosted practice runs on this version are used. Local runs (cogworks run) have no limit." and "All 3 official attempts on this version are used. You can still publish any successful official attempt." (`run-actions.ts:126-129`); Retry uses whichever matches the failed run's mode (`:672`, `:721`).
 - **The commit will not resolve.** Verifying a local run whose commit is not on GitHub yet gets "Push {sha7} to GitHub first." (`:289`).
 - **The benchmark is not open.** "That benchmark version is not active." (`:158`) for an inactive version, and "This benchmark's hosted environment is not ready." (`:264`) when its sandbox contract is unset.
 - **The run is not promotable.** "Only a succeeded hosted run can be promoted." (`:402`), plus the saved-environment refusals in [promotion](../portal/promote-to-the-leaderboard.md#answered-without-work).
@@ -142,7 +144,7 @@ Twelve categories exist in the catalog (`packages/contracts/src/failures.ts:21`)
 | `student_runtime` | `E-RUNTIME` | "Your code raised an exception" | The evaluation process exited non-zero and was not a timeout (`:1740`, `:1826`, `:1907`). | No |
 | `timeout` | `E-TIMEOUT` | "Evaluation exceeded the time limit" | 95% of the budget elapsed, or a kill signal came back (`:1996`, `:1998`). | No |
 | `memory_limit` | `E-MEMORY` | "Memory limit exceeded" | "memory" or "oom" in a controller-side exception (`:1684`). | No |
-| `output_invalid` | `E-OUTPUT` | "Predictions did not match the schema" | The controller's own check of the predictions. | No |
+| `output_invalid` | `E-OUTPUT` | "Predictions did not match the schema" (`f03ebfa`: "Results came back in a shape scoring can't read") | The controller's own check of the predictions. | No |
 | `scorer` | `E-SCORER` | "Scoring failed on our side" | Anything unclassified raised during scoring (`:2310`). | Yes |
 | `provider` | `E-PROVIDER` | "The run couldn't finish" | Sandbox failure, anything unclassified before scoring (`:2315`), a refused dispatch, or the stale-run sweep. | Yes |
 

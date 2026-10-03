@@ -117,7 +117,7 @@ A succeeded run with no primary metric says "This run has no overall score. Ever
 | `student_runtime` | `E-RUNTIME` | Your code raised an exception | no |
 | `timeout` | `E-TIMEOUT` | Evaluation exceeded the time limit | no |
 | `memory_limit` | `E-MEMORY` | Memory limit exceeded | no |
-| `output_invalid` | `E-OUTPUT` | Predictions did not match the schema | no |
+| `output_invalid` | `E-OUTPUT` | Predictions did not match the schema (`f03ebfa`: "Results came back in a shape scoring can't read") | no |
 | `scorer` | `E-SCORER` | Scoring failed on our side | yes |
 | `provider` | `E-PROVIDER` | The run couldn't finish | yes |
 
@@ -133,6 +133,8 @@ When a failure carries a refusal, the card leads with it instead of the catalog 
 - The headline as the card's title in serif (`RefusalCard.tsx:132-138`).
 - A nine-character label column: `after` (the last hand-off that returned something), `not read` (skipped modules, with an owner tag only when the owner is not the team, and a `fix` line for two exception classes), `raised` (file and line inside their repository), and `next`, which always ends with `cogworks check --benchmark {id} --update-setup` (`:143-229`).
 - Under a rule, `How far your code was followed` (`:232-236`).
+
+Status, `f03ebfa` (2026-10-03): between the headline and the label column the card now draws the refusal's notes, the first open in the reading face and the rest behind a fold labelled "1 more note from the search" or "{n} more notes from the search" (`RefusalCard.tsx:100-126`, `:177`). Seen on this page locally with a synthetic `not_wired` row carrying three notes (`~/.long-run/cogportal/evidence/student-recovery/screens/runpage-not-wired-notes.png`) and on the gallery fixture at 375 px and expanded by keyboard (`screens/gallery-refusal-notes-*.png`). Line numbers in the list above are `2ff32fa`'s.
 
 The fix line appears for a `RuntimeError` mentioning a microphone or recording and for any `FileNotFoundError`, and for nothing else, "because a wrong fix sends a team somewhere an absent one does not" (`RefusalCard.tsx:43-66`).
 
@@ -206,7 +208,7 @@ Seven nodes: Queued, Prepare, Install, Contract check, Evaluate, Score, and a te
 - The `pipeline.py` per-item `None` crash is still in the candidate (`python/cogbench/src/cogbench/pipeline.py:834`). Any Week 2 recognition team whose describe step returns `None` for a no-face photo will fail Evaluate the same way here. Carried to triage.
 - A hosted `E-RUNTIME` carries one line, no location and no log. Whether students can act on that was not observed beyond the one beta run.
 - Whether the finding leads the eye ahead of the readings was observed only on fixture runs whose scorer wrote no finding. A real finding sentence was observed hosted on beta for `run_f93ba19397` ("2 of 10 queries for the newly enrolled person were called unknown rather than named…") on beta's pre-redesign layout, not on this one.
-- The no-primary state and the refusal card were not in the matched pairs. **Unverified** on this build.
+- The no-primary state and the refusal card were not in the matched pairs. **Unverified** on this build. Status, `f03ebfa` (2026-10-03): the refusal card with notes and the rewritten `E-OUTPUT` card were seen locally on synthetic and fixture data at that commit ([B-61](../bug-triage.md#b-61-a-refusals-notes-reach-the-browser-and-are-never-drawn), [B-62](../bug-triage.md#b-62-the-e-output-card-promises-checks-that-do-not-run)); no hosted refusal.
 - `cancelled` is still unreachable (B-37).
 - Hosted beta (`4984730`) differs: its failure card opens on "Run failed" and the title only, with code, explanation, detail, action and reproduce command all behind "Show details" (beta `apps/portal/src/components/FailureCard.tsx:41-80`); the candidate opens on the title, detail and next step (`FailureCard.tsx:73-127`). Beta's run page puts `PIPELINE` first, then the finding, the wiring and a `RESULTS` panel with a bracketed primary metric (observed in `hosted-run_f93ba19397/succeeded-ui.txt`); the candidate leads with the finding and puts the pipeline after the decision (`RunDetailPage.tsx:245-281`).
 - Hosted beta (`4984730` lineage after `468655c`) differs: `pipeline.py` passes a per-item `None` through the element read (beta `python/cogbench/src/cogbench/pipeline.py:833-841`); the candidate indexes it and raises (`pipeline.py:834`).

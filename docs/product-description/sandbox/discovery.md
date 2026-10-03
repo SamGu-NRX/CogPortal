@@ -162,6 +162,11 @@ Below, the same trace component as a successful run, headed "How far your code w
 on fixture data (`/tmp/cogshots/rundetail-states/refusal-desk.png`); the fixture's headline is older
 wording than the verdict module writes.
 
+Status, `f03ebfa` (2026-10-03): the notes are drawn. The first sits under the headline; the rest fold
+behind "{n} more notes from the search" (`RefusalCard.tsx:100-126`, `:177`). Seen on the local run
+page with a synthetic refusal row carrying three notes
+(`~/.long-run/cogportal/evidence/student-recovery/screens/runpage-not-wired-notes.png`).
+
 ### The second search and the replay
 
 The binding found in prepare does not cross into the evaluate sandbox. `_discovered_factory`

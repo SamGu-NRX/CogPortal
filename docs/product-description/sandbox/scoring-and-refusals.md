@@ -179,6 +179,16 @@ The sentence above is the failure's detail, shown open in the card. The title, t
 
 with `cogworks test --benchmark {benchmark}` beneath. Three claims in it are not true of the check: extra fields are ignored, no value range is checked, and `cogworks test` scores the small test cases rather than running a schema check. The vision override says "out-of-range boxes are all rejected" (`failures.ts:187`), and Week 2 has no boxes; the language override says "ids outside the pinned image pool, and more than k results are all rejected" (`failures.ts:210`), and the controller checks neither, since a ranking row may hold any number or numeric string of any length (`prediction_validation.py:258`). The detail sentence beside the card is exact.
 
+Status, `f03ebfa` (2026-10-03): the catalog copy now describes this check (`packages/contracts/src/failures.ts:138-149`):
+
+> "Results came back in a shape scoring can't read"
+>
+> "Before scoring, the runner checks every result your adapter returned: one per case, each of the type this benchmark scores, with finite numbers where scoring does arithmetic. The line above is the first problem it found."
+>
+> "The line above says what the runner refused and where to look. This runs your adapter on the small cases locally, but it doesn't repeat the runner's check:"
+
+with the same `cogworks test --benchmark {benchmark}`. The vision and language overrides are deleted, so every module shows this copy. Seen locally on the run page for a fixture `vision-clustering` run; that screenshot predates the commit's final next-step wording ([B-62](../bug-triage.md#b-62-the-e-output-card-promises-checks-that-do-not-run)).
+
 ## The difficulty curve
 
 A benchmark with a difficulty knob publishes `last_sweep` after `score()`, and the controller turns it into the curve (`modal_app.py:2107`). Fewer than two points is not drawn, because one point drawn as a curve would claim a trend. A plugin without `sweep_x_key` and `sweep_y_key` gets no curve rather than a wrong one. Up to 24 points, labels capped at 40 characters, and every `y` between 0 and 1 (`packages/contracts/src/protocol.ts:60`). The curve is labeled with the metric it plots, read from `sweep_metric` when the plugin declares one, so Week 3's search rungs no longer appear under the label "overall".
@@ -269,7 +279,7 @@ Every other unbound surface is said once more as "Also, {reason}", and when ther
 ## Open questions and verification
 
 - A plugin-version mismatch is filed as `data_download`, so the run page says "Benchmark data is not ready", the console "The hosted runner could not finish" and Discord "Runner unavailable" for what is version drift (`modal_app.py:1273`). The same category is used when a synced weight file cannot be fetched (`modal_app.py:1575`), where the card's words about a benchmark data bundle are describing the team's own weight file. [B-21](../bug-triage.md).
-- The `E-OUTPUT` catalog copy promises checks that do not run and offers `cogworks test` as a schema check (`failures.ts:121`, `:187`, `:210`). Carried to triage.
+- The `E-OUTPUT` catalog copy promises checks that do not run and offers `cogworks test` as a schema check (`failures.ts:121`, `:187`, `:210`). Carried to triage. Status, `f03ebfa` (2026-10-03): rewritten to the check that runs, overrides removed; see [What the failure card says around them](#what-the-failure-card-says-around-them).
 - A withheld Week 3 primary is listed, ranked and celebrated as if it were the overall (Runs list, leaderboard, Discord team best). Carried to triage. **Unverified** on a rendered page.
 - The Week 3 withheld note is split one sentence per note, so the instruction to sync weights is a small bullet rather than the finding. That is the benchmark's stated intent (`plugins.py:536`); whether students read past the first sentence was not observed.
 - Week 2 declares no roles, so `clustering_seed_spread`, which its help calls "reported and never scored", renders as an ordinary supporting row, and no Week 2 row carries a direction arrow. Whether that is acceptable is a benchmark-side decision.
