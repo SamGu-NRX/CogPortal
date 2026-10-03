@@ -2816,6 +2816,10 @@ test("an official Modal Retry keeps both the remedy gate and its frozen dataset 
   assert.ok(successor?.dispatchJobJson);
   assert.equal(successor.datasetDigest, APPROVED_DIGEST);
   assert.equal(RunJobV1Schema.parse(JSON.parse(successor.dispatchJobJson)).benchmark.datasetDigest, APPROVED_DIGEST);
+  // 0049's accepted-callback clock starts fresh for the new execution,
+  // whatever digest it carries.
+  assert.equal(successor.acceptedActivityAt, null);
+  assert.equal(successor.legacyGraceUntil, 0);
 });
 
 test("a practice Retry that prepares afresh does not inherit the failed run's weights record", async () => {
