@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { DashboardSchema, OFFICIAL_LIMIT, PRACTICE_LIMIT, runSource } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireTeam } from "../auth/session";
@@ -59,6 +59,28 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         ),
       )
       .orderBy(desc(runs.createdAt));
+    // Where else this team has run, so a track with no runs can point at the
+    // team's work instead of reading as if nothing ever ran. Each count uses
+    // that track's own filters: team, benchmark, and the version its tab
+    // opens, which is the highest active one, as the lookup above picks.
+    // Nothing stops two versions of a benchmark being active at once. Only
+    // the first-run panel reads it, so a track with runs skips the query;
+    // that includes every poll while a run is going, and nothing indexes runs
+    // by team.
+    const openVersions = db
+      .select({ id: benchmarks.id, version: sql<number>`max(${benchmarks.version})`.as("open_version") })
+      .from(benchmarks)
+      .where(eq(benchmarks.active, true))
+      .groupBy(benchmarks.id)
+      .as("open_versions");
+    const runsOnOtherTracks = allRuns.length > 0 ? [] : await db
+      .select({ benchmarkId: runs.benchmarkId, title: benchmarks.title, runs: sql<number>`count(*)` })
+      .from(runs)
+      .innerJoin(openVersions, and(eq(openVersions.id, runs.benchmarkId), eq(openVersions.version, runs.benchmarkVersion)))
+      .innerJoin(benchmarks, and(eq(benchmarks.id, runs.benchmarkId), eq(benchmarks.version, runs.benchmarkVersion)))
+      .where(and(eq(runs.teamId, auth.team.id), ne(runs.benchmarkId, benchmark.id)))
+      .groupBy(runs.benchmarkId, benchmarks.title)
+      .orderBy(benchmarks.title);
     const accounting = await readRunAccounting(db, {
       teamId: auth.team.id, benchmarkId: benchmark.id, benchmarkVersion: benchmark.version,
     });
@@ -129,6 +151,7 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
     return respond(c, DashboardSchema, {
       benchmark: serializeBenchmark(benchmark),
       team: serializeTeam(auth.team),
+      runsOnOtherTracks: runsOnOtherTracks.map((row) => ({ ...row, runs: Number(row.runs) })),
       quota: {
         practiceUsed: accounting.practiceUsed,
         practiceLimit: PRACTICE_LIMIT,

@@ -137,7 +137,8 @@ test("a closing fold hides its actions at once and keeps focus on the toggle", a
   rotate.focus();
   assert.equal(page.window.document.activeElement, rotate);
 
-  // A mouse press in Safari leaves focus where it was, which click() mimics.
+  // Activation that leaves focus where it was (an assistive-technology click),
+  // which click() mimics. A WebKit mouse press differs; see the next test.
   await act(async () => page.toggle().click());
   assert.equal(page.toggle().getAttribute("aria-expanded"), "false");
   assert.equal(page.fold().hasAttribute("inert"), true);
@@ -150,4 +151,29 @@ test("a closing fold hides its actions at once and keeps focus on the toggle", a
       assert.ok(page.fold().contains(node), `${node.textContent} outside the hidden fold`);
     }
   }
+});
+
+// WebKit moves focus off the focused action to the body at mousedown, before
+// the click, so the toggle reads at pointerdown whether focus was in the fold.
+test("closing the fold by mouse after WebKit has taken focus off its action keeps focus on the toggle", async (t) => {
+  const page = await mount(t, true);
+  await page.press("Change enrollment");
+  const rotate = [...page.fold().querySelectorAll("button")].find((node) => node.textContent.trim() === "Rotate join code");
+  assert.ok(rotate);
+  rotate.focus();
+  await act(async () => {
+    page.toggle().dispatchEvent(new page.window.MouseEvent("pointerdown", { bubbles: true }));
+    rotate.blur();
+  });
+  // Compared by identity with a short description: a failing assert.equal on
+  // two Happy DOM elements inspects the whole window to build its message,
+  // which stalls the file instead of reporting.
+  const focusIs = (expected: Element, when: string) => {
+    const actual = page.window.document.activeElement;
+    assert.ok(actual === expected, `${when}: focus is on ${actual?.tagName} "${actual?.textContent.trim().slice(0, 30)}"`);
+  };
+  focusIs(page.window.document.body, "after WebKit's mousedown");
+  await act(async () => page.toggle().click());
+  assert.equal(page.toggle().getAttribute("aria-expanded"), "false");
+  focusIs(page.toggle(), "after closing");
 });

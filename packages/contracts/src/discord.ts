@@ -1,12 +1,13 @@
 import { z } from "zod";
 import {
+  ApiErrorCodeSchema,
   BenchmarkSchema,
   LeaderboardSchema,
   LocalReportSchema,
   RunSummarySchema,
   TeamSchema,
   RunSurfaceSnapshotSchema,
-} from "./schema";
+} from "@cogworks/contracts/schema";
 
 export const DiscordLinkStartSchema = z.object({
   alreadyLinked: z.boolean(),
@@ -35,6 +36,35 @@ export const DiscordLocalReportsSchema = z.object({
   reports: z.array(LocalReportSchema).max(10),
 });
 export type DiscordLocalReports = z.infer<typeof DiscordLocalReportsSchema>;
+
+/**
+ * A refusal the portal wrote for the student, as it arrives over the service
+ * binding.
+ *
+ * Workers RPC rebuilds a thrown error on the caller's side with its `name`,
+ * `message` and own serializable fields, but not its class (enhanced error
+ * serialization, on by default from compatibility date 2026-04-21), so this
+ * reads fields rather than `instanceof`. `PortalRpc.answer` lets only
+ * `ApiHttpError` through and replaces everything else, which is what makes
+ * the message safe to show. Anything that does not match is a failure the
+ * caller cannot explain and must not guess at.
+ */
+export const PortalRefusalSchema = z.object({
+  name: z.literal("ApiHttpError"),
+  code: ApiErrorCodeSchema,
+  message: z.string().min(1).max(600),
+});
+export type PortalRefusal = z.infer<typeof PortalRefusalSchema>;
+
+export function portalRefusal(error: unknown): PortalRefusal | null {
+  if (!(error instanceof Error)) return null;
+  const parsed = PortalRefusalSchema.safeParse({
+    name: error.name,
+    code: (error as { code?: unknown }).code,
+    message: error.message,
+  });
+  return parsed.success ? parsed.data : null;
+}
 
 export interface PortalRpcContract {
   getBenchmarks(guildId: string): Promise<z.infer<typeof BenchmarkSchema>[]>;

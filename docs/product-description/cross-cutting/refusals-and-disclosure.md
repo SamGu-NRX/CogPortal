@@ -66,6 +66,8 @@ Most failures carry none. A submission that raises is `student_runtime`, and the
 | Discord bubble | Not shown | First 300 characters | Not shown | Not shown | Not shown | Not shown |
 | Discord bot, portal error | Not shown | Replaced by one generic sentence | Not shown | Not shown | Not shown | Not shown |
 
+Status, `f03ebfa` (2026-10-03): two rows change in source. The run page's Notes cell becomes "First note open, the rest folded" (`apps/portal/src/components/RefusalCard.tsx:100-126`, `:177`; [B-61](../bug-triage.md#b-61-a-refusals-notes-reach-the-browser-and-are-never-drawn)). The Discord bot's portal-error row shows the portal's own sentence when the portal refused, as described under [the Discord bot](#the-discord-bot-and-the-disagreement). The table above is `2ff32fa`.
+
 ### The terminal
 
 `render_check` prints a "Wired up:" block of stage and function names, then the headline, every note, the verdict's `problems()` lines ("Could not read:" and "Raised while trying:"), then the next step (`python/cogbench/src/cogbench/report.py:330`, `:352`). Above it sits the survey of what was searched. It does not print shapes: `Verdict.render()` builds a "What ran:" section with them and no command calls it (`python/cogbench/src/cogbench/verdict.py:333`).
@@ -103,6 +105,8 @@ The bubble is edited in place for the life of a run. On failure it reads "Stoppe
 ### The Discord bot, and the disagreement
 
 When a slash command or button throws, the bot replies "I couldn't reach Cog\*Portal just now. Nothing changed. Try again in a moment." (`apps/discord-bot/src/index.ts:46`, `:138`). That is the answer for a network fault, a team-gate refusal, an expired link and a handler bug. The claim it makes holds, since the bot only wraps the command, but it names nothing the student could act on. [B-19](../bug-triage.md).
+
+Status, `f03ebfa` (2026-10-03): the bot no longer collapses a refusal. The portal's RPC entrypoint lets an `ApiHttpError` through and replaces anything else with "Cog\*Portal could not complete that request." (`apps/portal/worker/rpc.ts:35-48`). The bot shows a refusal's message as written, with Markdown escaped and mentions off, plus "Back to Cog" and an "Open Cog\*Portal" link (`apps/discord-bot/src/failure.ts:25-48`). A failure it cannot explain reads "I couldn't confirm that with Cog\*Portal. It may still have gone through, so check the run there before pressing it again." after a confirm (the channel bind says "check the team bench" instead), and "I couldn't reach Cog\*Portal just now. Try again in a moment." on a read. "Nothing changed" is gone from the bot. Checked by tests and a miniflare probe, not in a Discord client ([B-19](../bug-triage.md#b-19-the-discord-bot-replaces-every-actionable-portal-error-with-one-generic-sentence)). The Activity and the bot now decide the question the same way.
 
 The Activity, opened from the same message, rethrows the portal's own error message and falls back to "The live bench could not be reached." only when the body cannot be read (`apps/portal/src/activity-main.tsx:54`). A startup failure renders under "The bench is still here." (`activity-main.tsx:277`). The browser keeps the server's sentence too, because "The server wrote a route-specific sentence; it is better than anything generic" (`apps/portal/src/lib/query-error-state.ts:181`). The bot decided the same question the other way.
 
@@ -148,13 +152,13 @@ The headline names a count and no cause: "This check could not read {one of your
 
 **Live updates and reconnection.** The refusal arrives with the terminal `failed` event. See [`live-updates.md`](live-updates.md).
 
-**Discord.** The bubble carries 300 characters of the headline; the bot replaces every portal error with one sentence while the Activity shows the portal's own.
+**Discord.** The bubble carries 300 characters of the headline; the bot replaces every portal error with one sentence while the Activity shows the portal's own. Status, `f03ebfa` (2026-10-03): the bot shows a portal refusal as written too.
 
 **Configuration.** None of the renderings or caps is a setting.
 
 ## Edge cases
 
-- **The notes travel and are not drawn.** `notes` is what the search learned that the headline does not say. The runner forwards it, the portal stores and serves it, and `RefusalCard` declares the field and never renders it (`RefusalCard.tsx:25`). Only the terminal prints it.
+- **The notes travel and are not drawn.** `notes` is what the search learned that the headline does not say. The runner forwards it, the portal stores and serves it, and `RefusalCard` declares the field and never renders it (`RefusalCard.tsx:25`). Only the terminal prints it. Status, `f03ebfa` (2026-10-03): the card draws the first note under the headline and folds the rest behind "{n} more notes from the search" (`RefusalCard.tsx:100-126`). Seen locally on synthetic data ([B-61](../bug-triage.md#b-61-a-refusals-notes-reach-the-browser-and-are-never-drawn)).
 - **A screen reader hears the status, not the reason.** The only live region is "Run status: {label}" (`RunDetailPage.tsx:184`), so a run that flips to failed under the 2-second poll announces one word. **Unverified** with a screen reader.
 - **A refusal with an empty headline is dropped.** The card then shows the catalog copy and the runner's detail line, which begins "No adapter found in {repository}, and no set of functions in it performed the benchmark's task." (`modal_app.py:747`).
 - **Two next steps can say the same thing.** A `not_read` refusal with the default next step shows "Run cogworks check --benchmark {id} locally to inspect the search." directly above `cogworks check --benchmark {id} --update-setup`.
@@ -163,10 +167,10 @@ The headline names a count and no cause: "This check could not read {one of your
 
 ## Open questions and verification
 
-- The refusal's notes reach the browser and are dropped by the card (`RefusalCard.tsx:25`). Carried to triage.
+- The refusal's notes reach the browser and are dropped by the card (`RefusalCard.tsx:25`). Carried to triage. Status, `f03ebfa` (2026-10-03): drawn; see the edge case above.
 - The terminal never prints the wiring shapes; `Verdict.render()` is called by nothing (`verdict.py:333`). Either the run page is deliberately the only place for them or a call site was dropped.
 - On a hosted run, a module skipped for a package the team never declared is labeled "(ours)" (`discover.py:303`, `RefusalCard.tsx:176`). The classifier's reason is that a local search cannot see the graded image; inside the graded image that reason does not hold. Whether the hosted card should say "(ours)" is a product call.
-- The bot's generic sentence is the only reply for at least five conditions, while the Activity shows the portal's message for each. [B-19](../bug-triage.md). Its em dash is gone.
+- The bot's generic sentence is the only reply for at least five conditions, while the Activity shows the portal's message for each. [B-19](../bug-triage.md). Its em dash is gone. Status, `f03ebfa` (2026-10-03): fixed in source; the bot shows the portal's refusal. Not seen in a Discord client.
 - Nothing announces a refusal to assistive technology when a run flips to failed. **Unverified.**
 - The refusal `status` is carried, stored and rendered nowhere.
 - Whether any 2026 repository produces a trace longer than 16 steps was not measured.

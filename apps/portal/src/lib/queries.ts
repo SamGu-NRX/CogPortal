@@ -13,7 +13,9 @@ import {
   type AdminOverview,
   type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
-import { api, type RunSurfaceMutationInput } from "./api";
+import { useNavigate } from "react-router";
+import { api, ApiRequestError, type RunSurfaceMutationInput } from "./api";
+import { rememberLeftTeam } from "./left-team";
 import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
 
 /** Only used before the benchmark list resolves, as a first-render probe.
@@ -240,7 +242,8 @@ export function useTeamProcess() {
 export function useUpdateTeam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.updateTeam,
+    mutationFn: ({ teamId, ...body }: { teamId: string; name?: string; description?: string | null }) =>
+      api.updateTeam(teamId, body),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["session"] });
@@ -252,7 +255,7 @@ export function useUpdateTeam() {
 export function useChangeTeamRepo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.changeTeamRepo,
+    mutationFn: ({ teamId, fullName }: { teamId: string; fullName: string }) => api.changeTeamRepo(teamId, fullName),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["session"] });
@@ -355,7 +358,7 @@ export function useInvitableUsers(enabled = true) {
 export function useAddTeamMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.addTeamMember,
+    mutationFn: ({ teamId, login }: { teamId: string; login: string }) => api.addTeamMember(teamId, login),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["invitable"] });
@@ -365,10 +368,99 @@ export function useAddTeamMember() {
   });
 }
 
+/** The leave went through, but the session could not be read afterwards, so
+ *  the page cannot tell where its reader now stands. Shown on the Team page,
+ *  which is still mounted in that case, with a way to reload. */
+export class LeftButNotRefreshed extends Error {
+  constructor(teamName: string) {
+    super(`You left ${teamName}, but the page couldn't refresh to show where you are now. Reload it.`);
+    this.name = "LeftButNotRefreshed";
+  }
+}
+
+/** The answer to a leave that may have gone through: the connection dropped,
+ *  the server failed, or what came back could not be read. */
+export const LEAVE_UNCONFIRMED = "We couldn't confirm whether you left. Reload to see where you stand.";
+
+/** A refusal the server gave and the student can act on (a 4xx with its own
+ *  code) has a known outcome: nothing was removed. Anything else may have
+ *  removed the membership before failing. */
+function leaveOutcomeUnknown(error: unknown): boolean {
+  return !(error instanceof ApiRequestError) || error.code === "network" || error.code === "unknown" || error.status >= 500;
+}
+
+const leaveUnconfirmedKey = (teamId: string) => ["leave-unconfirmed", teamId] as const;
+
+/**
+ * What to say after a leave of this team whose outcome is unknown, or null.
+ *
+ * Kept in the query client, not the component, so moving to another page and
+ * back does not bring Leave back; only a full page load, which starts a new
+ * client and reads current membership, clears it. Pressing Leave again could
+ * otherwise remove a membership made since, elsewhere: the same team joined
+ * again leaves a row indistinguishable from the one the lost request deleted.
+ */
+export function useLeaveUnconfirmed(teamId: string): string | null {
+  return useQuery({
+    queryKey: leaveUnconfirmedKey(teamId),
+    queryFn: (): string | null => null,
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  }).data ?? null;
+}
+
+/**
+ * Leave the team the page showed.
+ *
+ * Hook-level, not a per-call onSuccess: the fresh session read below clears
+ * the team, the Team page's guard redirects, and the page that pressed the
+ * button unmounts. The /connect notice subscribes to the note
+ * (lib/left-team.ts), so it shows whichever navigation lands first. Other
+ * queries are then refetched, awaited so the mutation stays pending until
+ * fresh data has arrived.
+ */
+export function useLeaveTeam() {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  return useMutation({
+    mutationFn: ({ teamId }: { teamId: string; teamName: string; archive: boolean }) => api.leaveTeam(teamId),
+    onSuccess: async ({ alreadyLeft }, { teamName, archive }) => {
+      // The delete has committed by the time this answers, so a session read
+      // started now is after it, unlike one already in flight, which may have
+      // been answered before the delete. Cancelled first so it is not joined.
+      await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
+      let fresh: Awaited<ReturnType<typeof api.session>>;
+      try {
+        // "always": the default holds a read while the browser reports itself
+        // offline, which left this leave pending with no way out. Failing
+        // reaches the reload below (RestoreGate reads the same way).
+        fresh = await qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" });
+      } catch {
+        throw new LeftButNotRefreshed(teamName);
+      }
+      // On a team after a confirmed leave: the student joined one since, the
+      // same team again or another. That newer membership stands; clearing it
+      // would empty their team and send them back to /connect.
+      if (fresh.team) {
+        await qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
+        return;
+      }
+      rememberLeftTeam({ name: teamName, alreadyLeft, archive });
+      navigate("/connect", { replace: true });
+      await qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
+    },
+    onError: (error, { teamId }) => {
+      if (!leaveOutcomeUnknown(error)) return;
+      qc.setQueryData(leaveUnconfirmedKey(teamId), error instanceof LeftButNotRefreshed ? error.message : LEAVE_UNCONFIRMED);
+    },
+  });
+}
+
 export function useRemoveTeamMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.removeTeamMember,
+    mutationFn: ({ teamId, login }: { teamId: string; login: string }) => api.removeTeamMember(teamId, login),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["invitable"] });
@@ -485,10 +577,12 @@ export function useAdminRemoveStaff() {
   return useMutation({ mutationFn: api.adminRemoveStaff, onSuccess: setRoster });
 }
 
-export function useStartPractice(benchmarkId: string) {
+/** `teamId` is the team the Runs page shows; the server refuses the start if
+ *  that is no longer the caller's team (requireShownTeam). */
+export function useStartPractice(teamId: string, benchmarkId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (branch?: string) => api.startPractice(benchmarkId, branch),
+    mutationFn: (branch?: string) => api.startPractice(teamId, benchmarkId, branch),
     // Returning this promise keeps the launch pending until the stale
     // zero-run dashboard has been replaced by the refetched state.
     onSuccess: () =>

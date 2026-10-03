@@ -965,6 +965,18 @@ export const DashboardSchema = z.object({
   promotionRefusal: z.string().max(600).nullable().default(null),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
+  /** The team's hosted runs on the other open tracks, counted per benchmark at
+   *  the version its tab opens (the highest active one). A track with no runs
+   *  uses it to say where the team's work is: without it, four of four fresh
+   *  model readers given screenshots of a team whose runs were all on another
+   *  track concluded the runs had vanished (stranger walks r1 and r2, 3 Oct
+   *  2026; not a study with students). Team counts only, never a person's. Empty when this track
+   *  has runs, because only the first-run panel reads it. */
+  runsOnOtherTracks: z.array(z.object({
+    benchmarkId: z.string(),
+    title: z.string(),
+    runs: z.number().int().positive(),
+  })).default([]),
 });
 export type Dashboard = z.infer<typeof DashboardSchema>;
 
@@ -1026,6 +1038,10 @@ export const TeamMemberSchema = z.object({
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
   role: z.enum(["admin", "maintain", "write"]),
+  /** This row is the person reading. Set by the server from the user id,
+   *  because the displayed login is not unique: a development account and a
+   *  GitHub account can both show as "demo". */
+  isYou: z.boolean(),
 });
 export type TeamMember = z.infer<typeof TeamMemberSchema>;
 
@@ -1052,6 +1068,10 @@ export type TeamDetail = z.infer<typeof TeamDetailSchema>;
 /** PATCH /api/team — team admin only; at least one field. */
 export const UpdateTeamRequestSchema = z
   .object({
+    /** The team the page showed. Optional here only so a page older than
+     *  this field gets "reload" rather than a validation error; the server
+     *  refuses a change without it (requireAdminOfShownTeam). */
+    teamId: z.string().min(1).optional(),
     name: z.string().trim().min(1).max(60).optional(),
     /** "" and null both clear the description; cap matches cogportal.toml. */
     description: z
@@ -1068,6 +1088,10 @@ export const UpdateTeamRequestSchema = z
 
 /** POST /api/team/repository — team admin only. */
 export const ChangeTeamRepoRequestSchema = z.object({
+  /** The team the page showed. Optional here only so a page older than
+   *  this field gets "reload" rather than a validation error; the server
+   *  refuses a change without it (requireAdminOfShownTeam). */
+  teamId: z.string().min(1).optional(),
   fullName: z.string().trim().regex(/^[^/\s]+\/[^/\s]+$/, "owner/name"),
 });
 
@@ -1190,6 +1214,23 @@ export const CohortTeamListSchema = z.array(CohortTeamSchema);
 export const JoinTeamRequestSchema = z.object({
   teamId: z.string().min(1),
 });
+
+/**
+ * Leaving names the team the page showed, so a tab left open after the
+ * person moved to another team cannot take them off the team they are on
+ * now. It does not name one membership: if they rejoin the same team, a
+ * repeated request removes the new membership (see POST /team/leave).
+ */
+export const LeaveTeamRequestSchema = z.object({
+  teamId: z.string().min(1),
+});
+
+/** `alreadyLeft` when this person was not on that team (a repeated request,
+ *  or a leave from another tab that landed first). Nothing was removed. */
+export const LeaveTeamResponseSchema = z.object({
+  alreadyLeft: z.boolean(),
+});
+export type LeaveTeamResponse = z.infer<typeof LeaveTeamResponseSchema>;
 
 /* ── Setup guide verification (terminal callback) ─────────────────────── */
 
@@ -1320,6 +1361,10 @@ export const InvitableUserListSchema = z.array(InvitableUserSchema);
  *  Portal membership only; pushing still needs GitHub collaborator access.
  *  Responds with the updated TeamDetail. */
 export const AddTeamMemberRequestSchema = z.object({
+  /** The team the page showed. Optional here only so a page older than
+   *  this field gets "reload" rather than a validation error; the server
+   *  refuses a change without it (requireAdminOfShownTeam). */
+  teamId: z.string().min(1).optional(),
   login: z
     .string()
     .trim()
@@ -1328,12 +1373,18 @@ export const AddTeamMemberRequestSchema = z.object({
     .regex(/^[a-zA-Z0-9-]+$/),
 });
 
-/** DELETE /api/team/members/:login — remove a member (never the creator).
- *  Responds with the updated TeamDetail. */
+/** DELETE /api/team/members/:login?teamId={shown team}: remove a member
+ *  (never an admin). The teamId query is the team the page showed, refused
+ *  when missing or not the caller's team. Responds with the updated
+ *  TeamDetail. */
 
 /* ── Requests ─────────────────────────────────────────────────────────── */
 
 export const StartPracticeRequestSchema = z.object({
+  /** The team the Runs page showed. Optional here only so a page older than
+   *  this field gets "reload" rather than a validation error; the server
+   *  refuses a start without it (requireShownTeam). */
+  teamId: z.string().min(1).optional(),
   benchmarkId: z.string(),
   branch: z.string().optional(),
 });
@@ -1408,6 +1459,51 @@ export const AdminTeamSummarySchema = z.object({
    * go look, not the cap itself.
    */
   refundsGiven: z.number().int(),
+  /**
+   * Where the team's code stands, for the staff who can see this row (owners,
+   * and TAs on their assigned teams). The team's run pages stay member-only
+   * because they hold unpublished results, logs and process notes, so these
+   * two fields carry platform enums and times and nothing else. They must
+   * never carry, or be derived from, a run's failure detail, refusal,
+   * diagnostics, sweep, log, metrics or wiring: detail and refusal text can
+   * hold the team's own exception messages and file paths, and a finding can
+   * hold a measured number. Both count only runs from the repository the team
+   * is connected to now (`runs.repository_id = teams.repo_id`), the one the row
+   * names, as the Team page's first light does; `hostedRuns` and the quota
+   * fields stay team-wide, so changing repository erases no history.
+   *
+   * `firstLight` is the team's first hosted run from that repository that
+   * finished `succeeded`, across every benchmark, at the time it finished (the
+   * definition `firstLight` in worker/services/process-signals.ts and the
+   * Discord nudges already use). Null when none is recorded.
+   *
+   * `benchmarkTitle` in both fields is the catalog title of the run's own
+   * benchmark version, or the id when the catalog has no such row. It is
+   * resolved here so the console never has to show an id while it fetches
+   * the catalog.
+   */
+  firstLight: z
+    .object({ benchmarkId: z.string(), benchmarkTitle: z.string(), at: z.number().int() })
+    .nullable(),
+  /**
+   * The team's most recently started hosted run from its connected
+   * repository, or null when there is none.
+   * `at` is when it finished, or when it started if it has not finished;
+   * `finishRecorded` says which. A `succeeded` run with no finish time is
+   * not counted by `firstLight`, so the console must not call it scored.
+   * `failure` is set only for a failed run that recorded both its phase and
+   * its category.
+   */
+  lastHostedRun: z
+    .object({
+      benchmarkId: z.string(),
+      benchmarkTitle: z.string(),
+      at: z.number().int(),
+      status: RunStatusSchema,
+      finishRecorded: z.boolean(),
+      failure: z.object({ phase: RunPhaseSchema, category: FailureCategorySchema }).nullable(),
+    })
+    .nullable(),
   /**
    * The team's latest published selection across all benchmarks, or null. The
    * score is inseparable from what it scored: a Vision number and a Language

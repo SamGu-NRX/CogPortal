@@ -21,6 +21,7 @@ function team(id: string, name: string): AdminTeamSummary {
     id, name, provenance: "live", repoFullName: `demo/${id}`,
     members: [{ login: `${id}-admin`, name: null, role: "admin" }], tas: [],
     practiceUsed: 0, officialUsed: 0, hostedRuns: 0, refundsGiven: 0, published: null,
+    firstLight: null, lastHostedRun: null,
   };
 }
 
@@ -269,4 +270,89 @@ test("a login form keeps focus in its field after the login is added", async (t)
   assert.equal(field.value, "");
   assert.equal(submit.disabled, true, "an empty field still can't be submitted");
   assertFocused(window.document.activeElement, field, "focus");
+});
+
+test("an opened team row leads with its run state", async (t) => {
+  const { container, client } = await mount(t, []);
+  await act(async () => {
+    client.setQueryData<AdminOverview>(["admin", "overview"], (current) => current && {
+      ...current,
+      teams: current.teams.map((entry) => entry.id === "team_b"
+        ? {
+            ...entry, hostedRuns: 1,
+            lastHostedRun: {
+              benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: Date.now() - 3 * 60 * 60 * 1_000, status: "failed", finishRecorded: true,
+              failure: { phase: "contract_check", category: "adapter_missing" },
+            },
+          }
+        : entry),
+    });
+  });
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+    .find((button) => button.textContent?.includes("Team B"));
+  assert.ok(toggle, "Team B's row");
+  await act(async () => { toggle.click(); });
+  const details = container.querySelector(`#${toggle.getAttribute("aria-controls")}`);
+  const headings = [...(details?.querySelectorAll("h3") ?? [])].map((heading) => heading.textContent);
+  assert.deepEqual(headings.slice(0, 2), ["Run state", "Members"]);
+  const text = details?.textContent ?? "";
+  assert.match(text, /No completed hosted run is recorded for this repository\./);
+  assert.match(text, /Last hosted run: Face recognition, 3 h ago, failed at Contract check\. Nothing here could be scored \(E-ADAPTER\)\./);
+});
+
+// Safari doesn't focus a clicked button, so closing a row by pointer can find
+// focus still on a field inside it, and unmounting the details dropped it to
+// the body. Happy DOM's click() doesn't move focus either, as in Safari.
+test("closing a row while a field inside it has focus puts focus on the row's toggle", async (t) => {
+  const { window, container } = await mount(t, []);
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+    .find((button) => button.textContent?.includes("Team B"));
+  assert.ok(toggle, "Team B's row");
+  await act(async () => { toggle.click(); });
+  const field = container.querySelector<HTMLInputElement>(`#${toggle.getAttribute("aria-controls")} input`);
+  assert.ok(field, "a field inside the opened row");
+  field.focus();
+  assertFocused(window.document.activeElement, field, "before closing");
+  await act(async () => { toggle.click(); });
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assertFocused(window.document.activeElement, toggle, "after closing");
+});
+
+// WebKit moves focus off a field to the body at mousedown, before the click,
+// so the toggle reads at pointerdown whether focus was inside its row.
+test("closing a row by mouse after WebKit has already taken focus off its field puts focus on the toggle", async (t) => {
+  const { window, container } = await mount(t, []);
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+    .find((button) => button.textContent?.includes("Team B"));
+  assert.ok(toggle, "Team B's row");
+  await act(async () => { toggle.click(); });
+  const field = container.querySelector<HTMLInputElement>(`#${toggle.getAttribute("aria-controls")} input`);
+  assert.ok(field, "a field inside the opened row");
+  field.focus();
+  await act(async () => {
+    toggle.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+    field.blur();
+  });
+  assert.equal(window.document.activeElement, window.document.body, "WebKit's mousedown left focus on the body");
+  await act(async () => { toggle.click(); });
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assertFocused(window.document.activeElement, toggle, "after closing");
+});
+
+test("opening another row by mouse leaves focus where it was", async (t) => {
+  const { window, container } = await mount(t, []);
+  const toggles = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")];
+  const first = toggles.find((button) => button.textContent?.includes("Team A"));
+  const second = toggles.find((button) => button.textContent?.includes("Team B"));
+  assert.ok(first && second, "both rows");
+  await act(async () => { first.click(); });
+  const field = container.querySelector<HTMLInputElement>(`#${first.getAttribute("aria-controls")} input`);
+  assert.ok(field, "a field inside the first row");
+  field.focus();
+  await act(async () => {
+    second.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+    second.click();
+  });
+  assert.equal(second.getAttribute("aria-expanded"), "true");
+  assertFocused(window.document.activeElement, field, "after opening the other row");
 });

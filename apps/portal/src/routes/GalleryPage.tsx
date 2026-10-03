@@ -478,10 +478,37 @@ export function GalleryPage() {
             does: open "Show details" to read the highlighted command. */}
         <h3 className="pt-4 font-serif text-lg font-semibold text-ink">…with a command to reproduce it</h3>
         <FailureCard
-          failure={{ category: "output_invalid", phase: "evaluating", detail: "predictions[3].score was 1.4; expected a value in [0, 1].", consumedAttempt: false }}
+          failure={{ category: "output_invalid", phase: "evaluating", detail: 'In result 3, "scores" came back as a dictionary where scoring reads a list. Check what your adapter puts in that field.', consumedAttempt: false }}
           mode="practice"
           benchmarkId="audio-identification"
           module="audio"
+        />
+
+        {/* The search stalled on a folder and a slow function, and the
+            headline can only name the last hand-off. The notes say why; one
+            is open and the rest fold. Text from cogbench's own templates. */}
+        <h3 className="pt-4 font-serif text-lg font-semibold text-ink">…a refusal whose search left notes</h3>
+        <FailureCard
+          failure={{ category: "adapter_missing", phase: "contract_check", detail: "No chain of functions performs clustering.", consumedAttempt: false }}
+          mode="practice"
+          benchmarkId="vision-clustering"
+          module="vision"
+          refusal={{
+            status: "not_wired",
+            headline: "Nothing the search tried took a list of 0 for the labels step, which is what profiles.Profile.match returned.",
+            nextStep: "",
+            trace: [
+              { stage: "descriptors", function: "face_descriptors.describe", returned: "an array of shape (12, 512)" },
+              { stage: "graph", function: "profiles.Profile.match", received: "an array of shape (12, 512)", returned: "a list of 0" },
+            ],
+            notes: [
+              "clustering.CoggurtFilter() reads baseImages/ next to its own file; a constructor that takes the folder path as an argument, or reads one relative to the working directory, can be handed them.",
+              "whispers.whispers_cluster was still running after 10 seconds, so the check didn't make that same call again. If the benchmark should use it, it has to answer within that time, without loading the full dataset or training first.",
+              "graph.build_graph was still running after 10 seconds, so the check didn't make that same call again. If the benchmark should use it, it has to answer within that time, without loading the full dataset or training first.",
+            ],
+            skipped: [],
+            errors: [],
+          }}
         />
 
         {/* B-44's shape: the line that raised was the benchmark's replay, and

@@ -76,12 +76,18 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
     outcome: {
       kind: "failed",
       category: "output_invalid",
-      phase: "scoring",
+      // "evaluating", as the runner reports it: results are checked after the
+      // adapter returns them and before scoring starts (_refuse_output in
+      // prediction_validation.py), so the scoring step never ran.
+      phase: "evaluating",
+      // The runner's own sentences for these shapes
+      // (runner-modal/.../prediction_validation.py), so the card shows what a
+      // real refusal says. A tuple arrives as a JSON list.
       detail:
-        'Prediction 14: expected object with keys ["box","identity"], got 4-tuple.',
+        "Result 14 came back as a list, and this benchmark scores a dictionary for each case. Check what your adapter returns for that case.",
       detailByBenchmark: {
-        "language-search": "Query 14: expected a list of image ids, got a list of (id, score) tuples.",
-        "vision-clustering": "Scenario 14: expected one cluster label per image, got a list of (label, score) tuples.",
+        "language-search": 'In result 14, "rankings" came back as a dictionary where scoring reads a list. Check what your adapter puts in that field.',
+        "vision-clustering": "In result 14, label 0 came back as a list. Cluster labels have to be strings or numbers; only which labels match each other matters, never what they are called.",
       },
     },
   },

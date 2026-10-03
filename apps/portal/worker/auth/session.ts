@@ -173,3 +173,31 @@ export async function requireTeam(c: Context<AppEnv>): Promise<AuthState & { tea
   if (!auth.team) throw new ApiHttpError(403, "no_team", "Connect a repository to continue.");
   return { ...auth, team: auth.team };
 }
+
+/**
+ * The caller's team, which must be the team the page showed when they acted.
+ *
+ * A browser request that acts on "my team" without naming it lands on
+ * whichever team the cookie belongs to now. A window left visible while
+ * another signed in as someone else renamed the second account's team from a
+ * page showing the first's. Callers check this before any side effect. A
+ * request without the id comes from a page older than the field and is
+ * refused rather than guessed at.
+ */
+export async function requireShownTeam(
+  c: Context<AppEnv>,
+  shownTeamId: string | undefined,
+): Promise<AuthState & { team: TeamRow }> {
+  const auth = await requireTeam(c);
+  if (!shownTeamId) {
+    throw new ApiHttpError(409, "invalid_request", "This page is out of date. Reload it and try again.");
+  }
+  if (shownTeamId !== auth.team.id) {
+    throw new ApiHttpError(
+      409,
+      "already_on_team",
+      `You're on ${auth.team.name} now, not the team this page showed. Reload to see it.`,
+    );
+  }
+  return auth;
+}

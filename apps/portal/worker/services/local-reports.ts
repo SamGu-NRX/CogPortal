@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, notExists, sql, type SQL } from "drizzle-orm";
 import {
   type LocalReportInput,
   LocalReportSchema,
@@ -7,8 +7,9 @@ import {
   type LocalReport,
 } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
-import { getDb } from "../db/client";
-import { benchmarks, localReports, teamMembers, teams, users } from "../db/schema";
+import { getDb, type Database } from "../db/client";
+import { insertWhere } from "../db/insert-where";
+import { benchmarks, localReports, localRunSessions, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 
 /**
@@ -31,6 +32,20 @@ function reportRepositoryIdAgrees(repoId: number | null) {
   return repoId === null
     ? sql`1 = 1`
     : sql`(${localReports.repositoryId} is null or ${localReports.repositoryId} = ${repoId})`;
+}
+
+/**
+ * Reports carry no team, so a team's lists find them by author and
+ * repository. A report a live run on another team points at is that team's
+ * history: after its author leaves and joins a team on the same repository,
+ * it must not appear in the new team's list or supply its hosted-run weights.
+ * Reports no live run points at are the author's alone and follow them.
+ */
+function reportNotFromAnotherTeam(db: Database, teamId: string) {
+  return notExists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(and(
+    eq(localRunSessions.reportId, localReports.reportId),
+    sql`${localRunSessions.teamId} <> ${teamId}`,
+  )));
 }
 
 function parseReportRow(row: {
@@ -104,6 +119,7 @@ export async function listTeamLocalReports(
     inArray(localReports.userId, scope.memberUserIds),
     reportRepositoryIs(scope.repoFullName),
     reportRepositoryIdAgrees(scope.repoId),
+    reportNotFromAnotherTeam(db, scope.teamId),
   ];
   if (benchmarkId) {
     // A benchmark bump keeps the id and raises the version, so an id-only
@@ -144,7 +160,8 @@ export async function listUntrackedLocalReports(env: Env, userId: string): Promi
   // maximum, and `<>` against null would drop exactly the reports this is for.
   const trackVersion = sql`(select max(${benchmarks.version}) from ${benchmarks}
     where ${benchmarks.id} = ${localReports.benchmarkId} and ${benchmarks.active} = 1)`;
-  const rows = await getDb(env)
+  const db = getDb(env);
+  const rows = await db
     .select({ report: localReports, login: users.githubLogin, email: users.email, name: users.name })
     .from(localReports)
     .innerJoin(users, eq(localReports.userId, users.id))
@@ -152,6 +169,7 @@ export async function listUntrackedLocalReports(env: Env, userId: string): Promi
       inArray(localReports.userId, scope.memberUserIds),
       reportRepositoryIs(scope.repoFullName),
       reportRepositoryIdAgrees(scope.repoId),
+      reportNotFromAnotherTeam(db, scope.teamId),
       sql`${localReports.benchmarkVersion} is not ${trackVersion}`,
     ))
     .orderBy(desc(localReports.syncedAt))
@@ -169,25 +187,14 @@ export async function getLocalReport(env: Env, reportId: string): Promise<LocalR
   return row ? parseReportRow(row) : null;
 }
 
-export async function upsertLocalReport(
-  env: Env,
-  userId: string,
-  body: LocalReportInput,
-): Promise<{ report: LocalReport; created: boolean }> {
+/** The stored row for a report, validated. Shared by the report endpoint and
+ *  a live run's completed event, which must store the same thing. */
+export function localReportRow(userId: string, body: LocalReportInput) {
   const provenance = LocalReportWeightsSchema.safeParse(body);
   if (!provenance.success) {
     throw new ApiHttpError(400, "invalid_request", "weightsUploaded must name paths from weightsUsed with SHA-256 digests, or be null.");
   }
-  const db = getDb(env);
-  const [existing] = await db
-    .select({ userId: localReports.userId })
-    .from(localReports)
-    .where(eq(localReports.reportId, body.reportId))
-    .limit(1);
-  if (existing && existing.userId !== userId) {
-    throw new ApiHttpError(409, "forbidden", "That report ID belongs to another account.");
-  }
-  const values = {
+  return {
     reportId: body.reportId,
     userId,
     benchmarkId: body.benchmarkId,
@@ -210,10 +217,96 @@ export async function upsertLocalReport(
     command: body.command ?? null,
     syncedAt: Date.now(),
   };
-  const update = () => db
-    .update(localReports)
-    .set(values)
-    .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId)));
+}
+
+type LocalReportRow = ReturnType<typeof localReportRow>;
+
+/** A report id names one account's report for good; refuse it to anyone else. */
+export async function refuseOthersReportId(db: Database, reportId: string, userId: string): Promise<boolean> {
+  const [existing] = await db
+    .select({ userId: localReports.userId })
+    .from(localReports)
+    .where(eq(localReports.reportId, reportId))
+    .limit(1);
+  if (existing && existing.userId !== userId) {
+    throw new ApiHttpError(409, "forbidden", "That report ID belongs to another account.");
+  }
+  return Boolean(existing);
+}
+
+/**
+ * A live run's console reads its report by id, so rewriting a report that a
+ * run of another team points at would change what that team sees. That is
+ * only the author's to do while they are still on the team; after they
+ * leave, the report stays as it was. Used inside the write itself, so a leave
+ * landing mid-request cannot slip between check and write.
+ */
+export function teamsStillTheirs(db: Database, reportId: string, userId: string) {
+  return notExists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(and(
+    eq(localRunSessions.reportId, reportId),
+    notExists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+      eq(teamMembers.teamId, localRunSessions.teamId),
+      eq(teamMembers.userId, userId),
+    ))),
+  )));
+}
+
+/** Whether the report row exists and is this account's, for a later statement
+ *  in the same batch to depend on. */
+export function reportSavedBy(db: Database, reportId: string, userId: string) {
+  return exists(db.select({ id: localReports.reportId }).from(localReports).where(and(
+    eq(localReports.reportId, reportId),
+    eq(localReports.userId, userId),
+  )));
+}
+
+/**
+ * The report's save as statements for a D1 batch, each applied only while
+ * `condition` holds when it runs. A live run's completed event puts these in
+ * the same batch as its session update, so the report is saved exactly when
+ * the run is recorded as finished for its team. Saved apart, a leave between
+ * the two left a report no run pointed at, which then read as personal and
+ * followed its author into another team. The caller's later statements must
+ * also require `teamsStillTheirs`: when it fails the update is refused while
+ * the row still exists, so the row's existence alone would accept a payload
+ * that was never saved.
+ */
+export async function guardedLocalReportSave(db: Database, row: LocalReportRow, condition: SQL) {
+  await refuseOthersReportId(db, row.reportId, row.userId);
+  return [
+    db.update(localReports).set(row).where(and(
+      eq(localReports.reportId, row.reportId),
+      eq(localReports.userId, row.userId),
+      teamsStillTheirs(db, row.reportId, row.userId),
+      condition,
+    )),
+    insertWhere(db, localReports, row, sql`${condition} and ${notExists(
+      db.select({ id: localReports.reportId }).from(localReports).where(eq(localReports.reportId, row.reportId)),
+    )}`),
+  ] as const;
+}
+
+export async function upsertLocalReport(
+  env: Env,
+  userId: string,
+  body: LocalReportInput,
+): Promise<{ report: LocalReport; created: boolean }> {
+  const values = localReportRow(userId, body);
+  const db = getDb(env);
+  const existing = await refuseOthersReportId(db, body.reportId, userId);
+  const update = async () => {
+    const result = await db
+      .update(localReports)
+      .set(values)
+      .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId), teamsStillTheirs(db, body.reportId, userId)));
+    if (!result.meta.changes) {
+      throw new ApiHttpError(
+        403,
+        "forbidden",
+        "This report belongs to a run on a team you've left, so it can't be changed now. Your copy on this machine is unchanged.",
+      );
+    }
+  };
   let created = !existing;
   if (existing) {
     await update();
@@ -349,9 +442,31 @@ export async function getLatestTeamWeights(
   benchmarkId: string,
   benchmarkVersion: number,
 ): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
-  const memberUserIds = await teamMemberUserIds(env, teamId);
+  return latestTeamWeightsFor(
+    env, teamId, await teamMemberUserIds(env, teamId), repositoryFullName, sha, repositoryId,
+    benchmarkId, benchmarkVersion,
+  );
+}
+
+/**
+ * The same choice from a roster the caller already holds. Run admission
+ * passes the roster it captured once and checked its actor against, so the
+ * report is chosen from that selection and not from a second read that a
+ * departure in between could leave empty (prepareAdmissionJob).
+ */
+export async function latestTeamWeightsFor(
+  env: Env,
+  teamId: string,
+  memberUserIds: readonly string[],
+  repositoryFullName: string,
+  sha: string,
+  repositoryId: number | null,
+  benchmarkId: string,
+  benchmarkVersion: number,
+): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
   if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
-  const [report] = await getDb(env)
+  const db = getDb(env);
+  const [report] = await db
     .select({
       repositoryId: localReports.repositoryId,
       dirty: localReports.dirty,
@@ -362,8 +477,9 @@ export async function getLatestTeamWeights(
     .from(localReports)
     .where(
       and(
-        inArray(localReports.userId, memberUserIds),
+        inArray(localReports.userId, [...memberUserIds]),
         reportRepositoryIs(repositoryFullName),
+        reportNotFromAnotherTeam(db, teamId),
         eq(localReports.sha, sha),
         eq(localReports.benchmarkId, benchmarkId),
         eq(localReports.benchmarkVersion, benchmarkVersion),

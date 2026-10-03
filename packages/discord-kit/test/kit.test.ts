@@ -100,3 +100,16 @@ test("quota cells mark spent and remaining attempts", () => {
   assert.equal(quotaCells(3, 3, fmt), "▮▮▮");
   assert.equal(quotaCells(0, 3, fmt), "▯▯▯");
 });
+
+test("plainText escapes only what Discord would read as markdown", async () => {
+  const { plainText } = await import("../src/format.ts");
+  // One correct output per input, so these are exact.
+  assert.equal(plainText("Sign in to Cog*Portal, then Cog*Portal again."), "Sign in to Cog\\*Portal, then Cog\\*Portal again.");
+  assert.equal(plainText("sign-in and a_b"), "sign-in and a\\_b");
+  assert.equal(plainText("[x](https://e.example) <@123> @everyone"), "\\[x\\]\\(https://e.example\\) \\<\\@123> \\@everyone");
+  assert.equal(plainText("# Heading"), "\\# Heading");
+  assert.equal(plainText("- item"), "\\- item");
+  assert.equal(plainText("> quote"), "\\> quote");
+  assert.equal(plainText("12. Try again"), "12\\. Try again");
+  assert.equal(plainText("  two\n\nlines  "), "two lines");
+});

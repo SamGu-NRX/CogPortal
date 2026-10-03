@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import { getDb, type Database } from "../worker/db/client.ts";
-import { benchmarks, leaderboardSelections, runMetrics, runs, teams } from "../worker/db/schema.ts";
+import { benchmarks, leaderboardSelections, runMetrics, runs, teamMembers, teams, users } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
 import { getFamilyLeaderboardReadModel, getLeaderboardReadModel } from "../worker/services/leaderboard.ts";
@@ -85,6 +85,10 @@ async function actorFor(db: Database, teamId = "team_demo"): Promise<RunActor> {
   }).where(eq(teams.id, teamId));
   const [team] = await db.select().from(teams).where(eq(teams.id, teamId));
   assert.ok(team);
+  // Publication requires the actor to be on the team when the selection is written.
+  await db.insert(users).values({ id: "user_test", name: "Ada", email: "ada@example.test", cohortId: team.cohortId })
+    .onConflictDoNothing();
+  await db.insert(teamMembers).values({ teamId, userId: "user_test", role: "write" }).onConflictDoNothing();
   return { userId: "user_test", githubLogin: "ada", team, role: "write" };
 }
 

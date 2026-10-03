@@ -27,9 +27,9 @@ import {
   type TeamRow,
 } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
-import { DispatchUnacknowledged, assertModalConfigured, enqueueRun, prepareRetryJob } from "../execution/runner";
-import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
-import { ApiHttpError } from "../http/errors";
+import { DispatchUnacknowledged, assertModalConfigured, enqueueRun, prepareAdmissionJob, prepareRetryJob, type DispatchInputs } from "../execution/runner";
+import { FixtureGitHubClient, GitHubApiError, RealGitHubClient } from "../github/client";
+import { ApiHttpError, GITHUB_SIGN_IN_EXPIRED } from "../http/errors";
 import { runSourceRefusal } from "./run-source";
 import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
@@ -45,7 +45,9 @@ import {
   runStateRefusal,
   savedEnvironmentEligibility,
 } from "./run-eligibility";
-import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
+import { actorOnTeam, insertRunWithCapacity, isAdmittingMember, readRunAccounting } from "./run-accounting";
+import { insertWhere } from "../db/insert-where";
+import { teamMemberUserIds } from "./local-reports";
 
 export interface RunActor {
   userId: string;
@@ -116,6 +118,54 @@ function requireRunSource(
   if (refusal) throw new ApiHttpError(409, "source_changed", refusal);
 }
 
+/*
+ * A quota refusal reaches a student who just pressed a button, often in
+ * Discord where the page's own "N of 10 left" line is not in view, so it says
+ * what is used up and what is still open to them. The Runs and run pages say
+ * the same things before the button is pressed (DashboardPage.tsx,
+ * RunDetailPage.tsx). A succeeded attempt is not always publishable
+ * (publishOfficialRun also refuses a refunded attempt, one from a former
+ * repository, outdated scoring rules or a missing primary metric), so the
+ * official refusal points at the run page, which says which, instead of
+ * promising publication.
+ */
+export const PRACTICE_QUOTA_REFUSAL =
+  `All ${PRACTICE_LIMIT} hosted practice runs on this version are used. Local runs (cogworks run) have no limit.`;
+export const OFFICIAL_QUOTA_REFUSAL =
+  `All ${OFFICIAL_LIMIT} official attempts on this version are used. An official attempt that already succeeded may still be publishable; its run page says whether it is.`;
+
+const WRITE_PERMISSION_REQUIRED =
+  "Current write permission to the connected repository is required.";
+
+/**
+ * The refusal for a write-access lookup that GitHub did not answer with a
+ * permission. Only a 401 means the sign-in expired. GitHub answers 403 or 404
+ * to an account that can no longer see the repository's collaborators, and
+ * anything else (a 5xx, a rate limit, a dropped connection, a malformed body)
+ * says nothing about the student, so telling them to sign in again would send
+ * them somewhere that cannot help. The last one says only that the action did
+ * not happen: some callers republish the run surface before this check
+ * (`performRunSurfaceMutation`), so "nothing changed" would claim more than
+ * this path knows.
+ *
+ * 403 for the expired sign-in rather than 401: the Activity reads a 401 as its
+ * own session ending (lib/activity-gate.ts) and would ask the student to
+ * reopen it.
+ */
+export function permissionCheckFailure(error: unknown): ApiHttpError {
+  if (error instanceof GitHubApiError && error.status === 401) {
+    return new ApiHttpError(403, "forbidden", GITHUB_SIGN_IN_EXPIRED);
+  }
+  if (error instanceof GitHubApiError && !error.rateLimited && (error.status === 403 || error.status === 404)) {
+    return new ApiHttpError(403, "forbidden", WRITE_PERMISSION_REQUIRED);
+  }
+  return new ApiHttpError(
+    502,
+    "provider_unconfigured",
+    "GitHub didn't answer the write-access check, so this didn't go through. Try again in a moment.",
+  );
+}
+
 export async function requireCurrentRepositoryPermission(
   env: Env,
   actor: RunActor,
@@ -132,11 +182,11 @@ export async function requireCurrentRepositoryPermission(
       actor.githubLogin,
       githubToken,
     );
-  } catch {
-    throw new ApiHttpError(403, "forbidden", "GitHub access expired. Sign in to Cog*Portal again.");
+  } catch (error) {
+    throw permissionCheckFailure(error);
   }
   if (!["admin", "maintain", "write", "push"].includes(permission)) {
-    throw new ApiHttpError(403, "forbidden", "Current write permission to the connected repository is required.");
+    throw new ApiHttpError(403, "forbidden", WRITE_PERMISSION_REQUIRED);
   }
   return githubToken;
 }
@@ -184,12 +234,12 @@ function guardedPhaseInserts(db: Database, runId: string) {
   `));
 }
 
-async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: BenchmarkRow) {
+async function dispatch(env: Env, runId: string, team: TeamRow) {
   if (env.EXECUTION_PROVIDER !== "modal") return;
   const [run] = await getDb(env).select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new ApiHttpError(500, "provider_unconfigured", "Run could not be loaded.");
   try {
-    await enqueueRun(env, run, team, benchmark);
+    await enqueueRun(env, run, team);
   } catch (error) {
     if (error instanceof DispatchUnacknowledged) {
       // submit_job spawns before replying. Keep the active reservation until
@@ -245,6 +295,50 @@ interface StartPracticeOptions {
   supersedesSurfaceId?: string | null;
 }
 
+/**
+ * Republish a console after this request's write has committed.
+ *
+ * Callers pass an ApiHttpError straight to the student as a refusal (the RPC
+ * entrypoint, worker/rpc.ts, and the HTTP error mapper). Once the run, the
+ * promotion or the leaderboard selection is written, a 404 or 409 from the
+ * republish would tell them the action was refused when it went through.
+ * Anything thrown here is therefore a plain Error: the bot answers it with
+ * "It may still have gone through", and the original stays in the log.
+ */
+async function republishAfterCommit<T>(work: Promise<T>): Promise<T> {
+  try {
+    return await work;
+  } catch (error) {
+    throw new Error(
+      `The write committed, then republishing the run surface failed: ${error instanceof Error ? error.message : "unknown"}`,
+    );
+  }
+}
+
+/** A run refused because its starter is no longer on the team. */
+const LEFT_TEAM_ADMISSION = "You're no longer on this team, so no run was started. Reload to see where you are.";
+const LEFT_TEAM_PUBLICATION = "You're no longer on this team, so nothing was published. Reload to see where you are.";
+
+/**
+ * The roster a Modal run's inputs are prepared from, read once, with the
+ * actor checked against it before any report or weight object is read. The
+ * guarded INSERT still decides admission; this keeps a departure during
+ * preparation from becoming an empty manifest under a second roster read.
+ */
+async function admissionRoster(env: Env, actor: RunActor): Promise<string[]> {
+  const members = await teamMemberUserIds(env, actor.team.id);
+  if (!members.includes(actor.userId)) throw new ApiHttpError(403, "forbidden", LEFT_TEAM_ADMISSION);
+  return members;
+}
+
+/** An admission INSERT changed nothing: say which condition failed. */
+async function refusedAdmission(db: Database, actor: RunActor, quotaRefusal: string): Promise<never> {
+  if (!(await isAdmittingMember(db, actor.team.id, actor.userId))) {
+    throw new ApiHttpError(403, "forbidden", LEFT_TEAM_ADMISSION);
+  }
+  throw new ApiHttpError(409, "quota_exhausted", quotaRefusal);
+}
+
 export async function startPracticeRun(
   env: Env,
   actor: RunActor,
@@ -264,7 +358,7 @@ export async function startPracticeRun(
   });
   if (accounting.activeRuns) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
   if (accounting.practiceUsed + accounting.practiceReserved >= PRACTICE_LIMIT) {
-    throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
+    throw new ApiHttpError(409, "quota_exhausted", PRACTICE_QUOTA_REFUSAL);
   }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
@@ -321,23 +415,37 @@ export async function startPracticeRun(
   const surfaceId = options.surfaceId ?? `surface_${randomHex(10)}`;
   const now = Date.now();
   const runId = `run_${randomHex(5)}`;
+  const dispatchInputs: DispatchInputs = {
+    id: runId,
+    mode: "practice",
+    sha,
+    repositoryId: actor.team.repoId,
+    // Read from the same team snapshot as the id above, so the two always
+    // describe one repository. Promotion inherits both by spreading the
+    // parent run, which is what keeps an official attempt pointing at the
+    // repository its practice run used.
+    repositoryFullName: actor.team.repoFullName,
+    benchmarkId: benchmark.id,
+    benchmarkVersion: benchmark.version,
+    contractVersion: benchmark.contractVersion,
+    datasetVersion: "practice-v1",
+    scorerVersion: benchmark.scorerVersion,
+    protocolVersion: "1",
+    provider: env.EXECUTION_PROVIDER,
+    preparedArtifactId: null,
+    preparedEnvironmentJson: null,
+  };
+  // A Modal run is born with the job it will be sent with (prepareAdmissionJob).
+  // A refusal here (weights, provenance, a departed starter) writes nothing.
+  const job = env.EXECUTION_PROVIDER === "modal"
+    ? await prepareAdmissionJob(env, dispatchInputs, actor.team, benchmark, await admissionRoster(env, actor))
+    : null;
   try {
     const insertRun = insertRunWithCapacity(db, {
-      id: runId,
+      ...dispatchInputs,
       teamId: actor.team.id,
-      benchmarkId: benchmark.id,
-      benchmarkVersion: benchmark.version,
-      contractVersion: benchmark.contractVersion,
-      mode: "practice",
       status: "queued",
       branch: options.branch || (options.exactSha ? "detached" : actor.team.defaultBranch),
-      sha,
-      repositoryId: actor.team.repoId,
-      // Read from the same team snapshot as the id above, so the two always
-      // describe one repository. Promotion inherits both by spreading the
-      // parent run, which is what keeps an official attempt pointing at the
-      // repository its practice run used.
-      repositoryFullName: actor.team.repoFullName,
       parentRunId: null,
       attemptNumber: null,
       failureCategory: null,
@@ -347,18 +455,14 @@ export async function startPracticeRun(
       log: null,
       createdAt: now,
       finishedAt: null,
-      provider: env.EXECUTION_PROVIDER,
-      protocolVersion: "1",
-      preparedArtifactId: null,
       environmentDigest: null,
-      datasetVersion: "practice-v1",
-      scorerVersion: benchmark.scorerVersion,
       runtimeVersion: benchmark.runtimeVersion,
+      dispatchJobJson: job ? JSON.stringify(job) : null,
       dispatchAttempts: 0,
       lastEventSequence: -1,
       ...NEW_EXECUTION_ACTIVITY,
       surfaceId,
-    });
+    }, actor.userId);
     // One D1 batch is one transaction: the console is written only if this
     // run was admitted, because a console with no run cannot be rendered. An
     // existing console (a local session being verified, a replayed rerun) is
@@ -387,7 +491,7 @@ export async function startPracticeRun(
       )
       .onConflictDoNothing();
     const [inserted] = await db.batch([insertRun, insertSurface, ...guardedPhaseInserts(db, runId)]);
-    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
+    if (!inserted.meta.changes) await refusedAdmission(db, actor, PRACTICE_QUOTA_REFUSAL);
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
     const existing = currentSurfaceRun(attached, "practice");
@@ -398,8 +502,8 @@ export async function startPracticeRun(
     }
     throw error;
   }
-  await dispatch(env, runId, actor.team, benchmark);
-  await publishRunSurface(env, surfaceId);
+  await dispatch(env, runId, actor.team);
+  await republishAfterCommit(publishRunSurface(env, surfaceId));
   return { runId, surfaceId };
 }
 
@@ -438,22 +542,33 @@ export async function promotePracticeRun(
   const accounting = await readRunAccounting(db, scope);
   if (accounting.activeRuns) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
   if (accounting.officialUsed + accounting.officialReserved >= OFFICIAL_LIMIT) {
-    throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
+    throw new ApiHttpError(409, "quota_exhausted", OFFICIAL_QUOTA_REFUSAL);
   }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
   }
   const runId = `run_${randomHex(5)}`;
   const now = Date.now();
+  // The attempt carries the practice run's source and saved environment; only
+  // its identity, mode and the official dataset and scorer differ.
+  const proposed = {
+    ...parent,
+    id: runId,
+    mode: "official" as const,
+    datasetVersion: benchmark.datasetVersion,
+    scorerVersion: benchmark.scorerVersion,
+  };
+  // Born with its job, built from that saved environment (prepareAdmissionJob).
+  const job = env.EXECUTION_PROVIDER === "modal"
+    ? await prepareAdmissionJob(env, proposed, actor.team, benchmark, await admissionRoster(env, actor))
+    : null;
   try {
     const insertRun = insertRunWithCapacity(db, {
-      ...parent,
-      id: runId,
-      mode: "official",
+      ...proposed,
       status: "queued",
       parentRunId: parent.id,
       retryOfRunId: null,
-      dispatchJobJson: null,
+      dispatchJobJson: job ? JSON.stringify(job) : null,
       failureCategory: null,
       failurePhase: null,
       failureDetail: null,
@@ -461,17 +576,15 @@ export async function promotePracticeRun(
       log: null,
       createdAt: now,
       finishedAt: null,
-      datasetVersion: benchmark.datasetVersion,
-      scorerVersion: benchmark.scorerVersion,
       runtimeVersion: benchmark.runtimeVersion,
       dispatchAttempts: 0,
       lastEventSequence: -1,
       ...NEW_EXECUTION_ACTIVITY,
       surfaceId: parent.surfaceId,
-    });
+    }, actor.userId);
     // A phase-write failure must not leave an admitted run without its phases.
     const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId)]);
-    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
+    if (!inserted.meta.changes) await refusedAdmission(db, actor, OFFICIAL_QUOTA_REFUSAL);
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
     const raced = existingPromotion(attached);
@@ -482,8 +595,8 @@ export async function promotePracticeRun(
     }
     throw error;
   }
-  await dispatch(env, runId, actor.team, benchmark);
-  await publishRunSurface(env, parent.surfaceId);
+  await dispatch(env, runId, actor.team);
+  await republishAfterCommit(publishRunSurface(env, parent.surfaceId));
   return { runId, surfaceId: parent.surfaceId };
 }
 
@@ -514,23 +627,27 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
   // Refused before the write, so the team's current selection stays as it was.
   const refusal = rankingRefusal(run, benchmark, metrics);
   if (refusal) throw new ApiHttpError(409, "not_selectable", refusal);
-  await db
-    .insert(leaderboardSelections)
-    .values({
-      teamId: actor.team.id,
-      benchmarkId: run.benchmarkId,
-      benchmarkVersion: run.benchmarkVersion,
-      runId: run.id,
-      selectedAt: Date.now(),
-    })
+  // The checks above awaited GitHub and the provider, and the actor can leave
+  // the team meanwhile. Membership is checked again by the write itself: when
+  // the SELECT yields no row there is nothing to insert or to conflict, so
+  // the guard covers a first publication and a replaced one alike.
+  const selectedAt = Date.now();
+  const selected = await insertWhere(db, leaderboardSelections, {
+    teamId: actor.team.id,
+    benchmarkId: run.benchmarkId,
+    benchmarkVersion: run.benchmarkVersion,
+    runId: run.id,
+    selectedAt,
+  }, actorOnTeam(db, actor.team.id, actor.userId))
     .onConflictDoUpdate({
       target: [
         leaderboardSelections.teamId,
         leaderboardSelections.benchmarkId,
         leaderboardSelections.benchmarkVersion,
       ],
-      set: { runId: run.id, selectedAt: Date.now() },
+      set: { runId: run.id, selectedAt },
     });
+  if (!selected.meta.changes) throw new ApiHttpError(403, "forbidden", LEFT_TEAM_PUBLICATION);
   // Query after the selection write: a prior-selection read can miss a
   // concurrent switch and leave the deselected console showing Published.
   const affected = await db.selectDistinct({ surfaceId: runs.surfaceId }).from(runs).where(and(
@@ -539,7 +656,9 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
     eq(runs.benchmarkVersion, run.benchmarkVersion),
     eq(runs.mode, "official"),
   ));
-  await Promise.all(affected.flatMap(({ surfaceId }) => surfaceId ? [publishRunSurface(env, surfaceId)] : []));
+  await republishAfterCommit(
+    Promise.all(affected.flatMap(({ surfaceId }) => surfaceId ? [publishRunSurface(env, surfaceId)] : [])),
+  );
   return { ok: true as const, surfaceId: run.surfaceId };
 }
 
@@ -624,7 +743,8 @@ export async function retryRun(
     : accounting.practiceUsed + accounting.practiceReserved;
   if (occupied >= (failed.mode === "official" ? OFFICIAL_LIMIT : PRACTICE_LIMIT)) {
     if ((await successor()).length) return;
-    throw new ApiHttpError(409, "quota_exhausted", "The completed-evaluation quota is exhausted.");
+    throw new ApiHttpError(409, "quota_exhausted",
+      failed.mode === "official" ? OFFICIAL_QUOTA_REFUSAL : PRACTICE_QUOTA_REFUSAL);
   }
   const runId = `run_${randomHex(5)}`;
   const job = failed.provider === "modal"
@@ -664,7 +784,7 @@ export async function retryRun(
     ...NEW_EXECUTION_ACTIVITY,
     surfaceId,
     createdAt: now,
-  });
+  }, actor.userId);
   const updateSurface = db.update(runSurfaces).set({ updatedAt: now }).where(and(
     eq(runSurfaces.id, surfaceId),
     exists(db.select({ id: runs.id }).from(runs).where(eq(runs.id, runId))),
@@ -672,8 +792,7 @@ export async function retryRun(
   try {
     const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId), updateSurface]);
     if (!inserted.meta.changes) {
-      throw new ApiHttpError(409, "quota_exhausted",
-        failed.mode === "official" ? "The official-attempt quota is exhausted." : "The practice-run quota is exhausted.");
+      await refusedAdmission(db, actor, failed.mode === "official" ? OFFICIAL_QUOTA_REFUSAL : PRACTICE_QUOTA_REFUSAL);
     }
   } catch (error) {
     if ((await successor()).length) return;
@@ -682,7 +801,7 @@ export async function retryRun(
     }
     throw error;
   }
-  await dispatch(env, runId, actor.team, benchmark);
+  await dispatch(env, runId, actor.team);
 }
 
 export type RunSurfaceMutation =
@@ -714,7 +833,7 @@ export async function performRunSurfaceMutation(
   if (action === "retry") {
     const { runId } = RetryRunRequestSchema.parse(request);
     await retryRun(env, actor, surfaceId, runId);
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
 
   if (action === "verify_hosted") {
@@ -742,7 +861,7 @@ export async function performRunSurfaceMutation(
       exactSha: local.sha,
       surfaceId,
     });
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
 
   // Eligibility before publication. `publishRunSurface` writes a snapshot to
@@ -775,16 +894,16 @@ export async function performRunSurfaceMutation(
       throw new ApiHttpError(409, "not_promotable", "Verify this run first.");
     }
     await promotePracticeRun(env, actor, snapshot.practiceRunId);
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
   if (action === "publish_result") {
     if (!snapshot.officialRunId) {
       throw new ApiHttpError(409, "not_selectable", "No official result is ready.");
     }
     await publishOfficialRun(env, actor, snapshot.officialRunId);
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
 
   const rerun = await rerunHostedSurface(env, actor, surfaceId);
-  return publishRunSurface(env, rerun.surfaceId);
+  return republishAfterCommit(publishRunSurface(env, rerun.surfaceId));
 }

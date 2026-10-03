@@ -216,14 +216,46 @@ test("a refusal that observed nothing still names the one command to run", () =>
   assert.match(html, /audio-identification/);
 });
 
-test("the headline leads and the notes are gone", () => {
-  // The headline stays because it is the only place the stage the run wanted
-  // is named. The notes went: each one restated a row below it.
+test("the headline leads and the first note is read with it", () => {
+  // Notes were dropped on 2026-09-04 because each restated a row below. The
+  // two kinds the search writes now arrived later (a constructor reading a
+  // folder the benchmark cannot write, 2026-09-22; a function too slow to
+  // call again, 2026-10-01), appear in no row, and are often the real reason:
+  // the headline can name a hand-off three stages past where the search
+  // actually stalled. The CLI prints them under the headline too.
   const html = card(wired, "Contract check");
+  const headline = html.indexOf("Nothing in your repository accepted the input");
+  const note = html.indexOf("clustering.clusterCreator() reads baseImages/ next to its own file.");
+  const firstRow = html.indexOf("<dl");
 
   assert.doesNotMatch(html, /WHAT THE BENCHMARK LOOKED FOR/);
-  assert.doesNotMatch(html, /clusterCreator/);
-  assert.match(html, /Nothing in your repository accepted the input/);
+  assert.ok(headline >= 0 && note > headline && firstRow > note, "headline, then note, then the rows");
+  assert.doesNotMatch(html, /more note/, "one note has nothing to fold");
+});
+
+test("further notes fold away so the rows stay on a phone screen", () => {
+  const notes = [
+    "clustering.clusterCreator() reads baseImages/ next to its own file.",
+    "whispers.create_graph was still running after 10 seconds, so the check didn't make that same call again.",
+    "profiles.Profile() reads database/ relative to its own file.",
+  ];
+  const html = card({ ...wired, notes }, "Contract check");
+
+  assert.match(html, /2 more notes from the search/);
+  // Folded notes are present for the reveal but hidden from assistive tech
+  // and focus until opened.
+  const folded = html.slice(html.indexOf('aria-hidden="true"'));
+  assert.ok(folded.includes("whispers.create_graph was still running"), "second note is inside the fold");
+  assert.ok(html.indexOf(notes[0]!) < html.indexOf('aria-hidden="true"'), "first note is outside the fold");
+  assert.match(html, /inert=""/);
+
+  const single = card({ ...wired, notes: notes.slice(0, 2) }, "Contract check");
+  assert.match(single, /1 more note from the search/);
+});
+
+test("a refusal without notes draws no space for them", () => {
+  const html = card({ ...wired, notes: [] }, "Contract check");
+  assert.doesNotMatch(html, /note/);
 });
 
 test("the header names the stage the headline names, not the run phase", () => {
@@ -419,6 +451,12 @@ test("wiring keeps all 200 identifier characters and uses wrapping rather than e
     steps: [{ stage: "peaks", function: identifier }],
   }));
   assert.ok(markup.includes(identifier));
-  assert.match(markup, /class="break-all font-mono/);
+  // The identifier's own element may split a run wider than its column
+  // (overflow-wrap: anywhere; b59b999 put it in place of break-all so a name
+  // that fits on the next line moves there whole instead), and nothing clips it.
+  const element = markup.match(new RegExp(`<div class="([^"]*)">${identifier.replace(".", "\\.")}</div>`));
+  assert.ok(element, "the identifier sits in its own element");
+  assert.match(element[1], /\[overflow-wrap:anywhere\]/);
+  assert.doesNotMatch(element[1], /whitespace-nowrap|overflow-hidden/);
   assert.doesNotMatch(markup, /truncate|text-ellipsis/);
 });

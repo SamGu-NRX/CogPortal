@@ -51,3 +51,23 @@ export function fitTextBudget(
   }
   return kept;
 }
+
+/**
+ * Text someone else wrote, shown as written rather than as markdown.
+ *
+ * Discord unescapes a backslash before any ASCII punctuation, so the escapes
+ * are lossless. Without them "Cog*Portal" twice in one sentence italicizes
+ * everything between, and a team name can carry a masked link. Line breaks
+ * collapse because one of these sentences is a paragraph, which leaves only
+ * the start of the line able to open a heading, list or quote. Escaping "<"
+ * and "@" stops a mention or custom emoji rendering at all; `allowed_mentions`
+ * already stops the ping.
+ */
+export function plainText(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\\*_~`|<[\]()@]/g, "\\$&")
+    .replace(/^[#>+-]/, "\\$&")
+    .replace(/^(\d+)\./, "$1\\.");
+}

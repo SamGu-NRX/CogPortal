@@ -7,6 +7,7 @@ import unittest
 import zipfile
 from importlib.util import find_spec
 from pathlib import Path
+from unittest.mock import patch
 
 try:
     import numpy as np
@@ -83,6 +84,21 @@ class Week3PayloadTest(unittest.TestCase):
         self.assertIsNone(cases[2].gold_image_ids)
         self.assertEqual(cases[1].descriptors.dtype, np.float32)
         np.testing.assert_array_equal(cases[1].descriptors, _cases()[1].descriptors)
+
+    def test_payload_bytes_do_not_depend_on_zip_timestamp_boundary(self):
+        from cogworks_runner.week3_payload import encode_payload
+
+        cases = _cases()
+        with patch("zipfile.time.localtime", return_value=(2026, 10, 3, 12, 0, 1)):
+            first = encode_payload("language-search", cases, showcase=True)
+        with patch("zipfile.time.localtime", return_value=(2026, 10, 3, 12, 0, 2)):
+            second = encode_payload("language-search", cases, showcase=True)
+        self.assertEqual(first, second)
+        with zipfile.ZipFile(io.BytesIO(first)) as archive:
+            self.assertEqual(archive.namelist(), ["metadata.json", "descriptors.npy"])
+            for entry in archive.infolist():
+                self.assertEqual(entry.date_time, (1980, 1, 1, 0, 0, 0))
+                self.assertEqual(entry.compress_type, zipfile.ZIP_STORED)
 
     def test_extract_and_attach_gold_roundtrip(self):
         from language_search_benchmark.datasets import attach_gold

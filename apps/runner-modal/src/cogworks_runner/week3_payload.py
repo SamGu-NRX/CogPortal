@@ -59,15 +59,23 @@ def encode_payload(benchmark_id: str, cases: Sequence[Any], showcase: bool) -> b
         "search_k": int(search.k),
     }
     buffer = io.BytesIO()
+    # Use the ZIP epoch for byte identity: current-time entries caused a CI
+    # determinism failure when encoding crossed a two-second DOS time boundary.
+    zip_epoch = (1980, 1, 1, 0, 0, 0)
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.writestr("metadata.json", json.dumps(metadata, sort_keys=True))
+        archive.writestr(
+            zipfile.ZipInfo("metadata.json", date_time=zip_epoch),
+            json.dumps(metadata, sort_keys=True),
+        )
         matrix = io.BytesIO()
         np.save(
             matrix,
             np.asarray(retrieval.descriptors, dtype=np.float32),
             allow_pickle=False,
         )
-        archive.writestr("descriptors.npy", matrix.getvalue())
+        archive.writestr(
+            zipfile.ZipInfo("descriptors.npy", date_time=zip_epoch), matrix.getvalue()
+        )
     return buffer.getvalue()
 
 

@@ -43,6 +43,10 @@ At the limit nothing is dispatched:
 - Retry: "The completed-evaluation quota is exhausted." (`run-actions.ts:611`). The console does not offer Retry without capacity (`apps/portal/worker/services/run-surfaces.ts:387`).
 - Another run active: "A run is already in progress; runs go one at a time per benchmark." (`DashboardPage.tsx:666`).
 
+Status, `f03ebfa` (2026-10-03): the server's refusals now say what is used and what is still open, matching the pages. Practice: "All 10 hosted practice runs on this version are used. Local runs (cogworks run) have no limit." Official: "All 3 official attempts on this version are used. An official attempt that already succeeded may still be publishable; its run page says whether it is." (`run-actions.ts:126-129`, used at `:311`, `:434`, `:485`, `:518`). Retry gives the one for the failed run's mode (`:672`, `:721`); "completed-evaluation quota" no longer appears. Discord shows these as written ([B-19](../bug-triage.md#b-19-the-discord-bot-replaces-every-actionable-portal-error-with-one-generic-sentence)). Covered by `apps/portal/test/run-actions.test.ts`.
+
+Status, `8839d60` (2026-10-03): the official sentence above replaces f03ebfa's "You can still publish any successful official attempt.", here and on the run page. A succeeded attempt is not always publishable: `publishOfficialRun` also refuses a refunded attempt, one from a former repository, a run scored under outdated rules and one missing the primary metric (`apps/portal/worker/services/run-actions.ts`), and the run page shows that refusal where Publish would be. Covered by `run-actions.test.ts`, `failure-presentation.test.ts` and the bot's `refusal-handoff.test.ts`.
+
 Publishing an existing official result and reading history remain available at the limit.
 
 ### The work begins

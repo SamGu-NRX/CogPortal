@@ -101,13 +101,17 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   // the platform's own replay raised in B-44, and this title once told that
   // team the crash was theirs. The copy stays neutral and lets the detail's
   // file and line speak; it never promises a repeat fixes a benchmark bug.
+  // Staff cannot open a team's run (GET /api/runs/:id answers only that
+  // team), so the escalations here and below ask for what a student can
+  // hand over: the error and the run number the run page shows at its top.
+  // FailureCard on the run page is the only place these actions render.
   student_runtime: {
     code: "E-RUNTIME",
     title: "The evaluation stopped on an exception",
     explanation:
       "The error below shows what was raised and where.",
     action:
-      "If it points to a file in your repository, reproduce it with the command below. If it points elsewhere, share the run with course staff and retry once they've fixed it.",
+      "If it points to a file in your repository, reproduce it with the command below. If it points elsewhere, send course staff the error above and the run number at the top of this page, then retry once they've fixed it.",
     reproCommand: "cogworks run --benchmark {benchmark}",
     remedy: "either",
   },
@@ -131,13 +135,19 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     reproCommand: null,
     remedy: "fix",
   },
+  // Written against the one place that raises it,
+  // apps/runner-modal/src/cogworks_runner/prediction_validation.py. That
+  // check runs only on the hosted side, so the action names what a student
+  // can run and says plainly that the local run is not the same check.
   output_invalid: {
     code: "E-OUTPUT",
-    title: "Predictions did not match the schema",
+    title: "Results came back in a shape scoring can't read",
     explanation:
-      "Your adapter returned output that failed schema validation. Extra fields, wrong types, and values outside the allowed range are all rejected.",
+      "Before scoring, the runner checks every result your adapter returned: one per case, each of the type this benchmark scores, with finite numbers where scoring does arithmetic. The line above is the first problem it found.",
+    // The runner's line is the instruction (which result, which field, or
+    // that the count is off and whose list that is), so this defers to it.
     action:
-      "Validate your output locally with the schema check and correct the prediction shape.",
+      "The line above says what the runner refused and where to look. This runs your adapter on the small cases locally, but it doesn't repeat the runner's check:",
     reproCommand: "cogworks test --benchmark {benchmark}",
     remedy: "fix",
   },
@@ -147,7 +157,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your predictions were produced and retrieved, but the trusted scorer failed. This is a platform problem, not a problem with your code.",
     action:
-      "If scoring keeps failing, share the run's details with course staff.",
+      "If scoring keeps failing, send course staff the run number at the top of this page.",
     reproCommand: null,
     remedy: "retry",
   },
@@ -157,7 +167,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "The hosted execution could not finish. The recorded details may identify where it stopped.",
     action:
-      "If the run keeps failing, share its details with course staff.",
+      "If the run keeps failing, send course staff the run number at the top of this page.",
     reproCommand: null,
     remedy: "retry",
   },
@@ -199,10 +209,6 @@ export const MODULE_FAILURE_COPY: Partial<
       action:
         "Process images one at a time instead of holding the full set in memory, and release large intermediate arrays.",
     },
-    output_invalid: {
-      explanation:
-        "Your adapter returned predictions that failed schema validation. Extra fields, wrong types, and out-of-range boxes are all rejected.",
-    },
   },
   language: {
     dependency_install: {
@@ -221,10 +227,6 @@ export const MODULE_FAILURE_COPY: Partial<
     memory_limit: {
       action:
         "Hold one copy of the descriptor and embedding matrices, keep them float32 rather than float64, and release large intermediates.",
-    },
-    output_invalid: {
-      explanation:
-        "Your adapter returned rankings that failed schema validation. Wrong types, ids outside the pinned image pool, and more than k results are all rejected.",
     },
   },
 };

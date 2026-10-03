@@ -55,7 +55,7 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
-import { ApiHttpError, handleError } from "../worker/http/errors.ts";
+import { ApiHttpError, handleError, publicApiError } from "../worker/http/errors.ts";
 import { createAuth } from "../worker/auth/better-auth.ts";
 import { registerRunRoutes } from "../worker/routes/runs.ts";
 import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
@@ -63,7 +63,7 @@ import { registerRunSurfaceRoutes } from "../worker/routes/run-surfaces.ts";
 import { registerActivityRoutes } from "../worker/routes/activity.ts";
 import { runSourceRefusal } from "../worker/services/run-source.ts";
 import { savedEnvironmentEligibility } from "../worker/services/run-eligibility.ts";
-import { PreparedEnvironmentV1Schema, RunJobV1Schema } from "@cogworks/contracts/protocol";
+import { PreparedEnvironmentV1Schema, RunJobV1Schema, type RunJobV1 } from "@cogworks/contracts/protocol";
 import {
   performRunSurfaceMutation,
   promotePracticeRun,
@@ -95,6 +95,15 @@ const PREPARED = {
 interface Harness {
   db: Database;
   binding: unknown;
+  /** One-shot hooks around the next D1 batch: what commits just before the
+   *  admission INSERT, or just after it and before dispatch. */
+  race: {
+    beforeBatch?: () => void;
+    afterBatch?: () => void;
+    /** Runs once, just before the next statement whose SQL matches. */
+    beforeStatement?: { match: RegExp; run: () => void };
+  };
+  sqlite: DatabaseSync;
 }
 
 function freshDb(): Harness {
@@ -106,6 +115,11 @@ function freshDb(): Harness {
   for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
 
   function prepare(query: string) {
+    const hook = race.beforeStatement;
+    if (hook?.match.test(query)) {
+      delete race.beforeStatement;
+      hook.run();
+    }
     const statement = sqlite.prepare(query);
     let bound: never[] = [];
     const prepared = {
@@ -134,26 +148,38 @@ function freshDb(): Harness {
     return prepared;
   }
 
+  const race: Harness["race"] = {};
   const binding = {
     prepare,
     // D1 commits a batch as one implicit transaction; mirror that so the
     // admission rollback is exercised, not stubbed. Each entry carries its own
     // `results`, which is how D1 returns rows for a batched SELECT.
     async batch(statements: Array<{ execute(): unknown }>) {
-      sqlite.exec("BEGIN");
-      try {
-        // Execute without yielding, matching D1's serialized transaction writes.
-        const results = [];
-        for (const statement of statements) results.push(statement.execute());
-        sqlite.exec("COMMIT");
-        return results;
-      } catch (error) {
-        sqlite.exec("ROLLBACK");
-        throw error;
+      const before = race.beforeBatch;
+      delete race.beforeBatch;
+      before?.();
+      try { return runBatch(statements); }
+      finally {
+        const after = race.afterBatch;
+        delete race.afterBatch;
+        after?.();
       }
     },
   };
-  return { db: drizzle(binding as never), binding };
+  function runBatch(statements: Array<{ execute(): unknown }>) {
+    sqlite.exec("BEGIN");
+    try {
+      // Execute without yielding, matching D1's serialized transaction writes.
+      const results = [];
+      for (const statement of statements) results.push(statement.execute());
+      sqlite.exec("COMMIT");
+      return results;
+    } catch (error) {
+      sqlite.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  return { db: drizzle(binding as never), binding, race, sqlite };
 }
 
 /** Counts snapshot publications, so a refusal can be shown to have had no
@@ -214,6 +240,8 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     defaultBranch: FIXTURE_REPO.defaultBranch,
     repoId: FIXTURE_REPO.repositoryId,
   });
+  // The actor acts for its own team; admission checks that membership.
+  await db.insert(teamMembers).values({ teamId: "team_test", userId: "user_test", role: "admin" });
   await db.insert(benchmarks).values({
     id: BENCHMARK_ID,
     version: 1,
@@ -356,7 +384,7 @@ for (const mode of ["practice", "official"] as const) {
     const competitor = { ...failed, id: "run_other_candidate", status: "queued" as const, createdAt: Date.now(), finishedAt: null, surfaceId: null, benchmarkVersion: 99 };
     const raced = await Promise.allSettled([
       retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId),
-      insertRunWithCapacity(db, competitor),
+      insertRunWithCapacity(db, competitor, actor.userId),
     ]);
     const active = (await db.select().from(runs)).filter((run) => RUN_PHASES.some((phase) => phase === run.status));
     assert.equal(active.length, 1);
@@ -372,7 +400,15 @@ for (const mode of ["practice", "official"] as const) {
         surfaceId: null, finishedAt: NOW + 1_000,
       });
     }
-    await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, target), /quota is exhausted/);
+    await assert.rejects(
+      retryRun(env(binding, "fixture"), actor, SURFACE_ID, target),
+      {
+        code: "quota_exhausted",
+        message: mode === "official"
+          ? "All 3 official attempts on this version are used. An official attempt that already succeeded may still be publishable; its run page says whether it is."
+          : "All 10 hosted practice runs on this version are used. Local runs (cogworks run) have no limit.",
+      },
+    );
     assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, target))).length, 0);
   });
 }
@@ -721,6 +757,45 @@ for (const official of ["succeeded", "failed"] as const) {
   });
 }
 
+test("a track with no runs counts the team's runs on other open tracks, at the version each tab opens", async () => {
+  // A track with no runs names where the team's runs are (DashboardPage
+  // RunsElsewhere). The count is the team's, at versions a tab can open, and a
+  // track with runs of its own skips it (only the first-run panel reads it).
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [other] = await db.select().from(benchmarks)
+    .where(and(eq(benchmarks.active, true), ne(benchmarks.id, BENCHMARK_ID))).limit(1);
+  assert.ok(other, "the migrations seed a second active benchmark");
+  await historyRun(db, "elsewhere_failed", {
+    benchmarkId: other.id, benchmarkVersion: other.version,
+    status: "failed", failureCategory: "student_runtime", failurePhase: "evaluating",
+  });
+  await historyRun(db, "elsewhere_succeeded", { benchmarkId: other.id, benchmarkVersion: other.version });
+  await historyRun(db, "elsewhere_old_version", { benchmarkId: other.id, benchmarkVersion: other.version + 100 });
+  await historyRun(db, "elsewhere_retired", { benchmarkId: "retired-benchmark" });
+  await db.insert(teams).values({ ...actor.team, id: "other_team", repoFullName: "other/repo" });
+  await historyRun(db, "other_team_elsewhere", { teamId: "other_team", benchmarkId: other.id, benchmarkVersion: other.version });
+  const { app, runtime, cookie } = await authenticatedPromotion(db, binding);
+
+  const read = async (id: string) => DashboardSchema.parse(await (await app.fetch(
+    new Request(`http://localhost:5173/dashboard?benchmark=${id}`, { headers: { cookie } }), runtime)).json());
+  // The seed makes Recognition v1 active beside the migrations' v2, and its
+  // practice run is on v1. The tab opens v2, so that run counts nowhere.
+  const empty = await read(BENCHMARK_ID);
+  assert.equal(empty.benchmark.version, 2);
+  assert.deepEqual(empty.runs, []);
+  assert.deepEqual(empty.runsOnOtherTracks, [{ benchmarkId: other.id, title: other.title, runs: 2 }]);
+  const [third] = await db.select().from(benchmarks).where(and(
+    eq(benchmarks.active, true), ne(benchmarks.id, BENCHMARK_ID), ne(benchmarks.id, other.id))).limit(1);
+  assert.ok(third, "the migrations seed a third active benchmark");
+  assert.deepEqual((await read(third.id)).runsOnOtherTracks, [{ benchmarkId: other.id, title: other.title, runs: 2 }]);
+
+  await historyRun(db, "here_now", { benchmarkVersion: empty.benchmark.version });
+  const withRuns = await read(BENCHMARK_ID);
+  assert.equal(withRuns.runs.length, 1);
+  assert.deepEqual(withRuns.runsOnOtherTracks, []);
+});
+
 test("a practice run with no console says why it can't be promoted, on every path", async () => {
   // Rows from before run consoles have no surface to attach an official
   // attempt to. Promotion always refused them while both pages offered it.
@@ -970,10 +1045,12 @@ test("a reaped official result that arrives late offers a fresh hosted run inste
   assert.equal(successor.supersedesSurfaceId, SURFACE_ID);
 });
 
-test("incomplete weight uploads fail hosted dispatch without leaving an active run", async () => {
+test("incomplete weight uploads are refused before admission, leaving no run, console or phases", async () => {
+  // The job is built before the run is inserted (prepareAdmissionJob), so a
+  // weight refusal now leaves nothing behind. It used to leave a failed run
+  // with no dispatch inputs, which nothing could retry.
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
-  await db.insert(teamMembers).values({ teamId: actor.team.id, userId: actor.userId, role: "write" });
   // The report is for version 1, so the run has to be: a report only supplies
   // weights to a run of its own benchmark version.
   await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
@@ -1034,17 +1111,9 @@ test("incomplete weight uploads fail hosted dispatch without leaving an active r
   assert.ok(checked[1].endsWith("models/missing.pkl"));
   assert.ok(checked[2].startsWith("weights/"));
   assert.ok(checked[2].endsWith("models/missing.pkl"));
-  const failed = (await db.select().from(runs)).filter((run) => run.id !== PRACTICE_RUN_ID);
-  assert.equal(failed.length, 2, "retry was not blocked by an active-run row");
-  for (const run of failed) {
-    assert.equal(run.status, "failed");
-    assert.equal(run.failureCategory, "provider");
-    assert.equal(run.failurePhase, "queued");
-    assert.equal(run.failureDetail, "Required weight models/missing.pkl has not been uploaded; sync the report again.");
-    assert.equal(run.failureConsumedAttempt, false);
-    assert.notEqual(run.finishedAt, null);
-    assert.equal(run.lastEventSequence, -1);
-  }
+  assert.deepEqual((await db.select().from(runs)).map((run) => run.id), [PRACTICE_RUN_ID], "a refused start left a run");
+  assert.equal((await db.select().from(runSurfaces)).length, 1, "a refused start left a console");
+  assert.deepEqual((await db.select().from(runPhases)).filter((phase) => phase.runId !== PRACTICE_RUN_ID), [], "a refused start left phases");
 });
 
 test("an official dispatch failure releases capacity", async () => {
@@ -1324,6 +1393,57 @@ test("publishing a result from a repository the team has left is refused, and th
   assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
 });
 
+const LEFT_TEAM_PUBLICATION = "You're no longer on this team, so nothing was published. Reload to see where you are.";
+
+for (const existing of [false, true]) {
+  test(`a publisher who leaves while its checks are pending ${existing ? "replaces" : "creates"} no selection`, async () => {
+    const { db, binding, race, sqlite } = freshDb();
+    const actor = await seedPromotion(db);
+    const officialId = await seedOfficial(db, "succeeded");
+    await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+    if (existing) {
+      // The ON CONFLICT branch: a selection the write would otherwise update.
+      await db.insert(leaderboardSelections).values({
+        teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1, runId: officialId, selectedAt: 1,
+      });
+    }
+    const before = await db.select().from(leaderboardSelections);
+    const runtime = env(binding, "fixture");
+    const hubs = runSurfaceHubs(runtime);
+    runtime.RUN_SURFACES = hubs.namespace;
+    // The leave commits after every check has passed, where the GitHub
+    // permission read and the provider sync await, and before the write.
+    let left = false;
+    race.beforeStatement = {
+      match: /^insert into "leaderboard_selections"/i,
+      run: () => {
+        sqlite.prepare("DELETE FROM team_members WHERE user_id = ?").run(actor.userId);
+        left = true;
+      },
+    };
+    await assert.rejects(publishOfficialRun(runtime, actor, officialId),
+      { status: 403, code: "forbidden", message: LEFT_TEAM_PUBLICATION });
+    assert.equal(left, true, "the leave must land between the checks and the write");
+    assert.deepEqual(await db.select().from(leaderboardSelections), before);
+    assert.deepEqual(hubs.requests.filter((r) => r.operation === "/publish"), [], "a refused publication was announced");
+  });
+}
+
+test("a publisher demoted while its checks are pending still publishes, as any member may", async () => {
+  const { db, binding, race, sqlite } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  race.beforeStatement = {
+    match: /^insert into "leaderboard_selections"/i,
+    run: () => { sqlite.prepare("UPDATE team_members SET role = 'member' WHERE user_id = ?").run(actor.userId); },
+  };
+  await publishOfficialRun(env(binding, "fixture"), actor, officialId);
+  const [selection] = await db.select().from(leaderboardSelections);
+  assert.equal(selection?.runId, officialId);
+  assert.equal(race.beforeStatement, undefined, "the demotion never landed");
+});
+
 test("rerunning a run from a repository the team has left is refused, with no new run", async () => {
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
@@ -1524,6 +1644,39 @@ test("a hosted console pairs its current stage's source and commit without borro
   assert.ok(legacyOfficial.actions.includes("publish_result"));
 });
 
+test("a republish that fails after the selection is written is an unknown outcome, not a refusal", async () => {
+  // Discord shows an ApiHttpError as a refusal. Here the result is already on
+  // the leaderboard, so a refusal would be false; the bot must instead say it
+  // may have gone through (worker/rpc.ts passes through only ApiHttpErrors).
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  const runtime = env(binding, "fixture");
+  const real = runtime.RUN_SURFACES;
+  let publishes = 0;
+  // SAFETY: snapshot callers use only idFromName and fetch(url, init).
+  runtime.RUN_SURFACES = {
+    idFromName: (name: string) => real.idFromName(name),
+    get: (id: DurableObjectId) => ({
+      fetch: (url: string, init: RequestInit) => {
+        // The first publish is the snapshot taken before any write.
+        if (new URL(url).pathname === "/publish" && ++publishes > 1) {
+          return Promise.resolve(new Response("Run surface not found.", { status: 404 }));
+        }
+        return real.get(id).fetch(url, init);
+      },
+    }),
+  } as unknown as Env["RUN_SURFACES"];
+  await assert.rejects(
+    performRunSurfaceMutation(runtime, actor, SURFACE_ID, "publish_result"),
+    (error: unknown) => !(error instanceof ApiHttpError) && publicApiError(error) === null &&
+      /write committed/.test((error as Error).message),
+  );
+  const selections = await db.select().from(leaderboardSelections).where(eq(leaderboardSelections.runId, officialId));
+  assert.equal(selections.length, 1, "the selection was written before the republish failed");
+});
+
 test("missing hosted stages reject mutations before realtime publication", async () => {
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
@@ -1546,6 +1699,8 @@ test("missing hosted stages reject mutations before realtime publication", async
 function renderDashboard(dashboard: Dashboard): string {
   (globalThis as typeof globalThis & { React: typeof React }).React = React;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  // The page offers a start only when the session names the dashboard's team.
+  client.setQueryData(["session"], { team: { id: dashboard.team.id, name: dashboard.team.name }, auth: { executionProvider: "fixture" } });
   client.setQueryData(["benchmarks"], [dashboard.benchmark]);
   client.setQueryData(["dashboard", dashboard.benchmark.id], dashboard);
   client.setQueryData(["local-reports", dashboard.benchmark.id], []);
@@ -1707,12 +1862,12 @@ for (const mode of ["practice", "official"] as const) {
     assert.equal(before[mode === "practice" ? "practiceUsed" : "officialUsed"], limit - 1);
     const last = await historyRun(db, "last_completed", { mode });
     const pending = { ...last, id: "new_execution", status: "queued" as const, finishedAt: null };
-    assert.equal((await insertRunWithCapacity(db, pending)).meta.changes, 0);
+    assert.equal((await insertRunWithCapacity(db, pending, "user_test")).meta.changes, 0);
     // The same slot is reserved while the last execution is active, never used.
     await db.update(runs).set({ status: "evaluating" }).where(eq(runs.id, last.id));
-    assert.equal((await insertRunWithCapacity(db, pending)).meta.changes, 0);
+    assert.equal((await insertRunWithCapacity(db, pending, "user_test")).meta.changes, 0);
     await db.update(runs).set({ status: "failed", failureConsumedAttempt: true }).where(eq(runs.id, last.id));
-    assert.equal((await insertRunWithCapacity(db, pending)).meta.changes, 1);
+    assert.equal((await insertRunWithCapacity(db, pending, "user_test")).meta.changes, 1);
     const counts = await readRunAccounting(db, ACCOUNTING_SCOPE);
     assert.equal(counts[mode === "practice" ? "practiceUsed" : "officialUsed"], limit - 1);
     assert.equal(counts[mode === "practice" ? "practiceReserved" : "officialReserved"], 1);
@@ -2827,4 +2982,147 @@ test("every new execution starts with no runner activity and no rollout grace, n
   });
   const [fresh] = await db.select().from(runs).where(eq(runs.id, started.runId));
   assert.deepEqual([fresh?.acceptedActivityAt, fresh?.legacyGraceUntil], [null, 0]);
+});
+
+/*
+ * A Modal run is born with the job it is sent with (prepareAdmissionJob):
+ * inputs are prepared from one roster read before the guarded INSERT, saved
+ * in it, and only that saved job is sent. Built after admission instead, it
+ * read the roster at dispatch, so a member who left in between took their
+ * report's weights with them and an emptied roster sent weights [] silently.
+ */
+/** The weights come from a teammate who stays on the team, so a starter who
+ *  left would still find them if admission did not check the starter first. */
+async function seedWeightedStart(db: Database) {
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(users).values({ id: "user_teammate", name: "Grace", email: "grace@example.test", githubLogin: "grace", cohortId: "cohort_test" });
+  await db.insert(teamMembers).values({ teamId: "team_test", userId: "user_teammate", role: "write" });
+  await db.insert(localReports).values({
+    reportId: "report_with_weights", userId: "user_teammate", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1", sdkVersion: "0.2.0", pluginVersion: "1",
+    repositoryFullName: FIXTURE_REPO.fullName, sha: "a".repeat(40), dirty: false,
+    startedAt: NOW, finishedAt: NOW + 1_000, metricsJson: "[]", diagnosticsJson: "[]",
+    weightsUsedJson: '["models/first.pkl"]', weightsUsedKnown: true,
+    weightsUploadedJson: JSON.stringify([{ path: "models/first.pkl", sha256: "0".repeat(64) }]),
+    syncedAt: NOW + 2_000,
+  });
+}
+
+function weightStore(heads: string[]): R2Bucket {
+  // SAFETY: admission and send-time validation only call head().
+  return {
+    async head(key: string) {
+      heads.push(key);
+      return { size: 3, checksums: { sha256: new Uint8Array(32).buffer } };
+    },
+  } as unknown as R2Bucket;
+}
+
+const SAVED_WEIGHTS = [{ path: "models/first.pkl", size: 3, sha256: "0".repeat(64) }];
+const LEFT_TEAM_ADMISSION = "You're no longer on this team, so no run was started. Reload to see where you are.";
+
+async function admittedRows(db: Database) {
+  const created = (await db.select().from(runs)).filter((run) => run.id !== PRACTICE_RUN_ID);
+  return {
+    runs: created,
+    surfaces: (await db.select().from(runSurfaces)).filter((surface) => surface.id !== SURFACE_ID),
+    phases: (await db.select().from(runPhases)).filter((phase) => phase.runId !== PRACTICE_RUN_ID),
+  };
+}
+
+test("a Modal start whose starter is no longer on the team reads no weights and admits nothing", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await seedWeightedStart(db);
+  await db.delete(teamMembers).where(eq(teamMembers.userId, actor.userId));
+  const heads: string[] = [];
+  let sent = 0;
+  const runtime = env(binding, "modal", { async send() { sent += 1; } });
+  runtime.ARTIFACTS = weightStore(heads);
+  await assert.rejects(startPracticeRun(runtime, actor, { benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40) }),
+    { status: 403, code: "forbidden", message: LEFT_TEAM_ADMISSION });
+  assert.deepEqual(heads, [], "weights were read for a starter who had left");
+  assert.equal(sent, 0);
+  assert.deepEqual(await admittedRows(db), { runs: [], surfaces: [], phases: [] });
+});
+
+test("a leave between preparation and the INSERT admits nothing and is not called a used-up quota", async () => {
+  const { db, binding, race, sqlite } = freshDb();
+  const actor = await seedPromotion(db);
+  await seedWeightedStart(db);
+  let sent = 0;
+  const runtime = env(binding, "modal", { async send() { sent += 1; } });
+  runtime.ARTIFACTS = weightStore([]);
+  let raced = false;
+  race.beforeBatch = () => {
+    sqlite.prepare("DELETE FROM team_members WHERE user_id = ?").run(actor.userId);
+    raced = true;
+  };
+  await assert.rejects(startPracticeRun(runtime, actor, { benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40) }),
+    { status: 403, code: "forbidden", message: LEFT_TEAM_ADMISSION });
+  assert.equal(raced, true, "the leave must land between preparation and the INSERT");
+  assert.equal(sent, 0);
+  assert.deepEqual(await admittedRows(db), { runs: [], surfaces: [], phases: [] });
+});
+
+test("a leave after the INSERT still sends the saved weights, not an empty roster's", async () => {
+  const { db, binding, race, sqlite } = freshDb();
+  const actor = await seedPromotion(db);
+  await seedWeightedStart(db);
+  const sent: RunJobV1[] = [];
+  const runtime = env(binding, "modal", { async send(job: RunJobV1) { sent.push(job); } } as never);
+  runtime.ARTIFACTS = weightStore([]);
+  // Everyone leaves after admission, the weights' author included.
+  race.afterBatch = () => { sqlite.prepare("DELETE FROM team_members WHERE team_id = 'team_test'").run(); };
+  const started = await startPracticeRun(runtime, actor, { benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40) });
+  assert.deepEqual((await db.select().from(teamMembers)).length, 0, "the roster was emptied before dispatch");
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].weights, SAVED_WEIGHTS);
+  const [row] = await db.select().from(runs).where(eq(runs.id, started.runId));
+  assert.deepEqual(JSON.parse(row.dispatchJobJson!), sent[0], "the sent job is not the one saved at admission");
+});
+
+test("a Modal promotion is saved with its job at admission, built from the saved environment", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const sent: RunJobV1[] = [];
+  const runtime = env(binding, "modal", { async send(job: RunJobV1) { sent.push(job); } } as never);
+  const promoted = await promotePracticeRun(runtime, actor, PRACTICE_RUN_ID);
+  const [row] = await db.select().from(runs).where(eq(runs.id, promoted.runId));
+  const [practice] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.ok(row.dispatchJobJson, "the official attempt was admitted without its job");
+  const saved = JSON.parse(row.dispatchJobJson) as RunJobV1;
+  assert.deepEqual(sent, [saved]);
+  assert.equal(saved.mode, "official");
+  assert.equal(saved.preparedArtifactId, practice.preparedArtifactId);
+  assert.equal(saved.weights, undefined, "a saved environment carries its own inputs");
+});
+
+test("a Modal start refused for quota still says quota while its starter is on the team", async () => {
+  const { db, binding, race, sqlite } = freshDb();
+  const actor = await seedPromotion(db);
+  await seedWeightedStart(db);
+  const runtime = env(binding, "modal", { async send() {} });
+  runtime.ARTIFACTS = weightStore([]);
+  // The last practice slot is taken after the request's own quota read.
+  race.beforeBatch = () => {
+    for (let i = 0; i < 10; i += 1) {
+      sqlite.prepare(`INSERT INTO runs (id, team_id, benchmark_id, benchmark_version, contract_version, mode, status, branch, sha, created_at, finished_at, provider)
+        VALUES (?, 'team_test', ?, 1, 'cogworks.submissions.v1', 'practice', 'succeeded', 'main', ?, ?, ?, 'modal')`)
+        .run(`run_taken_${i}`, BENCHMARK_ID, "a".repeat(40), NOW + i, NOW + i + 1);
+    }
+  };
+  await assert.rejects(startPracticeRun(runtime, actor, { benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40) }),
+    { status: 409, code: "quota_exhausted" });
+});
+
+test("a Retry whose starter leaves before its INSERT admits no successor and says why", async () => {
+  const { db, binding, race, sqlite } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ status: "failed", provider: "fixture", failureCategory: "student_runtime" })
+    .where(eq(runs.id, PRACTICE_RUN_ID));
+  race.beforeBatch = () => { sqlite.prepare("DELETE FROM team_members WHERE user_id = ?").run(actor.userId); };
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID),
+    { status: 403, code: "forbidden", message: LEFT_TEAM_ADMISSION });
+  assert.deepEqual(await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID)), []);
 });

@@ -6,6 +6,7 @@ import { OFFICIAL_LIMIT, PRACTICE_LIMIT } from "@cogworks/contracts/schema";
 import { buttonClass } from "@/components/Button";
 import { CornerBrackets } from "@/components/Brackets";
 import { GitHubIcon } from "@/components/GitHubIcon";
+import { RepoName } from "@/components/RepoName";
 import { nextStagePath } from "@/App";
 import { useSession } from "@/lib/queries";
 import { pendingReturn } from "@/lib/pending-return";
@@ -79,9 +80,9 @@ export function Landing() {
                   href={`https://github.com/${template}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="u-link font-mono text-[13px] break-all"
+                  className="u-link font-mono text-[13px]"
                 >
-                  {template}
+                  <RepoName fullName={template} />
                   <HugeiconsIcon
                     icon={ArrowUpRight01Icon}
                     size={12}

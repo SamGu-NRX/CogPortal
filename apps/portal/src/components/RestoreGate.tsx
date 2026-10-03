@@ -49,6 +49,23 @@ const GateContext = createContext<{
  * belong to the first account, and the setup page's commands carry tokens
  * signed for it. The same account gets the same mounted tree back; a
  * different one gets a fresh document.
+ *
+ * A window that stays visible beside another is never hidden, so blur and
+ * focus are treated like hide and return (TanStack Query v5 listens only to
+ * visibilitychange). Blur ends what the page knows: a read already in flight
+ * can no longer answer for whoever is there at the next focus. Focus conceals
+ * at once, before the click or key that brought it can act, and checks with
+ * a fresh read. A page left showing while that read ran once accepted a start
+ * aimed at a team its label did not name, and an answer requested before a
+ * blur once satisfied the focus after it.
+ *
+ * Blur records who the page was painted for but conceals nothing: a window
+ * beside the terminal is still being read, and a live run there is still
+ * being watched. The record is taken at blur because the cache can change
+ * under a window nobody is using: a mutation sent before the blur can finish
+ * after another window signs in and refetch the session as that account.
+ * Recorded at focus instead, that account once read as unchanged and
+ * reopened the first account's page for it.
  */
 export function RestoreGate({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
@@ -56,6 +73,10 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   const [covers, setCovers] = useState(0);
   const open = useRef(true);
   const paintedFor = useRef<Session | undefined>(undefined);
+  // Whether `paintedFor` already holds the account this page was painted
+  // for, recorded at a blur or a close. It is kept until a check confirms
+  // the account, so a cache change in between cannot redefine it.
+  const recorded = useRef(false);
   const focused = useRef<Element | null>(null);
   // Any hide or newer check bumps `attempt`, so only the latest check's
   // answer is applied. A cancelled session fetch resolves with the old
@@ -67,6 +88,15 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   const restored = useRef(false);
   // Set once a reload is requested; nothing reopens this document after that.
   const replacing = useRef(false);
+  // Whether the first session read now in flight was sent by a focus since
+  // the last blur, and so carries the cookie of whoever is signed in now.
+  const firstReadIsFresh = useRef(false);
+
+  const record = useCallback(() => {
+    if (recorded.current) return;
+    recorded.current = true;
+    paintedFor.current = qc.getQueryData(sessionQuery.queryKey);
+  }, [qc]);
 
   const check = useCallback(async () => {
     if (replacing.current) return;
@@ -104,6 +134,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     }
     restored.current = false;
     running.current = false;
+    recorded.current = false;
     open.current = true;
     setGate({ state: "open" });
   }, [qc]);
@@ -114,7 +145,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     running.current = false;
     if (!open.current) return;
     open.current = false;
-    paintedFor.current = qc.getQueryData(sessionQuery.queryKey);
+    record();
     focused.current = document.activeElement;
     // A modal dialog stays in the top layer when its ancestor is concealed,
     // and it would keep the gate's own retry inert. A confirm left open
@@ -123,7 +154,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     // Committed before the handler returns, because the back/forward cache
     // freezes whatever the DOM holds at that point.
     flushSync(() => setGate({ state: "closed" }));
-  }, [qc]);
+  }, [record]);
 
   const reopen = useCallback(() => {
     if (open.current) close();
@@ -145,15 +176,50 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       restored.current = true;
       reopen();
     };
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!qc.getQueryData(sessionQuery.queryKey)) {
+        // Nothing is painted for anyone yet, so there is no account to check
+        // against and nothing to conceal. But the first read may still be on
+        // the wire with an older cookie; answered late, it would paint that
+        // account under whoever signed in meanwhile. Any focus replaces it
+        // with a fresh read, which the route guards wait for as usual. A
+        // window opened beside another can load unfocused and never blur, so
+        // whether a blur came first is no guide. Further focus waits for that
+        // fresh read until a blur makes it old.
+        if (!firstReadIsFresh.current && qc.isFetching({ queryKey: sessionQuery.queryKey, exact: true }) > 0) {
+          firstReadIsFresh.current = true;
+          void qc
+            .cancelQueries({ queryKey: sessionQuery.queryKey, exact: true })
+            .then(() => qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" }))
+            .catch(() => {}); // a failed read is the guards' to show, with their retry
+        }
+        return;
+      }
+      reopen();
+    };
+    const onBlur = () => {
+      firstReadIsFresh.current = false;
+      if (replacing.current) return;
+      attempt.current += 1;
+      running.current = false;
+      // Before the first read lands nothing is painted, so there is no one
+      // to record; the focus handler above deals with that read.
+      if (open.current && qc.getQueryData(sessionQuery.queryKey)) record();
+    };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
     };
-  }, [close, reopen]);
+  }, [qc, close, reopen, record]);
 
   // Closing blurs whatever was focused inside the hidden tree.
   useEffect(() => {

@@ -21,6 +21,7 @@ import { LogView } from "@/components/LogView";
 import { Finding, FINDING_KICKER } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { Annotated } from "@/components/Note";
+import { RepoName } from "@/components/RepoName";
 import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace } from "@/components/WiringTrace";
 import { PhaseRail } from "@/components/PhaseRail";
@@ -169,7 +170,7 @@ export function RunDetailPage() {
             <MetaItem>
               {run.repo ? (
                 <a href={run.repo.url} target="_blank" rel="noreferrer" className="u-link">
-                  {run.repo.fullName}
+                  <RepoName fullName={run.repo.fullName} />
                   <span className="sr-only"> (opens GitHub)</span>
                 </a>
               ) : (
@@ -723,7 +724,9 @@ function PromoteSection({
       ) : run.promotedTo ? (
         <>
           <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            Promoted to {officialAttemptLabel(run.promotedTo.attemptNumber)}.
+            {/* Named as the team's choice: two strangers read the bare "Promoted to"
+                as a practice run spending an attempt on its own (walk r1, 3 Oct). */}
+            Your team promoted this run to {officialAttemptLabel(run.promotedTo.attemptNumber)}.
           </p>
           <PromotedAttemptLink promotedTo={run.promotedTo} />
         </>
@@ -757,8 +760,9 @@ function PromoteSection({
           </div>
           {exhausted && (
             <p className="mt-3 max-w-[60ch] text-[14px] leading-[1.55] text-detect-deep">
-              All official attempts on this version are used. You can still
-              publish any successful official attempt.
+              All official attempts on this version are used. An official
+              attempt that already succeeded may still be publishable; its run
+              page says whether it is.
             </p>
           )}
           {/* Here, under the button that failed. This used to sit in the
@@ -797,7 +801,16 @@ function PublishSection({ run }: { run: RunDetail }) {
             aria-hidden="true"
           />
           <span>
-            This result is your team's public entry.{" "}
+            {/* Says what is stored, not who chose it: the staging archive seed
+                writes selections directly (scripts/seed-staging-archive.sql),
+                so "your team chose" isn't always true. Publishing upserts one
+                selection per team, benchmark and version, so another official
+                attempt on this version replaces this one, an attempt on a newer
+                version doesn't, and there is no unpublish; a fresh model reader
+                of the walk (r2, screenshots only) asked whether this could be
+                undone. */}
+            This result is your team's public entry; publishing another official attempt on
+            v{run.benchmarkVersion} replaces it.{" "}
             <Link ref={leaderboardRef} to={`/leaderboard?benchmark=${encodeURIComponent(run.benchmarkId)}`} className="u-link">
               See it on the leaderboard.
             </Link>

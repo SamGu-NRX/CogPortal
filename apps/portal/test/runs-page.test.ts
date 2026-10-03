@@ -92,8 +92,19 @@ function dashboard(runs: RunSummary[], extra: Partial<Dashboard> = {}): Dashboar
   });
 }
 
+/** The session's view of the team, which the page's label is drawn from. */
+function sessionOn(teamId: string, name = "Analytical Engines") {
+  return {
+    user: { login: "student", name: null, avatarUrl: null, platformRole: "student", isOwner: false, isTa: false },
+    cohort: { slug: "test", name: "Test" },
+    team: { id: teamId, name, description: null, provenance: "live", repo: null },
+    auth: { executionProvider: "fixture" },
+  };
+}
+
 function render(d: Dashboard, location = "/dashboard", tracks: Benchmark[] = [LANGUAGE]): string {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["session"], sessionOn(d.team.id));
   client.setQueryData(["benchmarks"], tracks);
   for (const track of tracks) client.setQueryData(["dashboard", track.id], { ...d, benchmark: track });
   client.setQueryData(["local-reports", d.benchmark.id], []);
@@ -310,24 +321,36 @@ function assertFocused(actual: Element | null | undefined, expected: Element | n
 
 /* ── Focus when the lead run changes under it ─────────────────────────── */
 
-async function mountDashboard(t: TestContext, first: Dashboard) {
+async function mountDashboard(
+  t: TestContext,
+  first: Dashboard,
+  { session = sessionOn(first.team.id), others = [] }: { session?: ReturnType<typeof sessionOn>; others?: Dashboard[] } = {},
+) {
   const window = new Window({ url: "https://portal.example/dashboard" });
+  const requests: Array<{ url: string; body: unknown }> = [];
   const globals = {
     window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, Element: window.Element,
     React, IS_REACT_ACT_ENVIRONMENT: true,
     // A live run polls the dashboard; the test drives every answer through
     // the cache instead, so a poll fails at once and the data stays.
-    fetch: async () => { throw new Error("no network in this test"); },
+    fetch: async (input: string, init?: RequestInit) => {
+      requests.push({ url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      throw new Error("no network in this test");
+    },
   };
   const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } });
-  client.setQueryData(["session"], { auth: { executionProvider: "fixture" } });
-  client.setQueryData(["benchmarks"], [LANGUAGE]);
+  client.setQueryData(["session"], session);
+  client.setQueryData(["benchmarks"], [...others.map((o) => o.benchmark), LANGUAGE]);
   client.setQueryData(["dashboard", LANGUAGE.id], first);
+  for (const o of others) {
+    client.setQueryData(["dashboard", o.benchmark.id], o);
+    client.setQueryData(["local-reports", o.benchmark.id], []);
+  }
   client.setQueryData(["local-reports", LANGUAGE.id], []);
   client.setQueryData(["untracked-local-reports"], []);
   client.setQueryData(["repositories"], []);
@@ -354,7 +377,7 @@ async function mountDashboard(t: TestContext, first: Dashboard) {
     client.setQueryData(["dashboard", LANGUAGE.id], next);
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  return { window, container, replace };
+  return { window, container, replace, requests };
 }
 
 const buttonOrLink = (container: HTMLElement, name: string) => {
@@ -362,6 +385,43 @@ const buttonOrLink = (container: HTMLElement, name: string) => {
   assert.ok(found, `nothing named ${name}`);
   return found as HTMLElement;
 };
+
+/* ── A track with no runs, when the team has runs on another ─────────── */
+
+test("a track with no runs names the tracks where the team's runs are", () => {
+  const html = render(dashboard([], {
+    runsOnOtherTracks: [
+      { benchmarkId: VISION.id, title: "Recognition", runs: 2 },
+      { benchmarkId: "vision-clustering", title: "Clustering", runs: 1 },
+    ],
+  }));
+  const text = html.replace(/<[^>]+>/g, "");
+  assert.match(text, /Run it for the first time/);
+  assert.match(text, /Your team hasn&#x27;t run this benchmark yet; it has 2 runs on Recognition and 1 on Clustering\./);
+});
+
+test("a track with no runs anywhere says nothing more", () => {
+  const text = render(dashboard([])).replace(/<[^>]+>/g, "");
+  assert.doesNotMatch(text, /run this benchmark yet/);
+});
+
+test("choosing a track from that sentence selects its tab and puts focus there", async (t) => {
+  const recognition = dashboard([run({ id: "run_vision", benchmarkId: VISION.id })], { benchmark: VISION });
+  const { window, container } = await mountDashboard(t, dashboard([], {
+    runsOnOtherTracks: [{ benchmarkId: VISION.id, title: "Recognition", runs: 1 }],
+  }), { others: [recognition] });
+  const sentence = [...container.querySelectorAll("p")].find((p) => p.textContent?.startsWith("Your team hasn't run"));
+  assert.equal(sentence?.textContent, "Your team hasn't run this benchmark yet; it has 1 run on Recognition.");
+  const choice = sentence!.querySelector("button")!;
+  await act(async () => {
+    choice.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const tab = window.document.getElementById(`track-tab-${VISION.id}`);
+  assert.equal(tab?.getAttribute("aria-selected"), "true");
+  assertFocused(window.document.activeElement, tab, "after choosing Recognition from the sentence");
+  assert.doesNotMatch(container.textContent ?? "", /Run it for the first time/);
+});
 
 test("starting, finishing and promoting a run keep focus on the lead run instead of the page", async (t) => {
   const done = run({ id: "run_0000000010" });
@@ -415,4 +475,28 @@ test("a lead run that changes doesn't take focus from a control that is still th
   const live = run({ id: "run_0000000021", status: "evaluating", finishedAt: null, primaryMetric: null });
   await replace(dashboard([live, done], { activeRun: live }));
   assertFocused(window.document.activeElement, row, "focus");
+});
+
+test("with the session on one team and the dashboard on another, nothing offers a start", async (t) => {
+  // The label comes from the session, the start from the dashboard, and the
+  // server takes whichever team the cookie says now: the student could not
+  // see where a run would land (B-71 audit).
+  const onB = dashboard([], { team: { ...dashboard([]).team, id: "team_b", name: "Difference Engines" } });
+  const { window, container, requests } = await mountDashboard(t, onB, { session: sessionOn("team_a", "Analytical Engines") });
+  const buttons = [...container.querySelectorAll("button")].map((b) => b.textContent?.trim());
+  assert.ok(!buttons.includes("Run practice benchmark"), "a start was offered across two teams");
+  assert.match(container.textContent ?? "", /This page is out of date and can't tell which team a run would start on\. Reload it\s+first\./);
+  let reloaded = 0;
+  Object.defineProperty(window.location, "reload", { configurable: true, value: () => { reloaded += 1; } });
+  await act(async () => buttonOrLink(container, "Reload page").click());
+  assert.equal(reloaded, 1);
+  assert.equal(requests.filter((r) => r.url.includes("/api/runs/practice")).length, 0, "a start request was sent");
+});
+
+test("with the session and dashboard on the same team, the start sends that team", async (t) => {
+  const { container, requests } = await mountDashboard(t, dashboard([]));
+  await act(async () => buttonOrLink(container, "Run practice benchmark").click());
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const start = requests.find((r) => r.url.includes("/api/runs/practice"));
+  assert.deepEqual((start?.body as { teamId?: string } | undefined)?.teamId, "team_1");
 });

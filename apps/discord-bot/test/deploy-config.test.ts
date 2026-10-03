@@ -106,3 +106,31 @@ test("an unsupported command is refused rather than forwarded", () => {
     assert.throws(() => buildArgs([command, "--name", "cogbot"]), /build\|deploy\|dev/);
   }
 });
+
+test("refusals keep their code across the service binding", async () => {
+  // failure.ts shows a student the portal's sentence only when the error
+  // arrives named ApiHttpError with its `code`. Workers RPC keeps those own
+  // fields only under enhanced error serialization, which is the default from
+  // compatibility date 2026-04-21 and is switched off by
+  // `legacy_error_serialization`. Under the legacy form every refusal would
+  // fall back to "I couldn't reach Cog*Portal", silently. Checked against
+  // miniflare 4.20260708.1 at 2026-07-01: name, code, status and message all
+  // arrived. ISO dates compare correctly as strings.
+  type Compat = { compatibility_date: string; compatibility_flags?: string[]; env?: Record<string, Compat> };
+  const configs: Array<[string, Compat]> = [
+    ["bot", await loadJsonc<Compat>("../wrangler.jsonc")],
+    ["portal", await loadJsonc<Compat>("../../portal/wrangler.jsonc")],
+  ];
+  for (const [name, config] of configs) {
+    const scopes: Compat[] = [config, ...Object.values(config.env ?? {})];
+    for (const scope of scopes) {
+      if (scope.compatibility_date !== undefined) {
+        assert.ok(scope.compatibility_date >= "2026-04-21", `${name} predates enhanced error serialization`);
+      }
+      assert.ok(
+        !(scope.compatibility_flags ?? []).includes("legacy_error_serialization"),
+        `${name} opts out of enhanced error serialization`,
+      );
+    }
+  }
+});
