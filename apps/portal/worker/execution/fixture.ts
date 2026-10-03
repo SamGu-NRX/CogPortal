@@ -281,9 +281,11 @@ export function fixtureLog(
       "contract check: adapter factory loaded",
       "workspace backup complete; restoring into network-disabled evaluation VM",
     );
-    // An evaluation failure stops partway; a scoring failure follows a
-    // complete evaluation.
-    const evaluated = failedAt === "evaluating" ? 0.5 : 1;
+    // An evaluation failure stops partway. An output refusal is also an
+    // evaluating failure, but the runner checks results only once the adapter
+    // has returned all of them, so it follows a complete evaluation.
+    const stoppedPartway = failedAt === "evaluating" && outcome.kind === "failed" && outcome.category !== "output_invalid";
+    const evaluated = stoppedPartway ? 0.5 : 1;
     if (language) {
       lines.push("loading GloVe KeyedVectors (glove.6B.200d.kv, memory-mapped)");
       const components = ["text", "retrieval", "search"];

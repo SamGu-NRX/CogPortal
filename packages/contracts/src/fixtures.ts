@@ -76,7 +76,10 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
     outcome: {
       kind: "failed",
       category: "output_invalid",
-      phase: "scoring",
+      // "evaluating", as the runner reports it: results are checked after the
+      // adapter returns them and before scoring starts (_refuse_output in
+      // prediction_validation.py), so the scoring step never ran.
+      phase: "evaluating",
       // The runner's own sentences for these shapes
       // (runner-modal/.../prediction_validation.py), so the card shows what a
       // real refusal says. A tuple arrives as a JSON list.
