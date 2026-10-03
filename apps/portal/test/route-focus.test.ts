@@ -3,7 +3,7 @@ import "./fixtures/dom-before-react.ts";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import * as React from "react";
-import { act, useEffect, useRef, useState } from "react";
+import { act, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, MemoryRouter, Outlet, Route, Routes } from "react-router";
 import { Window } from "happy-dom";
@@ -38,6 +38,38 @@ function LatePage() {
   return loaded ? h("h1", null, "Demo  Team") : h("p", null, "Loading…");
 }
 
+/** A heading the test releases itself, for a test that needs it still absent at a chosen moment. */
+type HeadingGate = { released: () => boolean; subscribe: (listener: () => void) => () => void; release: () => void };
+
+function headingGate(): HeadingGate {
+  let open = false;
+  const listeners = new Set<() => void>();
+  return {
+    released: () => open,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    release() {
+      open = true;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+/** LatePage's heading, released by the test instead of a timer. */
+function GatedPage({ gate }: { gate: HeadingGate }) {
+  const released = useSyncExternalStore(gate.subscribe, gate.released);
+  return released ? h("h1", null, "Demo  Team") : h("p", null, "Loading…");
+}
+
+/** Identity, reported by tag and text: assert.equal on two Happy DOM nodes
+ *  formats both whole graphs when it fails, which can stall the runner. */
+function assertFocused(actual: Element | null | undefined, expected: Element | null | undefined, message: string) {
+  const describe = (node: Element | null | undefined) => (node ? `${node.tagName} "${node.textContent?.trim().slice(0, 40)}"` : String(node));
+  assert.ok(actual === expected, `${message}: focus is on ${describe(actual)}, expected ${describe(expected)}`);
+}
+
 /** Like a run that keeps focus on its console after starting. */
 function ConsolePage() {
   const button = useRef<HTMLButtonElement>(null);
@@ -45,7 +77,7 @@ function ConsolePage() {
   return h(React.Fragment, null, h("h1", null, "Run console"), h("button", { ref: button, type: "button" }, "Publish result"));
 }
 
-async function mount(t: TestContext, strict = false) {
+async function mount(t: TestContext, { strict = false, team = h(LatePage) }: { strict?: boolean; team?: React.ReactElement } = {}) {
   const window = new Window({ url: "https://portal.example/" });
   const globals = {
     window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement,
@@ -73,7 +105,7 @@ async function mount(t: TestContext, strict = false) {
       h(Routes, null,
         h(Route, { element: h(Layout) },
           h(Route, { index: true, element: h("h1", null, "Runs") }),
-          h(Route, { path: "team", element: h(LatePage) }),
+          h(Route, { path: "team", element: team }),
           h(Route, { path: "console", element: h(ConsolePage) }),
         ),
       ),
@@ -97,16 +129,16 @@ test("the first load names the page and leaves focus alone", async (t) => {
   const { window, settle } = await mount(t);
   await settle();
   assert.equal(window.document.title, "Runs · Cog*Portal");
-  assert.equal(window.document.activeElement, window.document.body);
+  assertFocused(window.document.activeElement, window.document.body, "after the first load");
 });
 
 test("React's development double-run of effects does not count as a navigation", async (t) => {
   // StrictMode runs each effect twice on mount; the first load's heading
   // took focus on 5187 before this was pinned.
-  const { window, settle } = await mount(t, true);
+  const { window, settle } = await mount(t, { strict: true });
   await settle();
   assert.equal(window.document.title, "Runs · Cog*Portal");
-  assert.equal(window.document.activeElement, window.document.body);
+  assertFocused(window.document.activeElement, window.document.body, "after a StrictMode first load");
 });
 
 test("a header link moves focus to the new page's heading, even one that renders late", async (t) => {
@@ -114,7 +146,7 @@ test("a header link moves focus to the new page's heading, even one that renders
   await follow("Team");
   const heading = window.document.querySelector("main h1");
   assert.ok(heading, "the late heading rendered");
-  assert.equal(window.document.activeElement, heading, "focus is on the page heading, not the header link");
+  assertFocused(window.document.activeElement, heading, "focus is on the page heading, not the header link");
   assert.equal(heading.getAttribute("tabindex"), "-1");
   assert.equal(window.document.title, "Demo Team · Cog*Portal", "whitespace in the heading collapses");
 });
@@ -144,18 +176,26 @@ test("after the heading takes focus once, a later change to the page never pulls
   link.focus();
   await act(async () => { root().append(window.document.createElement("p")); });
   await settle();
-  assert.equal(window.document.activeElement, link, "the header control keeps focus");
+  assertFocused(window.document.activeElement, link, "the header control keeps focus");
 });
 
 test("a key pressed before a late heading renders cancels the move", async (t) => {
-  const { window, container, settle } = await mount(t);
+  // The test releases the heading itself. LatePage's timer could fire inside
+  // act() before the key, and then the heading already has focus and there
+  // is no move left to cancel.
+  const gate = headingGate();
+  const { window, container, settle } = await mount(t, { team: h(GatedPage, { gate }) });
   const link = [...container.querySelectorAll("header a")].find((a) => a.textContent === "Team") as HTMLAnchorElement;
   link.focus();
   await act(async () => { link.click(); });
+  await settle();
   // The heading is still loading; the user is already moving on.
+  assert.equal(window.document.querySelector("main h1") === null, true, "the heading has not rendered before the key");
+  assertFocused(window.document.activeElement, link, "before the key");
   window.document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+  await act(async () => { gate.release(); });
   await settle();
   assert.ok(window.document.querySelector("main h1"), "the heading rendered");
-  assert.equal(window.document.activeElement, link, "focus stayed where the user had it");
+  assertFocused(window.document.activeElement, link, "focus stayed where the user had it");
   assert.equal(window.document.title, "Demo Team · Cog*Portal", "the title still follows");
 });
