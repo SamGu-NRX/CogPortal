@@ -1,13 +1,12 @@
 -- Gives back the quota held by Week 2 recognition runs that the scorer
 -- correction in 0044 left behind.
 --
--- 0044 moved vision-recognition version 2 to scorer recognition-v2 without
--- changing its version number, because the quota and the leaderboard both
--- belong to that version. Runs already scored kept scorer_version
--- 'recognition-v1', which is what actually scored them, and the board stopped
--- ranking them. They still counted against the team's three official attempts
--- and ten practice runs, so a team that had used them could not run under the
--- corrected scorer at all.
+-- 0044 changed vision-recognition version 2's scorer to recognition-v2
+-- without changing the version. Runs already scored kept scorer_version
+-- 'recognition-v1', which is what actually scored them, so the board stopped
+-- ranking them while they still counted against the team's three official
+-- attempts and ten practice runs. A team that had used them could not run
+-- under the corrected scorer at all.
 --
 -- refunded_at is the capacity-release timestamp: a succeeded execution with
 -- one set no longer counts as used (run-accounting.ts acceptedRunPredicate)
