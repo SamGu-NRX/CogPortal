@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { Veil } from "./Veil";
 import { WiringTrace } from "./WiringTrace";
 
 /**
@@ -21,7 +22,11 @@ export interface Refusal {
   headline: string;
   nextStep: string;
   trace: { stage: string; function: string; received?: string; returned?: string }[];
-  /** Not rendered, for the same reason as `headline`. */
+  /** What the search learned that the headline does not say, as sentences
+   *  (`cogbench.verdict`). The headline names the last hand-off that failed,
+   *  which can sit stages after the real stall: a constructor that reads a
+   *  folder the benchmark cannot write, or a function too slow to call
+   *  twice. These say that, so the first one is read with the headline. */
   notes: string[];
   /** Files the run could not read, and whose problem each one is. */
   skipped: { module: string; reason: string; owner: string }[];
@@ -92,6 +97,34 @@ function Raised({ message }: { message: string }) {
   );
 }
 
+function RefusalNotes({ notes }: { notes: string[] }) {
+  const [first, ...rest] = notes;
+  const prose = "max-w-[60ch] text-[14.5px] leading-[1.55] break-words text-ink-secondary";
+  // The reading face for the whole block, the fold's own label included: the
+  // card around it is set in mono, and a mono toggle reads as data.
+  return (
+    <div className="mt-3 font-sans">
+      <p className={prose}>{first}</p>
+      {rest.length > 0 && (
+        <div className="mt-1">
+          <Veil
+            count={rest.length}
+            peek={0}
+            moreLabel={rest.length === 1 ? "1 more note from the search" : `${rest.length} more notes from the search`}
+            fewerLabel="Fewer notes"
+          >
+            {rest.map((note, index) => (
+              <p key={index} className={prose}>
+                {note}
+              </p>
+            ))}
+          </Veil>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function RefusalCard({
   refusal,
   benchmarkId,
@@ -136,6 +169,12 @@ export function RefusalCard({
             {refusal.headline}
           </p>
         )}
+
+        {/* Prose under the sentence it qualifies, in the reading face. One
+            note is open; a search that stalled several ways can write up to
+            eight of 600 characters, which would push the facts below off a
+            phone, so the rest fold away. */}
+        {refusal.notes.length > 0 && <RefusalNotes notes={refusal.notes} />}
 
         {/* A label column from 640px; on a phone each label sits over its
             row, because three nested columns in 300px wrap a file name one

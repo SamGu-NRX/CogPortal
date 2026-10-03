@@ -7,9 +7,23 @@ const GITHUB_ACCEPT = "application/vnd.github+json";
 export type GitHubRepositoryListing = Omit<GithubRepo, "claimedByTeam">;
 
 export class GitHubApiError extends Error {
-  constructor(public readonly status: number) {
+  constructor(
+    public readonly status: number,
+    /** GitHub answers a rate limit with 429, or with 403 and either
+     *  `x-ratelimit-remaining: 0` or `retry-after`. The status alone cannot
+     *  tell that 403 from "you may not see this", so the caller is told. */
+    public readonly rateLimited = false,
+  ) {
     super(`GitHub API request failed with status ${status}.`);
     this.name = "GitHubApiError";
+  }
+
+  static from(response: Response): GitHubApiError {
+    const limited =
+      response.status === 429 ||
+      (response.status === 403 &&
+        (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")));
+    return new GitHubApiError(response.status, limited);
   }
 }
 
@@ -134,7 +148,7 @@ export async function githubApiRequest(
 
 async function githubJson(path: string, token: string): Promise<unknown> {
   const response = await githubApiRequest(path, token);
-  if (!response.ok) throw new GitHubApiError(response.status);
+  if (!response.ok) throw GitHubApiError.from(response);
   return response.json();
 }
 

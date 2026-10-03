@@ -372,7 +372,15 @@ for (const mode of ["practice", "official"] as const) {
         surfaceId: null, finishedAt: NOW + 1_000,
       });
     }
-    await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, target), /quota is exhausted/);
+    await assert.rejects(
+      retryRun(env(binding, "fixture"), actor, SURFACE_ID, target),
+      {
+        code: "quota_exhausted",
+        message: mode === "official"
+          ? "All 3 official attempts on this version are used. You can still publish any successful official attempt."
+          : "All 10 hosted practice runs on this version are used. Local runs (cogworks run) have no limit.",
+      },
+    );
     assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, target))).length, 0);
   });
 }

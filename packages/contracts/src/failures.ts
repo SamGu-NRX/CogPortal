@@ -131,13 +131,19 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     reproCommand: null,
     remedy: "fix",
   },
+  // Written against the one place that raises it,
+  // apps/runner-modal/src/cogworks_runner/prediction_validation.py. That
+  // check runs only on the hosted side, so the action names what a student
+  // can run and says plainly that the local run is not the same check.
   output_invalid: {
     code: "E-OUTPUT",
-    title: "Predictions did not match the schema",
+    title: "Results came back in a shape scoring can't read",
     explanation:
-      "Your adapter returned output that failed schema validation. Extra fields, wrong types, and values outside the allowed range are all rejected.",
+      "Before scoring, the runner checks every result your adapter returned: one per case, each of the type this benchmark scores, with finite numbers where scoring does arithmetic. The line above is the first problem it found.",
+    // The runner's line is the instruction (which result, which field, or
+    // that the count is off and whose list that is), so this defers to it.
     action:
-      "Validate your output locally with the schema check and correct the prediction shape.",
+      "The line above says what the runner refused and where to look. This runs your adapter on the small cases locally, but it doesn't repeat the runner's check:",
     reproCommand: "cogworks test --benchmark {benchmark}",
     remedy: "fix",
   },
@@ -199,10 +205,6 @@ export const MODULE_FAILURE_COPY: Partial<
       action:
         "Process images one at a time instead of holding the full set in memory, and release large intermediate arrays.",
     },
-    output_invalid: {
-      explanation:
-        "Your adapter returned predictions that failed schema validation. Extra fields, wrong types, and out-of-range boxes are all rejected.",
-    },
   },
   language: {
     dependency_install: {
@@ -221,10 +223,6 @@ export const MODULE_FAILURE_COPY: Partial<
     memory_limit: {
       action:
         "Hold one copy of the descriptor and embedding matrices, keep them float32 rather than float64, and release large intermediates.",
-    },
-    output_invalid: {
-      explanation:
-        "Your adapter returned rankings that failed schema validation. Wrong types, ids outside the pinned image pool, and more than k results are all rejected.",
     },
   },
 };

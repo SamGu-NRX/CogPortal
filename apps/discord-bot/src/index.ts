@@ -1,4 +1,5 @@
 import { executeCommand } from "./commands.ts";
+import { failureResponse } from "./failure.ts";
 import {
   INTERACTION_APPLICATION_COMMAND,
   INTERACTION_MESSAGE_COMPONENT,
@@ -43,7 +44,7 @@ async function editDeferredResponse(
         message: error instanceof Error ? error.message : "unknown",
       }),
     );
-    response = message("I couldn't reach Cog*Portal just now. Nothing changed. Try again in a moment.", true);
+    response = failureResponse(interaction, error, env.PORTAL_ORIGIN);
   }
   const patched = await fetch(
     `https://discord.com/api/v10/webhooks/${encodeURIComponent(interaction.application_id)}/${encodeURIComponent(interaction.token)}/messages/@original`,
@@ -134,9 +135,7 @@ export default {
           message: error instanceof Error ? error.message : "unknown",
         }),
       );
-      return Response.json(
-        message("I couldn't reach Cog*Portal just now. Nothing changed. Try again in a moment.", true),
-      );
+      return Response.json(failureResponse(interaction, error, env.PORTAL_ORIGIN));
     }
   },
 };

@@ -28,8 +28,8 @@ import {
 } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
 import { DispatchUnacknowledged, assertModalConfigured, enqueueRun, prepareRetryJob } from "../execution/runner";
-import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
-import { ApiHttpError } from "../http/errors";
+import { FixtureGitHubClient, GitHubApiError, RealGitHubClient } from "../github/client";
+import { ApiHttpError, GITHUB_SIGN_IN_EXPIRED } from "../http/errors";
 import { runSourceRefusal } from "./run-source";
 import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
@@ -116,6 +116,50 @@ function requireRunSource(
   if (refusal) throw new ApiHttpError(409, "source_changed", refusal);
 }
 
+/*
+ * A quota refusal reaches a student who just pressed a button, often in
+ * Discord where the page's own "N of 10 left" line is not in view, so it says
+ * what is used up and what is still open to them. The Runs and run pages say
+ * the same things before the button is pressed (DashboardPage.tsx,
+ * RunDetailPage.tsx).
+ */
+export const PRACTICE_QUOTA_REFUSAL =
+  `All ${PRACTICE_LIMIT} hosted practice runs on this version are used. Local runs (cogworks run) have no limit.`;
+export const OFFICIAL_QUOTA_REFUSAL =
+  `All ${OFFICIAL_LIMIT} official attempts on this version are used. You can still publish any successful official attempt.`;
+
+const WRITE_PERMISSION_REQUIRED =
+  "Current write permission to the connected repository is required.";
+
+/**
+ * The refusal for a write-access lookup that GitHub did not answer with a
+ * permission. Only a 401 means the sign-in expired. GitHub answers 403 or 404
+ * to an account that can no longer see the repository's collaborators, and
+ * anything else (a 5xx, a rate limit, a dropped connection, a malformed body)
+ * says nothing about the student, so telling them to sign in again would send
+ * them somewhere that cannot help. The last one says only that the action did
+ * not happen: some callers republish the run surface before this check
+ * (`performRunSurfaceMutation`), so "nothing changed" would claim more than
+ * this path knows.
+ *
+ * 403 for the expired sign-in rather than 401: the Activity reads a 401 as its
+ * own session ending (lib/activity-gate.ts) and would ask the student to
+ * reopen it.
+ */
+export function permissionCheckFailure(error: unknown): ApiHttpError {
+  if (error instanceof GitHubApiError && error.status === 401) {
+    return new ApiHttpError(403, "forbidden", GITHUB_SIGN_IN_EXPIRED);
+  }
+  if (error instanceof GitHubApiError && !error.rateLimited && (error.status === 403 || error.status === 404)) {
+    return new ApiHttpError(403, "forbidden", WRITE_PERMISSION_REQUIRED);
+  }
+  return new ApiHttpError(
+    502,
+    "provider_unconfigured",
+    "GitHub didn't answer the write-access check, so this didn't go through. Try again in a moment.",
+  );
+}
+
 export async function requireCurrentRepositoryPermission(
   env: Env,
   actor: RunActor,
@@ -132,11 +176,11 @@ export async function requireCurrentRepositoryPermission(
       actor.githubLogin,
       githubToken,
     );
-  } catch {
-    throw new ApiHttpError(403, "forbidden", "GitHub access expired. Sign in to Cog*Portal again.");
+  } catch (error) {
+    throw permissionCheckFailure(error);
   }
   if (!["admin", "maintain", "write", "push"].includes(permission)) {
-    throw new ApiHttpError(403, "forbidden", "Current write permission to the connected repository is required.");
+    throw new ApiHttpError(403, "forbidden", WRITE_PERMISSION_REQUIRED);
   }
   return githubToken;
 }
@@ -264,7 +308,7 @@ export async function startPracticeRun(
   });
   if (accounting.activeRuns) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
   if (accounting.practiceUsed + accounting.practiceReserved >= PRACTICE_LIMIT) {
-    throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
+    throw new ApiHttpError(409, "quota_exhausted", PRACTICE_QUOTA_REFUSAL);
   }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
@@ -387,7 +431,7 @@ export async function startPracticeRun(
       )
       .onConflictDoNothing();
     const [inserted] = await db.batch([insertRun, insertSurface, ...guardedPhaseInserts(db, runId)]);
-    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
+    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", PRACTICE_QUOTA_REFUSAL);
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
     const existing = currentSurfaceRun(attached, "practice");
@@ -438,7 +482,7 @@ export async function promotePracticeRun(
   const accounting = await readRunAccounting(db, scope);
   if (accounting.activeRuns) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
   if (accounting.officialUsed + accounting.officialReserved >= OFFICIAL_LIMIT) {
-    throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
+    throw new ApiHttpError(409, "quota_exhausted", OFFICIAL_QUOTA_REFUSAL);
   }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
@@ -471,7 +515,7 @@ export async function promotePracticeRun(
     });
     // A phase-write failure must not leave an admitted run without its phases.
     const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId)]);
-    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
+    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", OFFICIAL_QUOTA_REFUSAL);
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
     const raced = existingPromotion(attached);
@@ -624,7 +668,8 @@ export async function retryRun(
     : accounting.practiceUsed + accounting.practiceReserved;
   if (occupied >= (failed.mode === "official" ? OFFICIAL_LIMIT : PRACTICE_LIMIT)) {
     if ((await successor()).length) return;
-    throw new ApiHttpError(409, "quota_exhausted", "The completed-evaluation quota is exhausted.");
+    throw new ApiHttpError(409, "quota_exhausted",
+      failed.mode === "official" ? OFFICIAL_QUOTA_REFUSAL : PRACTICE_QUOTA_REFUSAL);
   }
   const runId = `run_${randomHex(5)}`;
   const job = failed.provider === "modal"
@@ -673,7 +718,7 @@ export async function retryRun(
     const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId), updateSurface]);
     if (!inserted.meta.changes) {
       throw new ApiHttpError(409, "quota_exhausted",
-        failed.mode === "official" ? "The official-attempt quota is exhausted." : "The practice-run quota is exhausted.");
+        failed.mode === "official" ? OFFICIAL_QUOTA_REFUSAL : PRACTICE_QUOTA_REFUSAL);
     }
   } catch (error) {
     if ((await successor()).length) return;

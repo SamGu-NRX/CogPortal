@@ -100,12 +100,27 @@ for (const mode of ["practice", "official"] as const) {
 
 test("a failure the submission caused shows its evidence open and folds the explanation", async (t) => {
   const { window, container } = await mount(t, page(t, run({
-    failure: { category: "output_invalid", phase: "evaluating", consumedAttempt: false, detail: "returned 3 predictions for 5 cases" },
+    // The runner's own sentence for a short list (prediction_validation.py).
+    failure: {
+      category: "output_invalid", phase: "evaluating", consumedAttempt: false,
+      detail: "Scoring received 3 results for 5 cases and needs one per case. If your adapter builds this list, check its length. Otherwise, tell course staff.",
+    },
   })));
-  const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("returned 3 predictions"));
+  const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("Scoring received 3 results"));
   assert.ok(detail);
   assert.equal(detail.closest('[aria-hidden="true"]'), null);
-  const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.includes("failed schema validation"));
+  // The next step is open and names a command that exists, and it says that
+  // command does not repeat the hosted check. It used to send students to
+  // "the schema check", which is not a thing they can run.
+  // It defers to that line rather than assuming it names a result: this one
+  // names none and may not be the team's list at all.
+  const next = [...container.querySelectorAll("p")].find((node) => node.textContent.startsWith("The line above says what the runner refused"));
+  assert.ok(next);
+  assert.equal(next.closest('[aria-hidden="true"]'), null);
+  assert.match(next.textContent, /doesn't repeat the runner's check/);
+  assert.match(container.textContent, /cogworks test --benchmark /);
+  assert.doesNotMatch(container.textContent, /schema check|schema validation/);
+  const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.startsWith("Before scoring, the runner checks every result"));
   assert.ok(explanation?.closest('[aria-hidden="true"][inert]'));
   const toggle = [...container.querySelectorAll("button")].find((node) => node.textContent === "Show details");
   assert.ok(toggle);
