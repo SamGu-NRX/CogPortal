@@ -16,6 +16,13 @@ import { publishOfficialRun, type RunActor } from "../worker/services/run-action
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 const LOCAL_SEED = join(MIGRATIONS, "..", "scripts", "seed-local.sql");
 const UPGRADE = "0044_week2_recognition_v2.sql";
+/**
+ * Applied after the upgrade in production, but not here. 0048 releases the
+ * quota held by recognition-v1 runs by stamping refunded_at, which would
+ * rewrite the history these tests assert 0044 leaves alone. Its own effect is
+ * tested in recognition-capacity-release.test.ts.
+ */
+const LATER_DATA_RELEASE = "0048_recognition_v1_capacity_release.sql";
 const RECOGNITION = "vision-recognition";
 const CLUSTERING = "vision-clustering";
 
@@ -23,9 +30,13 @@ function freshDb(beforeUpgrade = false) {
   const sqlite = new DatabaseSync(":memory:");
   const migrate = (file: string) => sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
   const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith(".sql")).sort();
-  const upgradeAt = files.indexOf(UPGRADE);
-  assert.ok(upgradeAt >= 0, `${UPGRADE} is missing`);
-  for (const file of beforeUpgrade ? files.slice(0, upgradeAt) : files) migrate(file);
+  for (const required of [UPGRADE, LATER_DATA_RELEASE]) assert.ok(files.includes(required), `${required} is missing`);
+  // Before the upgrade, every other schema change is already in place, so
+  // today's full-row reads and writes find their columns; only the catalog
+  // move in 0044 is held back.
+  for (const file of beforeUpgrade ? files.filter((name) => name !== UPGRADE && name !== LATER_DATA_RELEASE) : files) {
+    migrate(file);
+  }
   // The demo teams these tests run as come from the local seed, as under `pnpm dev`.
   sqlite.exec(readFileSync(LOCAL_SEED, "utf8"));
   const binding = {
@@ -59,7 +70,7 @@ function freshDb(beforeUpgrade = false) {
   const env = { DB: binding as unknown as Env["DB"] } as Env;
   return {
     db: getDb(env), env,
-    upgrade: () => files.slice(upgradeAt).forEach(migrate),
+    upgrade: () => migrate(UPGRADE),
     close: () => sqlite.close(),
   };
 }

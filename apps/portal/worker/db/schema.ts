@@ -373,8 +373,11 @@ export const runs = sqliteTable("runs", {
   failureConsumedAttempt: integer("failure_consumed_attempt", { mode: "boolean" })
     .notNull()
     .default(false),
-  /** Historical refund record. Retained so previously refunded successes do
-   *  not acquire a charge or publication eligibility under the current policy. */
+  /** When the portal released this execution's quota: historical refunds,
+   *  and capacity releases such as 0048 (Week 2 runs scored before 0044's
+   *  scorer correction). A succeeded execution with this set does not count
+   *  as used and cannot be promoted or published. An active one keeps its
+   *  reservation until it ends, and completing does not clear this. */
   refundedAt: integer("refunded_at"),
   log: text("log"),
   /** Scorer diagnostics from the succeeded event: the benchmark's own
