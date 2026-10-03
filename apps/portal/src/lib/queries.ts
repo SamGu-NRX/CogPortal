@@ -400,7 +400,10 @@ export function useLeaveTeam() {
       await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
       let fresh: Awaited<ReturnType<typeof api.session>>;
       try {
-        fresh = await qc.fetchQuery({ ...sessionQuery, staleTime: 0 });
+        // "always": the default holds a read while the browser reports itself
+        // offline, which left this leave pending with no way out. Failing
+        // reaches the reload below (RestoreGate reads the same way).
+        fresh = await qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" });
       } catch {
         throw new LeftButNotRefreshed(teamName);
       }
