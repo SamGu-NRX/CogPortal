@@ -229,7 +229,7 @@ test("expired GitHub access reaches Discord as the portal wrote it, with the por
 
 test("an exhausted quota says what is used and what is still open", async () => {
   const sentence =
-    "All 3 official attempts on this version are used. You can still publish any successful official attempt.";
+    "All 3 official attempts on this version are used. An official attempt that already succeeded may still be publishable; its run page says whether it is.";
   const answer = await deferredAnswer(
     component(`cog:surface:${surfaceId}:promote_official:confirm`),
     portal({

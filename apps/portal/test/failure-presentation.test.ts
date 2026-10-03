@@ -53,13 +53,13 @@ async function mount(t: TestContext, element: React.ReactNode) {
   return { window, container, root };
 }
 
-function page(t: TestContext, record: RunDetail) {
+function page(t: TestContext, record: RunDetail, officialUsed = 1) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } } });
   client.setQueryData(["run", record.id], record);
   client.setQueryData(["session"], { auth: { executionProvider: "fixture" } });
   client.setQueryData(["benchmarks"], []);
   client.setQueryData(["dashboard", record.benchmarkId], {
-    quota: { officialUsed: 1, officialLimit: 3, practiceUsed: 2, practiceLimit: 10 },
+    quota: { officialUsed, officialLimit: 3, practiceUsed: 2, practiceLimit: 10 },
   });
   t.after(() => client.clear());
   return React.createElement(QueryClientProvider, { client },
@@ -187,6 +187,14 @@ for (const publishable of [false, true]) {
     assert.doesNotMatch(container.textContent, /ATTEMPT REFUNDED|returned your attempt|This result is your team's public entry/);
   });
 }
+
+test("with no official attempts left, the page doesn't promise that every success can be published", async (t) => {
+  // publishOfficialRun also refuses refunded attempts, runs from a former
+  // repository, outdated rules and a missing primary metric.
+  const { container } = await mount(t, page(t, run({ status: "succeeded", failure: null }), 3));
+  assert.match(container.textContent, /All official attempts on this version are used\. An official attempt that already succeeded may still be publishable; its run page says whether it is\./);
+  assert.doesNotMatch(container.textContent, /publish any successful/);
+});
 
 test("completed partial evaluation retains findings, supporting results and promotion", async (t) => {
   const { container } = await mount(t, page(t, run({

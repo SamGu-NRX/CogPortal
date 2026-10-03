@@ -121,12 +121,16 @@ function requireRunSource(
  * Discord where the page's own "N of 10 left" line is not in view, so it says
  * what is used up and what is still open to them. The Runs and run pages say
  * the same things before the button is pressed (DashboardPage.tsx,
- * RunDetailPage.tsx).
+ * RunDetailPage.tsx). A succeeded attempt is not always publishable
+ * (publishOfficialRun also refuses a refunded attempt, one from a former
+ * repository, outdated scoring rules or a missing primary metric), so the
+ * official refusal points at the run page, which says which, instead of
+ * promising publication.
  */
 export const PRACTICE_QUOTA_REFUSAL =
   `All ${PRACTICE_LIMIT} hosted practice runs on this version are used. Local runs (cogworks run) have no limit.`;
 export const OFFICIAL_QUOTA_REFUSAL =
-  `All ${OFFICIAL_LIMIT} official attempts on this version are used. You can still publish any successful official attempt.`;
+  `All ${OFFICIAL_LIMIT} official attempts on this version are used. An official attempt that already succeeded may still be publishable; its run page says whether it is.`;
 
 const WRITE_PERMISSION_REQUIRED =
   "Current write permission to the connected repository is required.";
