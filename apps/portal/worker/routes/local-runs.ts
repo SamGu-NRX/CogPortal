@@ -138,7 +138,7 @@ async function refuseUnlessStillOnTeam(
 /** For a completed event whose report id already names a report a run on a
  *  team the author left points at. That report stays as it was. */
 export const REPORT_ID_FROZEN =
-  "This report ID already belongs to a run on a team you've left, so this run can't finish with it. Your report is saved on this machine; run the benchmark again for a new one.";
+  "This report ID already belongs to a run on a team you've left, so this run can't finish with it. Run the benchmark again to create a new report.";
 
 /** What the CLI prints after "cogworks: live updates paused:" when its
  *  author has left the team the run was started for. */
