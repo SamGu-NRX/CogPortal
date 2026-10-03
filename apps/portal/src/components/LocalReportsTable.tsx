@@ -1,12 +1,29 @@
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import type { Benchmark, LocalReport } from "@cogworks/contracts/schema";
+import { Veil } from "@/components/Veil";
 import { formatMetricValue, formatTimeAgo } from "@/lib/format";
 
 const SHOWN = 5;
 
 /**
+ * Notes a row shows before the rest fold away. Three is a density choice for
+ * a list of up to five reports: it keeps a row to about a short paragraph,
+ * and the Week 3 reports seen so far carry one or two notes, so they show in
+ * full. It says nothing about which notes matter; they stay in the order the
+ * benchmark wrote them.
+ */
+const NOTES_SHOWN = 3;
+
+/**
  * The newest synced local reports, for one track or for the benchmarks that
  * have none.
+ *
+ * A row leads with what the report says, the way the run page leads with its
+ * finding: the benchmark's first note as the sentence, the next ones smaller
+ * beneath it, and the score last as a footnote. A teammate reading 0.171 alone
+ * can't tell which stage gave way; the notes are where the benchmark says. The
+ * text is the report's own, shown as written. Nothing here is generated or reordered, and
+ * the section's "Self-reported, not promotable" label covers every row.
  *
  * `cogworks test` and `cogworks run` both save a report and either can be
  * synced, but they score different case sets, so a row's number means nothing
@@ -46,31 +63,38 @@ export function LocalReportsTable({
         tabIndex={stop ? 0 : undefined}
         role={stop ? "region" : undefined}
         aria-labelledby={stop ? captionId : undefined}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+        // Only the box's own focus counts. React's focus events bubble, so a
+        // control inside a row (the notes fold) would otherwise turn a table
+        // that fits into a tab stop of its own.
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) setFocused(true);
+        }}
+        onBlur={(event) => {
+          if (event.target === event.currentTarget) setFocused(false);
+        }}
       >
+        {/* Two columns rather than one per field, so the notes get a
+            reading width on a phone instead of a sideways scroll. */}
         <table className="w-full text-left text-[14px]">
           <caption id={captionId} className="sr-only">{caption}</caption>
           <thead className="border-b border-rule">
             <tr>
-              {catalog && <th scope="col" className="u-kicker pr-3 pb-2">Benchmark</th>}
-              <th scope="col" className="u-kicker pr-3 pb-2">Commit</th>
-              <th scope="col" className="u-kicker pr-3 pb-2">Command</th>
-              <th scope="col" className="u-kicker pr-3 pb-2">Result</th>
-              <th scope="col" className="u-kicker pb-2 text-right">Synced</th>
+              <th scope="col" className="u-kicker w-[5.75rem] pr-3 pb-2 align-bottom sm:w-[9rem] sm:pr-4">
+                {catalog ? "Benchmark and commit" : "Commit"}
+              </th>
+              <th scope="col" className="u-kicker pb-2 align-bottom">What the report says</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-rule-soft">
-            {shown.map((report) => {
-              const primary = report.metrics.find((metric) => metric.primary);
-              return (
-                <tr key={report.reportId} className="align-baseline">
+            {shown.map((report) => (
+              <tr key={report.reportId} className="align-top">
+                <td className="py-3 pr-3 sm:pr-4">
                   {catalog && (
-                    <td className="py-2.5 pr-3 text-ink">
+                    <p className="mb-1 text-[14px] leading-[1.35] text-ink">
                       <BenchmarkName report={report} catalog={catalog} />
-                    </td>
+                    </p>
                   )}
-                  <td className="py-2.5 pr-3 text-[13px] font-mono text-ink-secondary">
+                  <p className="font-mono text-[13px] text-ink-secondary">
                     {report.sha ? report.sha.slice(0, 7) : "not recorded"}
                     {report.dirty && (
                       <>
@@ -78,22 +102,23 @@ export function LocalReportsTable({
                         <span className="whitespace-nowrap">· dirty</span>
                       </>
                     )}
-                  </td>
-                  <td className={`py-2.5 pr-3 text-[13px] font-mono ${report.command ? "text-ink-secondary" : "text-ink-faint"}`}>
-                    {report.command ?? "not recorded"}
-                  </td>
-                  {/* A smoke-test number covers only the small cases, so it
-                      sits one step lighter than a run's. The label and the
-                      note below carry the meaning. */}
-                  <td className={`u-tnum py-2.5 pr-3 ${report.command === "test" ? "text-ink-secondary" : "text-ink"}`}>
-                    {primary ? formatMetricValue(primary) : "no primary metric"}
-                  </td>
-                  <td className="py-2.5 text-right whitespace-nowrap text-ink-faint">
-                    {formatTimeAgo(report.syncedAt)}
-                  </td>
-                </tr>
-              );
-            })}
+                  </p>
+                  {/* The command as typed, so the row names it without a
+                      column of its own; a report from before the CLI
+                      recorded it says so rather than borrowing either. */}
+                  <p
+                    className={`mt-0.5 font-mono text-[12.5px] leading-[1.45] ${
+                      report.command ? "text-ink-secondary" : "text-ink-faint"
+                    }`}
+                  >
+                    {report.command ? `cogworks ${report.command}` : "command not recorded"}
+                  </p>
+                </td>
+                <td className="py-3">
+                  <ReportNotes report={report} />
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -110,6 +135,71 @@ export function LocalReportsTable({
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * One report's notes in the benchmark's order, then its score. The same
+ * hierarchy as the run page's Finding, set small enough for a row: the first
+ * note in the serif, the next two as hairline-marked lines, anything past
+ * NOTES_SHOWN behind a Veil.
+ */
+function ReportNotes({ report }: { report: LocalReport }) {
+  const [first, ...rest] = report.diagnostics;
+  const supporting = rest.slice(0, NOTES_SHOWN - 1);
+  const folded = rest.slice(NOTES_SHOWN - 1);
+  const primary = report.metrics.find((metric) => metric.primary);
+  return (
+    <>
+      {first === undefined ? (
+        // Only that the notes are absent: an empty list is not a clean bill
+        // of health, and the score below is all the report holds.
+        <p className="text-[14px] text-ink-faint">This report has no notes.</p>
+      ) : (
+        <p className="font-serif text-[15.5px] leading-[1.4] font-[480] tracking-[-0.005em] text-ink [overflow-wrap:anywhere] sm:text-[16.5px]">
+          {first}
+        </p>
+      )}
+      {supporting.length > 0 && <NoteList notes={supporting} className="mt-2" />}
+      {folded.length > 0 && (
+        // No margin of its own: the Veil's region already opens with its
+        // top padding, which matches the gap between the notes above.
+        <div>
+          <Veil
+            count={folded.length}
+            moreLabel={`See ${folded.length} more ${folded.length === 1 ? "note" : "notes"}`}
+            fewerLabel="Show fewer notes"
+          >
+            <NoteList notes={folded} />
+          </Veil>
+        </div>
+      )}
+      {/* The score and the sync time as a footnote, under what the score
+          measured. A smoke-test number covers only the small cases, so it
+          sits one step lighter than a run's; the line below the table says
+          why. */}
+      <p className="u-tnum mt-2 font-mono text-[12.5px] text-ink-faint">
+        <span className={report.command === "test" ? "text-ink-faint" : "text-ink-secondary"}>
+          {primary ? `${primary.label} ${formatMetricValue(primary)}` : "no primary metric"}
+        </span>
+        {/* The dot stays with the score, so a narrow row breaks after it. */}
+        {"\u00a0· "}
+        <span className="whitespace-nowrap">synced {formatTimeAgo(report.syncedAt)}</span>
+      </p>
+    </>
+  );
+}
+
+function NoteList({ notes, className = "" }: { notes: string[]; className?: string }) {
+  return (
+    <ul className={`space-y-1.5 ${className}`}>
+      {notes.map((note, index) => (
+        <li key={`${index}:${note}`} className="flex gap-2.5 text-[13.5px] leading-[1.5] text-ink-secondary">
+          <span aria-hidden="true" className="mt-[0.72em] h-px w-2.5 shrink-0 bg-ink-faint" />
+          <span className="min-w-0 [overflow-wrap:anywhere]">{note}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

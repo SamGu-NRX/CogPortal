@@ -111,12 +111,12 @@ test("each command a report names survives sync and is shown with its row", asyn
   assert.equal(byId.get("local_from_run"), "run");
 
   const html = page(listed);
-  assert.match(html, />Command</);
-  // The command sits beside the commit, never beside a person.
+  // The command sits beside the commit, never beside a person, written as
+  // the student typed it so the row names it without a column header.
   assert.doesNotMatch(html, />Student</);
   for (const report of listed) assert.ok(!html.includes(report.author.login));
-  assert.match(html, /<td class="[^"]*font-mono text-ink-secondary">test<\/td>/);
-  assert.match(html, /<td class="[^"]*font-mono text-ink-secondary">run<\/td>/);
+  assert.match(html, /<p class="[^"]*font-mono[^"]*text-ink-secondary">cogworks test<\/p>/);
+  assert.match(html, /<p class="[^"]*font-mono[^"]*text-ink-secondary">cogworks run<\/p>/);
   // The note explains a test row, and only appears when one is on screen.
   assert.match(html, /scored only the small\s+smoke-test cases/);
   assert.doesNotMatch(page(listed.filter((r) => r.command === "run")), /smoke-test cases/);
@@ -133,9 +133,9 @@ test("a report the CLI wrote before recording the command syncs and reads as unr
   assert.equal(row.command, null);
 
   const html = page(await listTeamLocalReports(env, "user_1"));
-  assert.match(html, /<td class="[^"]*font-mono text-ink-faint">not recorded<\/td>/);
+  assert.match(html, /<p class="[^"]*font-mono[^"]*text-ink-faint">command not recorded<\/p>/);
   // Never guessed as either command.
-  assert.doesNotMatch(html, />(test|run)<\/td>/);
+  assert.doesNotMatch(html, />cogworks (test|run)</);
   assert.doesNotMatch(html, /smoke-test cases/);
 });
 
