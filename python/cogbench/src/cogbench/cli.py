@@ -1355,6 +1355,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path, project_root)
             report = _load_report(path)
+            if report.weights_used is None:
+                raise PortalError(
+                    "This report doesn't record which weight files the run used, "
+                    "so it can't be synced safely. Run `cogworks run --benchmark {}` again, then `cogworks sync`."
+                    .format(report.benchmark_id)
+                )
             receipts = report.weights_uploaded
             if receipts is None and report.weights_used:
                 raise PortalError(
