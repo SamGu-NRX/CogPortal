@@ -142,9 +142,10 @@ class LocalReport:
     metrics: List[Metric]
     diagnostics: List[str]
     output_digest: str
-    #: ``None`` only for a report saved before the field existed. It still
-    #: loads and displays, but sync refuses it: sending ``[]`` would turn
-    #: "never recorded" into "used no weights".
+    #: ``None`` when a saved report has no ``weightsUsed`` key, whether it
+    #: predates the field or was edited or damaged. It still loads and
+    #: displays, but sync refuses it: sending ``[]`` would turn "not recorded"
+    #: into "used no weights".
     weights_used: Optional[List[str]] = field(default_factory=list)
     #: What was captured for each scored weight, measured from the bytes that
     #: were copied before loading: ``{"path", "sha256", "size"}``. Empty when

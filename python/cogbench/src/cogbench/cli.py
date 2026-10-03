@@ -1357,9 +1357,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             report = _load_report(path)
             if report.weights_used is None:
                 raise PortalError(
-                    "This report was saved before reports recorded which weight "
-                    "files a run used, so the portal can't tell whether it used any. "
-                    "Run `cogworks run --benchmark {}` again, then `cogworks sync`."
+                    "This report doesn't record which weight files the run used, "
+                    "so it can't be synced safely. Run `cogworks run --benchmark {}` again, then `cogworks sync`."
                     .format(report.benchmark_id)
                 )
             receipts = report.weights_uploaded

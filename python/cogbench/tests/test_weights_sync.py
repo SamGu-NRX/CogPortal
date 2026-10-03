@@ -82,8 +82,8 @@ class LocalReportWithWeightsTests(unittest.TestCase):
         self.assertEqual(restored.weights_used, ["models/encoder.pkl", "data/idf.json"])
 
     def test_an_absent_weights_field_stays_unrecorded(self):
-        """A report saved before the field existed never said which weights it
-        used. Reading that as [] would turn "unknown" into "none"."""
+        """A report without the field never said which weights it used.
+        Reading that as [] would turn "unknown" into "none"."""
 
         json_str = json.dumps({
             "reportId": "local_test",
@@ -210,8 +210,8 @@ class SyncUploadsEveryScoredWeight(unittest.TestCase):
         upload.assert_not_called()
 
     def test_a_report_that_never_recorded_its_weights_is_not_synced(self):
-        """An old file without weightsUsed must not reach the portal as [],
-        which would claim the run used no weights."""
+        """A file without weightsUsed must not reach the portal as [], which
+        would claim the run used no weights."""
 
         for uploaded in (None, []):
             with self.subTest(weightsUploaded=uploaded):
@@ -222,8 +222,9 @@ class SyncUploadsEveryScoredWeight(unittest.TestCase):
                 sync.assert_not_called()
                 upload.assert_not_called()
                 self.assertIn(
-                    "Run `cogworks run --benchmark language-search` again, "
-                    "then `cogworks sync`.",
+                    "This report doesn't record which weight files the run "
+                    "used, so it can't be synced safely. Run `cogworks run "
+                    "--benchmark language-search` again, then `cogworks sync`.",
                     err,
                 )
 
