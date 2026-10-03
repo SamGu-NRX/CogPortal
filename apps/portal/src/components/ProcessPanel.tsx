@@ -469,7 +469,7 @@ function ContractFiles({
               {event.files.map((path) => (
                 <li
                   key={path}
-                  className="font-mono text-[12.5px] leading-[1.6] break-all text-ink-secondary"
+                  className="font-mono text-[12.5px] leading-[1.6] [overflow-wrap:anywhere] text-ink-secondary"
                 >
                   {path}
                 </li>

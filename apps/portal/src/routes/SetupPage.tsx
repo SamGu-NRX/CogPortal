@@ -15,6 +15,7 @@ import { CopyBlock } from "@/components/CopyBlock";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { PageHeader } from "@/components/Note";
 import { Panel } from "@/components/Panel";
+import { RepoName } from "@/components/RepoName";
 import { Step, StepCells, StepRail, type StepState } from "@/components/StepRail";
 import { TrackSwitcher } from "@/components/TrackSwitcher";
 import {
@@ -259,7 +260,7 @@ function SetupGuide({
               rel="noreferrer"
               className="u-link font-mono text-[12.5px] font-normal text-ink-secondary"
             >
-              {team.repo.fullName}
+              <RepoName fullName={team.repo.fullName} />
             </a>
           </span>
         }

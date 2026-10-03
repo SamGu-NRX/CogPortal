@@ -21,6 +21,7 @@ import { LogView } from "@/components/LogView";
 import { Finding, FINDING_KICKER } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { Annotated } from "@/components/Note";
+import { RepoName } from "@/components/RepoName";
 import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace } from "@/components/WiringTrace";
 import { PhaseRail } from "@/components/PhaseRail";
@@ -169,7 +170,7 @@ export function RunDetailPage() {
             <MetaItem>
               {run.repo ? (
                 <a href={run.repo.url} target="_blank" rel="noreferrer" className="u-link">
-                  {run.repo.fullName}
+                  <RepoName fullName={run.repo.fullName} />
                   <span className="sr-only"> (opens GitHub)</span>
                 </a>
               ) : (

@@ -17,6 +17,7 @@ import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { OnboardingPath } from "@/components/OnboardingPath";
+import { RepoName } from "@/components/RepoName";
 import { RepoPicker } from "@/components/RepoPicker";
 import { Veil } from "@/components/Veil";
 import { ApiRequestError } from "@/lib/api";
@@ -250,9 +251,9 @@ export function ConnectPage() {
                       href={`https://github.com/${template}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="u-link font-mono text-[14px] break-all"
+                      className="u-link font-mono text-[14px]"
                     >
-                      {template}
+                      <RepoName fullName={template} />
                       <span className="sr-only"> (opens GitHub)</span>
                     </a>{" "}
                     (keep it public), then pick your fork below.

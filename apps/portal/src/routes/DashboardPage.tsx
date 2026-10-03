@@ -17,6 +17,7 @@ import { LocalReportsTable } from "@/components/LocalReportsTable";
 import { PageHeader } from "@/components/Note";
 import { PhaseRail } from "@/components/PhaseRail";
 import { QuotaCells } from "@/components/QuotaCells";
+import { RepoName } from "@/components/RepoName";
 import { RunList } from "@/components/RunList";
 import { SetupNudge } from "@/components/SetupNudge";
 import { SimulatedChip } from "@/components/SimulatedChip";
@@ -777,9 +778,9 @@ function Reference({ d, firstRun }: { d: Dashboard; firstRun: boolean }) {
               href={repo.url}
               target="_blank"
               rel="noreferrer"
-              className="u-link u-hit-44 relative font-mono text-[13px] break-all"
+              className="u-link u-hit-44 relative font-mono text-[13px]"
             >
-              {repo.fullName}
+              <RepoName fullName={repo.fullName} />
             </a>
           ) : (
             <span className="text-[14px] text-ink-secondary">No repository connected.</span>

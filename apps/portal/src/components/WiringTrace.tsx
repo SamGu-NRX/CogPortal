@@ -54,7 +54,7 @@ export function WiringTrace({
             <span aria-hidden="true" className="absolute top-[1.05em] -left-4 h-px w-2.5 bg-rule-strong" />
             <div className="text-[13.5px] text-ink-secondary">{step.stage}</div>
             <div className="min-w-0">
-              <div className="break-all font-mono text-[13px] text-ink">{step.function}</div>
+              <div className="font-mono text-[13px] [overflow-wrap:anywhere] text-ink">{step.function}</div>
               {(step.received || step.returned) && (
                 // The shapes are the reproduction a team debugs from. They are
                 // the platform's whole contribution to a chain that runs and
