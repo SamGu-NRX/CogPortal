@@ -259,7 +259,7 @@ export function ConnectionsPage() {
 
         <Connection
           title="Discord"
-          grants="When you use Cog, it can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you."
+          grants="When you use Cog, the course's Discord bot, it can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you."
         >
           {discord ? (
             <>
