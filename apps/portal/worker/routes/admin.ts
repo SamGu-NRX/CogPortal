@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
@@ -48,6 +48,126 @@ function memberRole(role: string): TeamMember["role"] {
   throw new Error("Team member has an invalid role.");
 }
 
+/** The ids of the teams `teamWhere` selects, as a subquery for an IN. */
+function selectTeamIds(db: Database, teamWhere: SQL) {
+  return db.select({ id: teams.id }).from(teams).where(teamWhere);
+}
+type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
+
+/** When the last run's outcome was known: its finish, or its start while it
+ *  is still going and has none. */
+const runSettledAt = sql<number>`coalesce(${runs.finishedAt}, ${runs.createdAt})`;
+
+/**
+ * The catalog title of the run's own benchmark version, read through a left
+ * join on (id, version), the catalog's key, so it adds at most one row per run.
+ * The id stands in when the catalog has no such row.
+ */
+const runBenchmarkTitle = sql<string>`coalesce(${benchmarks.title}, ${runs.benchmarkId})`;
+const runBenchmark = and(
+  eq(benchmarks.id, runs.benchmarkId),
+  eq(benchmarks.version, runs.benchmarkVersion),
+);
+
+/**
+ * Run state describes the repository the row prints: a run counts only if it
+ * came from the repository the team is connected to now, the rule the Team
+ * page's first light uses (routes/team.ts `forConnectedRepository`). Otherwise
+ * a success from a repository the team has left kept a team with no completed
+ * run recorded for its current repository out of the attention group. A team with no
+ * recorded repository id, or a run without one (before migration 0013),
+ * matches nothing, because NULL equals nothing in SQL. Hosted-run counts and
+ * quota are read elsewhere and stay team-wide.
+ */
+const onConnectedRepository = eq(runs.repositoryId, teams.repoId);
+
+/**
+ * Each scoped team's first succeeded hosted run from its connected
+ * repository, one row per team.
+ *
+ * One windowed statement for all teams, for the same query budget the
+ * summaries below keep. The select lists the only columns read: nothing a
+ * team wrote (failure detail, refusal, diagnostics, log) is fetched at all.
+ *
+ * A success with no finish time doesn't count, as on the Team page
+ * (routes/team.ts, the scored runs it reads), so staff and the team name the
+ * same date. Both paths that record a success write one (runner-events.ts,
+ * execution/sync.ts); substituting the start time let an undated row take
+ * first place from a run that really finished first.
+ */
+function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
+  // Never null here: the where clause below drops unfinished rows.
+  const finishedAt = sql<number>`${runs.finishedAt}`;
+  const ranked = db
+    .select({
+      teamId: runs.teamId,
+      benchmarkId: runs.benchmarkId,
+      benchmarkTitle: runBenchmarkTitle.as("benchmark_title"),
+      at: finishedAt.as("at"),
+      position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${finishedAt}, ${runs.id})`.as("position"),
+    })
+    .from(runs)
+    .innerJoin(teams, eq(teams.id, runs.teamId))
+    .leftJoin(benchmarks, runBenchmark)
+    .where(and(
+      eq(runs.status, "succeeded"),
+      isNotNull(runs.finishedAt),
+      inArray(runs.teamId, teamIds),
+      onConnectedRepository,
+    ))
+    .as("first_light");
+  return db
+    .select({
+      teamId: ranked.teamId,
+      benchmarkId: ranked.benchmarkId,
+      benchmarkTitle: ranked.benchmarkTitle,
+      at: ranked.at,
+    })
+    .from(ranked)
+    .where(eq(ranked.position, 1));
+}
+
+/**
+ * Each scoped team's most recently started hosted run from its connected
+ * repository, one row per team, with the two failure enums and no failure
+ * text. Same shape of query as
+ * `readFirstLights`.
+ */
+function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
+  const ranked = db
+    .select({
+      teamId: runs.teamId,
+      benchmarkId: runs.benchmarkId,
+      benchmarkTitle: runBenchmarkTitle.as("benchmark_title"),
+      at: runSettledAt.as("at"),
+      status: runs.status,
+      // First light needs a finish time, so the row can't call a success
+      // without one scored (see `LastRunOutcome`).
+      finishRecorded: sql<number>`${runs.finishedAt} is not null`.as("finish_recorded"),
+      failurePhase: runs.failurePhase,
+      failureCategory: runs.failureCategory,
+      position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as("position"),
+    })
+    .from(runs)
+    .innerJoin(teams, eq(teams.id, runs.teamId))
+    .leftJoin(benchmarks, runBenchmark)
+    .where(and(inArray(runs.teamId, teamIds), onConnectedRepository))
+    .as("last_hosted_run");
+  return db
+    .select({
+      teamId: ranked.teamId,
+      benchmarkId: ranked.benchmarkId,
+      benchmarkTitle: ranked.benchmarkTitle,
+      at: ranked.at,
+      status: ranked.status,
+      finishRecorded: ranked.finishRecorded,
+      failurePhase: ranked.failurePhase,
+      failureCategory: ranked.failureCategory,
+    })
+    .from(ranked)
+    .where(eq(ranked.position, 1));
+}
+
 /**
  * Console summaries for every team `teamWhere` selects, in name order.
  *
@@ -60,7 +180,8 @@ async function readAdminTeamSummaries(
   db: Database,
   teamWhere: SQL,
 ): Promise<AdminTeamSummary[]> {
-  const [teamRows, members, tas, used, executed, published] = await Promise.all([
+  const scopedTeamIds = selectTeamIds(db, teamWhere);
+  const [teamRows, members, tas, used, executed, published, firstLights, lastRuns] = await Promise.all([
     db.select().from(teams).where(teamWhere).orderBy(asc(teams.name)),
     db
       .select({
@@ -95,7 +216,7 @@ async function readAdminTeamSummaries(
     db
       .select({ teamId: runs.teamId, count: sql<number>`count(*)`.mapWith(Number) })
       .from(runs)
-      .where(inArray(runs.teamId, db.select({ id: teams.id }).from(teams).where(teamWhere)))
+      .where(inArray(runs.teamId, scopedTeamIds))
       .groupBy(runs.teamId),
     // Every team's selections, newest first. The first per team that the
     // board would rank is the one shown (`rankingRefusal` below).
@@ -139,8 +260,12 @@ async function readAdminTeamSummaries(
       .innerJoin(teams, eq(teams.id, leaderboardSelections.teamId))
       .where(teamWhere)
       .orderBy(desc(leaderboardSelections.selectedAt)),
+    readFirstLights(db, scopedTeamIds),
+    readLastHostedRuns(db, scopedTeamIds),
   ]);
   const executions = new Map(executed.map((row) => [row.teamId, row.count]));
+  const firstLightByTeam = new Map(firstLights.map((row) => [row.teamId, row]));
+  const lastRunByTeam = new Map(lastRuns.map((row) => [row.teamId, row]));
   const roleOrder: Record<TeamMember["role"], number> = {
     admin: 0,
     maintain: 1,
@@ -150,6 +275,8 @@ async function readAdminTeamSummaries(
     const latest = published.find((row) => row.teamId === team.id &&
       rankingRefusal(row.run, row.benchmark, row.metricKey === null ? [] : [{ key: row.metricKey }]) === null);
     const usage = used.get(team.id);
+    const first = firstLightByTeam.get(team.id);
+    const last = lastRunByTeam.get(team.id);
     return {
       id: team.id,
       name: team.name,
@@ -178,6 +305,22 @@ async function readAdminTeamSummaries(
       hostedRuns: executions.get(team.id) ?? 0,
       // Retained for older clients. Failures no longer require a refund decision.
       refundsGiven: 0,
+      firstLight: first
+        ? { benchmarkId: first.benchmarkId, benchmarkTitle: first.benchmarkTitle, at: first.at }
+        : null,
+      lastHostedRun: last
+        ? {
+            benchmarkId: last.benchmarkId,
+            benchmarkTitle: last.benchmarkTitle,
+            at: last.at,
+            status: last.status,
+            finishRecorded: Boolean(last.finishRecorded),
+            failure:
+              last.status === "failed" && last.failurePhase !== null && last.failureCategory !== null
+                ? { phase: last.failurePhase, category: last.failureCategory }
+                : null,
+          }
+        : null,
       published:
         latest?.value == null
           ? null

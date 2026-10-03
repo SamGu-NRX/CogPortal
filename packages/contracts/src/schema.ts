@@ -1409,6 +1409,51 @@ export const AdminTeamSummarySchema = z.object({
    */
   refundsGiven: z.number().int(),
   /**
+   * Where the team's code stands, for the staff who can see this row (owners,
+   * and TAs on their assigned teams). The team's run pages stay member-only
+   * because they hold unpublished results, logs and process notes, so these
+   * two fields carry platform enums and times and nothing else. They must
+   * never carry, or be derived from, a run's failure detail, refusal,
+   * diagnostics, sweep, log, metrics or wiring: detail and refusal text can
+   * hold the team's own exception messages and file paths, and a finding can
+   * hold a measured number. Both count only runs from the repository the team
+   * is connected to now (`runs.repository_id = teams.repo_id`), the one the row
+   * names, as the Team page's first light does; `hostedRuns` and the quota
+   * fields stay team-wide, so changing repository erases no history.
+   *
+   * `firstLight` is the team's first hosted run from that repository that
+   * finished `succeeded`, across every benchmark, at the time it finished (the
+   * definition `firstLight` in worker/services/process-signals.ts and the
+   * Discord nudges already use). Null when none is recorded.
+   *
+   * `benchmarkTitle` in both fields is the catalog title of the run's own
+   * benchmark version, or the id when the catalog has no such row. It is
+   * resolved here so the console never has to show an id while it fetches
+   * the catalog.
+   */
+  firstLight: z
+    .object({ benchmarkId: z.string(), benchmarkTitle: z.string(), at: z.number().int() })
+    .nullable(),
+  /**
+   * The team's most recently started hosted run from its connected
+   * repository, or null when there is none.
+   * `at` is when it finished, or when it started if it has not finished;
+   * `finishRecorded` says which. A `succeeded` run with no finish time is
+   * not counted by `firstLight`, so the console must not call it scored.
+   * `failure` is set only for a failed run that recorded both its phase and
+   * its category.
+   */
+  lastHostedRun: z
+    .object({
+      benchmarkId: z.string(),
+      benchmarkTitle: z.string(),
+      at: z.number().int(),
+      status: RunStatusSchema,
+      finishRecorded: z.boolean(),
+      failure: z.object({ phase: RunPhaseSchema, category: FailureCategorySchema }).nullable(),
+    })
+    .nullable(),
+  /**
    * The team's latest published selection across all benchmarks, or null. The
    * score is inseparable from what it scored: a Vision number and a Language
    * number are not the same quantity and do not compare, so they travel in one

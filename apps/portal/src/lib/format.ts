@@ -26,6 +26,18 @@ export function formatTimeAgo(epochMs: number): string {
   return `${d} d ago`;
 }
 
+/** The calendar day alone, e.g. "Oct 2", and the same day as a `<time>`
+ *  attribute. Both read the local date, so they always agree. */
+export function formatDate(epochMs: number): string {
+  return new Date(epochMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export function isoDate(epochMs: number): string {
+  const date = new Date(epochMs);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function formatDateTime(epochMs: number): string {
   return new Date(epochMs).toLocaleString(undefined, {
     month: "short",

@@ -24,7 +24,10 @@ the account-menu link to the console.
 
 Being staff doesn't open a team's run pages or its Team page. Those carry the
 team's unpublished practice results and its process notes, so the portal
-shows them only to the team's members. To look at a run with a team, have a
+shows them only to the team's members. In the admin row, staff do see whether
+a completed hosted run is recorded for an assigned team's connected repository
+and where its last hosted run from that repository stopped, but
+still not its unpublished results, logs or notes. To look at a run with a team, have a
 member open it.
 
 ## Open a cohort
