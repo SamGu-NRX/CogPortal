@@ -296,7 +296,7 @@ test("an opened team row leads with its run state", async (t) => {
   const headings = [...(details?.querySelectorAll("h3") ?? [])].map((heading) => heading.textContent);
   assert.deepEqual(headings.slice(0, 2), ["Run state", "Members"]);
   const text = details?.textContent ?? "";
-  assert.match(text, /Hasn't run end to end yet\./);
+  assert.match(text, /Hasn't run end to end from this repository yet\./);
   assert.match(text, /Last hosted run: Face recognition, 3 h ago, failed at Contract check\. Nothing here could be scored \(E-ADAPTER\)\./);
 });
 

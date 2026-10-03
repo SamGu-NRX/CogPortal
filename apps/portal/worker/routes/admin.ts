@@ -70,7 +70,20 @@ const runBenchmark = and(
 );
 
 /**
- * Each scoped team's first succeeded hosted run, one row per team.
+ * Run state describes the repository the row prints: a run counts only if it
+ * came from the repository the team is connected to now, the rule the Team
+ * page's first light uses (routes/team.ts `forConnectedRepository`). Otherwise
+ * a success from a repository the team has left kept a team whose current
+ * repository never ran end to end out of the attention group. A team with no
+ * recorded repository id, or a run without one (before migration 0013),
+ * matches nothing, because NULL equals nothing in SQL. Hosted-run counts and
+ * quota are read elsewhere and stay team-wide.
+ */
+const onConnectedRepository = eq(runs.repositoryId, teams.repoId);
+
+/**
+ * Each scoped team's first succeeded hosted run from its connected
+ * repository, one row per team.
  *
  * One windowed statement for all teams, for the same query budget the
  * summaries below keep. The select lists the only columns read: nothing a
@@ -94,8 +107,14 @@ function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
       position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${finishedAt}, ${runs.id})`.as("position"),
     })
     .from(runs)
+    .innerJoin(teams, eq(teams.id, runs.teamId))
     .leftJoin(benchmarks, runBenchmark)
-    .where(and(eq(runs.status, "succeeded"), isNotNull(runs.finishedAt), inArray(runs.teamId, teamIds)))
+    .where(and(
+      eq(runs.status, "succeeded"),
+      isNotNull(runs.finishedAt),
+      inArray(runs.teamId, teamIds),
+      onConnectedRepository,
+    ))
     .as("first_light");
   return db
     .select({
@@ -109,8 +128,9 @@ function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
 }
 
 /**
- * Each scoped team's most recently started hosted run, one row per team, with
- * the two failure enums and no failure text. Same shape of query as
+ * Each scoped team's most recently started hosted run from its connected
+ * repository, one row per team, with the two failure enums and no failure
+ * text. Same shape of query as
  * `readFirstLights`.
  */
 function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
@@ -126,8 +146,9 @@ function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
       position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as("position"),
     })
     .from(runs)
+    .innerJoin(teams, eq(teams.id, runs.teamId))
     .leftJoin(benchmarks, runBenchmark)
-    .where(inArray(runs.teamId, teamIds))
+    .where(and(inArray(runs.teamId, teamIds), onConnectedRepository))
     .as("last_hosted_run");
   return db
     .select({

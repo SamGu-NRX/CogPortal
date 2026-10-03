@@ -1416,12 +1416,15 @@ export const AdminTeamSummarySchema = z.object({
    * never carry, or be derived from, a run's failure detail, refusal,
    * diagnostics, sweep, log, metrics or wiring: detail and refusal text can
    * hold the team's own exception messages and file paths, and a finding can
-   * hold a measured number. "Hosted" is the same set `hostedRuns` counts.
+   * hold a measured number. Both count only runs from the repository the team
+   * is connected to now (`runs.repository_id = teams.repo_id`), the one the row
+   * names, as the Team page's first light does; `hostedRuns` and the quota
+   * fields stay team-wide, so changing repository erases no history.
    *
-   * `firstLight` is the team's first hosted run that finished `succeeded`,
-   * across every benchmark, at the time it finished (the definition
-   * `firstLight` in worker/services/process-signals.ts and the Discord nudges
-   * already use). Null when no run has gone end to end.
+   * `firstLight` is the team's first hosted run from that repository that
+   * finished `succeeded`, across every benchmark, at the time it finished (the
+   * definition `firstLight` in worker/services/process-signals.ts and the
+   * Discord nudges already use). Null when none has gone end to end.
    *
    * `benchmarkTitle` in both fields is the catalog title of the run's own
    * benchmark version, or the id when the catalog has no such row. It is
@@ -1432,7 +1435,8 @@ export const AdminTeamSummarySchema = z.object({
     .object({ benchmarkId: z.string(), benchmarkTitle: z.string(), at: z.number().int() })
     .nullable(),
   /**
-   * The team's most recently started hosted run, or null when there is none.
+   * The team's most recently started hosted run from its connected
+   * repository, or null when there is none.
    * `at` is when it finished, or when it started if it has not finished.
    * `failure` is set only for a failed run that recorded both its phase and
    * its category.

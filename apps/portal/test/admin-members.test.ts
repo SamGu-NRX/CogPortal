@@ -150,6 +150,7 @@ function harness() {
         repoName: id,
         repoFullName: `cogworks-test/${id}`,
         repoUrl: `https://github.com/cogworks-test/${id}`,
+        repoId: repoIdOf(id),
         defaultBranch: "main",
       });
     },
@@ -725,9 +726,16 @@ test("a team whose runs all failed reads and sorts as one that ran, not one that
 const SENTINEL = "STUDENT-TEXT-7731";
 const MEASURED = "0.8731";
 
+/** A stable repository id per team, so a seeded team and its hosted runs
+ *  agree on the connected repository unless a test says otherwise. */
+function repoIdOf(teamId: string): number {
+  return [...teamId].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) % 1_000_000_007, 7);
+}
+
 function hostedRun(teamId: string, id: string, over: Partial<typeof runs.$inferInsert> = {}) {
   return {
-    id, teamId, benchmarkId: "test_vision", benchmarkVersion: 1, contractVersion: "test-v1",
+    id, teamId, repositoryId: repoIdOf(teamId),
+    benchmarkId: "test_vision", benchmarkVersion: 1, contractVersion: "test-v1",
     mode: "practice" as const, status: "succeeded" as const, branch: "main", sha: "a".repeat(40),
     createdAt: 1_000, finishedAt: 1_100, ...over,
   };
@@ -923,9 +931,9 @@ test("the run state says, in the platform's words, where each kind of team stand
   const firstAt = Date.UTC(2026, 8, 29, 14, 5);
   const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1_000;
   const firstLight = { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: firstAt };
-  const firstSentence = `First ran end to end on Face recognition, ${formatDate(firstAt)}.`;
+  const firstSentence = `First ran end to end from this repository on Face recognition, ${formatDate(firstAt)}.`;
 
-  assert.deepEqual(renderRunState({ firstLight: null, lastHostedRun: null }), ["Hasn't run end to end yet."]);
+  assert.deepEqual(renderRunState({ firstLight: null, lastHostedRun: null }), ["Hasn't run end to end from this repository yet."]);
   assert.deepEqual(
     renderRunState({
       firstLight: null,
@@ -935,7 +943,7 @@ test("the run state says, in the platform's words, where each kind of team stand
       },
     }),
     [
-      "Hasn't run end to end yet.",
+      "Hasn't run end to end from this repository yet.",
       "Last hosted run: Audio identification, 3 h ago, failed at Install. Dependency installation failed (E-INSTALL).",
     ],
   );
@@ -1018,4 +1026,61 @@ test("only teams that haven't run end to end carry the attention mark, and they 
   const order = ["Zeta never", "Gamma not yet", "Alpha scored", "Beta going"].map((name) => html.indexOf(`>${name}<`));
   assert.ok(order.every((position) => position >= 0));
   assert.deepEqual([...order].sort((x, y) => x - y), order);
+});
+
+// Run state describes the repository the row names. A team that moved from
+// repository A to B, with a success on A and nothing yet on B, belongs in the
+// attention group, and the move erases none of its team-wide history.
+test("run state counts only the connected repository, and moving repository keeps the counts", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  await h.seedTeam("team_moved");
+  await seedCatalog(h);
+  const owner = await h.signIn(OWNER, null);
+  const repoB = repoIdOf("team_moved") + 1;
+  await h.db.insert(runs).values([
+    hostedRun("team_moved", "a_scored", { createdAt: 1_000, finishedAt: 1_100 }),
+    hostedRun("team_moved", "a_failed", {
+      status: "failed", createdAt: 2_000, finishedAt: 2_100,
+      failurePhase: "evaluating", failureCategory: "student_runtime",
+    }),
+    // Before migration 0013 a run recorded no repository id, so it speaks for
+    // no repository, as on the Team page.
+    hostedRun("team_moved", "legacy_scored", { repositoryId: null, createdAt: 500, finishedAt: 600 }),
+  ]);
+  const read = async () => {
+    const result = await h.call("GET", "/admin/overview", { cookie: owner });
+    assert.equal(result.status, 200);
+    const team = (result.body as AdminOverview).teams.find((entry) => entry.id === "team_moved");
+    assert.ok(team, "the moved team's row");
+    return team;
+  };
+
+  const onA = await read();
+  assert.deepEqual(onA.firstLight, { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1_100 });
+  assert.equal(onA.lastHostedRun?.status, "failed");
+
+  await h.db.update(teams)
+    .set({ repoId: repoB, repoName: "moved-b", repoFullName: "cogworks-test/moved-b" })
+    .where(eq(teams.id, "team_moved"));
+  const onB = await read();
+  assert.equal(onB.firstLight, null);
+  assert.equal(onB.lastHostedRun, null);
+  assert.equal(onB.hostedRuns, onA.hostedRuns, "moving repository keeps the team-wide count");
+  assert.equal(onB.practiceUsed, onA.practiceUsed, "moving repository keeps the quota");
+
+  await h.db.insert(runs).values(hostedRun("team_moved", "b_failed", {
+    repositoryId: repoB, status: "failed", createdAt: 3_000, finishedAt: 3_100,
+    failurePhase: "contract_check", failureCategory: "adapter_missing",
+  }));
+  const failedOnB = await read();
+  assert.equal(failedOnB.firstLight, null);
+  assert.equal(failedOnB.lastHostedRun?.at, 3_100);
+  assert.deepEqual(failedOnB.lastHostedRun?.failure, { phase: "contract_check", category: "adapter_missing" });
+
+  await h.db.insert(runs).values(hostedRun("team_moved", "b_scored", { repositoryId: repoB, createdAt: 4_000, finishedAt: 4_100 }));
+  const scoredOnB = await read();
+  assert.deepEqual(scoredOnB.firstLight, { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 4_100 });
+  assert.equal(scoredOnB.lastHostedRun?.status, "succeeded");
+  assert.equal(scoredOnB.lastHostedRun?.at, 4_100);
 });

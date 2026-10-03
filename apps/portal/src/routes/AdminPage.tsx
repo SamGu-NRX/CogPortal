@@ -696,14 +696,16 @@ export function TeamRunState({
           <>
             {/* The day, not the minute: the time of day says when someone
                 on the team was working, which helping them doesn't need. */}
-            First ran end to end on {firstLight.benchmarkTitle},{" "}
+            {/* "From this repository": both sentences count only the
+                repository this row names (worker/routes/admin.ts). */}
+            First ran end to end from this repository on {firstLight.benchmarkTitle},{" "}
             <time dateTime={isoDate(firstLight.at)} className="whitespace-nowrap">
               {formatDate(firstLight.at)}
             </time>
             .
           </>
         ) : (
-          "Hasn't run end to end yet."
+          "Hasn't run end to end from this repository yet."
         )}
       </p>
       {last ? (
