@@ -9,11 +9,14 @@ import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
 import { RunList } from "@/components/RunList";
 import { RunConsole } from "@/components/RunConsole";
+import { LocalReportsTable } from "@/components/LocalReportsTable";
 import { setupCommandLines, stepState } from "@/lib/setup-progress";
 import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
 import {
+  LocalReportSchema,
   RunSurfaceSnapshotSchema,
   RunSummarySchema,
+  type LocalReport,
   type Metric,
   type RunDetail as RunDetailType,
 } from "@cogworks/contracts/schema";
@@ -451,6 +454,120 @@ const PUBLISHABLE_OFFICIAL = RunSurfaceSnapshotSchema.parse({
   actions: ["open_console", "open_portal", "publish_result", "rerun_hosted"],
 });
 
+/* ── Local reports ─────────────────────────────────────────────────────── */
+
+/** Verbatim from the TesterArmy pilot's Week 3 runs (3 October 2026): the
+ *  reference submission, and a commit where embed_text averages over the
+ *  wrong axis. The benchmark appended the fallback note after the comparison. */
+const WEEK3_NOTES = {
+  brokenComparison:
+    "On the same rewritten queries, your search scored 0.222 and a direct ranking of your embeddings scored 0.006; search runs through your own code and is scored on its first 50 results.",
+  brokenFallback:
+    "adapter: called embed_text once per item (batch call failed: embed_text returned an array with 1 dimensions; expected a 2-D (rows, D) matrix.)",
+  reference:
+    "On the same rewritten queries, your search scored 0.222 and a direct ranking of your embeddings scored 0.224; search runs through your own code and is scored on its first 50 results.",
+};
+
+function localReport(
+  shaPrefix: string,
+  over: { value: number; diagnostics: string[]; minutesAgo: number } & Partial<LocalReport>,
+): LocalReport {
+  const { value, minutesAgo, ...rest } = over;
+  // Parsed, so a fixture that breaks the contract (a note over 240
+  // characters, a bad sha) fails here instead of showing an impossible row.
+  return LocalReportSchema.parse({
+    reportId: `local_${shaPrefix}gallery`,
+    benchmarkId: "language-search",
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v2",
+    sdkVersion: "0.2.0",
+    pluginVersion: "0.1.0",
+    repositoryId: null,
+    repositoryFullName: "cogworks-demo/face-finder",
+    sha: shaPrefix.padEnd(40, "0"),
+    dirty: false,
+    startedAt: 1_759_500_000_000,
+    finishedAt: 1_759_500_020_000,
+    metrics: [metric({ key: "overall", label: "Overall", value, help: null })],
+    weightsUsed: [],
+    command: "run",
+    author: { login: "gallery", name: null },
+    syncedAt: Date.now() - minutesAgo * 60_000,
+    trust: "local_self_reported",
+    ...rest,
+  });
+}
+
+const LOCAL_REPORTS: LocalReport[] = [
+  localReport("d618965", {
+    value: 0.1709,
+    minutesAgo: 12,
+    diagnostics: [WEEK3_NOTES.brokenComparison, WEEK3_NOTES.brokenFallback],
+  }),
+  localReport("06460ef", { value: 0.4097, minutesAgo: 13, diagnostics: [WEEK3_NOTES.reference] }),
+  localReport("3b0c9e2", { value: 0.4097, minutesAgo: 140, diagnostics: [] }),
+  localReport("7f41a8d", {
+    value: 0.62,
+    minutesAgo: 300,
+    command: "test",
+    dirty: true,
+    diagnostics: [WEEK3_NOTES.reference],
+  }),
+  // Hand-written to reach the states the real runs didn't: five notes, one
+  // shaped like HTML (it must show as text), one a long unbroken path.
+  localReport("c29e5b1", {
+    value: 0.0101,
+    minutesAgo: 1_500,
+    diagnostics: [
+      "retrieval component scored 0: embed_images returned 0 rows for 1000 descriptors; expected one row per descriptor.",
+      WEEK3_NOTES.brokenFallback,
+      "query rung 'typo': search returned <img src=x onerror=alert(1)> where a list of image ids was expected.",
+      "could not load weights from models/" + "encoder_checkpoint_".repeat(8) + "final.npz",
+      "search component scored 0: search returned 7 ids for k=50; expected exactly 50.",
+    ],
+  }),
+];
+
+/** Several folded rows, one commit synced twice in the same minute, and a
+ *  metric whose label and unit are long unbroken tokens. Each notes control
+ *  should read its own report to a screen reader. */
+const LOCAL_REPORT_EDGES: LocalReport[] = [
+  localReport("4c1f0e2", {
+    reportId: "local_4c1f0e2d8a3b4f61c09e7d25a1b3c4e8",
+    value: 0.1703,
+    minutesAgo: 30,
+    metrics: [
+      metric({
+        key: "overall",
+        label: "Mean_reciprocal_rank_over_every_rewritten_query_and_typo_variant",
+        unit: "ranks_per_thousand_locally_measured_queries",
+        value: 0.1703,
+        help: null,
+      }),
+    ],
+    diagnostics: [WEEK3_NOTES.brokenComparison, WEEK3_NOTES.brokenFallback, "third note", "fourth note"],
+  }),
+  localReport("4c1f0e2", {
+    reportId: "local_4c1f0e2f7b16e93d40a2c58b6e9d71f3",
+    value: 0.1709,
+    minutesAgo: 30,
+    diagnostics: [WEEK3_NOTES.brokenComparison, WEEK3_NOTES.brokenFallback, "third note", "fourth note"],
+  }),
+  localReport("9b3d7e1", {
+    value: 0.2214,
+    minutesAgo: 90,
+    diagnostics: ["first note", "second note", "third note", "fourth note", "fifth note"],
+  }),
+];
+
+/** A version no track shows, with no catalog to name it, so the id stands in. */
+const UNTRACKED_REPORT = localReport("5e1d7a0", {
+  value: 0.3311,
+  minutesAgo: 4_000,
+  benchmarkVersion: 2,
+  diagnostics: [WEEK3_NOTES.reference],
+});
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -715,6 +832,30 @@ export function GalleryPage() {
           Public practice split.
         </p>
       </Panel>
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Local reports, as a teammate reads them
+      </h2>
+      <p className="mt-2 max-w-prose text-[13px] text-ink-faint">
+        At the Runs page&apos;s width. The first two rows are the pilot&apos;s real Week 3 reports with their
+        notes verbatim; the rest are hand-written to reach no notes, a dirty smoke test, and five notes with an
+        HTML-shaped one and a long unbroken one.
+      </p>
+      <div className="mt-6 max-w-[42rem]">
+        <LocalReportsTable reports={LOCAL_REPORTS} caption="Gallery: self-reported local CogBench results" />
+      </div>
+      <h3 className="mt-8 font-serif text-lg font-semibold text-ink">
+        …several folded rows, a repeated commit, and a long metric name
+      </h3>
+      <div className="mt-3 max-w-[42rem]">
+        <LocalReportsTable reports={LOCAL_REPORT_EDGES} caption="Gallery: folded rows and a long metric name" />
+      </div>
+      <div className="mt-8 max-w-[42rem]">
+        <LocalReportsTable
+          reports={[UNTRACKED_REPORT]}
+          catalog={[]}
+          caption="Gallery: a self-reported result for a benchmark version without a track"
+        />
+      </div>
     </div>
   );
 }
