@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Runs the student CLI (`cogworks`) from this repository's source, the way a
@@ -164,9 +164,9 @@ const STOP_GRACE_MS = 5_000;
 
 /** Where the CLI finds a benchmark it runs: its source checkout and the data the benchmark loads. */
 export interface BenchmarkSetup {
-  /** Put on PYTHONPATH after the CLI source, so it wins over an installed copy. */
+  /** Absolute; put on PYTHONPATH after the CLI source, so it wins over an installed copy. */
   readonly source: string;
-  /** Passed to the Week 3 benchmark as COGWORKS_LANGUAGE_DATA. */
+  /** Absolute; passed to the Week 3 benchmark as COGWORKS_LANGUAGE_DATA. */
   readonly data: string;
 }
 
@@ -193,15 +193,19 @@ export class CliHome {
 
   static async create(options: { benchmark?: BenchmarkSetup } = {}): Promise<CliHome> {
     const python = setting('PILOT_CLI_PYTHON');
-    const source = process.env.PILOT_CLI_SRC || CHECKOUT_CLI_SRC;
-    // A source without the CLI would not fail loudly: Python would import
-    // whatever cogbench the interpreter has installed, and the tests would
-    // run that instead.
-    const cli = await stat(join(source, 'cogbench', 'cli.py')).then(
-      (info) => info.isFile(),
-      () => false,
-    );
-    if (!cli) throw new Error(`${source} has no cogbench/cli.py; set PILOT_CLI_SRC to a cogbench source tree, or unset it to use this checkout's.`);
+    // Absolute, because Python starts in the fresh HOME or the team
+    // repository, where a relative PYTHONPATH names another directory.
+    const source = resolve(process.env.PILOT_CLI_SRC || CHECKOUT_CLI_SRC);
+    // Neither a missing source nor a namespace package (no __init__.py) fails
+    // loudly: Python imports whatever regular cogbench the interpreter has
+    // installed instead, and the tests would run that.
+    for (const file of ['__init__.py', 'cli.py']) {
+      const present = await stat(join(source, 'cogbench', file)).then(
+        (info) => info.isFile(),
+        () => false,
+      );
+      if (!present) throw new Error(`${source} has no cogbench/${file}; set PILOT_CLI_SRC to a cogbench source tree, or unset it to use this checkout's.`);
+    }
     const home = await mkdtemp(join(tmpdir(), 'cog-pilot-home-'));
     return new CliHome(home, python, source, options.benchmark);
   }

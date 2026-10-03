@@ -2,7 +2,7 @@ import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setting, withoutGitRedirection, type BenchmarkSetup, type CliHome } from './cli.ts';
 
@@ -71,11 +71,21 @@ export function pinnedWeek3Commit(): string {
   return git(repositoryRoot(), ['rev-parse', 'HEAD:benchmarks/week3']);
 }
 
-/** The Week 3 checkout and data, refused unless the checkout is exactly the pinned benchmark. */
+/** The Week 3 checkout and data from the environment, refused unless the checkout is exactly the pinned benchmark. */
 export async function week3Setup(): Promise<BenchmarkSetup> {
-  const source = setting('PILOT_WEEK3_SRC');
-  const data = setting('PILOT_LANGUAGE_DATA');
-  const pinned = pinnedWeek3Commit();
+  return checkedWeek3Inputs(setting('PILOT_WEEK3_SRC'), setting('PILOT_LANGUAGE_DATA'), pinnedWeek3Commit());
+}
+
+/**
+ * The Week 3 checkout and data, refused unless the checkout is clean and at
+ * `pinned` and every data file is there. Returned absolute: they are checked
+ * from here but used by a CLI running in the team repository, where a
+ * relative path names another directory and a missing data file means a
+ * download.
+ */
+export async function checkedWeek3Inputs(givenSource: string, givenData: string, pinned: string): Promise<BenchmarkSetup> {
+  const source = resolve(givenSource);
+  const data = resolve(givenData);
   const head = git(source, ['rev-parse', 'HEAD']);
   if (head !== pinned) {
     throw new Error(`PILOT_WEEK3_SRC is at ${head}; this repository pins benchmarks/week3 at ${pinned}.`);

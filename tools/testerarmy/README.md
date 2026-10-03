@@ -1,6 +1,8 @@
 # TesterArmy browser tests
 
-Browser tests of the student path, run locally with TesterArmy's `e2e` runner against this checkout's own dev server. Each test takes at most one model step, and every claim it makes comes from a deterministic check after that step. The config refuses any `APP_URL` that isn't a loopback origin, so these tests never reach a deployed portal.
+Browser tests of the student path, run locally with TesterArmy's `e2e` runner against this checkout's own dev server. Each test takes at most one agent action step (`agent.act`), and the report test also takes one `agent.extract` reading, which is a model step of its own. Every claim a test makes comes from a deterministic check.
+
+The config refuses any `APP_URL` that isn't a loopback origin, so the browser, the dev logins and the CLI target a local server, never a deployed portal. That guards the test target; it isn't a network sandbox. The model steps call OpenAI, and nothing here stops the local app or the CLI from reaching other hosts.
 
 This directory is outside the pnpm workspace (`pnpm-workspace.yaml` lists `apps/portal`, `apps/discord-bot` and `packages/*`), has its own `package-lock.json`, and isn't run by CI. Nothing here changes the product build.
 
@@ -16,7 +18,7 @@ There are two sets. `npm test` runs the smoke set, which needs only this checkou
 | `tests/teamless-link.e2e.ts` | smoke | one agent step | A cohort member with no team opens the printed link and lands on Connect with a note that the link is on hold, while the code stays open. The agent joins the team. Reopening the printed link then approves the original code: the CLI exits linked and `status` answers. |
 | `tests/teamless-offer.e2e.ts` | smoke | one agent step in the first test, none in the second | The same start, but after joining, Setup offers the held code as a link to the printed path. Following that link, not reopening the printed one, approves the original code; the CLI links, and the offer and the tab's held link are gone. The used code, held again, is checked and dropped. The second test holds an open code and shows that `/` and `/signin` settle without going to it, that another account signing in on the same tab never sees it, and that it stays forgotten when the first account returns. |
 | `tests/teammate-report.e2e.ts` | week3-report | one agent step, one reading | A student checks, runs and syncs the Week 3 benchmark from a team repository, once with the reference submission and once after a commit where `embed_text` averages over the wrong axis. The team API gives the teammate both reports, with this run's commit and the benchmark's diagnostic. The agent finds the run on the teammate's page; that run's row shows the diagnostic, and its first three notes are visible and not covered where they render. |
-| `support/*.test.ts` | `npm run test:unit` | none | The loopback guard; that the CLI runs from this checkout's source unless told otherwise, and refuses a source without the CLI; that the CLI helper interrupts and awaits every process it started before removing its HOME, and reports instead of removing when one won't stop; and that inherited `GIT_*` variables can't steer the fixture repository or the CLI to another checkout. |
+| `support/*.test.ts` | `npm run test:unit` | none | The loopback guard; that the CLI runs from this checkout's source unless told otherwise, and refuses a source that isn't a regular `cogbench` package with the CLI; that relative CLI, Week 3 and data paths reach the CLI as absolute paths, and Week 3 inputs at another commit, with local changes or missing a data file are refused; that the CLI helper interrupts and awaits every process it started before removing its HOME, and reports instead of removing when one won't stop; and that inherited `GIT_*` variables can't steer the fixture repository or the CLI to another checkout. |
 
 An agent step's own summary is never evidence. The teammate test also prints the agent's reading of where the page explains the low score, as a record only.
 
@@ -89,7 +91,7 @@ PILOT_CACHE_DIR=.e2e/cache-mine \
 npm test -- --reporter list,junit,markdown --output .e2e/runs/smoke
 ```
 
-`npm test` turns telemetry off and leaves out the `week3-report` tag; the config fixes one worker and no retries. `APP_URL` defaults to `http://127.0.0.1:5195`. `PILOT_CLI_SRC` defaults to this checkout's `python/cogbench/src`; set it only to run another source tree, which must contain `cogbench/cli.py`. A single file runs with `npm test -- tests/cli-link.e2e.ts`.
+`npm test` turns telemetry off and leaves out the `week3-report` tag; the config fixes one worker and no retries. `APP_URL` defaults to `http://127.0.0.1:5195`. `PILOT_CLI_SRC` defaults to this checkout's `python/cogbench/src`. Set it only to run another source tree, which must hold a regular `cogbench` package (`cogbench/__init__.py` and `cogbench/cli.py`); otherwise Python would import an installed copy instead. A relative path is resolved from where you run `npm`, before it is checked. A single file runs with `npm test -- tests/cli-link.e2e.ts`.
 
 `public-results.e2e.ts` has two switches for cache experiments. `PILOT_EXPECT_HEADING=Audio` makes the run fail on purpose. `PILOT_RENAME_LINK="<link text>"` renames that link in the tab before the step. Run a rename against a copy of the cache, because its live run overwrites the recording with the renamed link, which exists only in the test.
 
@@ -102,6 +104,8 @@ This needs three more things:
 - `PILOT_WEEK3_SRC`, a git checkout of the Week 3 benchmark at the pinned commit with no local changes. `git submodule update --init benchmarks/week3` in the test checkout gives one. The test refuses any other commit.
 - `PILOT_LANGUAGE_DATA`, a directory holding the five Week 3 data files: `captions_train2014.json`, `resnet18_features.pkl`, `glove.6B.200d.txt.w2v`, `glove.6B.200d.kv` and `glove.6B.200d.kv.vectors.npy`. The benchmark writes its own `cache-state.json` into this directory, so make one of your own that links to an existing cache rather than pointing at the cache itself. The CLI runs with a fresh HOME, so without this directory the benchmark would download about 935 MB.
 - `PILOT_CLI_PYTHON` set to a course environment that has the Week 3 benchmark's packages, since the same interpreter runs `cogworks run`.
+
+Relative `PILOT_WEEK3_SRC` and `PILOT_LANGUAGE_DATA` are resolved from where you run `npm` before they're checked, and the CLI gets them as absolute paths.
 
 ```sh
 mkdir -p .e2e/week3-data
@@ -121,7 +125,7 @@ On macOS an earlier run of the benchmark leaves its cache in `~/Library/Caches/c
 
 ## Replay cache
 
-A new `PILOT_CACHE_DIR` gives a cold run, where every agent step calls the model; reusing it gives a warm one, which replays recorded steps with no model calls. Each run's `report.json` records, for every agent step, the cache mode, model calls, tokens and the actions taken.
+A new `PILOT_CACHE_DIR` gives a cold run, where every agent step calls the model. Reusing it gives a warm one: recorded action steps replay with no model calls, but a step whose controls changed falls back to a live run, and an `agent.extract` reading always calls the model. Each run's `report.json` records, for every agent step, the cache mode, model calls, tokens and the actions taken.
 
 ## Before sharing a report
 
@@ -129,7 +133,9 @@ Everything under `.e2e/` (reports, traces, recordings, fixtures, caches) is giti
 
 ## What the tests leave behind, and how they stop
 
-The tests write only to the test checkout's local database: the two synthetic students and their team, the reports the teammate test syncs, setup check-offs, and CLI devices. Each teamless attempt also makes its own accounts (`e2e-pilot-c-*`, `e2e-pilot-d-*`), which join the link team for the attempt and leave it in teardown; the accounts themselves stay. The code the second offer test starts is never approved and runs out after ten minutes. Each link test revokes the device it approved once its checks pass, and the teammate test revokes its device in teardown whatever happened before. A link test that fails partway can leave its device unrevoked. Nothing is deleted record by record; to start clean, discard the test checkout's `apps/portal/.wrangler` (the local database) and run the migrate and seed step again.
+On the server side, the tests write test data only to the test checkout's local database: the two synthetic students and their team, the reports the teammate test syncs, setup check-offs, and CLI devices. Each teamless attempt also makes its own accounts (`e2e-pilot-c-*`, `e2e-pilot-d-*`), which join the link team for the attempt and leave it in teardown; the accounts themselves stay. The code the second offer test starts is never approved and runs out after ten minutes. Each link test revokes the device it approved once its checks pass, and the teammate test revokes its device in teardown whatever happened before. A link test that fails partway can leave its device unrevoked. Nothing is deleted record by record; to start clean, discard the test checkout's `apps/portal/.wrangler` (the local database) and run the migrate and seed step again.
+
+On this machine, each test that runs the CLI also makes a temporary HOME under the system temp directory (`cog-pilot-home-*`), which holds the report test's team repository too. It is removed when the test ends, except in the case below.
 
 When a test ends, the CLI helper sends each `cogworks` process SIGINT, the signal that lets `cogworks run` kill its benchmark worker and remove its scratch directory, and waits up to ten seconds. A process that ignores it is killed so the test can end, but its HOME stays in place and the test fails, saying a worker may still be running. That case needs looking at by hand.
 

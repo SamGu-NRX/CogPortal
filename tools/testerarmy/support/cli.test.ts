@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { after, before, test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { CliHome } from './cli.ts';
@@ -13,9 +13,10 @@ let scratch: string;
 
 before(async () => {
   scratch = await mkdtemp(join(tmpdir(), 'cog-pilot-clitest-'));
-  // CliHome refuses a source without the CLI module; the stubs never import it.
+  // CliHome refuses a source without the CLI package; the stubs never import it.
   await mkdir(join(scratch, 'cogbench'));
   await writeFile(join(scratch, 'cogbench', 'cli.py'), '');
+  await writeFile(join(scratch, 'cogbench', '__init__.py'), '');
   process.env.PILOT_CLI_SRC = scratch;
 });
 
@@ -202,13 +203,43 @@ test("without PILOT_CLI_SRC the CLI runs from this checkout's own source", async
   }
 });
 
-test('a source without the CLI is refused before anything runs', async () => {
-  const empty = join(scratch, 'not-cogbench');
-  await mkdir(empty);
-  process.env.PILOT_CLI_SRC = empty;
+test('a source that is not a regular cogbench package with the CLI is refused before anything runs', async () => {
+  // Without __init__.py, cogbench there is a namespace package, and an
+  // installed regular cogbench later on the path wins over it.
+  const cases: Array<[string, string[], string]> = [
+    ['empty', [], '__init__.py'],
+    ['cli-only', ['cli.py'], '__init__.py'],
+    ['init-only', ['__init__.py'], 'cli.py'],
+  ];
+  process.env.PILOT_CLI_PYTHON = await stub('never-runs', 'exit 0');
   try {
-    process.env.PILOT_CLI_PYTHON = await stub('never-runs', 'touch "$HOME/ran"');
-    await assert.rejects(CliHome.create(), /not-cogbench has no cogbench\/cli\.py; set PILOT_CLI_SRC/);
+    for (const [name, files, missing] of cases) {
+      const source = join(scratch, `not-cogbench-${name}`);
+      await mkdir(join(source, 'cogbench'), { recursive: true });
+      for (const file of files) await writeFile(join(source, 'cogbench', file), '');
+      process.env.PILOT_CLI_SRC = source;
+      await assert.rejects(
+        CliHome.create(),
+        new RegExp(`not-cogbench-${name} has no cogbench/${missing.replace('.', '\\.')}; set PILOT_CLI_SRC`),
+        name,
+      );
+    }
+  } finally {
+    process.env.PILOT_CLI_SRC = scratch;
+  }
+});
+
+test('a relative PILOT_CLI_SRC is made absolute before it is checked and passed to Python', async () => {
+  // Python starts in the fresh HOME, not here, so a relative PYTHONPATH would
+  // name another directory there and fall back to an installed cogbench.
+  process.env.PILOT_CLI_SRC = relative(process.cwd(), scratch);
+  try {
+    process.env.PILOT_CLI_PYTHON = await stub('print-pythonpath-relative', 'echo "$PYTHONPATH"');
+    const home = await CliHome.create();
+    const cli = home.start(['status']);
+    assert.equal(await cli.exited(2_000), 0);
+    assert.equal(cli.output().trim(), scratch);
+    await home.close();
   } finally {
     process.env.PILOT_CLI_SRC = scratch;
   }

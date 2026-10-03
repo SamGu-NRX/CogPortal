@@ -64,9 +64,10 @@ function clearHostileEnvironment() {
 
 before(async () => {
   scratch = await mkdtemp(join(tmpdir(), 'cog-pilot-gitenv-'));
-  // CliHome refuses a source without the CLI module; the printer never imports it.
+  // CliHome refuses a source without the CLI package; the printer never imports it.
   await mkdir(join(scratch, 'cogbench'));
   await writeFile(join(scratch, 'cogbench', 'cli.py'), '');
+  await writeFile(join(scratch, 'cogbench', '__init__.py'), '');
   sentinel = join(scratch, 'sentinel');
   await mkdir(sentinel);
   cleanGit(sentinel, ['init', '-q', '-b', 'main']);
