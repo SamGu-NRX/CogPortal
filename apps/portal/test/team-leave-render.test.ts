@@ -82,6 +82,8 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     /** Another team's join, landed on the server (the Connect page's own join
      *  flow is covered in connect-wizard.test.ts). */
     joinOther: () => { onTeam = "other"; },
+    /** Joining the same team again, as a GitHub collaborator can. */
+    rejoin: () => { onTeam = true; },
   };
 }
 
@@ -149,7 +151,7 @@ async function mount(t: TestContext, options: { members: number; alreadyLeft?: b
         React.createElement(Routes, null,
           React.createElement(Route, { path: "/team", element: guarded("team", TeamPage) }),
           React.createElement(Route, { path: "/connect", element: guarded("cohort", ConnectPage) }),
-          React.createElement(Route, { path: "/dashboard", element: guarded("team", () => React.createElement("p", null, "Audio Crew's runs")) }),
+          React.createElement(Route, { path: "/dashboard", element: guarded("team", () => React.createElement("p", null, "The team's runs")) }),
         ),
       ),
     ),
@@ -265,5 +267,30 @@ test("a leave that answers after the student joined another team leaves that tea
   const session = client.getQueryData<{ team: { id: string } | null }>(["session"]);
   assert.equal(session?.team?.id, OTHER_TEAM_ID, "the old leave emptied the new team from the session");
   assert.equal(peekLeftTeam(), null, "a notice about the old team was queued for a later visit");
-  assert.match(container.textContent ?? "", /Audio Crew's runs/);
+  assert.match(container.textContent ?? "", /The team's runs/);
+});
+
+test("a leave that answers after the student rejoined the same team leaves that membership alone", async (t) => {
+  // As above, but the student joins the team they just left. Comparing team
+  // ids cannot tell this apart from a leave still in progress; a session read
+  // made after the leave was sent and showing a team can.
+  const { container, server, client, flush, path, visited } = await mount(t, { members: 2, holdLeave: true });
+  const { peekLeftTeam } = await import("../src/lib/left-team.ts");
+  await pressLeaveTwice(container, flush);
+  await act(async () => { await client.invalidateQueries(); });
+  for (let i = 0; i < 50 && path() !== "/connect"; i += 1) await flush();
+  assert.equal(path(), "/connect");
+
+  server.rejoin();
+  await act(async () => { await client.invalidateQueries({ queryKey: ["session"] }); });
+  for (let i = 0; i < 50 && path() !== "/dashboard"; i += 1) await flush();
+  assert.equal(path(), "/dashboard", "rejoining did not reach the team's page");
+
+  const before = visited.length;
+  await act(async () => server.release());
+  await flush();
+  assert.deepEqual(visited.slice(before), [], "the old leave moved the student off the team they rejoined");
+  const session = client.getQueryData<{ team: { id: string } | null }>(["session"]);
+  assert.equal(session?.team?.id, TEAM_ID, "the old leave emptied the rejoined team from the session");
+  assert.equal(peekLeftTeam(), null, "a 'You left' notice was queued for a team they are on");
 });
