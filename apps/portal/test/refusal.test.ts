@@ -419,6 +419,12 @@ test("wiring keeps all 200 identifier characters and uses wrapping rather than e
     steps: [{ stage: "peaks", function: identifier }],
   }));
   assert.ok(markup.includes(identifier));
-  assert.match(markup, /class="break-all font-mono/);
+  // The identifier's own element may split a run wider than its column
+  // (overflow-wrap: anywhere; b59b999 put it in place of break-all so a name
+  // that fits on the next line moves there whole instead), and nothing clips it.
+  const element = markup.match(new RegExp(`<div class="([^"]*)">${identifier.replace(".", "\\.")}</div>`));
+  assert.ok(element, "the identifier sits in its own element");
+  assert.match(element[1], /\[overflow-wrap:anywhere\]/);
+  assert.doesNotMatch(element[1], /whitespace-nowrap|overflow-hidden/);
   assert.doesNotMatch(markup, /truncate|text-ellipsis/);
 });
