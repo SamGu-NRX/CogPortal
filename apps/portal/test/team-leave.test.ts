@@ -17,7 +17,7 @@ import {
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerLocalReportRoutes } from "../worker/routes/local-reports.ts";
-import { LEFT_RUN_TEAM, registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
+import { LEFT_RUN_TEAM, REPORT_ID_FROZEN, registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
 import { registerTeamMembershipRoutes } from "../worker/routes/team-membership.ts";
 import { getTeamDetail } from "../worker/routes/team.ts";
 import { getLatestTeamWeights } from "../worker/services/local-reports.ts";
@@ -588,3 +588,49 @@ test("a repeated start answers only while its sender is still on the run's team"
   } } });
   assert.deepEqual({ sessions: h.rows("local_run_sessions"), surfaces: h.rows("run_surfaces") }, before, "the old run moved or changed");
 });
+
+for (const transport of ["single", "batch"] as const) {
+  test(`a ${transport} completed event reusing a report id frozen by a left team finishes nothing`, async (t) => {
+    // The old report row is the author's, so its mere existence once admitted
+    // team B's completion while the frozen update kept team A's numbers.
+    const h = await harness(t);
+    await h.seedSession();
+    const path = `/v1/local-runs/${SESSION}/events${transport === "batch" ? "/batch" : ""}`;
+    const done = await h.call("POST", path, { device: true, body: transport === "batch" ? { events: [event("completed")] } : event("completed") });
+    assert.equal(done.status, 200);
+    const frozenRow = h.rows("local_reports");
+    assert.equal(frozenRow.length, 1);
+
+    assert.equal((await h.leave()).status, 200);
+    await h.joinB();
+    const sessionB = `localrun_${"c".repeat(32)}`;
+    await h.db.insert(runSurfaces).values({
+      id: "surface_team_b", teamId: "team_b", createdByUserId: h.userId,
+      benchmarkId: BENCHMARK, benchmarkVersion: 1, localRunId: sessionB,
+      discordChannelId: "channel_b", createdAt: NOW, updatedAt: NOW,
+    });
+    await h.db.insert(localRunSessions).values({
+      id: sessionB, teamId: "team_b", userId: h.userId, deviceId: "device_test",
+      benchmarkId: BENCHMARK, benchmarkVersion: 1, repositoryId: null,
+      repositoryFullName: "synthetic/team-b", sha: "c".repeat(40), branch: "main", dirty: false,
+      status: "running", phase: "evaluating", lastEventSequence: 0,
+      reportId: null, surfaceId: "surface_team_b", createdAt: NOW, updatedAt: NOW,
+    });
+    const reused = LocalReportInputSchema.parse({
+      ...report("report_team_leave", 0.12),
+      repositoryId: null, repositoryFullName: "synthetic/team-b", sha: "c".repeat(40),
+    });
+    const completedB: LocalRunEvent = { eventId: "localevent_team_b_completed", sequence: 1, occurredAt: NOW + 2_000, type: "completed", report: reused };
+    const publishesBefore = h.hubs.requests.length;
+    const streamBefore = h.rows("run_stream_events");
+    const result = await h.call("POST", `/v1/local-runs/${sessionB}/events${transport === "batch" ? "/batch" : ""}`, {
+      device: true, body: transport === "batch" ? { events: [completedB] } : completedB,
+    });
+    assert.deepEqual(result, { status: 409, body: { error: { code: "forbidden", message: REPORT_ID_FROZEN } } });
+    const [b] = h.rows("local_run_sessions").filter((row) => row.id === sessionB);
+    assert.deepEqual([b.status, b.report_id, b.last_event_sequence], ["running", null, 0]);
+    assert.deepEqual(h.rows("run_stream_events"), streamBefore, "team B's console got a stream event");
+    assert.equal(h.hubs.requests.length, publishesBefore, "team B's console was published");
+    assert.deepEqual(h.rows("local_reports"), frozenRow, "team A's report changed");
+  });
+}
