@@ -15,6 +15,9 @@ export interface LeftTeam {
   name: string;
   /** Nothing was removed: another tab or request had already done it. */
   alreadyLeft: boolean;
+  /** A past-course demonstration team. Students can't join one themselves
+   *  (routes/team-membership.ts refuses it); only staff can add them back. */
+  archive: boolean;
 }
 
 let pending: LeftTeam | null = null;
