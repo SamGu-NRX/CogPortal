@@ -289,6 +289,26 @@ interface StartPracticeOptions {
   supersedesSurfaceId?: string | null;
 }
 
+/**
+ * Republish a console after this request's write has committed.
+ *
+ * Callers pass an ApiHttpError straight to the student as a refusal (the RPC
+ * entrypoint, worker/rpc.ts, and the HTTP error mapper). Once the run, the
+ * promotion or the leaderboard selection is written, a 404 or 409 from the
+ * republish would tell them the action was refused when it went through.
+ * Anything thrown here is therefore a plain Error: the bot answers it with
+ * "It may still have gone through", and the original stays in the log.
+ */
+async function republishAfterCommit<T>(work: Promise<T>): Promise<T> {
+  try {
+    return await work;
+  } catch (error) {
+    throw new Error(
+      `The write committed, then republishing the run surface failed: ${error instanceof Error ? error.message : "unknown"}`,
+    );
+  }
+}
+
 export async function startPracticeRun(
   env: Env,
   actor: RunActor,
@@ -443,7 +463,7 @@ export async function startPracticeRun(
     throw error;
   }
   await dispatch(env, runId, actor.team, benchmark);
-  await publishRunSurface(env, surfaceId);
+  await republishAfterCommit(publishRunSurface(env, surfaceId));
   return { runId, surfaceId };
 }
 
@@ -527,7 +547,7 @@ export async function promotePracticeRun(
     throw error;
   }
   await dispatch(env, runId, actor.team, benchmark);
-  await publishRunSurface(env, parent.surfaceId);
+  await republishAfterCommit(publishRunSurface(env, parent.surfaceId));
   return { runId, surfaceId: parent.surfaceId };
 }
 
@@ -583,7 +603,9 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
     eq(runs.benchmarkVersion, run.benchmarkVersion),
     eq(runs.mode, "official"),
   ));
-  await Promise.all(affected.flatMap(({ surfaceId }) => surfaceId ? [publishRunSurface(env, surfaceId)] : []));
+  await republishAfterCommit(
+    Promise.all(affected.flatMap(({ surfaceId }) => surfaceId ? [publishRunSurface(env, surfaceId)] : [])),
+  );
   return { ok: true as const, surfaceId: run.surfaceId };
 }
 
@@ -759,7 +781,7 @@ export async function performRunSurfaceMutation(
   if (action === "retry") {
     const { runId } = RetryRunRequestSchema.parse(request);
     await retryRun(env, actor, surfaceId, runId);
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
 
   if (action === "verify_hosted") {
@@ -787,7 +809,7 @@ export async function performRunSurfaceMutation(
       exactSha: local.sha,
       surfaceId,
     });
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
 
   // Eligibility before publication. `publishRunSurface` writes a snapshot to
@@ -820,16 +842,16 @@ export async function performRunSurfaceMutation(
       throw new ApiHttpError(409, "not_promotable", "Verify this run first.");
     }
     await promotePracticeRun(env, actor, snapshot.practiceRunId);
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
   if (action === "publish_result") {
     if (!snapshot.officialRunId) {
       throw new ApiHttpError(409, "not_selectable", "No official result is ready.");
     }
     await publishOfficialRun(env, actor, snapshot.officialRunId);
-    return publishRunSurface(env, surfaceId);
+    return republishAfterCommit(publishRunSurface(env, surfaceId));
   }
 
   const rerun = await rerunHostedSurface(env, actor, surfaceId);
-  return publishRunSurface(env, rerun.surfaceId);
+  return republishAfterCommit(publishRunSurface(env, rerun.surfaceId));
 }
