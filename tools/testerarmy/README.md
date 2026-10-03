@@ -150,6 +150,8 @@ On 3 October 2026 at 6b32aa8 (this branch, with 3b54a99 merged), from this check
 | `npm test` | 6 tests in 5 files passed | 55.4 s | 4 agent steps, 9 model calls (landing 2, link approval 3, each teamless join 2) |
 | `npm run test:week3-report` | 1 test passed | 24.1 s | 1 agent step with 2 model calls, plus 1 call for the reading |
 
+On 3 October 2026 at a966ca1, after the PR91 review dropped the keyboard-only instruction, from this checkout's own server: `cli-link.e2e.ts` passed cold on a new cache in 10.1 s, its one agent action step making 2 model calls (the agent tapped "Approve device"), then warm in 6.9 s with that step replayed and no model calls. `cli-link-keyboard.e2e.ts` passed once in 6.8 s with no model step. The other tests weren't rerun for that change.
+
 On 3 October 2026 at 3670e55, before the product fixes this branch includes:
 
 | Step | Cold | Warm |
