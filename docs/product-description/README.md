@@ -167,7 +167,7 @@ cross-cutting/
 
 ## Coverage
 
-Status is one of `not started`, `drafted`, or `verified`. Every document is `drafted` against `2ff32fa`. None is `verified`: no document has every P1 and P2 item passed or filed. That measures the description's checking, not the product's readiness.
+Status is one of `not started`, `drafted`, or `verified`. The feature documents are `drafted` against `2ff32fa`; dated checkpoints name the builds their receipts cover. None is `verified`: no document has every P1 and P2 item passed or filed. That measures the description's checking, not the product's readiness.
 
 | Document | Status |
 | --- | --- |
