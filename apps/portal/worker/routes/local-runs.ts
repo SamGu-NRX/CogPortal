@@ -26,7 +26,7 @@ import {
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
-import { guardedLocalReportSave, localReportRow, reportSavedBy } from "../services/local-reports";
+import { guardedLocalReportSave, localReportRow, reportSavedBy, teamsStillTheirs } from "../services/local-reports";
 import { syncRunSurfaceMessage } from "../services/discord-messages";
 import {
   defaultLocalEventCode,
@@ -134,6 +134,11 @@ async function refuseUnlessStillOnTeam(
       : `You moved to ${currentTeam.name} after this run was started for your old team, so the portal won't continue it. Run the command again.`,
   );
 }
+
+/** For a completed event whose report id already names a report a run on a
+ *  team the author left points at. That report stays as it was. */
+export const REPORT_ID_FROZEN =
+  "This report ID already belongs to a run on a team you've left, so this run can't finish with it. Your report is saved on this machine; run the benchmark again for a new one.";
 
 /** What the CLI prints after "cogworks: live updates paused:" when its
  *  author has left the team the run was started for. */
@@ -244,7 +249,13 @@ async function acceptLocalRunEvent(
       exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(admitted)),
     )
     : null;
-  const accepted = report ? and(admitted, reportSavedBy(db, report.reportId, device.userId)) : admitted;
+  // The row exists and is the author's whether this payload was saved or a
+  // run on a team the author left froze an older one, so acceptance also
+  // requires what the update required. Otherwise team B's run finished with
+  // team A's old report under the same id.
+  const accepted = report
+    ? and(admitted, reportSavedBy(db, report.reportId, device.userId), teamsStillTheirs(db, report.reportId, device.userId))
+    : admitted;
   const eventInsert = guardedRunStreamEventInsert(
     db,
     surfaceId,
@@ -272,6 +283,22 @@ async function acceptLocalRunEvent(
   // CLI must not be told the event arrived.
   if (duplicate && !(await isOnTeam(db, current.teamId, device.userId))) {
     throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
+  }
+  // Nothing was written because a run on a team the author left points at
+  // this report id: say so, rather than calling the event a duplicate.
+  if (duplicate && report) {
+    const [frozenBy] = await db
+      .select({ id: localRunSessions.id })
+      .from(localRunSessions)
+      .where(and(
+        eq(localRunSessions.reportId, report.reportId),
+        notExists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+          eq(teamMembers.teamId, localRunSessions.teamId),
+          eq(teamMembers.userId, device.userId),
+        ))),
+      ))
+      .limit(1);
+    if (frozenBy) throw new ApiHttpError(409, "forbidden", REPORT_ID_FROZEN);
   }
   if (!duplicate) await settleRunStreamEvents(db, surfaceId);
   return { duplicate, surfaceId };

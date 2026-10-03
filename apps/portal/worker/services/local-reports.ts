@@ -241,7 +241,7 @@ async function refuseOthersReportId(db: Database, reportId: string, userId: stri
  * leave, the report stays as it was. Used inside the write itself, so a leave
  * landing mid-request cannot slip between check and write.
  */
-function teamsStillTheirs(db: Database, reportId: string, userId: string) {
+export function teamsStillTheirs(db: Database, reportId: string, userId: string) {
   return notExists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(and(
     eq(localRunSessions.reportId, reportId),
     notExists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
@@ -266,7 +266,10 @@ export function reportSavedBy(db: Database, reportId: string, userId: string) {
  * the same batch as its session update, so the report is saved exactly when
  * the run is recorded as finished for its team. Saved apart, a leave between
  * the two left a report no run pointed at, which then read as personal and
- * followed its author into another team.
+ * followed its author into another team. The caller's later statements must
+ * also require `teamsStillTheirs`: when it fails the update is refused while
+ * the row still exists, so the row's existence alone would accept a payload
+ * that was never saved.
  */
 export async function guardedLocalReportSave(db: Database, row: LocalReportRow, condition: SQL) {
   await refuseOthersReportId(db, row.reportId, row.userId);
