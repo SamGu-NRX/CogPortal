@@ -117,7 +117,7 @@ PILOT_CACHE_DIR=.e2e/cache-mine \
 npm run test:week3-report -- --reporter list,junit,markdown --output .e2e/runs/report
 ```
 
-On macOS an earlier run of the benchmark leaves its cache in `~/Library/Caches/cogworks-language-search/v1`. The CLI part takes about 45 s and peaks near 1.1 GB.
+On macOS an earlier run of the benchmark leaves its cache in `~/Library/Caches/cogworks-language-search/v1`. Measured at 3670e55, the CLI part took about 45 s and peaked near 1.1 GB; the whole test took 23 s in this branch's run below.
 
 ## Replay cache
 
@@ -136,6 +136,13 @@ When a test ends, the CLI helper sends each `cogworks` process SIGINT, the signa
 Fixture Git and the spawned CLI drop every inherited `GIT_*` variable, and fixture Git ignores global and system config, so a shell inside a git hook can't point the fixture's commits at another checkout.
 
 ## Measured
+
+On 3 October 2026 at 6b32aa8 (this branch, with 3b54a99 merged), from this checkout's own server, on Node 26.5.0 and Python 3.8.20, with `PILOT_CLI_SRC` unset. Both sets used one new cache, so every agent step ran live:
+
+| Set | Result | Wall | Model use |
+| --- | --- | --- | --- |
+| `npm test` | 6 tests in 5 files passed | 55.4 s | 4 agent steps, 9 model calls (landing 2, link approval 3, each teamless join 2) |
+| `npm run test:week3-report` | 1 test passed | 24.1 s | 1 agent step with 2 model calls, plus 1 call for the reading |
 
 On 3 October 2026 at 3670e55, before the product fixes this branch includes:
 
