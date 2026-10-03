@@ -150,6 +150,7 @@ def self_test():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--source-root", type=Path, default=ROOT)
     parser.add_argument("--timeout", type=int, default=240)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
@@ -161,11 +162,12 @@ def main():
     if args.output is None or not 1 <= args.timeout <= 240:
         parser.error("--output and a timeout between 1 and 240 seconds are required")
     args.output.mkdir(parents=True, exist_ok=False)
-    portal = ROOT / "apps/portal"
+    source_root = args.source_root.resolve()
+    portal = source_root / "apps/portal"
     files = sorted(str(path.relative_to(portal)) for path in (portal / "test").glob("*.test.ts"))
     assert files, "No portal test files found"
     metadata = json.loads(subprocess.check_output(["node", "-e", "console.log(JSON.stringify({node:process.version,parallelism:require('os').availableParallelism(),cpus:require('os').cpus().length,totalMemory:require('os').totalmem()}))"], text=True))
-    metadata.update(commit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+    metadata.update(commit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source_root, text=True).strip(),
                     testFiles=len(files), order=["default", "serial", "serial", "default"],
                     limits="Summed RSS can double-count shared pages. Cgroup metrics may cover more than the suite and peak is cumulative. Four samples cannot identify earlier shutdown causes.")
     (args.output / "machine.json").write_text(json.dumps(metadata, indent=2))

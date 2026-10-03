@@ -21,8 +21,16 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+      # Keep the sampler outside the checkout so the target stays unmodified.
+      - name: Retain diagnostic script
+        run: cp scripts/diagnostics/portal_suite_resources.py "$RUNNER_TEMP/portal_suite_resources.py"
+      - name: Check out the source from the PR 86 shutdowns
+        uses: actions/checkout@v6
         with:
+          ref: bab02eb2ac668d6db9bc7bb8d4a48bb9d920acdc
           submodules: recursive
+      - name: Verify immutable source
+        run: test "$(git rev-parse HEAD)" = bab02eb2ac668d6db9bc7bb8d4a48bb9d920acdc
       - uses: pnpm/action-setup@f68f5791346aaeb8b9d7ea636c1bcf61c15511ed # v6.0.2
       - uses: actions/setup-node@v4
         with:
@@ -31,7 +39,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - name: Compare default and serial test-file execution
-        run: python3 scripts/diagnostics/portal_suite_resources.py --output "$RUNNER_TEMP/portal-suite-resources" --timeout 240
+        run: python3 "$RUNNER_TEMP/portal_suite_resources.py" --source-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/portal-suite-resources" --timeout 240
       - name: Preserve completed and interrupted measurements
         if: always()
         uses: actions/upload-artifact@v4
