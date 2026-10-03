@@ -481,6 +481,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `product call`. Choose which of the three behaviors is the contract.
 - **Raised by:** [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`terminal/sync.md`](terminal/sync.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Same on beta.
+- **Status, `a6eef75` (2026-10-03):** still open as a product call; the refusal now comes earlier. A hosted run's job, weights included, is built before admission, so the start is refused with "Required weight {path} has not been uploaded; sync the report again." and no failed run is added to history (`apps/portal/worker/execution/runner.ts`, `prepareAdmissionJob`). Covered by `apps/portal/test/run-actions.test.ts` (incomplete weight uploads are refused before admission).
 
 ### B-60: A prepare killed for time or memory is reported as a dependency install failure
 
