@@ -196,7 +196,10 @@ test("a refetch that reaches /connect before the leave answers still shows the n
   await pressLeaveTwice(container, flush);
   // Any refetch now sees the committed leave and the guard redirects first.
   await act(async () => { await client.invalidateQueries(); });
-  for (let i = 0; i < 50 && /Checking the cohort/.test(container.textContent ?? ""); i += 1) await flush();
+  // The guard's redirect can land a tick after act returns, so wait for the
+  // state itself: on /connect with the team choice drawn.
+  const choiceDrawn = () => path() === "/connect" && !/Checking the cohort/.test(container.textContent ?? "");
+  for (let i = 0; i < 50 && !choiceDrawn(); i += 1) await flush();
   assert.equal(path(), "/connect");
   assert.doesNotMatch(container.textContent ?? "", /Checking the cohort/, "the team choice must be drawn before the leave answers");
   const leftNotice = () => [...container.querySelectorAll('[role="status"]')].find((node) => /left/.test(node.textContent ?? ""));
