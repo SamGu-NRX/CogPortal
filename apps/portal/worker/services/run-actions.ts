@@ -45,7 +45,8 @@ import {
   runStateRefusal,
   savedEnvironmentEligibility,
 } from "./run-eligibility";
-import { insertRunWithCapacity, isAdmittingMember, readRunAccounting } from "./run-accounting";
+import { actorOnTeam, insertRunWithCapacity, isAdmittingMember, readRunAccounting } from "./run-accounting";
+import { insertWhere } from "../db/insert-where";
 import { teamMemberUserIds } from "./local-reports";
 
 export interface RunActor {
@@ -316,6 +317,7 @@ async function republishAfterCommit<T>(work: Promise<T>): Promise<T> {
 
 /** A run refused because its starter is no longer on the team. */
 const LEFT_TEAM_ADMISSION = "You're no longer on this team, so no run was started. Reload to see where you are.";
+const LEFT_TEAM_PUBLICATION = "You're no longer on this team, so nothing was published. Reload to see where you are.";
 
 /**
  * The roster a Modal run's inputs are prepared from, read once, with the
@@ -625,23 +627,27 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
   // Refused before the write, so the team's current selection stays as it was.
   const refusal = rankingRefusal(run, benchmark, metrics);
   if (refusal) throw new ApiHttpError(409, "not_selectable", refusal);
-  await db
-    .insert(leaderboardSelections)
-    .values({
-      teamId: actor.team.id,
-      benchmarkId: run.benchmarkId,
-      benchmarkVersion: run.benchmarkVersion,
-      runId: run.id,
-      selectedAt: Date.now(),
-    })
+  // The checks above awaited GitHub and the provider, and the actor can leave
+  // the team meanwhile. Membership is checked again by the write itself: when
+  // the SELECT yields no row there is nothing to insert or to conflict, so
+  // the guard covers a first publication and a replaced one alike.
+  const selectedAt = Date.now();
+  const selected = await insertWhere(db, leaderboardSelections, {
+    teamId: actor.team.id,
+    benchmarkId: run.benchmarkId,
+    benchmarkVersion: run.benchmarkVersion,
+    runId: run.id,
+    selectedAt,
+  }, actorOnTeam(db, actor.team.id, actor.userId))
     .onConflictDoUpdate({
       target: [
         leaderboardSelections.teamId,
         leaderboardSelections.benchmarkId,
         leaderboardSelections.benchmarkVersion,
       ],
-      set: { runId: run.id, selectedAt: Date.now() },
+      set: { runId: run.id, selectedAt },
     });
+  if (!selected.meta.changes) throw new ApiHttpError(403, "forbidden", LEFT_TEAM_PUBLICATION);
   // Query after the selection write: a prior-selection read can miss a
   // concurrent switch and leave the deselected console showing Published.
   const affected = await db.selectDistinct({ surfaceId: runs.surfaceId }).from(runs).where(and(
