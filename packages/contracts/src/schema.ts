@@ -1391,6 +1391,14 @@ export const AdminTeamSummarySchema = z.object({
   practiceUsed: z.number().int(),
   officialUsed: z.number().int(),
   /**
+   * Hosted executions the team has started, in any state and across every
+   * benchmark: failed, cancelled and still running included. The two counts
+   * above are charged usage, which a failure never adds to, so a team whose
+   * every run failed reads zero there. Triage asks whether the platform has
+   * run anything for the team, and this is the count that answers it.
+   */
+  hostedRuns: z.number().int(),
+  /**
    * Official attempts this team has had given back because a run failed on the
    * platform's side, across every benchmark. A team that keeps hitting real
    * infrastructure trouble and a team whose submission provokes the same

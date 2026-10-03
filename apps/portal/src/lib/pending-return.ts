@@ -74,14 +74,21 @@ const DROPPED_KEY = "cogportal.droppedDeviceLink";
  * records the loss here so the destination page can say what just happened.
  */
 export function rememberDroppedDeviceLink(path: string): void {
-  if (path.startsWith("/connections?user_code=") || path.startsWith("/connections#discord=")) {
-    sessionStorage.setItem(DROPPED_KEY, path.includes("user_code=") ? "device" : "discord");
-  }
+  if (!path.startsWith("/connections?user_code=") && !path.startsWith("/connections#discord=")) return;
+  // Called by the stage guard before its redirect, so denied storage costs
+  // the notice and never the redirect.
+  attempt((store) => store.setItem(DROPPED_KEY, path.includes("user_code=") ? "device" : "discord"), undefined);
 }
 
+/**
+ * Read once by the page the guard sent them to. A value that can't be
+ * removed is not shown either, or the notice would repeat on every visit.
+ */
 export function takeDroppedDeviceLink(): "device" | "discord" | null {
-  const value = sessionStorage.getItem(DROPPED_KEY);
-  if (value !== "device" && value !== "discord") return null;
-  sessionStorage.removeItem(DROPPED_KEY);
-  return value;
+  return attempt((store) => {
+    const value = store.getItem(DROPPED_KEY);
+    if (value !== "device" && value !== "discord") return null;
+    store.removeItem(DROPPED_KEY);
+    return value;
+  }, null);
 }
