@@ -18,12 +18,32 @@ export class GitHubApiError extends Error {
     this.name = "GitHubApiError";
   }
 
-  static from(response: Response): GitHubApiError {
+  /** Reads the body of a 403 that carries neither header; nothing from it
+   *  is kept or shown. */
+  static async from(response: Response): Promise<GitHubApiError> {
     const limited =
       response.status === 429 ||
       (response.status === 403 &&
-        (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")));
+        (response.headers.get("x-ratelimit-remaining") === "0" ||
+          response.headers.has("retry-after") ||
+          (await saysRateLimit(response))));
     return new GitHubApiError(response.status, limited);
+  }
+}
+
+/**
+ * GitHub documents that a secondary rate limit can arrive as a 403 with
+ * neither header, saying only in its message that a secondary rate limit was
+ * exceeded (docs.github.com, "Troubleshooting the REST API", rate limit
+ * errors). Read as a missing permission, that told a student with write
+ * access that they had none.
+ */
+async function saysRateLimit(response: Response): Promise<boolean> {
+  try {
+    const body: unknown = JSON.parse(await response.text());
+    return isRecord(body) && typeof body.message === "string" && /rate limit/i.test(body.message);
+  } catch {
+    return false;
   }
 }
 
@@ -148,7 +168,7 @@ export async function githubApiRequest(
 
 async function githubJson(path: string, token: string): Promise<unknown> {
   const response = await githubApiRequest(path, token);
-  if (!response.ok) throw GitHubApiError.from(response);
+  if (!response.ok) throw await GitHubApiError.from(response);
   return response.json();
 }
 
