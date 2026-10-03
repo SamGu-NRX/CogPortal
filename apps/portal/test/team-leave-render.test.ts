@@ -4,7 +4,7 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 
 /**
@@ -59,7 +59,7 @@ function teamDetail(members: number, teammateLogin = "teammate") {
  *  error rather than throwing. */
 function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string }) {
   let onTeam: boolean | "other" = true;
-  let sessionMode: "answer" | "hold-next" | "fail" = "answer";
+  let sessionMode: "answer" | "hold-next" | "fail" | "offline" = "answer";
   let releaseSession = () => {};
   const leaves: unknown[] = [];
   let release = () => {};
@@ -67,6 +67,7 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     const path = new URL(input, "https://portal.example").pathname;
     if (path === "/api/session") {
       if (sessionMode === "fail") return Response.json({ error: { code: "not_found", message: "Not here." } }, { status: 503 });
+      if (sessionMode === "offline") throw new TypeError("Failed to fetch");
       // Answered as the server stood when the read arrived, not when it lands.
       const answer = Response.json(sessionFor(onTeam));
       if (sessionMode !== "hold-next") return answer;
@@ -96,6 +97,7 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     holdNextSession: () => { sessionMode = "hold-next"; },
     releaseSession: () => releaseSession(),
     failSessions: () => { sessionMode = "fail"; },
+    goOffline: () => { sessionMode = "offline"; },
   };
 }
 
@@ -336,5 +338,21 @@ test("a leave whose follow-up session read fails says so on the Team page, with 
   assert.equal(path(), "/team");
   const alert = container.querySelector('[role="alert"]');
   assert.match(alert?.textContent ?? "", /You left Vision Squad, but the page couldn't refresh to show where you are now\. Reload it\./);
+  assert.ok([...(alert?.querySelectorAll("button") ?? [])].some((b) => b.textContent === "Reload page"));
+});
+
+test("a leave whose follow-up read happens offline still reaches the reload", async (t) => {
+  // The delete commits, then the browser goes offline before the session is
+  // read again. A read that waits for the network never ends; this one fails.
+  const { container, server, flush, path } = await mount(t, { members: 2, holdLeave: true });
+  await pressLeaveTwice(container, flush);
+  onlineManager.setOnline(false);
+  t.after(() => onlineManager.setOnline(true));
+  server.goOffline();
+  await act(async () => server.release());
+  await flush();
+  assert.equal(path(), "/team");
+  const alert = container.querySelector('[role="alert"]');
+  assert.match(alert?.textContent ?? "", /You left Vision Squad, but the page couldn't refresh/);
   assert.ok([...(alert?.querySelectorAll("button") ?? [])].some((b) => b.textContent === "Reload page"));
 });
