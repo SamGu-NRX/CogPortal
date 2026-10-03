@@ -19,7 +19,7 @@ const TEAM = {
   description: null,
   provenance: "live",
   repo: { fullName: "octo/face-finder", url: "https://github.com/octo/face-finder" },
-  members: [{ login: "teammate", name: null, avatarUrl: null, role: "admin" }],
+  members: [{ login: "teammate", name: null, avatarUrl: null, role: "admin", isYou: false }],
   adminLogin: "teammate",
 };
 
@@ -58,7 +58,7 @@ function portal(teams: typeof TEAM[] = [TEAM]) {
           joined = true;
           resolve(Response.json({
             ...sessionFor(true).team,
-            members: [...TEAM.members, { login: "student", name: null, avatarUrl: null, role: "write" }],
+            members: [...TEAM.members, { login: "student", name: null, avatarUrl: null, role: "write", isYou: true }],
             tas: [],
             isAdmin: false,
           }));

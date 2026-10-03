@@ -19,7 +19,6 @@ import {
   useLeaveTeam,
   useRemoveTeamMember,
   useRepositories,
-  useSession,
   useTeam,
   useUpdateTeam,
 } from "@/lib/queries";
@@ -322,8 +321,6 @@ function TeamHeading({ team }: { team: TeamDetail }) {
  *  when someone is added. */
 function PeopleSection({ team }: { team: TeamDetail }) {
   const [adding, setAdding] = useState(false);
-  const { data: session } = useSession();
-  const me = session?.user?.login.toLowerCase() ?? null;
   // Remove unmounts the focused control; hand focus back to the add toggle
   // so keyboard users aren't dropped at the document root.
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -364,7 +361,9 @@ function PeopleSection({ team }: { team: TeamDetail }) {
       <div className="lg:max-w-[42rem]">
         <ul className="divide-y divide-rule-soft">
           {team.members.map((m, i) => {
-            const isMe = me !== null && m.login.toLowerCase() === me;
+            // The server marks the reader's row by user id; two rows can show
+            // the same login, and only one of them is yours to leave.
+            const isMe = m.isYou;
             return (
               // The login is the display name, and two development accounts can
               // share one (demo@dev.local beside a GitHub "demo"); GitHub logins

@@ -1026,6 +1026,10 @@ export const TeamMemberSchema = z.object({
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
   role: z.enum(["admin", "maintain", "write"]),
+  /** This row is the person reading. Set by the server from the user id,
+   *  because the displayed login is not unique: a development account and a
+   *  GitHub account can both show as "demo". */
+  isYou: z.boolean(),
 });
 export type TeamMember = z.infer<typeof TeamMemberSchema>;
 

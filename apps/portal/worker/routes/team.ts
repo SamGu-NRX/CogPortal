@@ -67,6 +67,7 @@ export async function getTeamDetail(
     db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
     db
       .select({
+        userId: users.id,
         login: users.githubLogin,
         email: users.email,
         name: users.name,
@@ -118,6 +119,7 @@ export async function getTeamDetail(
       name: member.name,
       avatarUrl: member.avatarUrl,
       role: memberRole(member.role),
+      isYou: member.userId === callerId,
     })),
     tas: tas.map((ta) => ({
       login: displayLogin(ta),
