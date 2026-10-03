@@ -10,8 +10,8 @@ The feature documents still describe `2ff32fa`, and [`checkpoint-17d26d9.md`](ch
 
 - **A malformed submission.** Practice run `run_558299445b` at `4c6d54d` succeeded at Overall 0.003438. Its run page leads with the benchmark's specific note that `embed_text` returned a 1-D array where a 2-D matrix was expected.
 - **A working submission.** Practice run `run_3c844cb2a1` at `bb08255` succeeded at Overall 0.154000, and its page leads with the benchmark's finding.
-- **Callbacks.** Seven of eight were answered `200`.
-- **Phases.** Every phase that reported closed with a recorded end time. `queued` was never stamped, as [the run](../foundations/the-run.md#edge-cases) says it never is.
+- **Callbacks.** All were answered `200`: seven for the malformed run, eight for the working one.
+- **Phases.** In both runs' raw receipts, every phase after `queued` closed in order with an `ended_at`. `queued` was not stamped under this direct dispatch ([the run](../foundations/the-run.md#edge-cases)).
 - **The CLI on Python 3.8.** The real `ecae617` CLI was installed and linked through the local approval API. It ran a live local run and synced one report, which made one session and one console with eight stored events. The console's "Show all 7" deliberately folds two identical progress rows into one.
 
 The approval URL the CLI printed pointed at the callback-only tunnel. So a student opening that link in a browser and approving there was not tested.
@@ -20,14 +20,14 @@ The approval URL the CLI printed pointed at the callback-only tunnel. So a stude
 
 Each of these has suite coverage. None was exercised by the runs above unless the list says so.
 
-- **Local runs.** A local run's console, session and events are committed together. A report saved twice by a race is stored once (`2e88571`, `166624a`). The CLI path above exercised this once.
+- **Local runs.** Two separate D1 batches. Starting a local run writes its console and session together. Accepting an event writes the event and advances the session together. A report saved twice by a race is stored once (`2e88571`, `166624a`). The CLI path above went through each once.
 - **Weights.**
   - A report's weights attach to a hosted run only when they belong to that run (`d1ab349`).
   - A refusal states only what the refused report establishes (`1b5864f`).
-  - The CLI refuses to sync a saved report that never recorded its weights. An older CLI cannot say why, so a team on an older install is refused without the explanation (`f66402b`, `ecae617`; Setup names the limit, `39dd90e`).
+  - The pinned `ecae617` CLI refuses to sync a saved report that never recorded its weights (`f66402b`, `ecae617`); Setup now pins that CLI (`39dd90e`). An older installed CLI turns the missing field into `[]` and sends it, so the portal can accept it as a known-empty record. The portal can't tell where that value came from. Those students update the CLI and run again. The limitation is stated in migration 0047 and in code comments, not on the Setup page. See [the weights record](../cross-cutting/what-the-benchmark-supplied.md#the-second-kind-weights-from-the-teams-own-local-run).
 - **Retry.** Retry is refused for a failure whose remedy is a fix in the team's code. Where it is unavailable, the page says so instead of predicting the rerun (`4389759`, `01827f6`).
 - **The stale-run sweep.** It judges a silent execution by its last accepted callback, with grace for runs that predate the change (`f8358de`).
-- **Recognition quota.** Places held by `recognition-v1` runs after migration 0044 are released (`c81878b`).
+- **Recognition quota.** Quota consumed by `recognition-v1` runs after migration 0044 is released (`c81878b`).
 - **The admin page.** It tells a team whose hosted runs failed apart from one that never ran (`d068212`).
 - **Stored-link notice.** When the browser denies storage, only the dropped-link notice is lost, not onboarding (`d304897`).
 - **Discord consent.** It discloses hosted runs before a team binds its channel, and no longer promises one post per run (`9984b31`, `b19959c`).
