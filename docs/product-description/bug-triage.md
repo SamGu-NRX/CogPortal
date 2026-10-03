@@ -91,7 +91,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-65 | A team creator with only GitHub write access loses settings on first save, which can leave the team with no admin | medium | open | same | as candidate | portal | product call |
 | B-66 | The staff roster promises a co-instructor "the same view"; they get an empty TA workspace | medium | open in `2ff32fa`; copy fixed in `17d26d9`, seen locally | differs: no promise copy | as candidate | portal | fix |
 | B-68 | A clean Language run opens by saying the scorer wrote no finding | medium | fixed by Week 3 `9e4dcff`; seen on the `f618038` full path | differs: says it below the metrics | confirmed live, `run_d11b5e5e2e` | portal, sandbox | product call |
-| B-71 | A window left visible while another signs in as someone else changes the other account's team | medium | open in `2ff32fa`; fixed in `8477efb` source, seen locally in two headless windows; not deployed | same | as candidate | portal | fix |
+| B-71 | A window left visible while another signs in as someone else changes the other account's team | medium | open in `2ff32fa`; fixed through `9f94f38` source, rechecked in two headless windows; not deployed | same | as candidate | portal | fix |
 | B-03 | Two gates disagree about which team members Discord serves | low | latent | same | as candidate | discord | fix |
 | B-09b | Hosted practice confirmations say every run uses quota; only completed runs do | low | narrowed | same | as candidate | discord, portal | fix |
 | B-12 | `/cog view:connect` for an already-linked student is a dead end | low | open | same | as candidate | discord | fix |
