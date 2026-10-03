@@ -377,7 +377,7 @@ for (const mode of ["practice", "official"] as const) {
       {
         code: "quota_exhausted",
         message: mode === "official"
-          ? "All 3 official attempts on this version are used. You can still publish any successful official attempt."
+          ? "All 3 official attempts on this version are used. An official attempt that already succeeded may still be publishable; its run page says whether it is."
           : "All 10 hosted practice runs on this version are used. Local runs (cogworks run) have no limit.",
       },
     );

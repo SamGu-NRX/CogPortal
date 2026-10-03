@@ -757,8 +757,9 @@ function PromoteSection({
           </div>
           {exhausted && (
             <p className="mt-3 max-w-[60ch] text-[14px] leading-[1.55] text-detect-deep">
-              All official attempts on this version are used. You can still
-              publish any successful official attempt.
+              All official attempts on this version are used. An official
+              attempt that already succeeded may still be publishable; its run
+              page says whether it is.
             </p>
           )}
           {/* Here, under the button that failed. This used to sit in the
