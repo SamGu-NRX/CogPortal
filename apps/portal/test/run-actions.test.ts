@@ -55,7 +55,7 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
-import { ApiHttpError, handleError } from "../worker/http/errors.ts";
+import { ApiHttpError, handleError, publicApiError } from "../worker/http/errors.ts";
 import { createAuth } from "../worker/auth/better-auth.ts";
 import { registerRunRoutes } from "../worker/routes/runs.ts";
 import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
@@ -377,7 +377,7 @@ for (const mode of ["practice", "official"] as const) {
       {
         code: "quota_exhausted",
         message: mode === "official"
-          ? "All 3 official attempts on this version are used. You can still publish any successful official attempt."
+          ? "All 3 official attempts on this version are used. An official attempt that already succeeded may still be publishable; its run page says whether it is."
           : "All 10 hosted practice runs on this version are used. Local runs (cogworks run) have no limit.",
       },
     );
@@ -1530,6 +1530,39 @@ test("a hosted console pairs its current stage's source and commit without borro
   assert.equal(legacyOfficial.stage, "official");
   assert.equal(legacyOfficial.sourceRefusal, null);
   assert.ok(legacyOfficial.actions.includes("publish_result"));
+});
+
+test("a republish that fails after the selection is written is an unknown outcome, not a refusal", async () => {
+  // Discord shows an ApiHttpError as a refusal. Here the result is already on
+  // the leaderboard, so a refusal would be false; the bot must instead say it
+  // may have gone through (worker/rpc.ts passes through only ApiHttpErrors).
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  const runtime = env(binding, "fixture");
+  const real = runtime.RUN_SURFACES;
+  let publishes = 0;
+  // SAFETY: snapshot callers use only idFromName and fetch(url, init).
+  runtime.RUN_SURFACES = {
+    idFromName: (name: string) => real.idFromName(name),
+    get: (id: DurableObjectId) => ({
+      fetch: (url: string, init: RequestInit) => {
+        // The first publish is the snapshot taken before any write.
+        if (new URL(url).pathname === "/publish" && ++publishes > 1) {
+          return Promise.resolve(new Response("Run surface not found.", { status: 404 }));
+        }
+        return real.get(id).fetch(url, init);
+      },
+    }),
+  } as unknown as Env["RUN_SURFACES"];
+  await assert.rejects(
+    performRunSurfaceMutation(runtime, actor, SURFACE_ID, "publish_result"),
+    (error: unknown) => !(error instanceof ApiHttpError) && publicApiError(error) === null &&
+      /write committed/.test((error as Error).message),
+  );
+  const selections = await db.select().from(leaderboardSelections).where(eq(leaderboardSelections.runId, officialId));
+  assert.equal(selections.length, 1, "the selection was written before the republish failed");
 });
 
 test("missing hosted stages reject mutations before realtime publication", async () => {
