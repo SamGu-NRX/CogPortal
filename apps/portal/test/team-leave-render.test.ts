@@ -60,6 +60,7 @@ function teamDetail(members: number, teammateLogin = "teammate") {
 function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: boolean; teammateLogin?: string }) {
   let onTeam: boolean | "other" = true;
   let sessionMode: "answer" | "hold-next" | "fail" | "offline" = "answer";
+  let joinWrites = 0;
   let releaseSession = () => {};
   const leaves: unknown[] = [];
   let release = () => {};
@@ -83,7 +84,24 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
       // The delete has committed; only the response is late.
       return new Promise<Response>((resolve) => { release = () => resolve(answer); });
     }
-    if (path === "/api/cohorts/teams") return Response.json([]);
+    if (path === "/api/cohorts/teams") {
+      return Response.json([{
+        id: TEAM_ID, name: TEAM_NAME, description: null, provenance: "live",
+        repo: { fullName: "octo/face-finder", url: "https://github.com/octo/face-finder" },
+        members: [{ login: "teammate", name: null, avatarUrl: null, role: "admin" }],
+        adminLogin: "teammate",
+      }]);
+    }
+    if (path === "/api/team/join") {
+      // The server's own rule: one team at a time, so a membership made
+      // elsewhere refuses this join and writes nothing.
+      if (onTeam !== false) {
+        return Response.json({ error: { code: "already_on_team", message: "You are already on a team." } }, { status: 409 });
+      }
+      joinWrites += 1;
+      onTeam = true;
+      return Response.json(teamDetail(options.members, options.teammateLogin));
+    }
     if (path === "/api/github/repositories") return new Promise<Response>(() => {});
     return Response.json({ error: { code: "not_found", message: "Not here." } }, { status: 404 });
   };
@@ -98,6 +116,8 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     releaseSession: () => releaseSession(),
     failSessions: () => { sessionMode = "fail"; },
     goOffline: () => { sessionMode = "offline"; },
+    joinWrites: () => joinWrites,
+    team: () => onTeam,
   };
 }
 
@@ -355,4 +375,36 @@ test("a leave whose follow-up read happens offline still reaches the reload", as
   const alert = container.querySelector('[role="alert"]');
   assert.match(alert?.textContent ?? "", /You left Vision Squad, but the page couldn't refresh/);
   assert.ok([...(alert?.querySelectorAll("button") ?? [])].some((b) => b.textContent === "Reload page"));
+});
+
+test("a join elsewhere between the post-leave read and its answer is reached from Connect, not overwritten", async (t) => {
+  // The read after the leave sees no team; before its answer lands another
+  // window joins team B. No further read can rule that out, so the page lands
+  // on /connect believing there is no team. Joining from there is refused by
+  // the server, and the refusal offers a full load of the student's team.
+  const { container, server, flush, path } = await mount(t, { members: 2, holdLeave: true });
+  await pressLeaveTwice(container, flush);
+  server.holdNextSession();
+  await act(async () => server.release());
+  await flush();
+  server.joinOther();
+  await act(async () => server.releaseSession());
+  const choiceDrawn = () => path() === "/connect" && !/Checking the cohort/.test(container.textContent ?? "");
+  for (let i = 0; i < 50 && !choiceDrawn(); i += 1) await flush();
+  assert.equal(path(), "/connect");
+
+  const toJoin = [...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Join a team"));
+  assert.ok(toJoin, "no way to the join list");
+  await act(async () => toJoin.click());
+  await flush();
+  const join = container.querySelector<HTMLButtonElement>(`button[aria-label="Join ${TEAM_NAME}"]`);
+  assert.ok(join);
+  await act(async () => join.click());
+  await flush();
+
+  const alert = [...container.querySelectorAll('[role="alert"]')].find((node) => /already on a team/.test(node.textContent ?? ""));
+  const open = [...(alert?.querySelectorAll("a") ?? [])].find((a) => a.textContent === "Open your current team");
+  assert.equal(open?.getAttribute("href"), "/team", "no way from the refusal to the team the student is on");
+  assert.equal(server.joinWrites(), 0, "the refused join wrote a membership");
+  assert.equal(server.team(), "other", "team B's membership changed");
 });
