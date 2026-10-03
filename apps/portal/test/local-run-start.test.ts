@@ -452,6 +452,37 @@ test("a silent live run reads as lost contact and recovers when it reports again
 });
 
 /**
+ * The author leaves mid-run, so every later event is refused and writes
+ * nothing, terminal ones included (local-runs.ts). The session row stays
+ * running, as it does for a killed CLI, and the old team sees the same lost
+ * contact once the silence deadline passes, on the page and in Discord. No
+ * write by the departed member is needed for that; the hub's tick finds it.
+ */
+test("a live run whose author left reads as lost contact for the old team, not as live", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  const before = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+  run.sqlite.prepare("DELETE FROM team_members WHERE user_id = (SELECT user_id FROM local_run_sessions WHERE id = ?)").run(SESSION);
+  await run.post("/events", heartbeat(1), 403);
+  await run.post("/events/batch", { events: [heartbeat(1), completed(2)] }, 403);
+  assert.deepEqual(
+    await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION)),
+    before,
+    "a refused event changed the session",
+  );
+
+  const lastHeard = await run.goSilent();
+  await run.hub.alarm();
+  const silent = run.hub.messages.at(-1)!;
+  assert.equal(silent.status, "running");
+  assert.equal(silent.silentSince, lastHeard);
+  assert.equal(run.hub.scheduledAlarm, null, "the hub kept ticking a run that cannot report again");
+  const message = JSON.stringify(runSurfaceMessage(run.env, silent));
+  assert.match(message, /Lost contact/);
+  assert.doesNotMatch(message, /Watch live/);
+});
+
+/**
  * The CLI sends its final event twice: alone, and in a batch with the history
  * before it (cli.py `_LiveRun._finish`). Either may be the one that lands, and
  * neither may be refused because the portal had stopped hearing from the run.
