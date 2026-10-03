@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, eq, exists, lt, notExists } from "drizzle-orm";
+import { and, eq, exists, lt, notExists, sql } from "drizzle-orm";
 import {
   LocalRunEventResponseSchema,
   LocalRunEventBatchResponseSchema,
@@ -14,7 +14,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireDevice } from "../auth/device";
-import { getDb } from "../db/client";
+import { getDb, type Database } from "../db/client";
 import { insertWhere } from "../db/insert-where";
 import {
   benchmarks,
@@ -82,6 +82,34 @@ function recordedSurfaceId(session: typeof localRunSessions.$inferSelect): strin
   );
 }
 
+/**
+ * Whether this user is on this team right now, as a condition a write can
+ * carry. A device credential belongs to a person, not a team, so every write
+ * a device makes into a team's records has to ask this at the moment it
+ * writes; a check made earlier in the request loses to a leave that lands
+ * between the two.
+ */
+function onTeam(db: Database, teamId: string, userId: string) {
+  return exists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+    eq(teamMembers.teamId, teamId),
+    eq(teamMembers.userId, userId),
+  )));
+}
+
+async function isOnTeam(db: Database, teamId: string, userId: string): Promise<boolean> {
+  const [member] = await db
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+    .limit(1);
+  return Boolean(member);
+}
+
+/** What the CLI prints after "cogworks: live updates paused:" when its
+ *  author has left the team the run was started for. */
+export const LEFT_RUN_TEAM =
+  "You're no longer on this run's team, so the portal stopped recording it. The run still finishes here and saves its report on this machine.";
+
 async function acceptLocalRunEvent(
   env: AppEnv["Bindings"],
   device: { deviceId: string; userId: string },
@@ -101,6 +129,13 @@ async function acceptLocalRunEvent(
     )
     .limit(1);
   if (!current) throw new ApiHttpError(404, "not_found", "Local run session not found.");
+  // Before anything is saved or published, duplicates included: a person who
+  // left the team keeps their device credential, and it must not keep
+  // writing into that team's console or reports. The run is not moved to
+  // whatever team they are on now; it stays the old team's history.
+  if (!(await isOnTeam(db, current.teamId, device.userId))) {
+    throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
+  }
   const surfaceId = recordedSurfaceId(current);
   if (current.status !== "running" || event.sequence <= current.lastEventSequence) {
     return { duplicate: true, surfaceId };
@@ -168,6 +203,7 @@ async function acceptLocalRunEvent(
     eq(localRunSessions.id, current.id),
     eq(localRunSessions.status, "running"),
     lt(localRunSessions.lastEventSequence, event.sequence),
+    onTeam(db, current.teamId, device.userId),
   );
   const [, updated] = await db.batch([
     guardedRunStreamEventInsert(
@@ -189,6 +225,12 @@ async function acceptLocalRunEvent(
     db.update(localRunSessions).set(nextValues).where(admitted),
   ]);
   const duplicate = (updated.meta.changes ?? 0) === 0;
+  // A leave that commits between the membership read above and this batch
+  // also leaves both writes empty. That is a refusal, not a duplicate: the
+  // CLI must not be told the event arrived.
+  if (duplicate && !(await isOnTeam(db, current.teamId, device.userId))) {
+    throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
+  }
   if (!duplicate) await settleRunStreamEvents(db, surfaceId);
   return { duplicate, surfaceId };
 }
@@ -338,8 +380,8 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         discordNonceGeneration: 0,
         createdAt: now,
         updatedAt: now,
-      }, notExists(db.select({ id: localRunSessions.id }).from(localRunSessions)
-        .where(eq(localRunSessions.id, sessionId)))).onConflictDoNothing(),
+      }, sql`${notExists(db.select({ id: localRunSessions.id }).from(localRunSessions)
+        .where(eq(localRunSessions.id, sessionId)))} and ${onTeam(db, membership.team.id, device.userId)}`).onConflictDoNothing(),
       insertWhere(db, localRunSessions, {
         id: sessionId,
         teamId: membership.team.id,
@@ -365,20 +407,42 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         updatedAt: now,
         finishedAt: null,
         surfaceId,
-      }, exists(db.select({ id: runSurfaces.id }).from(runSurfaces).where(and(
+      }, sql`${exists(db.select({ id: runSurfaces.id }).from(runSurfaces).where(and(
         eq(runSurfaces.id, surfaceId),
         eq(runSurfaces.teamId, membership.team.id),
         eq(runSurfaces.createdByUserId, device.userId),
         eq(runSurfaces.benchmarkId, body.benchmarkId),
         eq(runSurfaces.benchmarkVersion, body.benchmarkVersion),
         eq(runSurfaces.localRunId, sessionId),
-      )))).onConflictDoNothing(),
+      )))} and ${onTeam(db, membership.team.id, device.userId)}`).onConflictDoNothing(),
     ]);
     const [recorded] = await db
       .select()
       .from(localRunSessions)
       .where(eq(localRunSessions.id, sessionId))
       .limit(1);
+    if (!recorded) {
+      // Nothing was written. Either a console from another run holds this id,
+      // or the person left the team between the read above and the batch,
+      // possibly joining another one. The CLI stops on a refused start, so
+      // running the command again is the whole recovery.
+      const [currentTeam] = await db
+        .select({ teamId: teams.id, name: teams.name })
+        .from(teamMembers)
+        .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+        .where(eq(teamMembers.userId, device.userId))
+        .limit(1);
+      if (!currentTeam) {
+        throw new ApiHttpError(403, "no_team", "Finish joining a team and connecting its repository first.");
+      }
+      if (currentTeam.teamId !== membership.team.id) {
+        throw new ApiHttpError(
+          409,
+          "forbidden",
+          `You moved to ${currentTeam.name} while this run was starting, so the portal didn't record it. Run the command again.`,
+        );
+      }
+    }
     if (!recorded || !isSameStart(recorded, body, device, membership.team)) {
       throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
     }

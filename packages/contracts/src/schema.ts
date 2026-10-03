@@ -1191,6 +1191,22 @@ export const JoinTeamRequestSchema = z.object({
   teamId: z.string().min(1),
 });
 
+/**
+ * Leaving names the team the page showed, so a tab left open after the
+ * person moved to another team, or a retried request, cannot take them off
+ * the team they are on now.
+ */
+export const LeaveTeamRequestSchema = z.object({
+  teamId: z.string().min(1),
+});
+
+/** `alreadyLeft` when this person was not on that team (a repeated request,
+ *  or a leave from another tab that landed first). Nothing was removed. */
+export const LeaveTeamResponseSchema = z.object({
+  alreadyLeft: z.boolean(),
+});
+export type LeaveTeamResponse = z.infer<typeof LeaveTeamResponseSchema>;
+
 /* ── Setup guide verification (terminal callback) ─────────────────────── */
 
 /** Machine-local steps a student can explicitly report after a real CLI
