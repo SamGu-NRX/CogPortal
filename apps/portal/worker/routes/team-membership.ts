@@ -17,6 +17,7 @@ import { getGithubToken } from "../auth/better-auth";
 import { authFor, requireUser } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import { getDb } from "../db/client";
+import { insertWhere } from "../db/insert-where";
 import type { Database } from "../db/client";
 import { teamMembers, teams, users } from "../db/schema";
 import { RealGitHubClient } from "../github/client";
@@ -27,7 +28,9 @@ import { parseBody, respond } from "../http/respond";
 import {
   getTeamDetail,
   isUniqueConstraintError,
+  actorIsTeamAdmin,
   requireTeamAdmin,
+  TEAM_AUTHORITY_LOST,
 } from "./team";
 
 type CohortAuth = AuthState & { cohort: NonNullable<AuthState["cohort"]> };
@@ -297,11 +300,14 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
     }
 
     try {
-      await db.insert(teamMembers).values({
+      // Only while the actor is still an admin of this team; checked in the
+      // write, so a leave or demotion since the gate adds nobody.
+      const added = await insertWhere(db, teamMembers, {
         teamId: auth.team.id,
         userId: user.id,
         role: "write",
-      });
+      }, actorIsTeamAdmin(db, auth.team.id, auth.user.id));
+      if (!added.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         const racingMembership = await findMembership(db, user.id);
@@ -346,14 +352,16 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         "A team admin can't be removed.",
       );
     }
-    await db
+    const removed = await db
       .delete(teamMembers)
       .where(
         and(
           eq(teamMembers.teamId, auth.team.id),
           eq(teamMembers.userId, membership.userId),
+          actorIsTeamAdmin(db, auth.team.id, auth.user.id),
         ),
       );
+    if (!removed.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
     return respond(
       c,
       TeamDetailSchema,
