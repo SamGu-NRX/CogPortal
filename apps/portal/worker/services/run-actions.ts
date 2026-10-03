@@ -27,7 +27,7 @@ import {
   type TeamRow,
 } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
-import { DispatchUnacknowledged, assertModalConfigured, enqueueRun, prepareRetryJob } from "../execution/runner";
+import { DispatchUnacknowledged, assertModalConfigured, enqueueRun, prepareAdmissionJob, prepareRetryJob, type DispatchInputs } from "../execution/runner";
 import { FixtureGitHubClient, GitHubApiError, RealGitHubClient } from "../github/client";
 import { ApiHttpError, GITHUB_SIGN_IN_EXPIRED } from "../http/errors";
 import { runSourceRefusal } from "./run-source";
@@ -45,7 +45,8 @@ import {
   runStateRefusal,
   savedEnvironmentEligibility,
 } from "./run-eligibility";
-import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
+import { insertRunWithCapacity, isAdmittingMember, readRunAccounting } from "./run-accounting";
+import { teamMemberUserIds } from "./local-reports";
 
 export interface RunActor {
   userId: string;
@@ -232,12 +233,12 @@ function guardedPhaseInserts(db: Database, runId: string) {
   `));
 }
 
-async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: BenchmarkRow) {
+async function dispatch(env: Env, runId: string, team: TeamRow) {
   if (env.EXECUTION_PROVIDER !== "modal") return;
   const [run] = await getDb(env).select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new ApiHttpError(500, "provider_unconfigured", "Run could not be loaded.");
   try {
-    await enqueueRun(env, run, team, benchmark);
+    await enqueueRun(env, run, team);
   } catch (error) {
     if (error instanceof DispatchUnacknowledged) {
       // submit_job spawns before replying. Keep the active reservation until
@@ -311,6 +312,29 @@ async function republishAfterCommit<T>(work: Promise<T>): Promise<T> {
       `The write committed, then republishing the run surface failed: ${error instanceof Error ? error.message : "unknown"}`,
     );
   }
+}
+
+/** A run refused because its starter is no longer on the team. */
+const LEFT_TEAM_ADMISSION = "You're no longer on this team, so no run was started. Reload to see where you are.";
+
+/**
+ * The roster a Modal run's inputs are prepared from, read once, with the
+ * actor checked against it before any report or weight object is read. The
+ * guarded INSERT still decides admission; this keeps a departure during
+ * preparation from becoming an empty manifest under a second roster read.
+ */
+async function admissionRoster(env: Env, actor: RunActor): Promise<string[]> {
+  const members = await teamMemberUserIds(env, actor.team.id);
+  if (!members.includes(actor.userId)) throw new ApiHttpError(403, "forbidden", LEFT_TEAM_ADMISSION);
+  return members;
+}
+
+/** An admission INSERT changed nothing: say which condition failed. */
+async function refusedAdmission(db: Database, actor: RunActor, quotaRefusal: string): Promise<never> {
+  if (!(await isAdmittingMember(db, actor.team.id, actor.userId))) {
+    throw new ApiHttpError(403, "forbidden", LEFT_TEAM_ADMISSION);
+  }
+  throw new ApiHttpError(409, "quota_exhausted", quotaRefusal);
 }
 
 export async function startPracticeRun(
@@ -389,23 +413,37 @@ export async function startPracticeRun(
   const surfaceId = options.surfaceId ?? `surface_${randomHex(10)}`;
   const now = Date.now();
   const runId = `run_${randomHex(5)}`;
+  const dispatchInputs: DispatchInputs = {
+    id: runId,
+    mode: "practice",
+    sha,
+    repositoryId: actor.team.repoId,
+    // Read from the same team snapshot as the id above, so the two always
+    // describe one repository. Promotion inherits both by spreading the
+    // parent run, which is what keeps an official attempt pointing at the
+    // repository its practice run used.
+    repositoryFullName: actor.team.repoFullName,
+    benchmarkId: benchmark.id,
+    benchmarkVersion: benchmark.version,
+    contractVersion: benchmark.contractVersion,
+    datasetVersion: "practice-v1",
+    scorerVersion: benchmark.scorerVersion,
+    protocolVersion: "1",
+    provider: env.EXECUTION_PROVIDER,
+    preparedArtifactId: null,
+    preparedEnvironmentJson: null,
+  };
+  // A Modal run is born with the job it will be sent with (prepareAdmissionJob).
+  // A refusal here (weights, provenance, a departed starter) writes nothing.
+  const job = env.EXECUTION_PROVIDER === "modal"
+    ? await prepareAdmissionJob(env, dispatchInputs, actor.team, benchmark, await admissionRoster(env, actor))
+    : null;
   try {
     const insertRun = insertRunWithCapacity(db, {
-      id: runId,
+      ...dispatchInputs,
       teamId: actor.team.id,
-      benchmarkId: benchmark.id,
-      benchmarkVersion: benchmark.version,
-      contractVersion: benchmark.contractVersion,
-      mode: "practice",
       status: "queued",
       branch: options.branch || (options.exactSha ? "detached" : actor.team.defaultBranch),
-      sha,
-      repositoryId: actor.team.repoId,
-      // Read from the same team snapshot as the id above, so the two always
-      // describe one repository. Promotion inherits both by spreading the
-      // parent run, which is what keeps an official attempt pointing at the
-      // repository its practice run used.
-      repositoryFullName: actor.team.repoFullName,
       parentRunId: null,
       attemptNumber: null,
       failureCategory: null,
@@ -415,18 +453,14 @@ export async function startPracticeRun(
       log: null,
       createdAt: now,
       finishedAt: null,
-      provider: env.EXECUTION_PROVIDER,
-      protocolVersion: "1",
-      preparedArtifactId: null,
       environmentDigest: null,
-      datasetVersion: "practice-v1",
-      scorerVersion: benchmark.scorerVersion,
       runtimeVersion: benchmark.runtimeVersion,
+      dispatchJobJson: job ? JSON.stringify(job) : null,
       dispatchAttempts: 0,
       lastEventSequence: -1,
       ...NEW_EXECUTION_ACTIVITY,
       surfaceId,
-    });
+    }, actor.userId);
     // One D1 batch is one transaction: the console is written only if this
     // run was admitted, because a console with no run cannot be rendered. An
     // existing console (a local session being verified, a replayed rerun) is
@@ -455,7 +489,7 @@ export async function startPracticeRun(
       )
       .onConflictDoNothing();
     const [inserted] = await db.batch([insertRun, insertSurface, ...guardedPhaseInserts(db, runId)]);
-    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", PRACTICE_QUOTA_REFUSAL);
+    if (!inserted.meta.changes) await refusedAdmission(db, actor, PRACTICE_QUOTA_REFUSAL);
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
     const existing = currentSurfaceRun(attached, "practice");
@@ -466,7 +500,7 @@ export async function startPracticeRun(
     }
     throw error;
   }
-  await dispatch(env, runId, actor.team, benchmark);
+  await dispatch(env, runId, actor.team);
   await republishAfterCommit(publishRunSurface(env, surfaceId));
   return { runId, surfaceId };
 }
@@ -513,15 +547,26 @@ export async function promotePracticeRun(
   }
   const runId = `run_${randomHex(5)}`;
   const now = Date.now();
+  // The attempt carries the practice run's source and saved environment; only
+  // its identity, mode and the official dataset and scorer differ.
+  const proposed = {
+    ...parent,
+    id: runId,
+    mode: "official" as const,
+    datasetVersion: benchmark.datasetVersion,
+    scorerVersion: benchmark.scorerVersion,
+  };
+  // Born with its job, built from that saved environment (prepareAdmissionJob).
+  const job = env.EXECUTION_PROVIDER === "modal"
+    ? await prepareAdmissionJob(env, proposed, actor.team, benchmark, await admissionRoster(env, actor))
+    : null;
   try {
     const insertRun = insertRunWithCapacity(db, {
-      ...parent,
-      id: runId,
-      mode: "official",
+      ...proposed,
       status: "queued",
       parentRunId: parent.id,
       retryOfRunId: null,
-      dispatchJobJson: null,
+      dispatchJobJson: job ? JSON.stringify(job) : null,
       failureCategory: null,
       failurePhase: null,
       failureDetail: null,
@@ -529,17 +574,15 @@ export async function promotePracticeRun(
       log: null,
       createdAt: now,
       finishedAt: null,
-      datasetVersion: benchmark.datasetVersion,
-      scorerVersion: benchmark.scorerVersion,
       runtimeVersion: benchmark.runtimeVersion,
       dispatchAttempts: 0,
       lastEventSequence: -1,
       ...NEW_EXECUTION_ACTIVITY,
       surfaceId: parent.surfaceId,
-    });
+    }, actor.userId);
     // A phase-write failure must not leave an admitted run without its phases.
     const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId)]);
-    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", OFFICIAL_QUOTA_REFUSAL);
+    if (!inserted.meta.changes) await refusedAdmission(db, actor, OFFICIAL_QUOTA_REFUSAL);
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
     const raced = existingPromotion(attached);
@@ -550,7 +593,7 @@ export async function promotePracticeRun(
     }
     throw error;
   }
-  await dispatch(env, runId, actor.team, benchmark);
+  await dispatch(env, runId, actor.team);
   await republishAfterCommit(publishRunSurface(env, parent.surfaceId));
   return { runId, surfaceId: parent.surfaceId };
 }
@@ -735,7 +778,7 @@ export async function retryRun(
     ...NEW_EXECUTION_ACTIVITY,
     surfaceId,
     createdAt: now,
-  });
+  }, actor.userId);
   const updateSurface = db.update(runSurfaces).set({ updatedAt: now }).where(and(
     eq(runSurfaces.id, surfaceId),
     exists(db.select({ id: runs.id }).from(runs).where(eq(runs.id, runId))),
@@ -743,8 +786,7 @@ export async function retryRun(
   try {
     const [inserted] = await db.batch([insertRun, ...guardedPhaseInserts(db, runId), updateSurface]);
     if (!inserted.meta.changes) {
-      throw new ApiHttpError(409, "quota_exhausted",
-        failed.mode === "official" ? OFFICIAL_QUOTA_REFUSAL : PRACTICE_QUOTA_REFUSAL);
+      await refusedAdmission(db, actor, failed.mode === "official" ? OFFICIAL_QUOTA_REFUSAL : PRACTICE_QUOTA_REFUSAL);
     }
   } catch (error) {
     if ((await successor()).length) return;
@@ -753,7 +795,7 @@ export async function retryRun(
     }
     throw error;
   }
-  await dispatch(env, runId, actor.team, benchmark);
+  await dispatch(env, runId, actor.team);
 }
 
 export type RunSurfaceMutation =
