@@ -13,7 +13,7 @@ import { join } from 'node:path';
 //   PILOT_CLI_PYTHON  a Python 3.8 interpreter (the course version)
 //   PILOT_CLI_SRC     this repository's python/cogbench/src
 
-function setting(name: string): string {
+export function setting(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is not set; see tools/testerarmy/README.md.`);
   return value;
@@ -125,6 +125,14 @@ class OwnedProcess implements CliProcess {
 
 const STOP_GRACE_MS = 5_000;
 
+/** Where the CLI finds a benchmark it runs: its source checkout and the data the benchmark loads. */
+export interface BenchmarkSetup {
+  /** Put on PYTHONPATH after the CLI source, so it wins over an installed copy. */
+  readonly source: string;
+  /** Passed to the Week 3 benchmark as COGWORKS_LANGUAGE_DATA. */
+  readonly data: string;
+}
+
 /**
  * A fresh HOME and every CLI process started in it. `close()` stops the ones
  * still running, waits for each to exit, and only then removes HOME; a
@@ -136,17 +144,20 @@ export class CliHome {
   readonly path: string;
   private readonly python: string;
   private readonly source: string;
+  private readonly benchmark: BenchmarkSetup | undefined;
 
-  private constructor(path: string, python: string, source: string) {
+  private constructor(path: string, python: string, source: string, benchmark: BenchmarkSetup | undefined) {
     this.path = path;
     this.python = python;
     this.source = source;
+    this.benchmark = benchmark;
   }
 
-  static async create(): Promise<CliHome> {
+  static async create(options: { benchmark?: BenchmarkSetup } = {}): Promise<CliHome> {
     const python = setting('PILOT_CLI_PYTHON');
     const source = setting('PILOT_CLI_SRC');
-    return new CliHome(await mkdtemp(join(tmpdir(), 'cog-pilot-home-')), python, source);
+    const home = await mkdtemp(join(tmpdir(), 'cog-pilot-home-'));
+    return new CliHome(home, python, source, options.benchmark);
   }
 
   /**
@@ -159,13 +170,18 @@ export class CliHome {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: this.path,
-      PYTHONPATH: this.source,
+      PYTHONPATH: this.benchmark ? `${this.source}:${this.benchmark.source}` : this.source,
       // A pinned seed keeps `main()` from re-executing the interpreter.
       PYTHONHASHSEED: '0',
       PYTHONUNBUFFERED: '1',
+      // No __pycache__: in a team repository it would make the commit read
+      // as dirty, and the benchmark checkout may belong to another tree.
+      PYTHONDONTWRITEBYTECODE: '1',
       BROWSER: '/usr/bin/true',
     };
     delete env.COGBENCH_CONFIG;
+    delete env.COGWORKS_LANGUAGE_DATA;
+    if (this.benchmark) env.COGWORKS_LANGUAGE_DATA = this.benchmark.data;
     const child = spawn(
       this.python,
       ['-c', 'import sys; from cogbench.cli import main; sys.exit(main(sys.argv[1:]))', ...args],

@@ -9,15 +9,22 @@ A local trial of TesterArmy's `e2e` runner against a CogPortal dev server. It as
 | `tests/public-results.e2e.ts` | one agent step | A signed-out visitor gets from the landing page to `/leaderboard`, which opens on Vision under "Published results". |
 | `tests/cli-link.e2e.ts` | one agent step | The URL and code `cogworks link` prints lead to a working approval. The agent approves; the checks after it prove this run's approval. The CLI exits linked, `~/.cogbench` is 0700 and `config.json` 0600, and exactly one new device exists. `cogworks status` answers with the saved token. The teammate can't see the device, and once it's revoked `status` fails. |
 | `tests/cli-link-keyboard.e2e.ts` | none | The same approval in the page's tab order. One Tab from "Device name" reaches "Approve device" and Enter approves. The test prints the focus sequence it saw. |
+| `tests/teammate-report.e2e.ts` | one agent step, one reading | A student checks, runs and syncs the Week 3 benchmark from a team repository, once with the reference submission and once after a commit where `embed_text` averages over the wrong axis. The team API gives the teammate both reports, with this run's commit and the benchmark's diagnostic. The agent finds the run on the teammate's page, and that run's row shows the diagnostic. **Red on 3670e55**, see below. |
 | `support/*.test.ts` | none | The loopback guard, and that the CLI helper stops and awaits every process it started before removing that process's HOME. |
 
-An agent step's own summary is never evidence. Every claim above comes from a deterministic check.
+An agent step's own summary is never evidence. Every claim above comes from a deterministic check. The teammate test also prints the agent's reading of where the page explains the low score, as a record only.
 
 The agent in `cli-link.e2e.ts` presses Enter on the approve button directly. That shows keyboard activation, not tab order, which is why the keyboard test exists.
+
+## Open finding: the teammate can't read why a run scored low
+
+`teammate-report.e2e.ts` is tagged `open-finding` and stays red until the product changes. On 3670e55 the benchmark's diagnostic reaches the student's terminal, `cogworks sync` posts it, and `GET /api/v1/local-reports` returns it to the teammate. The Runs page's local-report table then shows only commit, command, result and sync time, so the teammate sees a score of 0.171 with no reason. `npm test` leaves the test out; `npm run test:open-findings` runs it.
 
 ## Versions
 
 `e2e` 0.16.0, `@e2e-dev/web` 0.11.2, `ai` 7.0.107, `@ai-sdk/openai` 4.0.71 and `playwright` 1.63.0, whose Chromium build is 1243. The model is `chatgpt('gpt-6-luna')` through a ChatGPT subscription login, at the default reasoning level, with no API key and no fallback. The runner needs Node 22.12 or later; the pilot ran on 26.5.0. The link tests run the student CLI from this repository's `python/cogbench/src` on Python 3.8, the course version.
+
+The teammate test runs the Week 3 benchmark at the commit this repository pins as `benchmarks/week3` (4b17554), on an existing course environment. It is a check of the flow, not of a clean install. The environment used here lacks four packages the graded run installs (`llvmlite`, `noggin`, `numba`, `sklearn`), and `cogworks check` says so.
 
 ## One-time login
 
@@ -60,6 +67,11 @@ sqlite3 "$(ls apps/portal/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sql
   < tools/testerarmy/fixtures/link-team.sql   # prints 2
 ```
 
+The teammate test also needs the Week 3 benchmark and its data:
+
+- `PILOT_WEEK3_SRC` is a git checkout of the Week 3 benchmark at the pinned commit with no local changes; `git submodule update --init benchmarks/week3` in the test checkout gives one. The test refuses any other commit.
+- `PILOT_LANGUAGE_DATA` is a directory holding the five Week 3 data files: `captions_train2014.json`, `resnet18_features.pkl`, `glove.6B.200d.txt.w2v`, `glove.6B.200d.kv` and `glove.6B.200d.kv.vectors.npy`. Links to an existing cache are fine; the benchmark writes only its own `cache-state.json` beside them. The CLI runs with a fresh HOME, so without this directory the benchmark would download about 935 MB.
+
 ## Run
 
 From `tools/testerarmy`:
@@ -74,7 +86,7 @@ PILOT_CACHE_DIR=.e2e/cache-mine \
 npm test -- tests/cli-link.e2e.ts --reporter list,junit,markdown --output .e2e/runs/first
 ```
 
-`npm test` turns telemetry off, and the config fixes one worker and no retries. A new `PILOT_CACHE_DIR` gives a cold run; reusing it gives a warm one. Each run writes `report.json` under its `--output` directory. For every agent step it records the cache mode, model calls, tokens and the actions taken.
+`npm test` turns telemetry off and leaves out the open finding; the config fixes one worker and no retries. For the teammate test, add `PILOT_WEEK3_SRC` and `PILOT_LANGUAGE_DATA` and use `npm run test:open-findings`. A new `PILOT_CACHE_DIR` gives a cold run; reusing it gives a warm one. Each run writes `report.json` under its `--output` directory. For every agent step it records the cache mode, model calls, tokens and the actions taken.
 
 `public-results.e2e.ts` has two switches for cache experiments. `PILOT_EXPECT_HEADING=Audio` makes the run fail on purpose. `PILOT_RENAME_LINK="<link text>"` renames that link in the tab before the step. Run a rename against a copy of the cache, because its live run overwrites the recording with the renamed link, which exists only in the test.
 
@@ -86,6 +98,9 @@ Everything under `.e2e/`, including reports, traces and recordings, is gitignore
 | --- | --- | --- |
 | Landing to results | 2 model calls, 9,231 tokens, 5.1 s | replayed, 0 calls, 0.4 s |
 | Link approval | 6 model calls, 28,400 tokens, 22.8 s | replayed 5 of 5 actions, 0 calls, 15.0 s |
+| Teammate finds the synced run | 2 model calls, 8.3 s, plus 1 call for the reading | replayed 1 of 1 action, 0 calls, 0.9 s, plus 1 call for the reading |
+
+The teammate test's CLI part takes about 45 s per attempt: `check` 2 s, the reference run 20 s at a 0.96 GB peak, the broken run 6 s at 1.13 GB, each sync under a second. Every attempt makes new commits, so the cold and warm runs assert on different reports.
 
 The warm approval is slow because each look at `/connections` after a key press took about 2.1 s to settle. The cause isn't known.
 
@@ -102,6 +117,5 @@ These are observations of the installed version, not documented guarantees.
 
 ## Not covered yet
 
-- `cogworks check`, `run` and `sync` from a team repository.
 - Opening the approval link before joining a team. The portal remembers the link and names it on the next page, but no test here exercises it.
 - Any deployed portal, and Modal, GitHub or Discord.

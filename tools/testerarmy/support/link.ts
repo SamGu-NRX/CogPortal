@@ -37,6 +37,23 @@ export function cliDevices(browser: Browser): Promise<Device[]> {
   );
 }
 
+/**
+ * Approves a printed code through the API as the signed-in student. For
+ * tests about what happens after linking; the approval page itself is
+ * covered by cli-link.e2e.ts and cli-link-keyboard.e2e.ts.
+ */
+export function approveDevice(browser: Browser, userCode: string): Promise<number> {
+  return browser.evaluate(
+    (code: string) =>
+      fetch('/api/v1/cli/device/approve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userCode: code, deviceName: 'E2E pilot CLI' }),
+      }).then((response) => response.status),
+    userCode,
+  );
+}
+
 export interface PrintedLink {
   readonly cli: CliProcess;
   /** Path and query of the printed approval URL, for `app.open`. */
