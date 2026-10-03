@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearPendingReturn, pendingReturn, rememberReturn } from "../src/lib/pending-return.ts";
+import {
+  clearPendingReturn,
+  pendingReturn,
+  rememberDroppedDeviceLink,
+  rememberReturn,
+  takeDroppedDeviceLink,
+} from "../src/lib/pending-return.ts";
 
 /**
  * The saved return is navigated to after sign-in, so it has one correct
@@ -87,4 +93,72 @@ test("a browser that denies session storage still renders, without a return", ()
     if (previous) Object.defineProperty(globalThis, "sessionStorage", previous);
     else Reflect.deleteProperty(globalThis, "sessionStorage");
   }
+});
+
+/** Installs a sessionStorage whose listed methods throw, as a browser that
+ *  denies storage per call does; the property itself reads fine. */
+function withThrowingMethods(methods: Array<"getItem" | "setItem" | "removeItem">, run: (values: Map<string, string>) => void) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  const values = new Map<string, string>();
+  const denied = () => { throw new DOMException("The operation is insecure.", "SecurityError"); };
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem: methods.includes("getItem") ? denied : (key: string) => values.get(key) ?? null,
+      setItem: methods.includes("setItem") ? denied : (key: string, value: string) => { values.set(key, value); },
+      removeItem: methods.includes("removeItem") ? denied : (key: string) => { values.delete(key); },
+    },
+  });
+  try {
+    run(values);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "sessionStorage", previous);
+    else Reflect.deleteProperty(globalThis, "sessionStorage");
+  }
+}
+
+test("a dropped link is named once on the next page", () => {
+  withStorage(() => {
+    rememberDroppedDeviceLink("/connections?user_code=ABCD-EFGH-IJKL");
+    assert.equal(takeDroppedDeviceLink(), "device");
+    assert.equal(takeDroppedDeviceLink(), null, "the notice is read once");
+    rememberDroppedDeviceLink("/connections#discord=state-token");
+    assert.equal(takeDroppedDeviceLink(), "discord");
+    rememberDroppedDeviceLink("/runs/run_demo_p1");
+    assert.equal(takeDroppedDeviceLink(), null, "a run link is not a dropped device link");
+  });
+});
+
+test("denied session storage loses the dropped-link notice and nothing else", () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    get() { throw new DOMException("The operation is insecure.", "SecurityError"); },
+  });
+  try {
+    assert.doesNotThrow(() => rememberDroppedDeviceLink("/connections?user_code=ABCD-EFGH-IJKL"));
+    assert.equal(takeDroppedDeviceLink(), null);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "sessionStorage", previous);
+    else Reflect.deleteProperty(globalThis, "sessionStorage");
+  }
+});
+
+test("storage whose calls throw loses the notice instead of throwing", () => {
+  withThrowingMethods(["getItem", "setItem", "removeItem"], () => {
+    assert.doesNotThrow(() => rememberDroppedDeviceLink("/connections?user_code=ABCD-EFGH-IJKL"));
+    assert.equal(takeDroppedDeviceLink(), null);
+  });
+  withThrowingMethods(["setItem"], (values) => {
+    assert.doesNotThrow(() => rememberDroppedDeviceLink("/connections#discord=state-token"));
+    assert.equal(values.size, 0);
+    assert.equal(takeDroppedDeviceLink(), null);
+  });
+});
+
+test("a notice that can't be removed is not shown, so it can't repeat", () => {
+  withThrowingMethods(["removeItem"], (values) => {
+    values.set("cogportal.droppedDeviceLink", "device");
+    assert.equal(takeDroppedDeviceLink(), null);
+  });
 });
