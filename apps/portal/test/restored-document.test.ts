@@ -726,6 +726,66 @@ test("focus after a blur with the same account reopens the same page", async (t)
   assert.ok(menu?.isConnected, "the page was remounted for an unchanged account");
 });
 
+test("a session alice's mutation refetches as bob during a blur does not change who the page was painted for", async (t) => {
+  // Alice's edit is still on the wire when focus moves to the window beside
+  // this one, where bob signs in. The edit answers and invalidates the
+  // session, and the refetch stores bob. The return must still compare
+  // against alice, the account this page was painted for.
+  const h = await harness(t);
+  let answer!: () => void;
+  const pending = new Promise<void>((resolve) => { answer = resolve; });
+  void h.client.getMutationCache().build(h.client, {
+    mutationFn: () => pending,
+    onSuccess: () => h.client.invalidateQueries({ queryKey: ["session"] }),
+  }).execute(undefined);
+  await h.blurWindow();
+  h.server.signInDirectly("bob");
+  await act(async () => { answer(); });
+  await h.flush();
+  assert.equal(h.client.getQueryData<Session>(["session"])?.user?.login, "bob", "the refetch never stored bob");
+  const sawAlice = h.watchExposed(tokenFor("alice"));
+  await h.focusWindow();
+  h.assertReplacedForAnotherAccount();
+  assert.equal(sawAlice(), false, "alice's signed command showed after the return");
+});
+
+test("a blur leaves the page as it was; the return cancels an open confirm and gives the same page back", async (t) => {
+  // Side by side, the student reads a command here while typing it in the
+  // terminal, or watches a live run here while it runs there. A blur says
+  // nothing about the account, so nothing is concealed until focus returns.
+  const h = await harness(t);
+  const menu = [...h.container.querySelectorAll("button")].find((b) => b.textContent?.includes("alice"));
+  const dialog = h.container.ownerDocument.createElement("dialog");
+  h.container.querySelector("main")?.append(dialog) ?? h.container.append(dialog);
+  dialog.showModal();
+  const before = h.server.sessionRequests.length;
+  await h.blurWindow();
+  assert.ok(h.exposed().includes(tokenFor("alice")), "the blurred window hid what the student was reading");
+  assert.equal(h.container.querySelector("[inert]"), null, "a blur concealed the page");
+  assert.ok(dialog.open, "a blur alone cancelled the confirm");
+  assert.equal(h.server.sessionRequests.length, before, "a blur read the session");
+  await h.focusWindow();
+  assert.ok(!dialog.open, "a confirm opened before the return stayed open for whoever is signed in now");
+  assert.equal(h.server.sessionRequests.length, before + 1);
+  assert.equal(h.reloads(), 0);
+  assert.ok(menu?.isConnected, "the page was remounted for an unchanged account");
+  assert.ok(h.exposed().includes(tokenFor("alice")));
+});
+
+test("a first read that lands as the same account during a blur is not a switch on return", async (t) => {
+  // Nothing is painted at the blur, so there is no account to hold; the
+  // return compares against the one the first read painted.
+  const h = await harness(t, "shared", "/setup", true);
+  await h.blurWindow();
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.ok(h.exposed().includes(tokenFor("alice")));
+  h.server.session("answer");
+  await h.focusWindow();
+  assert.equal(h.reloads(), 0, "a page painted once for alice was reloaded for alice");
+  assert.ok(h.exposed().includes(tokenFor("alice")));
+});
+
 test("a first read sent as alice before a blur cannot paint the page after bob signs in", async (t) => {
   // Cold start: the first session read is on the wire as alice, so nothing
   // is painted. Focus moves to the next window, bob signs in there, and focus
