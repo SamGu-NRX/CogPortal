@@ -111,6 +111,8 @@ function reportRow(reportId: string, benchmarkVersion: number) {
     finishedAt: 1_750_000_001_000,
     metricsJson: "[]",
     diagnosticsJson: "[]",
+    // A report synced since 0033 recorded its weights; legacy rows set false.
+    weightsUsedKnown: true,
     syncedAt: 1_750_000_002_000,
   };
 }
@@ -351,14 +353,14 @@ test("a newest report naming another repository stops dispatch rather than falli
   ]);
 
   await assert.rejects(
-    getLatestTeamWeights(env, "team_1", REPO, sha, 77, BENCHMARK),
+    getLatestTeamWeights(env, "team_1", REPO, sha, 77, BENCHMARK, 1),
     /names a different repository than this execution/,
   );
   // Unknown on either side is unknown, not a match and not a conflict.
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1), {
     weightsUsed: ["newest.pkl"], weightsUploaded: null,
   });
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, 78, BENCHMARK), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, 78, BENCHMARK, 1), {
     weightsUsed: ["newest.pkl"], weightsUploaded: null,
   });
 });
@@ -400,7 +402,7 @@ test("the newest matching team report supplies the run weight paths", async () =
     },
   ]);
 
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1), {
     weightsUsed: ["models/current.pkl"],
     weightsUploaded: null,
   });
@@ -429,11 +431,11 @@ test("another benchmark's newer report does not empty this benchmark's weights",
     },
   ]);
 
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1), {
     weightsUsed: ["data/W_embed.npy"],
     weightsUploaded: [{ path: "data/W_embed.npy", sha256: DIGEST }],
   });
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, "other-benchmark"), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, "other-benchmark", 1), {
     weightsUsed: [],
     weightsUploaded: [],
   });
@@ -452,7 +454,7 @@ test("legacy reports remain readable and upsertable without declaring committed 
   const saved = await upsertLocalReport(env, "user_1", legacy);
   assert.equal(saved.created, false);
   assert.equal(saved.report.weightsUploaded, null);
-  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK);
+  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1);
   await assert.rejects(
     weightManifest({ head: async () => null }, REPO, sha, weights.weightsUsed, weights.weightsUploaded),
     /doesn't identify its uploaded weights/,
@@ -477,7 +479,7 @@ test("report upload requirements survive upsert and dispatch selection", async (
   assert.ok(report);
   const saved = await upsertLocalReport(env, "user_1", { ...report, weightsUploaded: [{ path: "model.pkl", sha256: "a".repeat(64) }] });
   assert.deepEqual(saved.report.weightsUploaded, [{ path: "model.pkl", sha256: "a".repeat(64) }]);
-  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK);
+  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1);
   assert.deepEqual(weights, {
     weightsUsed: ["model.pkl", "committed.pkl"], weightsUploaded: [{ path: "model.pkl", sha256: "a".repeat(64) }],
   });
@@ -559,7 +561,7 @@ test("a report spelled with different letter case is listed, admitted for upload
     await getWeightUploadTarget(env, "user_1", "report_lowercase_origin", "model.pkl", DIGEST),
     { repositoryFullName: "demo-org/team-repo", sha },
   );
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK, 1), {
     weightsUsed: ["model.pkl"],
     weightsUploaded: [{ path: "model.pkl", sha256: DIGEST }],
   });
@@ -592,7 +594,7 @@ test("ignoring letter case still refuses a different repository", async () => {
   assert.deepEqual(await listUntrackedLocalReports(env, "user_1"), []);
   // Dispatch refuses the conflicting id rather than falling back to no weights.
   await assert.rejects(
-    getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK),
+    getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK, 1),
     /names a different repository than this execution/,
   );
 });
@@ -642,4 +644,95 @@ test("a report id another account saved first is still refused, even in a race",
   assert.match(reason.message ?? "", /already in use/);
   const [stored] = await db.select().from(localReports).where(eq(localReports.reportId, "report_contested"));
   assert.equal(stored?.userId, "user_1");
+});
+
+const WEIGHTED = {
+  weightsUsedJson: JSON.stringify(["data/W_embed.npy"]),
+  weightsUploadedJson: JSON.stringify([{ path: "data/W_embed.npy", sha256: DIGEST }]),
+};
+
+test("an old version's report never supplies weights to a run of the new version", async () => {
+  const { env, db } = await seededDb();
+  const sha = "b".repeat(40);
+  await db.insert(localReports).values({ ...reportRow("report_v1", 1), sha, ...WEIGHTED, syncedAt: 30 });
+  // The only report at this commit is for version 1, even though it is newest.
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 2), {
+    weightsUsed: [], weightsUploaded: null,
+  });
+  await db.insert(localReports).values({
+    ...reportRow("report_v2", 2), sha, weightsUsedJson: "[]", weightsUploadedJson: "[]", syncedAt: 20,
+  });
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 2), {
+    weightsUsed: [], weightsUploaded: [],
+  });
+  assert.deepEqual((await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1)).weightsUsed,
+    ["data/W_embed.npy"]);
+});
+
+test("a dirty newest report that names weights is refused, never stepped over", async () => {
+  const { env, db } = await seededDb();
+  const sha = "b".repeat(40);
+  await db.insert(localReports).values([
+    { ...reportRow("report_clean_older", 1), sha, ...WEIGHTED, syncedAt: 10 },
+    { ...reportRow("report_dirty_newest", 1), sha, ...WEIGHTED, dirty: true, syncedAt: 20 },
+  ]);
+  await assert.rejects(getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 409 &&
+      /ran with uncommitted changes/.test(error.message) &&
+      error.message.includes(`cogworks run --benchmark ${BENCHMARK}\` at the new commit`) &&
+      !/discard/i.test(error.message));
+});
+
+test("a dirty newest report that names no weights attaches nothing and is not refused", async () => {
+  const { env, db } = await seededDb();
+  const sha = "b".repeat(40);
+  await db.insert(localReports).values({
+    ...reportRow("report_dirty_unweighted", 1), sha, dirty: true,
+    weightsUsedJson: "[]", weightsUploadedJson: "[]", syncedAt: 20,
+  });
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1), {
+    weightsUsed: [], weightsUploaded: [],
+  });
+});
+
+test("a newest report whose weight record is unknown stops dispatch until it is run and synced again", async () => {
+  const { env, db } = await seededDb();
+  const sha = "b".repeat(40);
+  await db.insert(localReports).values([
+    { ...reportRow("report_known_older", 1), sha, ...WEIGHTED, syncedAt: 10 },
+    { ...reportRow("report_legacy_newest", 1), sha, weightsUsedJson: "[]", weightsUsedKnown: false, syncedAt: 20 },
+  ]);
+  await assert.rejects(getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1),
+    /doesn't establish which weight files the run used/);
+  // Still readable as history.
+  assert.equal((await getLocalReport(env, "report_legacy_newest"))?.reportId, "report_legacy_newest");
+  // Syncing it again is a write by the current Worker, which records an answer.
+  const legacy = await getLocalReport(env, "report_legacy_newest");
+  assert.ok(legacy);
+  const { author: _author, syncedAt: _syncedAt, trust: _trust, ...input } = legacy;
+  await upsertLocalReport(env, "user_1", LocalReportInputSchema.parse(input));
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK, 1), {
+    weightsUsed: [], weightsUploaded: null,
+  });
+});
+
+test("migration 0047 marks only rows whose stored value proves a weights-aware writer", () => {
+  const sqlite = new DatabaseSync(":memory:");
+  const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith(".sql")).sort();
+  for (const file of files.filter((name) => name < "0047")) {
+    sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
+  }
+  sqlite.exec(`INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
+    VALUES ('u', 'U', 'u@example.test', 0, 0, 0)`);
+  const insert = sqlite.prepare(`INSERT INTO local_reports (report_id, user_id, benchmark_id, benchmark_version,
+    contract_version, sdk_version, plugin_version, dirty, started_at, finished_at, metrics_json,
+    diagnostics_json, synced_at, weights_used_json, weights_uploaded_json)
+    VALUES (?, 'u', 'b', 1, '1', '0', '0', 0, 0, 0, '[]', '[]', 0, ?, ?)`);
+  insert.run("placeholder", "[]", null);
+  insert.run("named_weights", '["model.pkl"]', null);
+  insert.run("declared_uploads", "[]", "[]");
+  sqlite.exec(readFileSync(join(MIGRATIONS, files.find((name) => name.startsWith("0047"))!), "utf8"));
+  const known = Object.fromEntries(sqlite.prepare("SELECT report_id, weights_used_known FROM local_reports").all()
+    .map((row) => [row.report_id, row.weights_used_known]));
+  assert.deepEqual(known, { placeholder: 0, named_weights: 1, declared_uploads: 1 });
 });

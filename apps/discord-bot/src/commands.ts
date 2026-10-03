@@ -183,7 +183,7 @@ async function homeView(
         silent ? "lost contact" : null,
         latestSurface.primaryMetric ? `**${metricValue(latestSurface.primaryMetric)}**` : null,
       ])
-    : `${fmt("cog_flask")} The bench is ready. No shared runs yet.`;
+    : `${fmt("cog_flask")} The bench is ready. No runs yet.`;
   // Custom emoji stay on full-size lines; they render oversized inside `-#`.
   const attempts =
     latestSurface?.nextOfficialAttempt != null
@@ -433,10 +433,14 @@ function bindChannelView(interaction: DiscordInteraction): InteractionResponse {
         [
           text(
             [
+              // Consent has to name everything binding turns on. Every hosted
+              // run copies the team channel onto its console when it starts
+              // (worker/services/run-actions.ts), and the official attempt and
+              // publication edit that same bubble; only local runs wait to be shared.
               "### Make this the team bench?",
-              "Cog will post one live bubble per explicitly shared local run here, then edit that same message as the run moves.",
+              "Cog will post your team's hosted run progress and results here, including official attempts and publication. A local run shows up only when someone shares it.",
               "",
-              "Everyone who can read this channel can see the commit, progress, and self-reported score. Source code and raw outputs stay on the student's device.",
+              "Everyone who can read this channel sees each run's commit, progress and score (self-reported for a shared local run). No one's name is attached, and source code and raw outputs are never posted.",
             ].join("\n"),
           ),
           separator(),

@@ -155,16 +155,23 @@ function storedSpellings(repositoryFullName: string): string[] {
   return lowercase === repositoryFullName ? [lowercase] : [repositoryFullName, lowercase];
 }
 
-/** Every key a recorded weight may sit at, in reading order: for each
- *  spelling, content-addressed then pre-digest. The exact spelling's pair comes
- *  first, so every lookup that resolved before lowercase uploads still resolves
- *  the same way. The first object found is the answer, so one that fails its
- *  checks is refused, not skipped. */
+/** Every key a recorded weight may sit at, in reading order: every
+ *  spelling's content-addressed key, then every spelling's pre-digest key.
+ *
+ *  Content-addressed keys come first because R2 checked their bytes against
+ *  the digest that names them, while a pre-digest key is mutable and may hold
+ *  an older upload. Reading spelling by spelling put the exact spelling's
+ *  pre-digest key ahead of the lowercase key every upload now writes, so a
+ *  stale mixed-case object refused a run that a fresh sync had already
+ *  repaired. The first object found is still the answer: one that fails its
+ *  checks is refused, not skipped, so a bad content-addressed object never
+ *  falls through to a legacy one. */
 function storedWeightKeys(repositoryFullName: string, sha: string, path: string, sha256: string): string[] {
-  return storedSpellings(repositoryFullName).flatMap((name) => [
-    weightObjectKey(name, sha, path, sha256),
-    legacyWeightObjectKey(name, sha, path),
-  ]);
+  const names = storedSpellings(repositoryFullName);
+  return [
+    ...names.map((name) => weightObjectKey(name, sha, path, sha256)),
+    ...names.map((name) => legacyWeightObjectKey(name, sha, path)),
+  ];
 }
 
 function hex(bytes: ArrayBuffer): string {
@@ -354,9 +361,10 @@ export async function weightManifest(
   const weights: WeightFile[] = [];
   // Explicit provenance excludes committed paths even if R2 has an older override.
   for (const { path, sha256 } of weightsUploaded ?? []) {
-    // Only on a miss, and only for the path this report named: see
-    // `legacyWeightObjectKey`. An object at the content-addressed key that
-    // fails the checks below is refused rather than looked up again.
+    // Pre-digest keys only once no spelling has a content-addressed object,
+    // and only for the path this report named: see `storedWeightKeys`. The
+    // first object found that fails the checks below is refused rather than
+    // looked up again.
     let object: R2Object | null = null;
     for (const key of storedWeightKeys(repositoryFullName, sha, path, sha256)) {
       object = await bucket.head(key);

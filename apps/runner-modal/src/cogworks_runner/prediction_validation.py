@@ -301,6 +301,12 @@ def _check_matrix_field(index: int, field: str, rows: List[Any]) -> None:
 
     leaf_types = _NUMERIC_MATRIX_FIELDS[field]
     rectangular = field not in _EMPTY_ROW_OK
+    # np.asarray([]) is 1-D, so summarize_norms raises on axis=1 during scoring.
+    if rectangular and not rows:
+        raise _refuse_output(
+            'In result {}, "{}" is empty; scoring needs a 2-D matrix with '
+            "at least one row. Check what your adapter returns.".format(index, field)
+        )
     width: Optional[int] = None
     for position, row in enumerate(rows):
         if type(row) is not list:
@@ -338,6 +344,17 @@ def _check_matrix_field(index: int, field: str, rows: List[Any]) -> None:
             # which is an honest bad score rather than an inflated one, so
             # refusing it would cost a team an attempt for nothing.
             if type(item) is bool or type(item) in leaf_types:
+                if field == "rankings":
+                    # search_ranks uses int() even beyond k when counting foreign ids.
+                    # Use that conversion so signs, whitespace and float ids still pass.
+                    try:
+                        int(item)
+                    except (TypeError, ValueError, OverflowError) as error:
+                        raise _refuse_output(
+                            'In result {}, "rankings" holds an image id at row {}, '
+                            "position {} that int() cannot read. Return image ids "
+                            "that convert to integers.".format(index, position, column)
+                        ) from error
                 continue
             raise _refuse_output(
                 'In result {}, "{}" holds {} at row {}, position {}, where '

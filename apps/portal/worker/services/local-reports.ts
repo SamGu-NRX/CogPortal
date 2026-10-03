@@ -204,6 +204,8 @@ export async function upsertLocalReport(
     metricsJson: JSON.stringify(body.metrics),
     diagnosticsJson: JSON.stringify(body.diagnostics),
     weightsUsedJson: JSON.stringify(body.weightsUsed),
+    // The report schema requires weightsUsed, so this write is an answer.
+    weightsUsedKnown: true,
     weightsUploadedJson: body.weightsUploaded == null ? null : JSON.stringify(body.weightsUploaded),
     command: body.command ?? null,
     syncedAt: Date.now(),
@@ -321,7 +323,22 @@ export async function getWeightUploadTarget(
  * every benchmark from it, so two benchmarks at one commit is ordinary, and
  * Audio names no weights at all. Selecting Audio's report because it synced
  * more recently dispatched `weights: []` for Language, whose run then scores
- * near chance with nothing to read.
+ * near chance with nothing to read. `benchmarkVersion` is a filter for the
+ * same reason: after a version bump, the old version's report at the same
+ * commit answers a different contract.
+ *
+ * The newest report is refused, never stepped over, in two more cases. When
+ * its weight record predates 0033 (`weightsUsedKnown`), its '[]' is a column
+ * default, not "no weights". When it came from a dirty worktree and names
+ * weights, those files may come from uncommitted code, so attaching them to a
+ * run of the clean commit would score inputs the commit does not produce.
+ * Choosing an older clean report instead would hide that the newest one
+ * needs attention.
+ *
+ * "Known" is what the client sent. The pinned CLI (COGBENCH_SOURCE) refuses to
+ * sync a saved report that never recorded its weights; older installed CLIs
+ * send [] for it, which reads as known and empty here. Nothing in the report
+ * shows which client wrote it, so this does not try to tell them apart.
  */
 export async function getLatestTeamWeights(
   env: Env,
@@ -330,12 +347,15 @@ export async function getLatestTeamWeights(
   sha: string,
   repositoryId: number | null,
   benchmarkId: string,
+  benchmarkVersion: number,
 ): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
   const memberUserIds = await teamMemberUserIds(env, teamId);
   if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
   const [report] = await getDb(env)
     .select({
       repositoryId: localReports.repositoryId,
+      dirty: localReports.dirty,
+      weightsUsedKnown: localReports.weightsUsedKnown,
       weightsUsedJson: localReports.weightsUsedJson,
       weightsUploadedJson: localReports.weightsUploadedJson,
     })
@@ -346,6 +366,7 @@ export async function getLatestTeamWeights(
         reportRepositoryIs(repositoryFullName),
         eq(localReports.sha, sha),
         eq(localReports.benchmarkId, benchmarkId),
+        eq(localReports.benchmarkVersion, benchmarkVersion),
       ),
     )
     .orderBy(desc(localReports.syncedAt))
@@ -353,6 +374,10 @@ export async function getLatestTeamWeights(
   if (!report) return { weightsUsed: [], weightsUploaded: null };
   if (repositoryId != null && report.repositoryId != null && report.repositoryId !== repositoryId) {
     throw new ApiHttpError(409, "invalid_request", "The newest synced report names a different repository than this execution; sync the report again.");
+  }
+  if (!report.weightsUsedKnown) {
+    throw new ApiHttpError(409, "invalid_request",
+      `The newest report for this commit doesn't establish which weight files the run used. To give the hosted run the same files, run \`cogworks run --benchmark ${benchmarkId}\` at this commit, then \`cogworks sync\`, and start the hosted run again.`);
   }
   const weights = LocalReportWeightsSchema.safeParse({
     weightsUsed: JSON.parse(report.weightsUsedJson),
@@ -362,6 +387,10 @@ export async function getLatestTeamWeights(
   });
   if (!weights.success) {
     throw new ApiHttpError(409, "invalid_request", "The newest synced report has invalid weight provenance; sync the report again.");
+  }
+  if (report.dirty && weights.data.weightsUsed.length > 0) {
+    throw new ApiHttpError(409, "invalid_request",
+      `The newest report for this commit ran with uncommitted changes, so its weight files may not be what this commit produces. Commit and push those changes, run \`cogworks run --benchmark ${benchmarkId}\` at the new commit, then \`cogworks sync\`, and start a hosted run of that commit.`);
   }
   return weights.data;
 }

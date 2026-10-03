@@ -626,6 +626,83 @@ class NumericLeafTests(unittest.TestCase):
         CHECK(_Benchmark("audio-identification"), results, 1)
 
 
+class Week3BoundaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(ROOT / "benchmarks" / "week3"))
+        from language_search_benchmark.metrics import search_ranks, summarize_norms
+
+        cls.search_ranks = staticmethod(search_ranks)
+        cls.summarize_norms = staticmethod(summarize_norms)
+
+    def test_empty_outer_embedding_matrices_are_output_invalid(self):
+        for field in ("embeddings", "text", "images"):
+            with self.subTest(field=field):
+                # The scorer's axis=1 operation raises on the 1-D array from [].
+                with self.assertRaises(ValueError):
+                    self.summarize_norms(np.asarray([], dtype=np.float64), field)
+                with self.assertRaises(FAILURE) as caught:
+                    CHECK(_Benchmark("language-search"), [{field: []}], 1)
+                self.assertEqual(caught.exception.category, "output_invalid")
+                self.assertEqual(caught.exception.phase, "evaluating")
+                self.assertFalse(caught.exception.infrastructure)
+                self.assertEqual(
+                    str(caught.exception),
+                    'In result 0, "{}" is empty; scoring needs a 2-D matrix with '
+                    "at least one row. Check what your adapter returns.".format(field),
+                )
+
+    def test_single_row_single_column_embedding_matrices_are_allowed(self):
+        for field in ("embeddings", "text", "images"):
+            with self.subTest(field=field):
+                rows = [[1.0]]
+                CHECK(_Benchmark("language-search"), [{field: rows}], 1)
+                self.summarize_norms(np.asarray(rows, dtype=np.float64), field)
+                self.assertEqual(rows, [[1.0]])
+
+    def test_unconvertible_ranking_ids_are_output_invalid_even_beyond_k(self):
+        for image_id in ("not-an-id", "1.0", "", " ", "+", "1e0", "0x1", "nan", "inf", "1__0"):
+            for position in (0, 1):
+                with self.subTest(image_id=image_id, position=position):
+                    row = [image_id] if position == 0 else [1, image_id]
+                    # With k=1, position 1 is still read by the foreign-id count.
+                    with self.assertRaises(ValueError):
+                        self.search_ranks([row], [1], 1, [1])
+                    with self.assertRaises(FAILURE) as caught:
+                        CHECK(_Benchmark("language-search"), [{"rankings": [row]}], 1)
+                    self.assertEqual(caught.exception.category, "output_invalid")
+                    self.assertEqual(caught.exception.phase, "evaluating")
+                    self.assertFalse(caught.exception.infrastructure)
+                    self.assertEqual(
+                        str(caught.exception),
+                        'In result 0, "rankings" holds an image id at row 0, '
+                        "position {} that int() cannot read. Return image ids "
+                        "that convert to integers.".format(position),
+                    )
+
+    def test_convertible_ranking_ids_match_the_scorer_and_are_unchanged(self):
+        for image_id, expected in (
+            (True, 1), (False, 0), (1, 1), (-1, -1), (1.9, 1), (-1.9, -1),
+            ("1", 1), (" \t1\n", 1), ("+1", 1), ("-1", -1), ("001", 1),
+            ("1_0", 10), ("١", 1), (" 1 ", 1),
+        ):
+            with self.subTest(image_id=image_id):
+                payload = LOAD(json.dumps([{"rankings": [[image_id]]}]))
+                before = json.dumps(payload)
+                CHECK(_Benchmark("language-search"), payload, 1)
+                self.assertEqual(int(image_id), expected)
+                ranks, foreign = self.search_ranks(payload[0]["rankings"], [expected], 1, [expected])
+                self.assertEqual(ranks.tolist(), [1])
+                self.assertEqual(foreign, 0)
+                self.assertEqual(json.dumps(payload), before)
+
+    def test_empty_outer_rankings_are_allowed_and_score_as_misses(self):
+        CHECK(_Benchmark("language-search"), [{"rankings": []}], 1)
+        ranks, foreign = self.search_ranks([], [1], 1, [1])
+        self.assertEqual(ranks.tolist(), [0])
+        self.assertEqual(foreign, 0)
+
+
 class NumericLeafValidTests(unittest.TestCase):
     """The half that matters more: honest matrices are not refused.
 
@@ -1101,6 +1178,8 @@ class WiringTests(unittest.TestCase):
             lambda: CHECK(_Benchmark("language-search"), text([[1.0, 2.0], [3.0]]), 1),
             lambda: CHECK(_Benchmark("language-search"), text([0.1, 0.2]), 1),
             lambda: CHECK(_Benchmark("language-search"), text([[], []]), 1),
+            lambda: CHECK(_Benchmark("language-search"), text([]), 1),
+            lambda: CHECK(_Benchmark("language-search"), search([["not-an-id"]]), 1),
             lambda: CHECK(_Benchmark("language-search"), search([[None]]), 1),
             lambda: RESTORE(
                 [{"before_enrollment": "abc", "after_enrollment": ["d"]}],
@@ -1111,7 +1190,7 @@ class WiringTests(unittest.TestCase):
             with self.assertRaises(FAILURE) as caught:
                 call()
             messages.append(str(caught.exception))
-        self.assertEqual(len(messages), 13)
+        self.assertEqual(len(messages), 15)
         for message in messages:
             self.assertNotIn("—", message, message)
             self.assertNotIn("–", message, message)

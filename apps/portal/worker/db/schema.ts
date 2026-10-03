@@ -377,8 +377,11 @@ export const runs = sqliteTable("runs", {
   failureConsumedAttempt: integer("failure_consumed_attempt", { mode: "boolean" })
     .notNull()
     .default(false),
-  /** Historical refund record. Retained so previously refunded successes do
-   *  not acquire a charge or publication eligibility under the current policy. */
+  /** When the portal released this execution's quota: historical refunds,
+   *  and capacity releases such as 0048 (Week 2 runs scored before 0044's
+   *  scorer correction). A succeeded execution with this set does not count
+   *  as used and cannot be promoted or published. An active one keeps its
+   *  reservation until it ends, and completing does not clear this. */
   refundedAt: integer("refunded_at"),
   log: text("log"),
   /** Scorer diagnostics from the succeeded event: the benchmark's own
@@ -411,6 +414,14 @@ export const runs = sqliteTable("runs", {
   scorerVersion: text("scorer_version").notNull().default("1"),
   runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
   dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
+  /** Server time of the last runner callback that advanced this execution's
+   *  sequence while it was active (0049). Null until one does. */
+  acceptedActivityAt: integer("accepted_activity_at"),
+  /** Inactivity grace for executions that predate acceptedActivityAt (0049).
+   *  Null: such a row the stale-run sweep has not reached. 0: written by code
+   *  that records activity, so no grace. Otherwise the time before which the
+   *  sweep will not fail it for silence. */
+  legacyGraceUntil: integer("legacy_grace_until"),
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
   surfaceId: text("surface_id"),
 }, (table) => [
@@ -500,6 +511,10 @@ export const localReports = sqliteTable("local_reports", {
   diagnosticsJson: text("diagnostics_json").notNull(),
   /** Paths discovery read while producing this local report. */
   weightsUsedJson: text("weights_used_json").notNull().default("[]"),
+  /** Whether weightsUsedJson is the report's answer. False on reports synced
+   *  before 0033 recorded it, whose '[]' is only the column default
+   *  (migration 0047). Every write since sets it. */
+  weightsUsedKnown: integer("weights_used_known", { mode: "boolean" }).notNull().default(false),
   /** Required uploads; NULL preserves unknown provenance on legacy reports. */
   weightsUploadedJson: text("weights_uploaded_json"),
   /** `test` or `run`; NULL for a report synced before the CLI recorded it. */

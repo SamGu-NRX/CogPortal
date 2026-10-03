@@ -495,8 +495,23 @@ test("team channel setup is explicit and binds only after confirmation", async (
   });
 
   const preview = await executeCommand(component("cog:bind-channel"), portal, guildId, portalOrigin);
-  assert.match(responseText(preview), /Everyone who can read this channel/);
-  assert.equal(bound, null);
+  // The exact consent: binding posts every hosted run, practice and official,
+  // and only shared local runs, so the prompt has to say both before anyone agrees.
+  assert.equal(
+    responseText(preview),
+    [
+      "### Make this the team bench?",
+      "Cog will post your team's hosted run progress and results here, including official attempts and publication. A local run shows up only when someone shares it.",
+      "",
+      "Everyone who can read this channel sees each run's commit, progress and score (self-reported for a shared local run). No one's name is attached, and source code and raw outputs are never posted.",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    buttons(preview).map((item) => [item.custom_id, item.label]),
+    [["cog:bind-channel:confirm", "Yes, use this channel"], ["cog:home", "Not now"]],
+  );
+  assert.doesNotMatch(responseText(preview), /explicitly shared|stay on the student's device/);
+  assert.equal(bound, null, "the preview binds nothing");
 
   const confirmed = await executeCommand(
     component("cog:bind-channel:confirm"),

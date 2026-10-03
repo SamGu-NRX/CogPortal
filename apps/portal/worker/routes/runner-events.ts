@@ -54,6 +54,14 @@ export async function verifyRunnerSignature(
 
 async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<void> {
   const db = getDb(env);
+  // The server's clock, not the runner's occurredAt: the stale-run sweep
+  // compares it with its own. Written only by the guarded updates below that
+  // advance an active execution, so a replay, a lower sequence or a late
+  // result for a failed run leaves it where it was. It only moves forward: a
+  // higher sequence read before a lower one committed carries an older
+  // receive time, and must not make the run look quieter than it is.
+  const receivedAt = Date.now();
+  const acceptedActivityAt = sql<number>`max(coalesce(${runs.acceptedActivityAt}, 0), ${receivedAt})`;
   const [run] = await db.select().from(runs).where(eq(runs.id, event.runId)).limit(1);
   if (!run) throw new ApiHttpError(404, "not_found", "Run not found.");
   const lateCompletion = event.type === "completed" && run.status === "failed";
@@ -131,7 +139,8 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
       db.update(runPhases).set({ startedAt: event.occurredAt }).where(and(
         eq(runPhases.runId, run.id), eq(runPhases.phase, phase), phaseChanged,
       )),
-      db.update(runs).set({ status: phase, lastEventSequence: event.sequence }).where(eligible),
+      db.update(runs).set({ status: phase, lastEventSequence: event.sequence, acceptedActivityAt })
+        .where(eligible),
     ]);
     return;
   }
@@ -224,6 +233,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         refusalJson: null,
         finishedAt: event.occurredAt,
         lastEventSequence: event.sequence,
+        acceptedActivityAt,
       }).where(active),
       db.update(runs).set({ lastEventSequence: event.sequence }).where(and(
         acceptsCompletion, eq(runs.status, "failed"),
@@ -248,6 +258,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         log: run.mode === "practice" ? event.sanitizedLog ?? null : null,
         failureConsumedAttempt: false,
         lastEventSequence: event.sequence,
+        acceptedActivityAt,
       }).where(active),
     ]);
   }

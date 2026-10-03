@@ -33,6 +33,11 @@ interface DiscordMessage {
 }
 
 export class DiscordRequestError extends Error {
+  /** The channel the refused request went to, set by syncRunSurfaceMessage.
+   *  The surface can be rebound while the request is in flight, so a later
+   *  read of the binding may name a channel that was never asked. */
+  channelId: string | null = null;
+
   constructor(
     public readonly status: number,
     public readonly retryAfterMs: number | null,
@@ -274,10 +279,35 @@ function nonce(snapshot: RunSurfaceSnapshot, generation: number): string {
   return `${snapshot.id.slice(-18)}${generation.toString(36)}`.slice(0, 25);
 }
 
+/** The channel a surface's message goes to, or null when none is bound. The
+ *  hub compares it with the one Discord refused, so rebinding retries. */
+export async function runSurfaceDiscordChannel(env: Env, surfaceId: string): Promise<string | null> {
+  const [surface] = await getDb(env)
+    .select({ channel: runSurfaces.discordChannelId })
+    .from(runSurfaces)
+    .where(eq(runSurfaces.id, surfaceId))
+    .limit(1);
+  return surface?.channel ?? null;
+}
+
 export async function syncRunSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot): Promise<"updated" | "created" | "unbound"> {
   const db = getDb(env);
   const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, snapshot.id)).limit(1);
   if (!surface?.discordChannelId) return "unbound";
+  try {
+    return await syncBoundSurfaceMessage(env, snapshot, surface as typeof surface & { discordChannelId: string });
+  } catch (error) {
+    if (error instanceof DiscordRequestError) error.channelId = surface.discordChannelId;
+    throw error;
+  }
+}
+
+async function syncBoundSurfaceMessage(
+  env: Env,
+  snapshot: RunSurfaceSnapshot,
+  surface: typeof runSurfaces.$inferSelect & { discordChannelId: string },
+): Promise<"updated" | "created"> {
+  const db = getDb(env);
   if (surface.discordMessageId) {
     try {
       await discordRequest<DiscordMessage>(

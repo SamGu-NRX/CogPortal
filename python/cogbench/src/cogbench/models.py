@@ -142,7 +142,11 @@ class LocalReport:
     metrics: List[Metric]
     diagnostics: List[str]
     output_digest: str
-    weights_used: List[str] = field(default_factory=list)
+    #: ``None`` when a saved report has no ``weightsUsed`` key, whether it
+    #: predates the field or was edited or damaged. It still loads and
+    #: displays, but sync refuses it: sending ``[]`` would turn "not recorded"
+    #: into "used no weights".
+    weights_used: Optional[List[str]] = field(default_factory=list)
     #: What was captured for each scored weight, measured from the bytes that
     #: were copied before loading: ``{"path", "sha256", "size"}``. Empty when
     #: the week declared no weights. ``None`` only for a report written before
@@ -220,7 +224,8 @@ class LocalReport:
             "finishedAt": self.finished_at,
             "metrics": [metric.to_wire() for metric in self.metrics],
             "diagnostics": list(self.diagnostics),
-            "weightsUsed": list(self.weights_used) if self.weights_used else [],
+            # Omitted, like command, when the saved report never recorded it.
+            **({} if self.weights_used is None else {"weightsUsed": list(self.weights_used)}),
             # None is "this report predates capture", which sync refuses for a
             # weighted run. [] is "nothing to upload", which is every week but
             # Language and is not the same statement.
@@ -318,7 +323,10 @@ class LocalReport:
             metrics=[Metric.from_wire(metric) for metric in value["metrics"]],
             diagnostics=[str(item) for item in value.get("diagnostics", [])],
             output_digest=str(value["outputDigest"]),
-            weights_used=[str(item) for item in value.get("weightsUsed", [])],
+            weights_used=(
+                [str(item) for item in value["weightsUsed"]]
+                if "weightsUsed" in value else None
+            ),
             weights_uploaded=cls._weights_uploaded(value),
             command=cls._command(value),
         )

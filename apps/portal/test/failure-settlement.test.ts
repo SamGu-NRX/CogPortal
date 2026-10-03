@@ -145,6 +145,8 @@ async function seedRun(db: Database, options: RunOptions): Promise<void> {
     contractVersion: "cogworks.submissions.v1",
     mode,
     status: options.status ?? "queued",
+    // Admitted by current code, which records runner activity (0049).
+    legacyGraceUntil: 0,
     branch: options.branch ?? PLATFORM_FAILURE_BRANCH,
     sha: "a".repeat(40),
     repositoryId: null,
