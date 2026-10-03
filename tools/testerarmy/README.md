@@ -10,7 +10,7 @@ A local trial of TesterArmy's `e2e` runner against a CogPortal dev server. It as
 | `tests/cli-link.e2e.ts` | one agent step | The URL and code `cogworks link` prints lead to a working approval. The agent approves; the checks after it prove this run's approval. The CLI exits linked, `~/.cogbench` is 0700 and `config.json` 0600, and exactly one new device exists. `cogworks status` answers with the saved token. The teammate can't see the device, and once it's revoked `status` fails. |
 | `tests/cli-link-keyboard.e2e.ts` | none | The same approval in the page's tab order. One Tab from "Device name" reaches "Approve device" and Enter approves. The test prints the focus sequence it saw. |
 | `tests/teammate-report.e2e.ts` | one agent step, one reading | A student checks, runs and syncs the Week 3 benchmark from a team repository, once with the reference submission and once after a commit where `embed_text` averages over the wrong axis. The team API gives the teammate both reports, with this run's commit and the benchmark's diagnostic. The agent finds the run on the teammate's page, and that run's row shows the diagnostic. **Red on 3670e55**, see below. |
-| `support/*.test.ts` | none | The loopback guard, and that the CLI helper stops and awaits every process it started before removing that process's HOME. |
+| `support/*.test.ts` | none | The loopback guard; that the CLI helper interrupts and awaits every process it started before removing its HOME, and reports instead of removing when one won't stop; and that inherited `GIT_*` variables can't steer the fixture repository or the CLI to another checkout. |
 
 An agent step's own summary is never evidence. Every claim above comes from a deterministic check. The teammate test also prints the agent's reading of where the page explains the low score, as a record only.
 
@@ -92,6 +92,16 @@ npm test -- tests/cli-link.e2e.ts --reporter list,junit,markdown --output .e2e/r
 
 Everything under `.e2e/`, including reports, traces and recordings, is gitignored. So are `.dev.vars` and the local database.
 
+`npm run test:unit` includes a regression that runs real Python against a stand-in for the CLI's isolated worker. It uses `python3` from `PATH`, or `PILOT_CLI_PYTHON_REAL` if set, and skips with a message when neither runs.
+
+## What the tests leave behind, and how they stop
+
+The tests write only to the test checkout's local database: the two synthetic students and their team, the reports the teammate test syncs, setup check-offs, and CLI devices. Each link test revokes the device it approved once its checks pass, and the teammate test revokes its device in teardown whatever happened before. A link test that fails partway can leave its device unrevoked. Nothing is deleted record by record; to start clean, discard the test checkout's `apps/portal/.wrangler` (the local database) and run the migrate and seed step again.
+
+When a test ends, the CLI helper sends each `cogworks` process SIGINT, the signal that lets `cogworks run` kill its benchmark worker and remove its scratch directory, and waits up to ten seconds. A process that ignores it is killed so the test can end, but its HOME stays in place and the test fails, saying a worker may still be running. That case needs looking at by hand.
+
+Fixture Git and the spawned CLI drop every inherited `GIT_*` variable, and fixture Git ignores global and system config, so a shell inside a git hook can't point the fixture's commits at another checkout.
+
 ## Measured on 3 October 2026 at 3670e55
 
 | Step | Cold | Warm |
@@ -117,5 +127,5 @@ These are observations of the installed version, not documented guarantees.
 
 ## Not covered yet
 
-- Opening the approval link before joining a team. The portal remembers the link and names it on the next page, but no test here exercises it.
+- Opening the approval link before joining a team. The portal keeps only a note that a device link was dropped and asks the student to run `cogworks link` again; reopening the original link after joining can still approve that code within ten minutes. Testing it needs a third synthetic account with a cohort and no team, and must tell those two paths apart.
 - Any deployed portal, and Modal, GitHub or Discord.

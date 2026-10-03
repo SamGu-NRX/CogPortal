@@ -1,7 +1,7 @@
 import { test } from '@e2e-dev/web';
 import { expect, unique } from 'e2e';
 import { CliHome } from '../support/cli.ts';
-import { STUDENT, TEAMMATE, approveDevice, devLogin, startLink } from '../support/link.ts';
+import { STUDENT, TEAMMATE, approveDevice, cliDevices, devLogin, revokeDevice, startLink } from '../support/link.ts';
 import {
   BENCHMARK,
   ONE_DIMENSIONAL_EMBED_TEXT,
@@ -58,12 +58,19 @@ test(
   { timeout: 300_000, tags: ['open-finding'] },
   async ({ app, agent, browser, screen }) => {
     const home = await CliHome.create({ benchmark: await week3Setup() });
+    let deviceId: string | undefined;
+    let completed = false;
     try {
       const link = await startLink(home);
       await app.open('/');
       expect(await devLogin(browser, STUDENT)).toBe(200);
+      const devicesBefore = (await cliDevices(browser)).map((device) => device.id);
       expect(await approveDevice(browser, link.code)).toBe(200);
       expect(await link.cli.exited(60_000), link.cli.output()).toBe(0);
+      const approved = (await cliDevices(browser)).filter((device) => !devicesBefore.includes(device.id));
+      expect(approved, 'this attempt approved exactly one device').toHaveLength(1);
+      // SAFETY: toHaveLength(1) above throws unless there is exactly one.
+      deviceId = approved[0]!.id;
 
       const repo = await createTeamRepo(home.path);
       const check = home.start(['check', '--benchmark', BENCHMARK, '--update-setup'], { cwd: repo.path });
@@ -111,8 +118,20 @@ test(
       // The oracle: the benchmark's diagnostic in this run's own row. Commits
       // take the current time, so no earlier attempt's report shares the row.
       await expect(row).toContainText(ONE_DIMENSIONAL_EMBED_TEXT);
+      completed = true;
     } finally {
+      // This attempt's device and no other, whatever happened above. A failed
+      // revoke fails a test that otherwise passed; after an earlier failure it
+      // is printed, so it doesn't hide that failure.
+      const revoked = deviceId
+        ? await revokeDevice(browser, STUDENT, deviceId).catch((error: unknown) => String(error))
+        : 200;
       await home.close();
+      if (revoked !== 200) {
+        const message = `Teardown could not revoke this attempt's device ${deviceId}: ${revoked}`;
+        if (completed) throw new Error(message);
+        console.error(message);
+      }
     }
   },
 );

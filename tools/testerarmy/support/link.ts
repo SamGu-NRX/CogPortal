@@ -54,6 +54,21 @@ export function approveDevice(browser: Browser, userCode: string): Promise<numbe
   );
 }
 
+/** Signs in as `login` and revokes one of that person's devices; the status of the revoke. */
+export async function revokeDevice(browser: Browser, login: string, deviceId: string): Promise<number> {
+  const signedIn = await devLogin(browser, login);
+  if (signedIn !== 200) return signedIn;
+  return browser.evaluate(
+    (id: string) =>
+      fetch('/api/v1/cli/devices', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceId: id }),
+      }).then((response) => response.status),
+    deviceId,
+  );
+}
+
 export interface PrintedLink {
   readonly cli: CliProcess;
   /** Path and query of the printed approval URL, for `app.open`. */
@@ -107,17 +122,7 @@ export async function expectCurrentApproval(options: {
   expect(await devLogin(browser, TEAMMATE)).toBe(200);
   expect((await cliDevices(browser)).map((each) => each.id)).not.toContain(device.id);
 
-  expect(await devLogin(browser, STUDENT)).toBe(200);
-  const revoked = await browser.evaluate(
-    (deviceId: string) =>
-      fetch('/api/v1/cli/devices', {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceId }),
-      }).then((response) => response.status),
-    device.id,
-  );
-  expect(revoked).toBe(200);
+  expect(await revokeDevice(browser, STUDENT, device.id)).toBe(200);
   const afterRevoke = home.start(['status', '--portal', LOCAL_ORIGIN]);
   expect(await afterRevoke.exited(30_000), afterRevoke.output()).toBe(2);
 }
