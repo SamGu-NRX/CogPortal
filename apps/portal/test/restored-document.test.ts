@@ -726,6 +726,30 @@ test("focus after a blur with the same account reopens the same page", async (t)
   assert.ok(menu?.isConnected, "the page was remounted for an unchanged account");
 });
 
+test("a first read sent as alice before a blur cannot paint the page after bob signs in", async (t) => {
+  // Cold start: the first session read is on the wire as alice, so nothing
+  // is painted. Focus moves to the next window, bob signs in there, and focus
+  // returns. Only a read made after that return may paint this page.
+  const h = await harness(t, "shared", "/setup", true);
+  const sawAlice = h.watchExposed(tokenFor("alice"));
+  const sawAliceMenu = h.watchExposed("Account menu for alice");
+  await h.blurWindow();
+  h.server.signInDirectly("bob");
+  const before = h.server.sessionRequests.length;
+  await h.focusWindow();
+  assert.deepEqual(h.server.sessionRequests.slice(before), ["bob"], "the return did not read the session afresh");
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.equal(sawAlice(), false, "alice's signed setup command was painted");
+  assert.equal(sawAliceMenu(), false, "alice's account menu was painted");
+  h.server.releaseSession("bob");
+  await h.flush();
+  assert.ok(h.exposed().includes("Account menu for bob"), "bob's answer did not decide the page");
+  assert.ok(h.exposed().includes(tokenFor("bob")));
+  assert.equal(sawAlice(), false);
+  assert.equal(h.reloads(), 0, "a page that painted nobody was reloaded");
+});
+
 test("focus before the first session read lands does nothing", async (t) => {
   const h = await harness(t, "shared", "/setup", true);
   const before = h.server.sessionRequests.length;

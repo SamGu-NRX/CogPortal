@@ -76,6 +76,9 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   const restored = useRef(false);
   // Set once a reload is requested; nothing reopens this document after that.
   const replacing = useRef(false);
+  // Whether focus left since it last arrived; a first read sent before that
+  // may carry another account's cookie.
+  const blurred = useRef(false);
 
   const check = useCallback(async () => {
     if (replacing.current) return;
@@ -155,12 +158,29 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       reopen();
     };
     const onFocus = () => {
+      const returning = blurred.current;
+      blurred.current = false;
       if (document.visibilityState !== "visible") return;
-      // Nothing is painted for anyone until the first read lands.
-      if (!qc.getQueryData(sessionQuery.queryKey)) return;
+      if (!qc.getQueryData(sessionQuery.queryKey)) {
+        // Nothing is painted for anyone yet, so there is no account to check
+        // against and nothing to conceal. But the first read may still be on
+        // the wire with the cookie from before the blur; answered late, it
+        // would paint that account under whoever signed in meanwhile. A fresh
+        // first read replaces it; the route guards wait for it as usual.
+        // A focus with no blur before it (the window taking focus as it
+        // loads) has nothing to replace.
+        if (returning && qc.isFetching({ queryKey: sessionQuery.queryKey, exact: true }) > 0) {
+          void qc
+            .cancelQueries({ queryKey: sessionQuery.queryKey, exact: true })
+            .then(() => qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" }))
+            .catch(() => {}); // a failed read is the guards' to show, with their retry
+        }
+        return;
+      }
       reopen();
     };
     const onBlur = () => {
+      blurred.current = true;
       if (replacing.current) return;
       attempt.current += 1;
       running.current = false;
