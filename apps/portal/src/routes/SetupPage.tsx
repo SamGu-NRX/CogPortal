@@ -265,6 +265,20 @@ function SetupGuide({
           </span>
         }
         title="Set up your machine"
+        // Whether this page is needed at all comes first. At the foot, four of
+        // six model readers given screenshots of the student path (stranger
+        // walks r1 to r3, 3 Oct 2026; not a study with students) either asked
+        // for it first or met it only after the install.
+        lede={
+          complete ? undefined : (
+            <>
+              Hosted practice runs don't need any of this.{" "}
+              <Link to="/dashboard" className="u-link">
+                Start one from Runs
+              </Link>
+            </>
+          )
+        }
         // Every command on this page names a benchmark, so the page has to
         // show which one and let a student change it. Without this the
         // default track silently decides what they're told to type.
@@ -378,7 +392,7 @@ function SetupGuide({
         </StepRail>
       </div>
 
-      {complete ? (
+      {complete && (
         <Panel
           label="Setup complete"
           tone={observed ? "good" : "default"}
@@ -397,13 +411,6 @@ function SetupGuide({
             <HugeiconsIcon icon={ArrowRight01Icon} size={16} strokeWidth={1.8} aria-hidden="true" />
           </Link>
         </Panel>
-      ) : (
-        <p className="mt-12 max-w-[42rem] border-t border-rule-soft pt-5 text-[14px] leading-[1.6] text-ink-secondary">
-          Hosted practice runs don't need any of this.{" "}
-          <Link to="/dashboard" className="u-link">
-            Start one from Runs
-          </Link>
-        </p>
       )}
     </div>
   );
@@ -533,12 +540,17 @@ function TerminalCheckoff({
           aria-hidden="true"
           className="transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none"
         />
-        Tick this box from your terminal
+        {/* Was "Tick this box": three model readers couldn't tell which box
+            or what would tick it. It names the step, and the fold says what
+            the portal records: the student's word, not an observation. */}
+        Tick this step from your terminal
       </summary>
       <div className="mt-1 mb-1 border-l border-rule pl-4">
         <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-          Once this step works, paste this into the same terminal. It marks this
-          one step and sends nothing else.
+          To tick this step now rather than when{" "}
+          <code className="font-mono text-[0.92em] text-ink">check</code> runs in step 5, paste
+          this into the same terminal once the step works. It shows here as checked off by
+          you, and the command sends nothing else.
         </p>
         {/* Keep the signed token plain and on one scrollable line. */}
         <CopyBlock

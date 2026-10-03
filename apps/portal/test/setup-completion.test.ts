@@ -59,7 +59,29 @@ const TEAM = {
   isAdmin: false,
 };
 
-async function renderComplete(t: test.TestContext, byHand: string[]) {
+type SetupState = {
+  verified: string[];
+  verifiedByBenchmark: Record<string, string[]>;
+  checked: string[];
+  checkedByBenchmark: Record<string, string[]>;
+  tokens: Record<string, string>;
+};
+
+/** Every step ticked: `byHand` were checked off from the terminal, the rest
+ *  the portal observed. */
+function completeState(byHand: string[]): SetupState {
+  const scoped = ["environment", "project", "wiring"];
+  const observed = (step: string) => !byHand.includes(step);
+  return {
+    verified: observed("clone") ? ["clone"] : [],
+    verifiedByBenchmark: { [BENCHMARK.id]: scoped.filter(observed) },
+    checked: observed("clone") ? [] : ["clone"],
+    checkedByBenchmark: { [BENCHMARK.id]: scoped.filter((step) => !observed(step)) },
+    tokens: {},
+  };
+}
+
+async function renderSetup(t: test.TestContext, state: SetupState) {
   const window = new Window({ url: "https://portal.example/setup" });
   const globals = {
     window, document: window.document, navigator: window.navigator,
@@ -74,8 +96,6 @@ async function renderComplete(t: test.TestContext, byHand: string[]) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
 
-  const scoped = ["environment", "project", "wiring"];
-  const observed = (step: string) => !byHand.includes(step);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["session"], SESSION);
   client.setQueryData(["team"], TEAM);
@@ -85,13 +105,7 @@ async function renderComplete(t: test.TestContext, byHand: string[]) {
     discord: null,
     cliDevices: [{ id: "d1", name: "laptop", createdAt: 1, lastUsedAt: null }],
   });
-  client.setQueryData(["setup-state", "alice", "team_a", BENCHMARK.id], {
-    verified: observed("clone") ? ["clone"] : [],
-    verifiedByBenchmark: { [BENCHMARK.id]: scoped.filter(observed) },
-    checked: observed("clone") ? [] : ["clone"],
-    checkedByBenchmark: { [BENCHMARK.id]: scoped.filter((step) => !observed(step)) },
-    tokens: {},
-  });
+  client.setQueryData(["setup-state", "alice", "team_a", BENCHMARK.id], state);
 
   const container = window.document.createElement("div");
   window.document.body.append(container);
@@ -111,6 +125,11 @@ async function renderComplete(t: test.TestContext, byHand: string[]) {
       React.createElement(MemoryRouter, null, React.createElement(SetupPage)),
     ),
   ));
+  return container;
+}
+
+async function renderComplete(t: test.TestContext, byHand: string[]) {
+  const container = await renderSetup(t, completeState(byHand));
   const panel = [...container.querySelectorAll("section")].find((section) => section.textContent?.includes("Setup complete"));
   assert.ok(panel, "the completion panel did not render");
   return { text: panel.textContent ?? "", verificationGreen: panel.classList.contains("bg-verify-wash") };
@@ -127,4 +146,25 @@ test("a setup finished with check-offs does not claim the portal verified it", a
   assert.doesNotMatch(text, /verify checks out/);
   assert.ok(!verificationGreen, "self-reported steps were coloured as verified");
   assert.match(text, /checked off by you weren't seen by the portal/);
+});
+
+// Model readers given screenshots (stranger walks r1 to r3, 3 Oct 2026) met
+// "Hosted practice runs don't need any of this" only after the install, and
+// couldn't tell what "Tick this box from your terminal" would do.
+test("an unfinished setup says first that hosted runs don't need it, and what a check-off records", async (t) => {
+  const container = await renderSetup(t, {
+    verified: [], verifiedByBenchmark: {}, checked: [], checkedByBenchmark: {}, tokens: { clone: "token" },
+  });
+  const text = container.textContent ?? "";
+  const hosted = "Hosted practice runs don't need any of this.";
+  assert.equal(text.split(hosted).length - 1, 1, "said once");
+  assert.ok(text.indexOf(hosted) < text.indexOf("Get the code"), "before the first step");
+  assert.match(text, /Tick this step from your terminal/);
+  assert.doesNotMatch(text, /Tick this box/);
+  assert.match(text, /It shows here as checked off by\s+you, and the command sends nothing else\./);
+});
+
+test("a finished setup leaves the hosted-runs line to its completion panel", async (t) => {
+  const container = await renderSetup(t, completeState([]));
+  assert.doesNotMatch(container.textContent ?? "", /Hosted practice runs don't need any of this/);
 });
