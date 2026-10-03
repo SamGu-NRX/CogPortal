@@ -22,10 +22,13 @@ import { MemberAvatar } from "./MemberAvatar";
  * GitHub is the next thing to do.
  */
 export function MemberPalette({
+  teamId,
   open,
   onClose,
   triggerRef,
 }: {
+  /** The team the page shows; the add is refused if it is no longer yours. */
+  teamId: string;
   open: boolean;
   onClose: () => void;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
@@ -93,7 +96,7 @@ export function MemberPalette({
     if (!user || add.isPending) return;
     setAddingLogin(user.login);
     setAdded(null);
-    add.mutate(user.login, {
+    add.mutate({ teamId, login: user.login }, {
       onSuccess: () => {
         setQuery("");
         setAdded(user.name ?? user.login);

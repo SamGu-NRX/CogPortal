@@ -143,12 +143,14 @@ export const api = {
 
   team: () => request("/api/team", TeamDetailSchema),
   teamProcess: () => request("/api/v1/team/process", TeamProcessSignalsSchema),
-  updateTeam: (body: { name?: string; description?: string | null }) =>
-    request("/api/team", TeamDetailSchema, { method: "PATCH", body }),
-  changeTeamRepo: (fullName: string) =>
+  // Each team change names the team the page showed; the server refuses it
+  // when that is no longer the caller's team (requireAdminOfShownTeam).
+  updateTeam: (teamId: string, body: { name?: string; description?: string | null }) =>
+    request("/api/team", TeamDetailSchema, { method: "PATCH", body: { teamId, ...body } }),
+  changeTeamRepo: (teamId: string, fullName: string) =>
     request("/api/team/repository", TeamDetailSchema, {
       method: "POST",
-      body: { fullName },
+      body: { teamId, fullName },
     }),
 
   setupState: (benchmarkId?: string) =>
@@ -170,20 +172,22 @@ export const api = {
       body: { teamId },
     }),
   invitableUsers: () => request("/api/team/invitable", InvitableUserListSchema),
-  addTeamMember: (login: string) =>
+  addTeamMember: (teamId: string, login: string) =>
     request("/api/team/members", TeamDetailSchema, {
       method: "POST",
-      body: { login },
+      body: { teamId, login },
     }),
   leaveTeam: (teamId: string) =>
     request("/api/team/leave", LeaveTeamResponseSchema, {
       method: "POST",
       body: { teamId },
     }),
-  removeTeamMember: (login: string) =>
-    request(`/api/team/members/${encodeURIComponent(login)}`, TeamDetailSchema, {
-      method: "DELETE",
-    }),
+  removeTeamMember: (teamId: string, login: string) =>
+    request(
+      `/api/team/members/${encodeURIComponent(login)}?teamId=${encodeURIComponent(teamId)}`,
+      TeamDetailSchema,
+      { method: "DELETE" },
+    ),
 
   adminOverview: () => request("/api/admin/overview", AdminOverviewSchema),
   adminPatchCohort: (body: { rotateJoinCode?: boolean; active?: boolean }) =>
@@ -249,10 +253,10 @@ export const api = {
     ),
   run: (runId: string) =>
     request(`/api/runs/${encodeURIComponent(runId)}`, RunDetailSchema),
-  startPractice: (benchmarkId: string, branch?: string) =>
+  startPractice: (teamId: string, benchmarkId: string, branch?: string) =>
     request("/api/runs/practice", StartRunResponseSchema, {
       method: "POST",
-      body: { benchmarkId, branch },
+      body: { teamId, benchmarkId, branch },
     }),
   promote: (runId: string) =>
     request(`/api/runs/${encodeURIComponent(runId)}/promote`, StartRunResponseSchema, {

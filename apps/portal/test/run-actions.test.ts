@@ -1660,6 +1660,8 @@ test("missing hosted stages reject mutations before realtime publication", async
 function renderDashboard(dashboard: Dashboard): string {
   (globalThis as typeof globalThis & { React: typeof React }).React = React;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  // The page offers a start only when the session names the dashboard's team.
+  client.setQueryData(["session"], { team: { id: dashboard.team.id, name: dashboard.team.name }, auth: { executionProvider: "fixture" } });
   client.setQueryData(["benchmarks"], [dashboard.benchmark]);
   client.setQueryData(["dashboard", dashboard.benchmark.id], dashboard);
   client.setQueryData(["local-reports", dashboard.benchmark.id], []);

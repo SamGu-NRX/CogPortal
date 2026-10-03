@@ -12,7 +12,7 @@ import type { TeamDetail, TeamMember } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { devAuthAvailable, githubConfigured } from "../env";
 import { getGithubToken } from "../auth/better-auth";
-import { authFor, requireTeam } from "../auth/session";
+import { authFor, requireShownTeam, requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import type { Database } from "../db/client";
 import {
@@ -202,6 +202,25 @@ export async function reconcileTeamRole(
   return { role: current, checked: "github" };
 }
 
+export async function requireTeamAdmin(
+  c: Context<AppEnv>,
+): Promise<AuthState & { team: TeamRow }> {
+  return adminOrRefuse(c, await requireTeam(c));
+}
+
+/**
+ * The gate for a change to team settings or people: the caller is an admin
+ * of the team the page showed, which is still their team (requireShownTeam).
+ * The id is compared before the GitHub role check, which can rewrite the
+ * stored role, so a mismatch has no side effect.
+ */
+export async function requireAdminOfShownTeam(
+  c: Context<AppEnv>,
+  shownTeamId: string | undefined,
+): Promise<AuthState & { team: TeamRow }> {
+  return adminOrRefuse(c, await requireShownTeam(c, shownTeamId));
+}
+
 /**
  * Whether the actor is an admin of the team when the statement runs, for a
  * team write to carry. The gate above checks it once, but routes await
@@ -222,10 +241,10 @@ export function actorIsTeamAdmin(db: Database, teamId: string, userId: string) {
 export const TEAM_AUTHORITY_LOST =
   "You're no longer an admin of this team, so nothing was changed. Reload to see where you stand.";
 
-export async function requireTeamAdmin(
+async function adminOrRefuse(
   c: Context<AppEnv>,
+  auth: AuthState & { team: TeamRow },
 ): Promise<AuthState & { team: TeamRow }> {
-  const auth = await requireTeam(c);
   const { role, checked } = await reconcileTeamRole(c, auth);
   if (role === "admin") return auth;
   const repository = auth.team.repoFullName;
@@ -518,9 +537,9 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/team", async (c) => {
-    const auth = await requireTeamAdmin(c);
-    const db = getDb(c.env);
     const body = await parseBody(c, UpdateTeamRequestSchema);
+    const auth = await requireAdminOfShownTeam(c, body.teamId);
+    const db = getDb(c.env);
     const updates: { name?: string; description?: string | null } = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
@@ -535,8 +554,8 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/team/repository", async (c) => {
-    const auth = await requireTeamAdmin(c);
     const body = await parseBody(c, ChangeTeamRepoRequestSchema);
+    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     if (body.fullName === auth.team.repoFullName) {
       return respond(

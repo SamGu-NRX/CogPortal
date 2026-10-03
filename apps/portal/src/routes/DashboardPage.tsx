@@ -593,7 +593,13 @@ function Launcher({
   // The dashboard payload is already scoped to the selected track, so its own
   // benchmark id is the one to run; anything else would start a run the
   // student isn't looking at.
-  const startPractice = useStartPractice(d.benchmark.id);
+  const startPractice = useStartPractice(d.team.id, d.benchmark.id);
+  // The page names the team from the session, the run starts on the
+  // dashboard's team, and the server accepts whichever the cookie says now.
+  // When the two cached answers disagree, the student cannot see which team
+  // a start would land on, so none is offered until the page is reloaded.
+  const { data: session } = useSession();
+  const teamsAgree = session?.team?.id === d.team.id;
   const fallback = d.team.repo?.defaultBranch ?? branches[0] ?? "main";
   const [chosen, setChosen] = useState(rememberedBranch);
   const branch = chosen && branches.includes(chosen) ? chosen : fallback;
@@ -608,6 +614,20 @@ function Launcher({
           have no limit:
         </p>
         <Code lang="bash" code={`cogworks run --benchmark ${d.benchmark.id}`} wrap />
+      </div>
+    );
+  }
+
+  if (!teamsAgree) {
+    return (
+      <div className="space-y-3">
+        <p role="status" className="max-w-[56ch] text-[15px] leading-[1.6] text-ink">
+          This page is out of date and can't tell which team a run would start on. Reload it
+          first.
+        </p>
+        <Button variant="ghost" onClick={() => window.location.reload()}>
+          Reload page
+        </Button>
       </div>
     );
   }

@@ -144,14 +144,14 @@ function TeamHeading({ team }: { team: TeamDetail }) {
     if (!nameDraft.trim() || nameUpdate.isPending) return;
     // Saving the name it already has is a no-op the server would still be asked about.
     if (nameDraft.trim() === team.name) return name.close();
-    nameUpdate.mutate({ name: nameDraft.trim() }, { onSuccess: name.close });
+    nameUpdate.mutate({ teamId: team.id, name: nameDraft.trim() }, { onSuccess: name.close });
   };
 
   const saveDescription = (e: React.FormEvent) => {
     e.preventDefault();
     if (descriptionUpdate.isPending) return;
     descriptionUpdate.mutate(
-      { description: descriptionDraft.trim() || null },
+      { teamId: team.id, description: descriptionDraft.trim() || null },
       { onSuccess: description.close },
     );
   };
@@ -349,7 +349,7 @@ function PeopleSection({ team }: { team: TeamDetail }) {
               <HugeiconsIcon icon={UserAdd01Icon} size={16} strokeWidth={1.8} aria-hidden="true" />
               Add someone
             </button>
-            <MemberPalette open={adding} onClose={() => setAdding(false)} triggerRef={toggleRef} />
+            <MemberPalette teamId={team.id} open={adding} onClose={() => setAdding(false)} triggerRef={toggleRef} />
           </span>
         ) : (
           // Where the missing Add button would be: who can change the list,
@@ -392,7 +392,7 @@ function PeopleSection({ team }: { team: TeamDetail }) {
                   <LeaveTeam team={team} />
                 ) : (
                   team.isAdmin && m.role !== "admin" && (
-                    <RemoveMember login={m.login} onRemoved={restoreFocus} />
+                    <RemoveMember teamId={team.id} login={m.login} onRemoved={restoreFocus} />
                   )
                 )}
               </li>
@@ -505,7 +505,7 @@ function LeaveConsequence({ lastMember, archive }: { lastMember: boolean; archiv
   );
 }
 
-function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => void }) {
+function RemoveMember({ teamId, login, onRemoved }: { teamId: string; login: string; onRemoved: () => void }) {
   const remove = useRemoveTeamMember();
   return (
     <span className="flex shrink-0 flex-col items-end">
@@ -514,7 +514,7 @@ function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => vo
         subject={`@${login} from the team`}
         armedSubject={`@${login}`}
         busy={remove.isPending}
-        onConfirm={() => remove.mutate(login, { onSuccess: onRemoved })}
+        onConfirm={() => remove.mutate({ teamId, login }, { onSuccess: onRemoved })}
       />
       {remove.error && (
         <span role="alert" className="max-w-[16rem] text-right text-[12.5px] text-detect-deep">
@@ -557,7 +557,7 @@ function RepositorySection({ team }: { team: TeamDetail }) {
             default branch {team.repo.defaultBranch}
           </span>
         </div>
-        {team.isAdmin && <ChangeRepository currentFullName={team.repo.fullName} />}
+        {team.isAdmin && <ChangeRepository teamId={team.id} currentFullName={team.repo.fullName} />}
       </div>
     </PageSection>
   );
@@ -565,7 +565,7 @@ function RepositorySection({ team }: { team: TeamDetail }) {
 
 /** Admin-only: repoint the team at a different repository. History and
  *  attempts stay with the team; blocked server-side while a run is active. */
-function ChangeRepository({ currentFullName }: { currentFullName: string }) {
+function ChangeRepository({ teamId, currentFullName }: { teamId: string; currentFullName: string }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<GithubRepo | null>(null);
   const repos = useRepositories(open);
@@ -647,7 +647,7 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
           confirmLabel="Confirm, history and attempts stay with the team"
           onConfirm={() => {
             if (!selected) return;
-            change.mutate(selected.fullName, {
+            change.mutate({ teamId, fullName: selected.fullName }, {
               onSuccess: () => {
                 returning.current = true;
                 setOpen(false);

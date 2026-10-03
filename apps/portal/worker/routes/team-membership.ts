@@ -29,6 +29,7 @@ import {
   getTeamDetail,
   isUniqueConstraintError,
   actorIsTeamAdmin,
+  requireAdminOfShownTeam,
   requireTeamAdmin,
   TEAM_AUTHORITY_LOST,
 } from "./team";
@@ -266,8 +267,8 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/team/members", async (c) => {
-    const auth = await requireTeamAdmin(c);
     const body = await parseBody(c, AddTeamMemberRequestSchema);
+    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     const [user] = await db
       .select()
@@ -328,7 +329,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
   });
 
   app.delete("/team/members/:login", async (c) => {
-    const auth = await requireTeamAdmin(c);
+    const auth = await requireAdminOfShownTeam(c, c.req.query("teamId"));
     const db = getDb(c.env);
     const login = c.req.param("login");
     const [membership] = await db
