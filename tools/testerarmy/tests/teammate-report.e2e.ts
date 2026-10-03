@@ -18,7 +18,8 @@ import {
 // checked deterministically. The agent only finds the run on the page and
 // says where, if anywhere, the page explains its low score; its reading is
 // printed, never trusted. The benchmark's own diagnostic is the oracle: the
-// teammate should be able to read it in that run's row.
+// teammate should be able to read it in that run's row. After the oracle, the
+// first three notes must also be visible and uncovered where they render.
 //
 // Tagged open-finding: on 3670e55 the local-report list drops diagnostics,
 // so this test is red until the list shows them. `npm test` leaves it out;
@@ -118,6 +119,33 @@ test(
       // The oracle: the benchmark's diagnostic in this run's own row. Commits
       // take the current time, so no earlier attempt's report shares the row.
       await expect(row).toContainText(ONE_DIMENSIONAL_EMBED_TEXT);
+
+      // Present in the row is not the same as readable: text in a closed
+      // fold is in the markup too. Each of the first three notes, verbatim
+      // from the API record, must be visible in the row, and the browser
+      // must find that note at its own position, so nothing (the sticky
+      // header, a fold) covers it.
+      await row.scrollIntoView();
+      const shownNotes = brokenReport.diagnostics.slice(0, 3);
+      for (const note of shownNotes) await expect(row.getByText(note)).toBeVisible();
+      const placement = await browser.evaluate(
+        (notes: string[]) =>
+          notes.map((note) => {
+            const element = Array.from(document.querySelectorAll('tbody td p, tbody td li span')).find(
+              (each) => each.textContent === note,
+            );
+            if (!element) return 'missing';
+            if (element.closest('[inert], [aria-hidden="true"]')) return 'folded';
+            element.scrollIntoView({ block: 'center' });
+            const box = element.getBoundingClientRect();
+            if (box.top < 0 || box.bottom > window.innerHeight) return 'outside the viewport';
+            const hit = document.elementFromPoint(box.left + Math.min(8, box.width / 2), box.top + box.height / 2);
+            return hit && element.contains(hit) ? 'readable' : `covered by ${hit?.tagName.toLowerCase() ?? 'nothing'}`;
+          }),
+        shownNotes,
+      );
+      expect(placement).toEqual(shownNotes.map(() => 'readable'));
+      await app.screenshot('teammate-row');
       completed = true;
     } finally {
       // This attempt's device and no other, whatever happened above. A failed
