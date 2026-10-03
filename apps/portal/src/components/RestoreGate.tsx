@@ -58,6 +58,14 @@ const GateContext = createContext<{
  * a fresh read. A page left showing while that read ran once accepted a start
  * aimed at a team its label did not name, and an answer requested before a
  * blur once satisfied the focus after it.
+ *
+ * Blur records who the page was painted for but conceals nothing: a window
+ * beside the terminal is still being read, and a live run there is still
+ * being watched. The record is taken at blur because the cache can change
+ * under a window nobody is using: a mutation sent before the blur can finish
+ * after another window signs in and refetch the session as that account.
+ * Recorded at focus instead, that account once read as unchanged and
+ * reopened the first account's page for it.
  */
 export function RestoreGate({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
@@ -65,6 +73,10 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   const [covers, setCovers] = useState(0);
   const open = useRef(true);
   const paintedFor = useRef<Session | undefined>(undefined);
+  // Whether `paintedFor` already holds the account this page was painted
+  // for, recorded at a blur or a close. It is kept until a check confirms
+  // the account, so a cache change in between cannot redefine it.
+  const recorded = useRef(false);
   const focused = useRef<Element | null>(null);
   // Any hide or newer check bumps `attempt`, so only the latest check's
   // answer is applied. A cancelled session fetch resolves with the old
@@ -79,6 +91,12 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   // Whether focus left since it last arrived; a first read sent before that
   // may carry another account's cookie.
   const blurred = useRef(false);
+
+  const record = useCallback(() => {
+    if (recorded.current) return;
+    recorded.current = true;
+    paintedFor.current = qc.getQueryData(sessionQuery.queryKey);
+  }, [qc]);
 
   const check = useCallback(async () => {
     if (replacing.current) return;
@@ -116,6 +134,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     }
     restored.current = false;
     running.current = false;
+    recorded.current = false;
     open.current = true;
     setGate({ state: "open" });
   }, [qc]);
@@ -126,7 +145,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     running.current = false;
     if (!open.current) return;
     open.current = false;
-    paintedFor.current = qc.getQueryData(sessionQuery.queryKey);
+    record();
     focused.current = document.activeElement;
     // A modal dialog stays in the top layer when its ancestor is concealed,
     // and it would keep the gate's own retry inert. A confirm left open
@@ -135,7 +154,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     // Committed before the handler returns, because the back/forward cache
     // freezes whatever the DOM holds at that point.
     flushSync(() => setGate({ state: "closed" }));
-  }, [qc]);
+  }, [record]);
 
   const reopen = useCallback(() => {
     if (open.current) close();
@@ -184,6 +203,9 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       if (replacing.current) return;
       attempt.current += 1;
       running.current = false;
+      // Before the first read lands nothing is painted, so there is no one
+      // to record; the focus handler above deals with that read.
+      if (open.current && qc.getQueryData(sessionQuery.queryKey)) record();
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
@@ -197,7 +219,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
-  }, [qc, close, reopen]);
+  }, [qc, close, reopen, record]);
 
   // Closing blurs whatever was focused inside the hidden tree.
   useEffect(() => {
