@@ -41,9 +41,16 @@ function freshDb() {
     .filter((name) => !/^(0002_seed|0016_backfill)/.test(name))) {
     sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
   }
-  const race: { beforeBatch?: () => void } = {};
+  const race: { beforeBatch?: () => void; beforeQuery?: { matching: RegExp; run: () => void } } = {};
   const binding = {
     prepare(query: string) {
+      // Something can commit after the request's earlier reads but before
+      // this one; the test names the statement it lands in front of.
+      const hook = race.beforeQuery;
+      if (hook && hook.matching.test(query)) {
+        delete race.beforeQuery;
+        hook.run();
+      }
       const statement = sqlite.prepare(query);
       let bound: SQLInputValue[] = [];
       const prepared = {
@@ -534,3 +541,50 @@ for (const transport of ["single", "batch"] as const) {
     assert.equal(h.rows("run_stream_events").length, 1);
   });
 }
+
+test("a repeated start answers only while its sender is still on the run's team", async (t) => {
+  // The CLI repeats a start whose answer it lost. That replay skips the
+  // guarded batch, so it once reported an old team's run as started after its
+  // sender had moved, and every event after it was refused.
+  const h = await harness(t);
+  await h.seedSession();
+  // A start answers with a well-formed console id; the shared seed's is not.
+  const surface = `surface_${"a".repeat(20)}`;
+  h.sqlite.prepare("UPDATE run_surfaces SET id = ? WHERE id = 'surface_test'").run(surface);
+  h.sqlite.prepare("UPDATE local_run_sessions SET surface_id = ? WHERE id = ?").run(surface, SESSION);
+  await h.db.insert(teams).values({
+    id: "team_b", cohortId: "cohort_test", name: "Difference Engines",
+    repoOwner: "synthetic", repoName: "team-b", repoFullName: "synthetic/team-b",
+    repoUrl: "https://github.com/synthetic/team-b", defaultBranch: "main", discordChannelId: "channel_b",
+  });
+  const replay = () => h.call("POST", "/v1/local-runs", { device: true, body: {
+    clientRunId: SESSION, benchmarkId: BENCHMARK, benchmarkVersion: 1,
+    repositoryId: null, repositoryFullName: FIXTURE_REPO.fullName,
+    sha: SHA, branch: "main", dirty: false,
+  } });
+
+  // Still on team A: the same session comes back.
+  const same = await replay();
+  assert.equal(same.status, 200);
+  assert.equal((same.body as { sessionId: string }).sessionId, SESSION);
+
+  // The move commits after the membership read, before the existing session
+  // is looked up.
+  let moved = false;
+  h.race.beforeQuery = {
+    matching: /from "local_run_sessions" where "local_run_sessions"\."id" = \?/,
+    run: () => {
+      h.sqlite.prepare("DELETE FROM team_members WHERE team_id = ? AND user_id = ?").run("team_a", h.userId);
+      h.sqlite.prepare("INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'write')").run("team_b", h.userId);
+      moved = true;
+    },
+  };
+  const before = { sessions: h.rows("local_run_sessions"), surfaces: h.rows("run_surfaces") };
+  const result = await replay();
+  assert.equal(moved, true, "the move must land after the membership read");
+  assert.deepEqual(result, { status: 409, body: { error: {
+    code: "forbidden",
+    message: "You moved to Difference Engines after this run was started for your old team, so the portal won't continue it. Run the command again.",
+  } } });
+  assert.deepEqual({ sessions: h.rows("local_run_sessions"), surfaces: h.rows("run_surfaces") }, before, "the old run moved or changed");
+});

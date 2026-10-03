@@ -105,6 +105,36 @@ async function isOnTeam(db: Database, teamId: string, userId: string): Promise<b
   return Boolean(member);
 }
 
+/**
+ * Before a start is reported as started: the person is still on the team it
+ * was admitted for. The CLI stops on a refused start, so running the command
+ * again is the whole recovery.
+ */
+async function refuseUnlessStillOnTeam(
+  db: Database,
+  userId: string,
+  teamId: string,
+  start: "recorded" | "unrecorded",
+): Promise<void> {
+  const [currentTeam] = await db
+    .select({ teamId: teams.id, name: teams.name })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+    .where(eq(teamMembers.userId, userId))
+    .limit(1);
+  if (!currentTeam) {
+    throw new ApiHttpError(403, "no_team", "Finish joining a team and connecting its repository first.");
+  }
+  if (currentTeam.teamId === teamId) return;
+  throw new ApiHttpError(
+    409,
+    "forbidden",
+    start === "unrecorded"
+      ? `You moved to ${currentTeam.name} while this run was starting, so the portal didn't record it. Run the command again.`
+      : `You moved to ${currentTeam.name} after this run was started for your old team, so the portal won't continue it. Run the command again.`,
+  );
+}
+
 /** What the CLI prints after "cogworks: live updates paused:" when its
  *  author has left the team the run was started for. */
 export const LEFT_RUN_TEAM =
@@ -360,6 +390,10 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
       if (!isSameStart(existing, body, device, membership.team)) {
         throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
       }
+      // A repeated start (the CLI retrying after a lost answer) skips the
+      // guarded batch below, so it asks about membership itself: reported as
+      // started, it would be refused at its first event.
+      await refuseUnlessStillOnTeam(db, device.userId, existing.teamId, "recorded");
       const existingSurfaceId = recordedSurfaceId(existing);
       return respond(c, StartLocalRunResponseSchema, {
         sessionId,
@@ -433,28 +467,11 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
       .from(localRunSessions)
       .where(eq(localRunSessions.id, sessionId))
       .limit(1);
-    if (!recorded) {
-      // Nothing was written. Either a console from another run holds this id,
-      // or the person left the team between the read above and the batch,
-      // possibly joining another one. The CLI stops on a refused start, so
-      // running the command again is the whole recovery.
-      const [currentTeam] = await db
-        .select({ teamId: teams.id, name: teams.name })
-        .from(teamMembers)
-        .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-        .where(eq(teamMembers.userId, device.userId))
-        .limit(1);
-      if (!currentTeam) {
-        throw new ApiHttpError(403, "no_team", "Finish joining a team and connecting its repository first.");
-      }
-      if (currentTeam.teamId !== membership.team.id) {
-        throw new ApiHttpError(
-          409,
-          "forbidden",
-          `You moved to ${currentTeam.name} while this run was starting, so the portal didn't record it. Run the command again.`,
-        );
-      }
-    }
+    // Nothing was written: either a console from another run holds this id,
+    // or the person left the team between the read above and the batch.
+    // Something was: possibly by an identical start that raced this one, so
+    // the person must still be on the team before it is reported as started.
+    await refuseUnlessStillOnTeam(db, device.userId, membership.team.id, recorded ? "recorded" : "unrecorded");
     if (!recorded || !isSameStart(recorded, body, device, membership.team)) {
       throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
     }
