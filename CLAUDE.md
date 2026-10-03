@@ -294,17 +294,15 @@ in-place edit of a version teams have already published against.
 
 - **TODO(design):** Complete the visual pass for the connect wizard, member
   palette, and admin assignment rows.
-- **TODO(release):** `cogworks-benchmark` 0.1.0 IS on TestPyPI and installs
-  and runs (checked 2026-08-20 against the JSON API, then installed into a
-  clean 3.11 venv). The stale claim here said it was never published, which
-  would have sent someone to publish a published package.
-  What is actually wrong is that 0.1.0 predates automatic discovery. Running
-  `cogworks check` from it against a real repository prints nine lines of
-  True and False and no next step; the same command in this tree reports
-  which of the team's own functions it wired up. `pyproject.toml` is now
-  0.2.0 and `publish-testpypi.yml` has to be dispatched by hand to close the
-  gap. The install command in `SetupPage` is deliberately unpinned so a
-  student picks up that release without a code change here.
+- **CLI distribution (checked 2026-10-03):** Setup installs from the pinned
+  Git reference `COGBENCH_SOURCE` in `apps/portal/src/lib/benchmark-packages.ts`.
+  Its command in `apps/portal/src/lib/setup-progress.ts` uses `--force-reinstall`
+  because a different source pin can still report version 0.2.0. At this check,
+  `ecae617` matched the CLI tree in `0f48528`, and a clean Python 3.8 install
+  of that source produced 0.2.0. TestPyPI still has only
+  0.1.0, but the direct Git requirement does not select the CLI from an index.
+  No TestPyPI publication is needed for this student install path. An index
+  migration would be a separate distribution decision.
 - **TODO(media):** There is no walkthrough player. The unused
   `WalkthroughVideo` component was deleted in the September 30 redesign
   because its clip was never recorded. Record it per
