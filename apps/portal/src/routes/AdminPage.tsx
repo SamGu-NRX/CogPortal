@@ -29,7 +29,6 @@ import {
   useAdminRemoveStaff,
   useAdminRemoveTa,
   useAdminStaffRoster,
-  useBenchmarks,
 } from "@/lib/queries";
 
 /**
@@ -46,10 +45,6 @@ import {
  */
 export function AdminPage() {
   const overview = useAdminOverview();
-  // The catalog, for the benchmark titles in each team's run state. It is the
-  // same cached list the dashboard and leaderboard read; until it arrives, or
-  // for a benchmark it no longer lists, the run state names the id instead.
-  const catalog = useBenchmarks();
 
   if (overview.isPending) return <LoadingMark label="Loading cohort" />;
   if (overview.isError) {
@@ -62,7 +57,6 @@ export function AdminPage() {
 
   const { cohort, teams, unassigned } = overview.data;
   const isOwner = overview.data.scope === "owner";
-  const titleOf = benchmarkTitles(catalog.data ?? []);
 
   return (
     <div className="page anim-rise">
@@ -89,7 +83,6 @@ export function AdminPage() {
                   team={team}
                   canAssignTas={isOwner}
                   suggestions={unassigned.map((student) => student.login)}
-                  titleOf={titleOf}
                 />
               ))}
             </ul>
@@ -123,18 +116,6 @@ function triageOrder(teams: AdminTeamSummary[]): AdminTeamSummary[] {
   return [...teams].sort(
     (left, right) => group(left) - group(right) || left.name.localeCompare(right.name),
   );
-}
-
-/**
- * Benchmark id to title. The catalog lists every version, active ones first,
- * so the first title seen for an id is its current one.
- */
-function benchmarkTitles(catalog: { id: string; title: string }[]): (id: string) => string {
-  const titles = new Map<string, string>();
-  for (const benchmark of catalog) {
-    if (!titles.has(benchmark.id)) titles.set(benchmark.id, benchmark.title);
-  }
-  return (id) => titles.get(id) ?? id;
 }
 
 /* ── Enrollment: the join code, large enough to read off a projector ───── */
@@ -433,12 +414,10 @@ function TeamRow({
   team,
   canAssignTas,
   suggestions,
-  titleOf,
 }: {
   team: AdminTeamSummary;
   canAssignTas: boolean;
   suggestions: string[];
-  titleOf: (benchmarkId: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
@@ -539,7 +518,7 @@ function TeamRow({
         {open && (
           <div className="anim-reveal">
               <div className="grid gap-x-8 gap-y-6 border-t border-rule-soft px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-5">
-                <TeamRunState team={team} titleOf={titleOf} />
+                <TeamRunState team={team} />
 
                 <div className="min-w-0">
                   <h3 className="u-label">Members</h3>
@@ -676,10 +655,8 @@ function AttentionLine({ children }: { children: string }) {
  */
 export function TeamRunState({
   team,
-  titleOf,
 }: {
   team: Pick<AdminTeamSummary, "firstLight" | "lastHostedRun">;
-  titleOf: (benchmarkId: string) => string;
 }) {
   const { firstLight, lastHostedRun: last } = team;
   return (
@@ -688,8 +665,11 @@ export function TeamRunState({
       <p className="mt-1.5 max-w-[62ch] text-[14px] text-pretty text-ink">
         {firstLight ? (
           <>
-            First ran end to end on {titleOf(firstLight.benchmarkId)},{" "}
-            <time dateTime={new Date(firstLight.at).toISOString()} className="whitespace-nowrap">{formatDateTime(firstLight.at)}</time>.
+            First ran end to end on {firstLight.benchmarkTitle},{" "}
+            <time dateTime={new Date(firstLight.at).toISOString()} className="whitespace-nowrap">
+              {formatDateTime(firstLight.at)}
+            </time>
+            .
           </>
         ) : (
           "Hasn't run end to end yet."
@@ -704,10 +684,10 @@ export function TeamRunState({
               Modal run that stops reporting, so this can't claim a run is going
               for longer than that sweep allows. */}
           {!isTerminal(last.status) ? (
-            `A hosted run on ${titleOf(last.benchmarkId)} is going now.`
+            `A hosted run on ${last.benchmarkTitle} is going now.`
           ) : (
             <>
-              Last hosted run: {titleOf(last.benchmarkId)},{" "}
+              Last hosted run: {last.benchmarkTitle},{" "}
               <time
                 dateTime={new Date(last.at).toISOString()}
                 title={formatDateTime(last.at)}
@@ -715,7 +695,7 @@ export function TeamRunState({
               >
                 {formatTimeAgo(last.at)}
               </time>
-              , <LastRunOutcome run={last} />.
+              , <LastRunOutcome run={last} />
             </>
           )}
         </p>
@@ -724,23 +704,24 @@ export function TeamRunState({
   );
 }
 
+/**
+ * The end of the last-run sentence. A failure names its phase, then gives the
+ * catalog title as a sentence of its own: joined to "stopped at", a title such
+ * as "The evaluation stopped on an exception" repeated the verb.
+ */
 function LastRunOutcome({ run }: { run: NonNullable<AdminTeamSummary["lastHostedRun"]> }) {
-  if (run.status === "succeeded") return "scored";
-  if (run.status === "cancelled") return "cancelled";
+  if (run.status === "succeeded") return "scored.";
+  if (run.status === "cancelled") return "cancelled.";
   // A failed run that recorded no phase or category has nothing more the
   // platform can say about where it stopped.
-  if (!run.failure) return "failed";
+  if (!run.failure) return "failed.";
   const failure = FAILURE_CATALOG[run.failure.category];
   return (
     <>
-      stopped at {PHASE_LABELS[run.failure.phase]}: {lowerFirst(failure.title)} (
-      <span className="font-mono text-[13px] whitespace-nowrap">{failure.code}</span>)
+      failed at {PHASE_LABELS[run.failure.phase]}. {failure.title} (
+      <span className="font-mono text-[13px] whitespace-nowrap">{failure.code}</span>).
     </>
   );
-}
-
-function lowerFirst(text: string): string {
-  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 /* ── Unassigned students: name, tenure, and a direct assignment ────────── */

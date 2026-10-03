@@ -1422,8 +1422,15 @@ export const AdminTeamSummarySchema = z.object({
    * across every benchmark, at the time it finished (the definition
    * `firstLight` in worker/services/process-signals.ts and the Discord nudges
    * already use). Null when no run has gone end to end.
+   *
+   * `benchmarkTitle` in both fields is the catalog title of the run's own
+   * benchmark version, or the id when the catalog has no such row. It is
+   * resolved here so the console never has to show an id while it fetches
+   * the catalog.
    */
-  firstLight: z.object({ benchmarkId: z.string(), at: z.number().int() }).nullable(),
+  firstLight: z
+    .object({ benchmarkId: z.string(), benchmarkTitle: z.string(), at: z.number().int() })
+    .nullable(),
   /**
    * The team's most recently started hosted run, or null when there is none.
    * `at` is when it finished, or when it started if it has not finished.
@@ -1433,6 +1440,7 @@ export const AdminTeamSummarySchema = z.object({
   lastHostedRun: z
     .object({
       benchmarkId: z.string(),
+      benchmarkTitle: z.string(),
       at: z.number().int(),
       status: RunStatusSchema,
       failure: z.object({ phase: RunPhaseSchema, category: FailureCategorySchema }).nullable(),

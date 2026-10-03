@@ -62,6 +62,17 @@ type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
 const runSettledAt = sql<number>`coalesce(${runs.finishedAt}, ${runs.createdAt})`;
 
 /**
+ * The catalog title of the run's own benchmark version, read through a left
+ * join on (id, version), the catalog's key, so it adds at most one row per run.
+ * The id stands in when the catalog has no such row.
+ */
+const runBenchmarkTitle = sql<string>`coalesce(${benchmarks.title}, ${runs.benchmarkId})`;
+const runBenchmark = and(
+  eq(benchmarks.id, runs.benchmarkId),
+  eq(benchmarks.version, runs.benchmarkVersion),
+);
+
+/**
  * Each scoped team's first succeeded hosted run, one row per team.
  *
  * One windowed statement for all teams, for the same query budget the
@@ -73,14 +84,21 @@ function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
     .select({
       teamId: runs.teamId,
       benchmarkId: runs.benchmarkId,
+      benchmarkTitle: runBenchmarkTitle.as("benchmark_title"),
       at: runSettledAt.as("at"),
       position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runSettledAt}, ${runs.id})`.as("position"),
     })
     .from(runs)
+    .leftJoin(benchmarks, runBenchmark)
     .where(and(eq(runs.status, "succeeded"), inArray(runs.teamId, teamIds)))
     .as("first_light");
   return db
-    .select({ teamId: ranked.teamId, benchmarkId: ranked.benchmarkId, at: ranked.at })
+    .select({
+      teamId: ranked.teamId,
+      benchmarkId: ranked.benchmarkId,
+      benchmarkTitle: ranked.benchmarkTitle,
+      at: ranked.at,
+    })
     .from(ranked)
     .where(eq(ranked.position, 1));
 }
@@ -95,6 +113,7 @@ function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
     .select({
       teamId: runs.teamId,
       benchmarkId: runs.benchmarkId,
+      benchmarkTitle: runBenchmarkTitle.as("benchmark_title"),
       at: runSettledAt.as("at"),
       status: runs.status,
       failurePhase: runs.failurePhase,
@@ -102,12 +121,14 @@ function readLastHostedRuns(db: Database, teamIds: ScopedTeamIds) {
       position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as("position"),
     })
     .from(runs)
+    .leftJoin(benchmarks, runBenchmark)
     .where(inArray(runs.teamId, teamIds))
     .as("last_hosted_run");
   return db
     .select({
       teamId: ranked.teamId,
       benchmarkId: ranked.benchmarkId,
+      benchmarkTitle: ranked.benchmarkTitle,
       at: ranked.at,
       status: ranked.status,
       failurePhase: ranked.failurePhase,
@@ -254,10 +275,13 @@ async function readAdminTeamSummaries(
       hostedRuns: executions.get(team.id) ?? 0,
       // Retained for older clients. Failures no longer require a refund decision.
       refundsGiven: 0,
-      firstLight: first ? { benchmarkId: first.benchmarkId, at: first.at } : null,
+      firstLight: first
+        ? { benchmarkId: first.benchmarkId, benchmarkTitle: first.benchmarkTitle, at: first.at }
+        : null,
       lastHostedRun: last
         ? {
             benchmarkId: last.benchmarkId,
+            benchmarkTitle: last.benchmarkTitle,
             at: last.at,
             status: last.status,
             failure:

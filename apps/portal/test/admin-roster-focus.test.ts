@@ -25,11 +25,6 @@ function team(id: string, name: string): AdminTeamSummary {
   };
 }
 
-const CATALOG = [{
-  id: "test_vision", version: 1, contractVersion: "test-v1", entryPointName: "test_vision", title: "Face recognition",
-  module: "vision", summary: "Test", active: true, pluginVersion: "1", datasetVersion: "1", scorerVersion: "1", runtimeVersion: "python-3.8",
-}];
-
 async function mount(t: TestContext, unassigned: string[], addGate: Promise<void> = Promise.resolve()) {
   const requests: string[] = [];
   const window = new Window({ url: "https://portal.example/admin" });
@@ -66,7 +61,6 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
       if (input === "/api/admin/overview") return Response.json(overview);
       if (input === "/api/admin/staff") return Response.json(staff);
       if (input.startsWith("/api/leaderboard")) return Response.json([]);
-      if (input === "/api/benchmarks") return Response.json(CATALOG);
       throw new Error(`unexpected request ${init.method ?? "GET"} ${input}`);
     },
   };
@@ -278,8 +272,8 @@ test("a login form keeps focus in its field after the login is added", async (t)
   assertFocused(window.document.activeElement, field, "focus");
 });
 
-test("an opened team row leads with its run state, named from the catalog", async (t) => {
-  const { container, settle, client } = await mount(t, []);
+test("an opened team row leads with its run state", async (t) => {
+  const { container, client } = await mount(t, []);
   await act(async () => {
     client.setQueryData<AdminOverview>(["admin", "overview"], (current) => current && {
       ...current,
@@ -287,15 +281,13 @@ test("an opened team row leads with its run state, named from the catalog", asyn
         ? {
             ...entry, hostedRuns: 1,
             lastHostedRun: {
-              benchmarkId: "test_vision", at: Date.now() - 3 * 60 * 60 * 1_000, status: "failed",
+              benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: Date.now() - 3 * 60 * 60 * 1_000, status: "failed",
               failure: { phase: "contract_check", category: "adapter_missing" },
             },
           }
         : entry),
     });
   });
-  // The catalog request the page makes for titles.
-  await settle();
   const toggle = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
     .find((button) => button.textContent?.includes("Team B"));
   assert.ok(toggle, "Team B's row");
@@ -305,5 +297,5 @@ test("an opened team row leads with its run state, named from the catalog", asyn
   assert.deepEqual(headings.slice(0, 2), ["Run state", "Members"]);
   const text = details?.textContent ?? "";
   assert.match(text, /Hasn't run end to end yet\./);
-  assert.match(text, /Last hosted run: Face recognition, 3 h ago, stopped at Contract check: nothing here could be scored \(E-ADAPTER\)\./);
+  assert.match(text, /Last hosted run: Face recognition, 3 h ago, failed at Contract check\. Nothing here could be scored \(E-ADAPTER\)\./);
 });

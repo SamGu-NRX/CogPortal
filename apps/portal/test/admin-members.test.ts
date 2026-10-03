@@ -652,8 +652,8 @@ const TEAM = {
   officialUsed: 1,
   hostedRuns: 6,
   refundsGiven: 0,
-  firstLight: { benchmarkId: "test_vision", at: 1 },
-  lastHostedRun: { benchmarkId: "test_vision", at: 1, status: "succeeded", failure: null },
+  firstLight: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1 },
+  lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1, status: "succeeded", failure: null },
   published: null,
 };
 
@@ -775,10 +775,10 @@ test("the overview carries a run's phase and category and none of the team's own
     const team = result.body.teams[0];
     // The enums arrive, so the absence below is not a missing field.
     assert.deepEqual(team.lastHostedRun, {
-      benchmarkId: "test_vision", at: 2_100, status: "failed",
+      benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 2_100, status: "failed",
       failure: { phase: "evaluating", category: "student_runtime" },
     }, `${who}: last hosted run`);
-    assert.deepEqual(team.firstLight, { benchmarkId: "test_vision", at: 1_100 }, `${who}: first light`);
+    assert.deepEqual(team.firstLight, { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1_100 }, `${who}: first light`);
     const serialized = JSON.stringify(result.body);
     assert.ok(!serialized.includes(SENTINEL), `${who}: the team's own text reached the overview`);
     assert.ok(!serialized.includes(MEASURED), `${who}: a measured number reached the overview`);
@@ -811,8 +811,8 @@ test("a TA's overview has run state for assigned teams only, and an unassigned t
     })),
     [{
       id: "team_mine",
-      firstLight: { benchmarkId: "test_vision", at: 1_100 },
-      lastHostedRun: { benchmarkId: "test_vision", at: 1_100, status: "succeeded", failure: null },
+      firstLight: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1_100 },
+      lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1_100, status: "succeeded", failure: null },
     }],
   );
   const serialized = JSON.stringify(mine.body);
@@ -825,7 +825,7 @@ test("a TA's overview has run state for assigned teams only, and an unassigned t
   const all = await h.call("GET", "/admin/overview", { cookie: owner });
   const theirs = all.body.teams.find((team: AdminOverview["teams"][number]) => team.id === "team_theirs");
   assert.deepEqual(theirs?.lastHostedRun, {
-    benchmarkId: "test_audio", at: 5_500, status: "failed",
+    benchmarkId: "test_audio", benchmarkTitle: "Audio identification", at: 5_500, status: "failed",
     failure: { phase: "installing", category: "dependency_install" },
   });
   assert.equal(theirs?.firstLight, null);
@@ -836,6 +836,12 @@ test("first light is the earliest finished success across benchmarks, and the la
   await h.seedCohorts();
   for (const id of ["team_mixed", "team_running", "team_unrecorded", "team_never"]) await h.seedTeam(id);
   await seedCatalog(h);
+  // A later version of the vision benchmark under another title: a run is
+  // named by its own version, not by whichever row the catalog lists first.
+  await h.db.insert(benchmarks).values({
+    id: "test_vision", version: 2, title: "Face recognition, revised", contractVersion: "test-v1",
+    entryPointName: "test_vision", module: "vision", summary: "Test", active: true, primaryMetricKey: "accuracy",
+  });
   const owner = await h.signIn(OWNER, null);
   await h.db.insert(runs).values([
     hostedRun("team_mixed", "m_failed_first", {
@@ -858,9 +864,14 @@ test("first light is the earliest finished success across benchmarks, and the la
       status: "failed", createdAt: 100, finishedAt: 120,
       failurePhase: "scoring", failureCategory: "scorer",
     }),
-    hostedRun("team_running", "r_evaluating", { status: "evaluating", createdAt: 500, finishedAt: null }),
-    // Failed with no phase or category recorded: nothing to say where.
-    hostedRun("team_unrecorded", "u_failed", { status: "failed", createdAt: 100, finishedAt: 130 }),
+    hostedRun("team_running", "r_evaluating", {
+      benchmarkVersion: 2, status: "evaluating", createdAt: 500, finishedAt: null,
+    }),
+    // Failed with no phase or category recorded: nothing to say where. Its
+    // benchmark has no catalog row, so the id stands in for the title.
+    hostedRun("team_unrecorded", "u_failed", {
+      benchmarkId: "test_retired", status: "failed", createdAt: 100, finishedAt: 130,
+    }),
   ]);
 
   const result = await h.call("GET", "/admin/overview", { cookie: owner });
@@ -870,19 +881,24 @@ test("first light is the earliest finished success across benchmarks, and the la
   );
   assert.deepEqual(state, {
     team_mixed: {
-      firstLight: { benchmarkId: "test_audio", at: 260 },
+      firstLight: { benchmarkId: "test_audio", benchmarkTitle: "Audio identification", at: 260 },
       lastHostedRun: {
-        benchmarkId: "test_vision", at: 420, status: "failed",
+        benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 420, status: "failed",
         failure: { phase: "contract_check", category: "adapter_missing" },
       },
     },
     team_running: {
       firstLight: null,
-      lastHostedRun: { benchmarkId: "test_vision", at: 500, status: "evaluating", failure: null },
+      lastHostedRun: {
+        benchmarkId: "test_vision", benchmarkTitle: "Face recognition, revised", at: 500,
+        status: "evaluating", failure: null,
+      },
     },
     team_unrecorded: {
       firstLight: null,
-      lastHostedRun: { benchmarkId: "test_vision", at: 130, status: "failed", failure: null },
+      lastHostedRun: {
+        benchmarkId: "test_retired", benchmarkTitle: "test_retired", at: 130, status: "failed", failure: null,
+      },
     },
     team_never: { firstLight: null, lastHostedRun: null },
   });
@@ -897,16 +913,13 @@ function sentences(html: string): string[] {
 }
 
 function renderRunState(team: Pick<AdminOverview["teams"][number], "firstLight" | "lastHostedRun">): string[] {
-  const titles: Record<string, string> = { test_vision: "Face recognition", test_audio: "Audio identification" };
-  return sentences(renderToStaticMarkup(React.createElement(TeamRunState, {
-    team, titleOf: (id: string) => titles[id] ?? id,
-  })));
+  return sentences(renderToStaticMarkup(React.createElement(TeamRunState, { team })));
 }
 
 test("the run state says, in the platform's words, where each kind of team stands", () => {
   const firstAt = Date.UTC(2026, 8, 29, 14, 5);
   const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1_000;
-  const firstLight = { benchmarkId: "test_vision", at: firstAt };
+  const firstLight = { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: firstAt };
   const firstSentence = `First ran end to end on Face recognition, ${formatDateTime(firstAt)}.`;
 
   assert.deepEqual(renderRunState({ firstLight: null, lastHostedRun: null }), ["Hasn't run end to end yet."]);
@@ -914,45 +927,62 @@ test("the run state says, in the platform's words, where each kind of team stand
     renderRunState({
       firstLight: null,
       lastHostedRun: {
-        benchmarkId: "test_audio", at: threeHoursAgo, status: "failed",
+        benchmarkId: "test_audio", benchmarkTitle: "Audio identification", at: threeHoursAgo, status: "failed",
         failure: { phase: "installing", category: "dependency_install" },
       },
     }),
     [
       "Hasn't run end to end yet.",
-      "Last hosted run: Audio identification, 3 h ago, stopped at Install: dependency installation failed (E-INSTALL).",
+      "Last hosted run: Audio identification, 3 h ago, failed at Install. Dependency installation failed (E-INSTALL).",
     ],
   );
   assert.deepEqual(
     renderRunState({
       firstLight,
-      lastHostedRun: { benchmarkId: "test_vision", at: threeHoursAgo, status: "succeeded", failure: null },
+      lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: threeHoursAgo, status: "succeeded", failure: null },
     }),
     [firstSentence, "Last hosted run: Face recognition, 3 h ago, scored."],
   );
   // Queued is going too: it is one of the statuses the database counts as an
-  // active run. A benchmark the catalog doesn't list is named by its id.
+  // active run.
   for (const status of ["queued", "evaluating"] as const) {
     assert.deepEqual(
       renderRunState({
         firstLight,
-        lastHostedRun: { benchmarkId: "test_unlisted", at: threeHoursAgo, status, failure: null },
+        lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: threeHoursAgo, status, failure: null },
       }),
-      [firstSentence, "A hosted run on test_unlisted is going now."],
+      [firstSentence, "A hosted run on Face recognition is going now."],
       status,
     );
   }
   assert.deepEqual(
     renderRunState({
       firstLight,
-      lastHostedRun: { benchmarkId: "test_vision", at: threeHoursAgo, status: "cancelled", failure: null },
+      lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: threeHoursAgo, status: "cancelled", failure: null },
     })[1],
     "Last hosted run: Face recognition, 3 h ago, cancelled.",
+  );
+  assert.deepEqual(
+    renderRunState({
+      firstLight: null,
+      lastHostedRun: {
+        benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: threeHoursAgo, status: "failed",
+        failure: { phase: "evaluating", category: "student_runtime" },
+      },
+    })[1],
+    "Last hosted run: Face recognition, 3 h ago, failed at Evaluate. The evaluation stopped on an exception (E-RUNTIME).",
+  );
+  assert.deepEqual(
+    renderRunState({
+      firstLight: null,
+      lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: threeHoursAgo, status: "failed", failure: null },
+    })[1],
+    "Last hosted run: Face recognition, 3 h ago, failed.",
   );
 });
 
 test("only teams that haven't run end to end carry the attention mark, and they sort first", () => {
-  const ran = { benchmarkId: "test_vision", at: 1, status: "succeeded" as const, failure: null };
+  const ran = { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1, status: "succeeded" as const, failure: null };
   const teams = [
     { ...TEAM, id: "t_scored", name: "Alpha scored", lastHostedRun: ran },
     { ...TEAM, id: "t_going", name: "Beta going", lastHostedRun: { ...ran, status: "evaluating" as const } },
