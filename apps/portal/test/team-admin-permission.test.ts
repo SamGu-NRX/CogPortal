@@ -640,6 +640,42 @@ test("a member made an admin between the read and the delete is not removed", as
   assert.equal((await membership(h, target)).role, "admin");
 });
 
+test("a member who leaves before the delete and is back before it is explained is neither removed nor reported removed", async (t) => {
+  const { h, actor, target } = await removalSetup(t);
+  const roleReads: string[] = [];
+  const readRole = /^select "role" from "team_members"/i;
+  // The delete finds the target gone; the first role read after it is the
+  // actor's, and the target rejoins just before the second, the target's.
+  h.race.beforeStatement = {
+    match: DELETE_MEMBER,
+    run: () => {
+      h.exec("DELETE FROM team_members WHERE user_id = ?", target.userId);
+      h.race.beforeStatement = {
+        match: readRole,
+        run: () => {
+          roleReads.push("actor");
+          h.race.beforeStatement = {
+            match: readRole,
+            run: () => {
+              roleReads.push("target");
+              h.exec("INSERT INTO team_members (team_id, user_id, role) VALUES ('team_test', ?, 'write')", target.userId);
+            },
+          };
+        },
+      };
+    },
+  };
+  const result = await h.call(actor, "DELETE", `/team/members/${target.login}`);
+  assert.deepEqual(roleReads, ["actor", "target"], "the rejoin must land between the two reads");
+  assert.equal(result.status, 409);
+  assert.deepEqual(result.body.error, {
+    code: "invalid_request",
+    message: "The team changed while this request was running. Reload and try again.",
+  });
+  assert.equal((await membership(h, target)).role, "write", "the rejoined member was removed");
+  assert.equal((await membership(h, actor)).role, "admin");
+});
+
 // The gate before the read asks GitHub and stores the role it answers, so a
 // change during that wait is the gate's to refuse (tested above for the
 // repository change). This is the window after it, which only the write's

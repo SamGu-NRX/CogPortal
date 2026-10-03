@@ -374,8 +374,14 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       if (target?.role === "admin") {
         throw new ApiHttpError(403, "cannot_remove_creator", "A team admin can't be removed.");
       }
-      // Otherwise they are already off the team, which is what was asked, and
-      // the roster below shows the team as it is now.
+      // On the team again after a delete that found them gone: the team
+      // changed more than once during this request, and no answer from
+      // these reads would be true for long. Nothing is retried.
+      if (target) {
+        throw new ApiHttpError(409, "invalid_request", "The team changed while this request was running. Reload and try again.");
+      }
+      // Already off the team, which is what was asked; the roster below shows
+      // the team as it is now.
     }
     return respond(
       c,
