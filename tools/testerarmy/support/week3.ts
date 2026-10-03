@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setting, type BenchmarkSetup, type CliHome } from './cli.ts';
+import { setting, withoutGitRedirection, type BenchmarkSetup, type CliHome } from './cli.ts';
 
 // The Week 3 language benchmark, run for real by the student CLI against a
 // small local team repository. This is a functional flow on an existing
@@ -40,12 +40,24 @@ const AUTHOR = {
   GIT_COMMITTER_EMAIL: 'e2e-pilot-a@dev.local',
 };
 
+/**
+ * Git for the fixtures and lookups, acting on `cwd` and nothing else: no
+ * inherited GIT_* redirection, no global or system config, so the machine's
+ * aliases, hooks, templates and signing settings don't reach it either.
+ */
+function gitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...withoutGitRedirection(process.env),
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    ...AUTHOR,
+  };
+}
+
 function git(cwd: string, args: readonly string[]): string {
-  // No signing and no hooks from the machine's git config: the fixture
-  // commits must not prompt or run anything.
   return execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], {
     cwd,
-    env: { ...process.env, ...AUTHOR },
+    env: gitEnv(),
     encoding: 'utf8',
   }).trim();
 }
@@ -54,11 +66,16 @@ function repositoryRoot(): string {
   return git(dirname(fileURLToPath(import.meta.url)), ['rev-parse', '--show-toplevel']);
 }
 
+/** The Week 3 benchmark commit this repository pins (its benchmarks/week3 gitlink). */
+export function pinnedWeek3Commit(): string {
+  return git(repositoryRoot(), ['rev-parse', 'HEAD:benchmarks/week3']);
+}
+
 /** The Week 3 checkout and data, refused unless the checkout is exactly the pinned benchmark. */
 export async function week3Setup(): Promise<BenchmarkSetup> {
   const source = setting('PILOT_WEEK3_SRC');
   const data = setting('PILOT_LANGUAGE_DATA');
-  const pinned = git(repositoryRoot(), ['rev-parse', 'HEAD:benchmarks/week3']);
+  const pinned = pinnedWeek3Commit();
   const head = git(source, ['rev-parse', 'HEAD']);
   if (head !== pinned) {
     throw new Error(`PILOT_WEEK3_SRC is at ${head}; this repository pins benchmarks/week3 at ${pinned}.`);
@@ -92,6 +109,7 @@ export interface TeamRepo {
 export async function createTeamRepo(parent: string): Promise<TeamRepo> {
   const archive = execFileSync('git', ['archive', '--format=tar', 'HEAD', REFERENCE], {
     cwd: repositoryRoot(),
+    env: gitEnv(),
     maxBuffer: 64 * 1024 * 1024,
   });
   const staging = join(parent, 'reference-archive');

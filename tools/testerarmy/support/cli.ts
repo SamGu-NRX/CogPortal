@@ -19,6 +19,17 @@ export function setting(name: string): string {
   return value;
 }
 
+/**
+ * The environment without anything that points Git somewhere else. An
+ * inherited GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE or GIT_CONFIG_* (a shell
+ * inside a git hook sets some of these) would make a `git` run in the team
+ * repository read, commit to or reconfigure another checkout instead, so no
+ * GIT_* variable passes through.
+ */
+export function withoutGitRedirection(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GIT_')));
+}
+
 export interface CliProcess {
   /** Resolves with the first match in the output; rejects if the process fails, exits, or time runs out first. */
   waitFor(pattern: RegExp, ms: number): Promise<RegExpMatchArray>;
@@ -64,6 +75,18 @@ class OwnedProcess implements CliProcess {
 
   stop(signal: NodeJS.Signals): void {
     if (this.running) this.child.kill(signal);
+  }
+
+  /** Whether it settles within `ms`. */
+  async settledWithin(ms: number): Promise<boolean> {
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([this.settled, new Promise((resolve) => (timer = setTimeout(resolve, ms)))]);
+    clearTimeout(timer);
+    return !this.running;
+  }
+
+  get name(): string {
+    return this.label;
   }
 
   output(): string {
@@ -123,6 +146,15 @@ class OwnedProcess implements CliProcess {
   }
 }
 
+/**
+ * How long a CLI gets to unwind after SIGINT. `cogworks run` starts its
+ * benchmark worker in a session of its own (cogbench/isolate.py, run_operation)
+ * and kills that worker's process group in a `finally`. SIGINT reaches that
+ * `finally`; SIGTERM ends Python without it and leaves the worker running.
+ * Ten seconds is a bound, not a measurement; the unwind is a kill, a reap and
+ * a temporary directory removal.
+ */
+const INTERRUPT_GRACE_MS = 10_000;
 const STOP_GRACE_MS = 5_000;
 
 /** Where the CLI finds a benchmark it runs: its source checkout and the data the benchmark loads. */
@@ -134,9 +166,10 @@ export interface BenchmarkSetup {
 }
 
 /**
- * A fresh HOME and every CLI process started in it. `close()` stops the ones
- * still running, waits for each to exit, and only then removes HOME; a
- * process that outlives SIGKILL leaves HOME in place and fails the test.
+ * A fresh HOME and every CLI process started in it. `close()` interrupts the
+ * ones still running and waits for each to exit, and only then removes HOME.
+ * A CLI that doesn't exit on SIGINT is killed so the test can end, but its
+ * own cleanup never ran: HOME stays in place and the test fails saying so.
  */
 export class CliHome {
   private readonly owned: OwnedProcess[] = [];
@@ -168,7 +201,7 @@ export class CliHome {
    */
   start(args: readonly string[], options: { cwd?: string } = {}): CliProcess {
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
+      ...withoutGitRedirection(process.env),
       HOME: this.path,
       PYTHONPATH: this.benchmark ? `${this.source}:${this.benchmark.source}` : this.source,
       // A pinned seed keeps `main()` from re-executing the interpreter.
@@ -193,19 +226,23 @@ export class CliHome {
   }
 
   async close(): Promise<void> {
-    let survivors = 0;
+    const unconfirmed: string[] = [];
     for (const owned of this.owned) {
+      if (!owned.running) continue;
+      owned.stop('SIGINT');
+      if (await owned.settledWithin(INTERRUPT_GRACE_MS)) continue;
       for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
         if (!owned.running) break;
         owned.stop(signal);
-        let grace: NodeJS.Timeout | undefined;
-        await Promise.race([owned.settled, new Promise((resolve) => (grace = setTimeout(resolve, STOP_GRACE_MS)))]);
-        clearTimeout(grace);
+        await owned.settledWithin(STOP_GRACE_MS);
       }
-      if (owned.running) survivors += 1;
+      unconfirmed.push(`${owned.name} (${owned.running ? 'still running' : 'killed'})`);
     }
-    if (survivors > 0) {
-      throw new Error(`${survivors} CLI process(es) survived SIGKILL; left ${this.path} in place.`);
+    if (unconfirmed.length > 0) {
+      throw new Error(
+        `${unconfirmed.join(', ')} did not exit on SIGINT, so a benchmark worker it started may still be ` +
+          `running; ${this.path} is left in place.`,
+      );
     }
     await rm(this.path, { recursive: true, force: true });
   }
