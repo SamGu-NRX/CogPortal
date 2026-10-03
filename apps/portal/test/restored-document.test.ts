@@ -288,9 +288,15 @@ async function harness(t: test.TestContext, teams: Teams = "shared", path = "/se
     assertConcealment();
   };
 
+  /** Focus on a window that was never hidden, the one beside another. */
+  const focusWindow = async () => {
+    await act(async () => { window.dispatchEvent(new window.Event("focus")); });
+    await flush();
+  };
+
   return {
     window, server, client, container, flush, exposed, watchExposed, operableButtons, assertConcealment, leave, comeBack,
-    reloads: () => reloads, assertReplacedForAnotherAccount,
+    focusWindow, setVisibility, reloads: () => reloads, assertReplacedForAnotherAccount,
   };
 }
 
@@ -604,6 +610,94 @@ test("a modal left open across a hide is closed, so it cannot block the gate's r
   h.server.session("fail");
   await h.comeBack("visibility");
   assert.deepEqual(h.operableButtons(), ["Try again"]);
+});
+
+/*
+ * Two windows side by side: neither is hidden, so only focus tells this one
+ * that the other signed in as someone else.
+ */
+test("focus on a visible window that bob signed into elsewhere conceals it and replaces the page", async (t) => {
+  const h = await harness(t);
+  h.server.signInDirectly("bob");
+  h.server.session("hold");
+  const before = h.server.sessionRequests.length;
+  await h.focusWindow();
+  assert.deepEqual(h.server.sessionRequests.slice(before), ["bob"]);
+  // Still reading: the page stays as it was, and nothing is reloaded yet.
+  assert.equal(h.reloads(), 0);
+  h.server.releaseSession("bob");
+  await h.flush();
+  h.assertReplacedForAnotherAccount();
+  // Concealed for good: later focus and returns neither check nor reveal.
+  const after = h.server.sessionRequests.length;
+  await h.focusWindow();
+  await act(async () => { h.setVisibility("hidden"); h.setVisibility("visible"); });
+  await h.flush();
+  assert.equal(h.server.sessionRequests.length, after);
+  h.assertReplacedForAnotherAccount();
+});
+
+test("focus with the same account signed in keeps the mounted page as it was", async (t) => {
+  const h = await harness(t);
+  const menu = [...h.container.querySelectorAll("button")].find((b) => b.textContent?.includes("alice"));
+  assert.ok(menu);
+  const before = h.server.sessionRequests.length;
+  await h.focusWindow();
+  assert.equal(h.server.sessionRequests.length, before + 1, "focus did not reread the session");
+  assert.equal(h.reloads(), 0);
+  assert.ok(h.exposed().includes(tokenFor("alice")));
+  assert.ok(menu.isConnected, "the page was remounted for an unchanged account");
+  assert.equal(h.container.querySelector("[inert]"), null, "an unchanged account was concealed");
+});
+
+for (const order of ["visibility first", "focus first"] as const) {
+  test(`a return that announces itself with visibility and focus (${order}) checks once`, async (t) => {
+    const h = await harness(t);
+    h.leave("visibility");
+    h.server.signInDirectly("bob");
+    const before = h.server.sessionRequests.length;
+    await act(async () => {
+      if (order === "focus first") h.window.dispatchEvent(new h.window.Event("focus"));
+      h.setVisibility("visible");
+      if (order === "visibility first") h.window.dispatchEvent(new h.window.Event("focus"));
+    });
+    await h.flush();
+    assert.deepEqual(h.server.sessionRequests.slice(before), ["bob"], "the return read the session more than once");
+    h.assertReplacedForAnotherAccount();
+  });
+}
+
+test("repeated focus while a check runs asks once", async (t) => {
+  const h = await harness(t);
+  h.server.session("hold");
+  const before = h.server.sessionRequests.length;
+  await h.focusWindow();
+  await h.focusWindow();
+  await h.focusWindow();
+  assert.equal(h.server.sessionRequests.length, before + 1);
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.equal(h.reloads(), 0);
+});
+
+test("focus before the first session read lands does nothing", async (t) => {
+  const h = await harness(t, "shared", "/setup", true);
+  const before = h.server.sessionRequests.length;
+  await h.focusWindow();
+  assert.equal(h.server.sessionRequests.length, before);
+  assert.equal(h.reloads(), 0);
+});
+
+test("a focus check that fails leaves the page showing for the next one", async (t) => {
+  const h = await harness(t);
+  h.server.session("fail");
+  await h.focusWindow();
+  assert.equal(h.reloads(), 0);
+  assert.ok(h.exposed().includes(tokenFor("alice")));
+  h.server.session("answer");
+  h.server.signInDirectly("bob");
+  await h.focusWindow();
+  h.assertReplacedForAnotherAccount();
 });
 
 test("the same login on the same team is the same account", () => {

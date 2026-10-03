@@ -49,6 +49,14 @@ const GateContext = createContext<{
  * belong to the first account, and the setup page's commands carry tokens
  * signed for it. The same account gets the same mounted tree back; a
  * different one gets a fresh document.
+ *
+ * A window that stays visible beside another is never hidden, so focus
+ * checks too (TanStack Query v5 listens only to visibilitychange). That check
+ * leaves the page showing while it reads, because a click back into the
+ * window should not blank a page that is still right; only a different
+ * account conceals it, and then for good, until the reload. Team changes made
+ * from it in the meantime are refused by the server, which compares the team
+ * the page showed (requireAdminOfShownTeam).
  */
 export function RestoreGate({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
@@ -108,6 +116,35 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     setGate({ state: "open" });
   }, [qc]);
 
+  // Focus on a page that was never hidden. A return from hidden is the
+  // visibility path's: the gate is closed by then, so this stands aside, and a
+  // check already running (from either path) answers for both events.
+  const verify = useCallback(async () => {
+    if (replacing.current || !open.current || running.current) return;
+    const painted = qc.getQueryData<Session>(sessionQuery.queryKey);
+    // Nothing is painted for anyone until the first read lands.
+    if (!painted) return;
+    const mine = ++attempt.current;
+    running.current = true;
+    await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
+    let session: Session;
+    try {
+      session = await qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" });
+    } catch {
+      // The page was showing and stays so; the next focus or return asks again.
+      if (mine === attempt.current) running.current = false;
+      return;
+    }
+    if (mine !== attempt.current) return;
+    running.current = false;
+    if (sameAccount(painted, session)) return;
+    open.current = false;
+    replacing.current = true;
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
+    flushSync(() => setGate({ state: "closed" }));
+    window.location.reload();
+  }, [qc]);
+
   const close = useCallback(() => {
     if (replacing.current) return;
     attempt.current += 1;
@@ -145,15 +182,20 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       restored.current = true;
       reopen();
     };
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void verify();
+    };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onFocus);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onFocus);
     };
-  }, [close, reopen]);
+  }, [close, reopen, verify]);
 
   // Closing blurs whatever was focused inside the hidden tree.
   useEffect(() => {
