@@ -30,21 +30,26 @@ The framework stores the login in `~/.config/e2e/oauth.json` and refreshes it it
 
 ## Setup
 
-From the repository root:
+Use a checkout made for testing, such as a new `git worktree`, not the one you work in. Setup writes `apps/portal/.dev.vars` and a local database, and the tests add synthetic users to that database.
+
+From the repository root of that checkout:
 
 ```sh
 pnpm install --frozen-lockfile
-(cd tools/testerarmy && npm ci)
+(cd tools/testerarmy && npm ci --ignore-scripts)
 
 cd apps/portal
-sed 's#http://localhost:5173#http://127.0.0.1:5195#g' .dev.vars.example > .dev.vars
+# noclobber: the shell refuses to replace a .dev.vars that is already there
+(set -o noclobber; sed 's#http://localhost:5173#http://127.0.0.1:5195#g' .dev.vars.example > .dev.vars)
 pnpm db:migrate:local && pnpm db:seed:local
 pnpm exec vite --port 5195 --strictPort --host 127.0.0.1
 ```
 
+`--ignore-scripts` also skips Playwright's browser download. The runner needs Chromium build 1243 in the Playwright cache; `npx playwright install chromium` fetches it if it's missing.
+
 The server, `PUBLIC_ORIGIN` and the test target all use `127.0.0.1`. That keeps the approval URL the CLI prints on the same host as the browser's session cookie.
 
-The link tests need two synthetic students on one team. Sign each in once, then apply the fixture:
+The link tests need two synthetic students on one team. With the server running, open a second terminal at the repository root, sign each student in once, then apply the fixture:
 
 ```sh
 for login in e2e-pilot-a e2e-pilot-b; do
