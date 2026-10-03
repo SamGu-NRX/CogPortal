@@ -80,7 +80,9 @@ function LeftTeamNotice({ className = "" }: { className?: string }) {
       <p className="mt-1">
         {left.alreadyLeft
           ? "Nothing changed this time; another tab or request had already taken you off it."
-          : "Its runs and results stay with the team. If GitHub still gives you write access to its repository, you can join it again below."}
+          : left.archive
+            ? "Its runs and results stay with the team. It's a past-course demonstration, so only course staff can add you back."
+            : "Its runs and results stay with the team. If GitHub still gives you write access to its repository, you can join it again below."}
       </p>
     </div>
   );
@@ -488,6 +490,29 @@ function JoinPath({
   );
 }
 
+/** The server's answer when a membership exists that this page never saw. */
+function isAlreadyOnTeam(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.code === "already_on_team";
+}
+
+/**
+ * A join or a new team refused because the student is already on a team,
+ * made in another window, on another device or by staff after this page
+ * loaded. Nothing here can show that team: the session this page holds says
+ * none. A full page load (a plain link, not a router Link) drops what this
+ * page cached and reads where they stand now.
+ */
+function AlreadyOnTeamNotice({ className = "" }: { className?: string }) {
+  return (
+    <div role="alert" className={`rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep ${className}`}>
+      <p>You're already on a team; this page was opened before you joined it.</p>
+      <a href="/team" className={buttonClass("ghost", "mt-2")}>
+        Open your current team
+      </a>
+    </div>
+  );
+}
+
 function joinErrorMessage(error: unknown): string | null {
   if (error instanceof ApiRequestError) {
     // A team deleted after the list loaded. The server's "Team not found."
@@ -521,7 +546,9 @@ function TeamRow({
   // access yet) often means the student pressed the wrong team.
   const mine = join.variables === team.id;
   const busy = join.isPending && mine;
-  const message = !join.isPending && mine ? joinErrorMessage(join.error) : null;
+  const settled = !join.isPending && mine;
+  const alreadyOnTeam = settled && isAlreadyOnTeam(join.error);
+  const message = settled && !alreadyOnTeam ? joinErrorMessage(join.error) : null;
 
   return (
     <li className={primary ? "pt-2" : "border-b border-rule-soft py-4"}>
@@ -543,6 +570,7 @@ function TeamRow({
         </Button>
       </div>
 
+      {alreadyOnTeam && <AlreadyOnTeamNotice className="mt-3" />}
       {message && (
         <p role="alert" className="mt-3 rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep">
           {message}
@@ -651,7 +679,9 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
         </div>
       )}
 
-      {connect.error && (
+      {isAlreadyOnTeam(connect.error) ? (
+        <AlreadyOnTeamNotice className="mt-4" />
+      ) : connect.error && (
         <p role="alert" className="mt-4 rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep">
           {connect.error instanceof ApiRequestError
             ? connect.error.message
