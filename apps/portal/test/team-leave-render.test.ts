@@ -42,14 +42,13 @@ function sessionFor(team: boolean | "other") {
   };
 }
 
-function teamDetail(members: number, teammateLogin = "teammate", archive = false) {
+function teamDetail(members: number, teammateLogin = "teammate", archive = false, teammateFirst = false) {
+  const student = { login: "student", name: null, avatarUrl: null, role: "write", isYou: true };
+  const others = members > 1 ? [{ login: teammateLogin, name: null, avatarUrl: null, role: "admin", isYou: false }] : [];
   return {
     ...sessionFor(true).team,
     provenance: archive ? "archive" : "live",
-    members: [
-      { login: "student", name: null, avatarUrl: null, role: "write", isYou: true },
-      ...(members > 1 ? [{ login: teammateLogin, name: null, avatarUrl: null, role: "admin", isYou: false }] : []),
-    ],
+    members: teammateFirst ? [...others, student] : [student, ...others],
     tas: [],
     isAdmin: false,
   };
@@ -62,6 +61,7 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
   let onTeam: boolean | "other" = true;
   let sessionMode: "answer" | "hold-next" | "fail" | "offline" = "answer";
   let joinWrites = 0;
+  let teammateFirst = false;
   let loseNextLeave = options.loseLeave ?? false;
   let releaseSession = () => {};
   const leaves: unknown[] = [];
@@ -77,7 +77,7 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
       sessionMode = "answer";
       return new Promise<Response>((resolve) => { releaseSession = () => resolve(answer); });
     }
-    if (path === "/api/team" && onTeam === true) return Response.json(teamDetail(options.members, options.teammateLogin, options.archive));
+    if (path === "/api/team" && onTeam === true) return Response.json(teamDetail(options.members, options.teammateLogin, options.archive, teammateFirst));
     if (path === "/api/team/leave") {
       leaves.push(JSON.parse(String(init?.body)));
       // The server's answer for a page whose team is no longer the caller's.
@@ -125,6 +125,8 @@ function portal(options: { members: number; alreadyLeft?: boolean; holdLeave?: b
     failSessions: () => { sessionMode = "fail"; },
     goOffline: () => { sessionMode = "offline"; },
     joinWrites: () => joinWrites,
+    /** The server lists the teammate first, moving the reader's row. */
+    reorder: () => { teammateFirst = true; },
     team: () => onTeam,
   };
 }
@@ -510,4 +512,23 @@ test("a leave the server refused keeps Leave, since nothing was removed", async 
   const alert = container.querySelector('[role="alert"]');
   assert.ok(alert, "the refusal was not shown");
   assert.ok([...container.querySelectorAll("li button")].some((b) => (b.textContent ?? "").startsWith("Leave")));
+});
+
+test("a row that remounts after Leave was armed shows neither the armed button nor its consequence", async (t) => {
+  // The consequence once lived in the list while the armed state lived in the
+  // button, so a remounted row showed the line under an unarmed Leave.
+  const { container, server, client, flush } = await mount(t, { members: 2 });
+  const leaveButton = () => [...container.querySelectorAll("li button")].find((b) => /^(Leave|Confirm, you leave)/.test(b.textContent ?? ""));
+  await act(async () => leaveButton()!.click());
+  await flush();
+  assert.match(leaveButton()?.textContent ?? "", /^Confirm, you leave/);
+  assert.equal(container.querySelectorAll("li [role=status]").length, 1);
+
+  server.reorder();
+  await act(async () => { await client.invalidateQueries({ queryKey: ["team"] }); });
+  await flush();
+  const rows = [...container.querySelectorAll("li")].filter((row) => /student|teammate/.test(row.textContent ?? ""));
+  assert.match(rows[0]?.textContent ?? "", /teammate/, "the roster did not reorder");
+  assert.match(leaveButton()?.textContent ?? "", /^Leave/, "the remounted row kept an armed button");
+  assert.equal(container.querySelectorAll("li [role=status]").length, 0, "the consequence outlived its button");
 });
