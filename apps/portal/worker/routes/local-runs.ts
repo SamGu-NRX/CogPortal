@@ -26,7 +26,7 @@ import {
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
-import { guardedLocalReportSave, localReportRow, reportSavedBy, teamsStillTheirs } from "../services/local-reports";
+import { guardedLocalReportSave, localReportRow, refuseOthersReportId, reportSavedBy, teamsStillTheirs } from "../services/local-reports";
 import { syncRunSurfaceMessage } from "../services/discord-messages";
 import {
   defaultLocalEventCode,
@@ -284,9 +284,13 @@ async function acceptLocalRunEvent(
   if (duplicate && !(await isOnTeam(db, current.teamId, device.userId))) {
     throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
   }
-  // Nothing was written because a run on a team the author left points at
-  // this report id: say so, rather than calling the event a duplicate.
   if (duplicate && report) {
+    // The id was checked before the batch, but another account can save a
+    // report under it in between; the batch then writes nothing. Their
+    // report stands, and this event was not delivered.
+    await refuseOthersReportId(db, report.reportId, device.userId);
+    // Nothing was written because a run on a team the author left points at
+    // this report id: say so, rather than calling the event a duplicate.
     const [frozenBy] = await db
       .select({ id: localRunSessions.id })
       .from(localRunSessions)
