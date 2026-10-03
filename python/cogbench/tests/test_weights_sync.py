@@ -81,7 +81,10 @@ class LocalReportWithWeightsTests(unittest.TestCase):
         restored = LocalReport.from_json(json_str)
         self.assertEqual(restored.weights_used, ["models/encoder.pkl", "data/idf.json"])
 
-    def test_weights_restored_as_empty_list_when_absent(self):
+    def test_an_absent_weights_field_stays_unrecorded(self):
+        """A report saved before the field existed never said which weights it
+        used. Reading that as [] would turn "unknown" into "none"."""
+
         json_str = json.dumps({
             "reportId": "local_test",
             "benchmarkId": "language-search",
@@ -101,7 +104,8 @@ class LocalReportWithWeightsTests(unittest.TestCase):
             "outputDigest": "x" * 64,
         })
         report = LocalReport.from_json(json_str)
-        self.assertEqual(report.weights_used, [])
+        self.assertIsNone(report.weights_used)
+        self.assertNotIn("weightsUsed", report.to_wire())
 
 
 class SyncUploadsEveryScoredWeight(unittest.TestCase):
@@ -138,9 +142,12 @@ class SyncUploadsEveryScoredWeight(unittest.TestCase):
             weights_uploaded=weights_uploaded,
         )
 
-    def _sync(self, report):
+    def _sync(self, report, drop=()):
         report_file = self.tmp / "report.json"
-        report_file.write_text(report.to_json(), encoding="utf-8")
+        saved = json.loads(report.to_json())
+        for key in drop:
+            del saved[key]
+        report_file.write_text(json.dumps(saved), encoding="utf-8")
         with patch("cogbench.cli.sync_report") as sync, \
                 patch("cogbench.cli.upload_weight") as upload, \
                 patch("cogbench.cli.token_for", return_value="test_token"), \
@@ -165,6 +172,7 @@ class SyncUploadsEveryScoredWeight(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         sync.assert_called_once()
+        self.assertEqual(sync.call_args[0][2]["weightsUsed"], ["trained_weights.npz"])
         upload.assert_called_once()
         arguments = upload.call_args
         self.assertEqual(arguments[0][3], "trained_weights.npz")
@@ -198,7 +206,37 @@ class SyncUploadsEveryScoredWeight(unittest.TestCase):
         code, sync, upload, _, _ = self._sync(self._report([], []))
         self.assertEqual(code, 0)
         sync.assert_called_once()
+        self.assertEqual(sync.call_args[0][2]["weightsUsed"], [])
         upload.assert_not_called()
+
+    def test_a_report_that_never_recorded_its_weights_is_not_synced(self):
+        """An old file without weightsUsed must not reach the portal as [],
+        which would claim the run used no weights."""
+
+        for uploaded in (None, []):
+            with self.subTest(weightsUploaded=uploaded):
+                code, sync, upload, _, err = self._sync(
+                    self._report([], uploaded), drop=("weightsUsed",)
+                )
+                self.assertEqual(code, 2)
+                sync.assert_not_called()
+                upload.assert_not_called()
+                self.assertIn(
+                    "Run `cogworks run --benchmark language-search` again, "
+                    "then `cogworks sync`.",
+                    err,
+                )
+
+    def test_a_report_that_never_recorded_its_weights_still_displays(self):
+        report_file = self.tmp / "old-report.json"
+        saved = json.loads(self._report([], None).to_json())
+        del saved["weightsUsed"]
+        report_file.write_text(json.dumps(saved), encoding="utf-8")
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main(["report", str(report_file)])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("MRR: 0.750", out.getvalue())
 
     def test_a_missing_capture_stops_the_sync(self):
         self.receipt.retained.unlink()
