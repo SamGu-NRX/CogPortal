@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, exists, inArray, ne } from "drizzle-orm";
 import type {
   DiscordLocalReports,
   DiscordTeamStatus,
@@ -200,6 +200,12 @@ export async function getDiscordTeamStatus(
   };
 }
 
+/** Team roles that may choose the team's Discord channel. */
+const CHANNEL_ROLES = ["admin", "maintain"];
+const CHANNEL_ROLE_REQUIRED = "A team creator or maintainer needs to choose the team channel.";
+const CHANNEL_TEAM_LEFT =
+  "You're no longer on this team, so its channel wasn't changed. Run /cog again to see where you are.";
+
 export async function bindDiscordTeamChannel(
   env: Env,
   discordUserId: string,
@@ -216,8 +222,8 @@ export async function bindDiscordTeamChannel(
     .where(eq(teamMembers.userId, identity.userId))
     .limit(1);
   if (!membership) throw new ApiHttpError(409, "no_team", "Finish joining a team and connecting its repository first.");
-  if (membership.role !== "admin" && membership.role !== "maintain") {
-    throw new ApiHttpError(403, "forbidden", "A team creator or maintainer needs to choose the team channel.");
+  if (!CHANNEL_ROLES.includes(membership.role)) {
+    throw new ApiHttpError(403, "forbidden", CHANNEL_ROLE_REQUIRED);
   }
   const [claimed] = await db
     .select({ name: teams.name })
@@ -232,10 +238,28 @@ export async function bindDiscordTeamChannel(
     );
   }
   await assertDiscordChannelWritable(env, channelId);
-  await db
+  // Discord's answers took time, and the actor can leave the team or lose its
+  // role meanwhile. The UPDATE checks both again when it runs.
+  const bound = await db
     .update(teams)
     .set({ discordChannelId: channelId })
-    .where(eq(teams.id, membership.team.id));
+    .where(and(
+      eq(teams.id, membership.team.id),
+      exists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+        eq(teamMembers.teamId, membership.team.id),
+        eq(teamMembers.userId, identity.userId),
+        inArray(teamMembers.role, CHANNEL_ROLES),
+      ))),
+    ));
+  if (!bound.meta.changes) {
+    const [still] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, membership.team.id), eq(teamMembers.userId, identity.userId)))
+      .limit(1);
+    if (still) throw new ApiHttpError(403, "forbidden", CHANNEL_ROLE_REQUIRED);
+    throw new ApiHttpError(409, "no_team", CHANNEL_TEAM_LEFT);
+  }
   return getDiscordTeamStatus(env, discordUserId);
 }
 

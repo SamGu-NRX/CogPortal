@@ -97,7 +97,12 @@ interface Harness {
   binding: unknown;
   /** One-shot hooks around the next D1 batch: what commits just before the
    *  admission INSERT, or just after it and before dispatch. */
-  race: { beforeBatch?: () => void; afterBatch?: () => void };
+  race: {
+    beforeBatch?: () => void;
+    afterBatch?: () => void;
+    /** Runs once, just before the next statement whose SQL matches. */
+    beforeStatement?: { match: RegExp; run: () => void };
+  };
   sqlite: DatabaseSync;
 }
 
@@ -110,6 +115,11 @@ function freshDb(): Harness {
   for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
 
   function prepare(query: string) {
+    const hook = race.beforeStatement;
+    if (hook?.match.test(query)) {
+      delete race.beforeStatement;
+      hook.run();
+    }
     const statement = sqlite.prepare(query);
     let bound: never[] = [];
     const prepared = {
@@ -1381,6 +1391,57 @@ test("publishing a result from a repository the team has left is refused, and th
   const [selection] = await db.select().from(leaderboardSelections);
   assert.equal(selection!.runId, officialId);
   assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
+});
+
+const LEFT_TEAM_PUBLICATION = "You're no longer on this team, so nothing was published. Reload to see where you are.";
+
+for (const existing of [false, true]) {
+  test(`a publisher who leaves while its checks are pending ${existing ? "replaces" : "creates"} no selection`, async () => {
+    const { db, binding, race, sqlite } = freshDb();
+    const actor = await seedPromotion(db);
+    const officialId = await seedOfficial(db, "succeeded");
+    await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+    if (existing) {
+      // The ON CONFLICT branch: a selection the write would otherwise update.
+      await db.insert(leaderboardSelections).values({
+        teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1, runId: officialId, selectedAt: 1,
+      });
+    }
+    const before = await db.select().from(leaderboardSelections);
+    const runtime = env(binding, "fixture");
+    const hubs = runSurfaceHubs(runtime);
+    runtime.RUN_SURFACES = hubs.namespace;
+    // The leave commits after every check has passed, where the GitHub
+    // permission read and the provider sync await, and before the write.
+    let left = false;
+    race.beforeStatement = {
+      match: /^insert into "leaderboard_selections"/i,
+      run: () => {
+        sqlite.prepare("DELETE FROM team_members WHERE user_id = ?").run(actor.userId);
+        left = true;
+      },
+    };
+    await assert.rejects(publishOfficialRun(runtime, actor, officialId),
+      { status: 403, code: "forbidden", message: LEFT_TEAM_PUBLICATION });
+    assert.equal(left, true, "the leave must land between the checks and the write");
+    assert.deepEqual(await db.select().from(leaderboardSelections), before);
+    assert.deepEqual(hubs.requests.filter((r) => r.operation === "/publish"), [], "a refused publication was announced");
+  });
+}
+
+test("a publisher demoted while its checks are pending still publishes, as any member may", async () => {
+  const { db, binding, race, sqlite } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  race.beforeStatement = {
+    match: /^insert into "leaderboard_selections"/i,
+    run: () => { sqlite.prepare("UPDATE team_members SET role = 'member' WHERE user_id = ?").run(actor.userId); },
+  };
+  await publishOfficialRun(env(binding, "fixture"), actor, officialId);
+  const [selection] = await db.select().from(leaderboardSelections);
+  assert.equal(selection?.runId, officialId);
+  assert.equal(race.beforeStatement, undefined, "the demotion never landed");
 });
 
 test("rerunning a run from a repository the team has left is refused, with no new run", async () => {
