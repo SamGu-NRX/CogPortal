@@ -134,6 +134,20 @@ test("a failure the submission caused shows its evidence open and folds the expl
   assert.equal(window.document.activeElement, toggle);
 });
 
+test("an exception's next step asks for what staff can use, and that run number is on the page", async (t) => {
+  // Staff can't open a team's run, so "share the run" was advice nobody
+  // could act on. The step names the error and the run number instead.
+  const { container } = await mount(t, page(t, run()));
+  const next = [...container.querySelectorAll("p")].find((node) => node.textContent.startsWith("If it points to a file in your repository"));
+  assert.ok(next);
+  assert.equal(next.closest('[aria-hidden="true"]'), null);
+  assert.match(next.textContent, /send course staff the error above and the run number at the top of this page/);
+  assert.doesNotMatch(container.textContent, /share the run/);
+  assert.match(container.textContent, /Run #_123/);
+  const error = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("RuntimeError: fixture exception"));
+  assert.ok(error && (error.compareDocumentPosition(next) & 4), "the error sits above the step that points at it");
+});
+
 test("failed late findings stay hidden history, with no publication or promotion", async (t) => {
   const metric = { key: "accuracy", label: "Late accuracy", value: 0.1, unit: null, primary: true, precision: 3, higherIsBetter: true, role: null, relatesTo: null, help: null };
   const { container } = await mount(t, page(t, run({
