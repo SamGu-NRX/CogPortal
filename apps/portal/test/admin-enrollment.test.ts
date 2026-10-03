@@ -165,8 +165,15 @@ test("closing the fold by mouse after WebKit has taken focus off its action keep
     page.toggle().dispatchEvent(new page.window.MouseEvent("pointerdown", { bubbles: true }));
     rotate.blur();
   });
-  assert.equal(page.window.document.activeElement, page.window.document.body, "WebKit's mousedown left focus on the body");
+  // Compared by identity with a short description: a failing assert.equal on
+  // two Happy DOM elements inspects the whole window to build its message,
+  // which stalls the file instead of reporting.
+  const focusIs = (expected: Element, when: string) => {
+    const actual = page.window.document.activeElement;
+    assert.ok(actual === expected, `${when}: focus is on ${actual?.tagName} "${actual?.textContent.trim().slice(0, 30)}"`);
+  };
+  focusIs(page.window.document.body, "after WebKit's mousedown");
   await act(async () => page.toggle().click());
   assert.equal(page.toggle().getAttribute("aria-expanded"), "false");
-  assert.equal(page.window.document.activeElement, page.toggle());
+  focusIs(page.toggle(), "after closing");
 });
