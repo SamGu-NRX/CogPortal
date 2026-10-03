@@ -26,7 +26,7 @@ Being staff doesn't open a team's run pages or its Team page. Those carry the
 team's unpublished practice results and its process notes, so the portal
 shows them only to the team's members. In the admin row, staff do see whether
 an assigned team has run end to end and where its last hosted run stopped, but
-still not its results, logs or notes. To look at a run with a team, have a
+still not its unpublished results, logs or notes. To look at a run with a team, have a
 member open it.
 
 ## Open a cohort
