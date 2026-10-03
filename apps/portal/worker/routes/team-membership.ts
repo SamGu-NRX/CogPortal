@@ -204,14 +204,19 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
    *
    * Everything else stays with the team: its repository, runs, attempts,
    * publications, TAs and Discord channel. GitHub is untouched, so a GitHub
-   * collaborator can join again through /team/join and gets whatever role
-   * GitHub gives them then. Any member may leave, the last admin and the last
-   * member included; the team stays joinable.
+   * collaborator can join a live team again through /team/join and gets
+   * whatever role GitHub gives them then; an archive team refuses that join,
+   * and only staff can add them back. Any member may leave, the last admin
+   * and the last member included.
    *
    * Cookie session only (requireUser). A device credential cannot reach this.
-   * The one DELETE is scoped to the named team and this user, so a retry
-   * after success, or a stale tab after the person joined another team,
-   * removes nothing else.
+   * The one DELETE is scoped to the named team and this user. A repeat while
+   * the person is still off that team removes nothing and answers
+   * alreadyLeft, and a stale tab after they joined another team gets a 409.
+   * It is not bound to one membership: the row holds only team and user, so
+   * after they join the same team again, a repeat removes that new
+   * membership. The Team page therefore offers no second Leave after an
+   * unknown outcome until a reload (useLeaveUnconfirmed).
    */
   app.post("/team/leave", async (c) => {
     const auth = await requireUser(c);

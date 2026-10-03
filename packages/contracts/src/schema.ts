@@ -1217,8 +1217,9 @@ export const JoinTeamRequestSchema = z.object({
 
 /**
  * Leaving names the team the page showed, so a tab left open after the
- * person moved to another team, or a retried request, cannot take them off
- * the team they are on now.
+ * person moved to another team cannot take them off the team they are on
+ * now. It does not name one membership: if they rejoin the same team, a
+ * repeated request removes the new membership (see POST /team/leave).
  */
 export const LeaveTeamRequestSchema = z.object({
   teamId: z.string().min(1),
