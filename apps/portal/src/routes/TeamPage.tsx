@@ -486,13 +486,15 @@ const ROW_NOTE = "basis-full max-w-[calc(60ch+36px+0.875rem)] pl-[calc(36px+0.87
 /** Each sentence is a server fact: the delete touches one team_members row
  *  (routes/team-membership.ts), and team report lists are built from the
  *  current roster (services/local-reports.ts). Students can't join an
- *  archive team themselves, but staff can add anyone to it (routes/admin.ts),
- *  so for one the way back is through staff, not GitHub. */
+ *  archive team themselves. Staff can add anyone to it (routes/admin.ts), and
+ *  so can a team admin who is still on it (POST /team/members), but whether
+ *  one is left can change before the click lands, so the line names staff
+ *  without saying only staff. */
 function LeaveConsequence({ lastMember, archive }: { lastMember: boolean; archive: boolean }) {
   const text = archive
     ? lastMember
-      ? "You're the last member, so the team will be empty. It keeps its runs and results, and your GitHub access doesn't change. It's a past-course demonstration, so only course staff can add anyone back."
-      : "Only you come off the team; its hosted runs, attempts and published results stay, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself; course staff would have to add you back."
+      ? "You're the last member, so the team will be empty. It keeps its runs and results, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back."
+      : "Only you come off the team; its hosted runs, attempts and published results stay, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back."
     : lastMember
       ? "You're the last member, so the team will be empty. It keeps its repository, runs and results, and anyone with write access on GitHub can join it again."
       : "Only you come off the team; its hosted runs, attempts and published results stay. Your local reports leave its list with you, and your GitHub access doesn't change.";

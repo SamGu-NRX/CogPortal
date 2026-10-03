@@ -440,9 +440,10 @@ test("a join elsewhere between the post-leave read and its answer is reached fro
   assert.equal(server.team(), "other", "team B's membership changed");
 });
 
-test("the last member of a past-course team hears that only staff can add anyone back", async (t) => {
+test("the last member of a past-course team hears that staff can add them back, without an only", async (t) => {
   // Students can't join an archive team themselves (routes/team-membership.ts);
-  // staff can add anyone to it (routes/admin.ts). Leaving is still allowed.
+  // staff can add anyone to it (routes/admin.ts), and so can a remaining team
+  // admin (POST /team/members). Leaving is still allowed.
   const { container, flush } = await mount(t, { members: 1, archive: true });
   const leave = [...container.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Leave"));
   assert.ok(leave, "an archive team's member had no way to leave");
@@ -451,9 +452,9 @@ test("the last member of a past-course team hears that only staff can add anyone
   const line = container.querySelector("li [role=status]")?.textContent ?? "";
   assert.equal(
     line,
-    "You're the last member, so the team will be empty. It keeps its runs and results, and your GitHub access doesn't change. It's a past-course demonstration, so only course staff can add anyone back.",
+    "You're the last member, so the team will be empty. It keeps its runs and results, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back.",
   );
-  assert.doesNotMatch(line, /can join it again/);
+  assert.doesNotMatch(line, /can join it again|\bonly\b/);
 });
 
 test("leaving a past-course team lands without promising a way back in", async (t) => {
@@ -463,7 +464,7 @@ test("leaving a past-course team lands without promising a way back in", async (
   await flush();
   assert.equal(
     container.querySelector("li [role=status]")?.textContent,
-    "Only you come off the team; its hosted runs, attempts and published results stay, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself; course staff would have to add you back.",
+    "Only you come off the team; its hosted runs, attempts and published results stay, and your GitHub access doesn't change. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back.",
   );
   await act(async () => leave!.click());
   const choiceDrawn = () => path() === "/connect" && !/Checking the cohort/.test(container.textContent ?? "");
@@ -471,7 +472,7 @@ test("leaving a past-course team lands without promising a way back in", async (
   const notice = [...container.querySelectorAll('[role="status"]')].find((node) => /left/.test(node.textContent ?? ""));
   assert.equal(
     notice?.textContent,
-    `You left ${TEAM_NAME}Its runs and results stay with the team. It's a past-course demonstration, so only course staff can add you back.`,
+    `You left ${TEAM_NAME}Its runs and results stay with the team. It's a past-course demonstration, so you can't join it again yourself, but course staff can add you back.`,
   );
 });
 
