@@ -10,6 +10,8 @@ Three builds matter, and the status table has a column for each:
 - **`4984730`, the earlier hosted beta.** Pre-redesign. It shares every server, runner and contract file with `2ff32fa` except `apps/portal/worker/routes/team.ts`, one comment in `run-actions.ts`, and `python/cogbench/src/cogbench/pipeline.py`.
 - **`ed2b194`, the deployed redesigned beta.** `2ff32fa` merged with `4984730`, so it has the redesign plus #46, #53 and CLI pin `b6bbffb`. It is live as Worker version `0b452503-80b8-44bc-b60d-a04a38cc5175`, the runner is unchanged at Modal v44 from `4984730`, and all eight CI lanes pass. A Deployed cell of "as candidate" means the deployed build behaves as `2ff32fa` for that entry.
 
+The current candidate is `edf4de3`. Its source changes since `93dfa5e`, its two hosted practice runs on an owned Modal environment, and what remains unshown are in [`verification/checkpoint-edf4de3.md`](verification/checkpoint-edf4de3.md); entries below keep the build their status names.
+
 A fourth commit, `cbd8266`, is a local repair branch on `ed2b194` for B-13 and B-14. It has been reviewed and tested, its B-13 recovery path was accepted locally on fixture data, and it is not deployed.
 
 Each Status line names its evidence:
