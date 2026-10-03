@@ -30,6 +30,19 @@ export function sessionState(browser: Browser): Promise<SessionState> {
   );
 }
 
+/** Joins one team as the signed-in account, as Connect's Join button does. */
+export function joinTeam(browser: Browser, teamId: string): Promise<number> {
+  return browser.evaluate(
+    (id: string) =>
+      fetch('/api/team/join', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ teamId: id }),
+      }).then((response) => response.status),
+    teamId,
+  );
+}
+
 /** Leaves one team as the signed-in account; the route removes only that account's own membership. */
 export function leaveTeam(browser: Browser, teamId: string): Promise<number> {
   return browser.evaluate(

@@ -10,7 +10,11 @@ A local trial of TesterArmy's `e2e` runner against a CogPortal dev server. It as
 | `tests/cli-link.e2e.ts` | one agent step | The URL and code `cogworks link` prints lead to a working approval. The agent approves; the checks after it prove this run's approval. The CLI exits linked, `~/.cogbench` is 0700 and `config.json` 0600, and exactly one new device exists. `cogworks status` answers with the saved token. The teammate can't see the device, and once it's revoked `status` fails. |
 | `tests/cli-link-keyboard.e2e.ts` | none | The same approval in the page's tab order. One Tab from "Device name" reaches "Approve device" and Enter approves. The test prints the focus sequence it saw. |
 | `tests/teammate-report.e2e.ts` | one agent step, one reading | A student checks, runs and syncs the Week 3 benchmark from a team repository, once with the reference submission and once after a commit where `embed_text` averages over the wrong axis. The team API gives the teammate both reports, with this run's commit and the benchmark's diagnostic. The agent finds the run on the teammate's page, and that run's row shows the diagnostic. **Red on 3670e55**, see below. |
+| `tests/teamless-link.e2e.ts` | one agent step | A cohort member with no team opens the printed link and lands on Connect with a note that the link is on hold, while the code stays open. The agent joins the team. Reopening the printed link then approves the original code: the CLI exits linked and `status` answers. |
+| `tests/teamless-offer.e2e.ts` | one agent step in the first test, none in the second | The same start, but after joining, Setup offers the held code as a link to the printed path. Following that link, not reopening the printed one, approves the original code; the CLI links, and the offer and the tab's held link are gone. The used code, held again, is checked and dropped. The second test holds an open code and shows that `/` and `/signin` settle without going to it, that another account signing in on the same tab never sees it, and that it stays forgotten when the first account returns. |
 | `support/*.test.ts` | none | The loopback guard; that the CLI helper interrupts and awaits every process it started before removing its HOME, and reports instead of removing when one won't stop; and that inherited `GIT_*` variables can't steer the fixture repository or the CLI to another checkout. |
+
+`teamless-offer.e2e.ts` needs a portal with Setup's offer (branch `fix/pending-device-link-20261003`); against an earlier portal it fails where the offer should appear.
 
 An agent step's own summary is never evidence. Every claim above comes from a deterministic check. The teammate test also prints the agent's reading of where the page explains the low score, as a record only.
 
@@ -96,7 +100,7 @@ Everything under `.e2e/`, including reports, traces and recordings, is gitignore
 
 ## What the tests leave behind, and how they stop
 
-The tests write only to the test checkout's local database: the two synthetic students and their team, the reports the teammate test syncs, setup check-offs, and CLI devices. Each link test revokes the device it approved once its checks pass, and the teammate test revokes its device in teardown whatever happened before. A link test that fails partway can leave its device unrevoked. Nothing is deleted record by record; to start clean, discard the test checkout's `apps/portal/.wrangler` (the local database) and run the migrate and seed step again.
+The tests write only to the test checkout's local database: the two synthetic students and their team, the reports the teammate test syncs, setup check-offs, and CLI devices. Each teamless attempt also makes its own accounts (`e2e-pilot-c-*`, `e2e-pilot-d-*`), which join the link team for the attempt and leave it in teardown; the accounts themselves stay. The code the second offer test starts is never approved and runs out after ten minutes. Each link test revokes the device it approved once its checks pass, and the teammate test revokes its device in teardown whatever happened before. A link test that fails partway can leave its device unrevoked. Nothing is deleted record by record; to start clean, discard the test checkout's `apps/portal/.wrangler` (the local database) and run the migrate and seed step again.
 
 When a test ends, the CLI helper sends each `cogworks` process SIGINT, the signal that lets `cogworks run` kill its benchmark worker and remove its scratch directory, and waits up to ten seconds. A process that ignores it is killed so the test can end, but its HOME stays in place and the test fails, saying a worker may still be running. That case needs looking at by hand.
 
@@ -127,5 +131,4 @@ These are observations of the installed version, not documented guarantees.
 
 ## Not covered yet
 
-- Opening the approval link before joining a team. The portal keeps only a note that a device link was dropped and asks the student to run `cogworks link` again; reopening the original link after joining can still approve that code within ten minutes. Testing it needs a third synthetic account with a cohort and no team, and must tell those two paths apart.
 - Any deployed portal, and Modal, GitHub or Discord.
