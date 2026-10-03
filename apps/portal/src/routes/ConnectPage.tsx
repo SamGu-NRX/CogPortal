@@ -79,7 +79,9 @@ function LeftTeamNotice({ className = "" }: { className?: string }) {
       <p className="mt-1">
         {left.alreadyLeft
           ? "Nothing changed this time; another tab or request had already taken you off it."
-          : "Its runs and results stay with the team. If GitHub still gives you write access to its repository, you can join it again below."}
+          : left.archive
+            ? "Its runs and results stay with the team. It's a past-course demonstration, so only course staff can add you back."
+            : "Its runs and results stay with the team. If GitHub still gives you write access to its repository, you can join it again below."}
       </p>
     </div>
   );

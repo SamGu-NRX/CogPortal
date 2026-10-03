@@ -391,8 +391,8 @@ export function useLeaveTeam() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   return useMutation({
-    mutationFn: ({ teamId }: { teamId: string; teamName: string }) => api.leaveTeam(teamId),
-    onSuccess: async ({ alreadyLeft }, { teamName }) => {
+    mutationFn: ({ teamId }: { teamId: string; teamName: string; archive: boolean }) => api.leaveTeam(teamId),
+    onSuccess: async ({ alreadyLeft }, { teamName, archive }) => {
       // The delete has committed by the time this answers, so a session read
       // started now is after it, unlike one already in flight, which may have
       // been answered before the delete. Cancelled first so it is not joined.
@@ -413,7 +413,7 @@ export function useLeaveTeam() {
         await qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
         return;
       }
-      rememberLeftTeam({ name: teamName, alreadyLeft });
+      rememberLeftTeam({ name: teamName, alreadyLeft, archive });
       navigate("/connect", { replace: true });
       await qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
     },
