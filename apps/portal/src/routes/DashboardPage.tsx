@@ -1,5 +1,5 @@
 import { motion, useReducedMotionConfig } from "motion/react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   OFFICIAL_LIMIT,
@@ -151,7 +151,17 @@ export function DashboardPage() {
             </QueryError>
           </div>
         ) : (
-          <Bench key={dashboard.data.benchmark.id} d={dashboard.data} finishedHere={finishedHere} />
+          <Bench
+            key={dashboard.data.benchmark.id}
+            d={dashboard.data}
+            finishedHere={finishedHere}
+            // Same as choosing the tab: the panel below reloads, so focus goes to
+            // the tab, which stays put, rather than to a control that unmounts.
+            onSelectTrack={(id) => {
+              track.select(id);
+              document.getElementById(trackTabId(id))?.focus();
+            }}
+          />
         )}
       </div>
     </div>
@@ -160,7 +170,15 @@ export function DashboardPage() {
 
 /* ── The bench ─────────────────────────────────────────────────────────── */
 
-function Bench({ d, finishedHere }: { d: Dashboard; finishedHere: string | null }) {
+function Bench({
+  d,
+  finishedHere,
+  onSelectTrack,
+}: {
+  d: Dashboard;
+  finishedHere: string | null;
+  onSelectTrack: (benchmarkId: string) => void;
+}) {
   const repositories = useRepositories();
   const localReports = useLocalReports(d.benchmark.id);
   const untrackedReports = useUntrackedLocalReports();
@@ -218,7 +236,7 @@ function Bench({ d, finishedHere }: { d: Dashboard; finishedHere: string | null 
       </div>
 
       {firstRun ? (
-        <FirstRun d={d} branches={branches} branchesFailed={repositories.isError} />
+        <FirstRun d={d} branches={branches} branchesFailed={repositories.isError} onSelectTrack={onSelectTrack} />
       ) : (
         <>
           {lead && (
@@ -665,14 +683,58 @@ function Launcher({
 
 /* ── First run ─────────────────────────────────────────────────────────── */
 
+/**
+ * On a track with no runs, where the team's runs are. "Run it for the first
+ * time" alone read as if the team's earlier runs were gone: four of four
+ * first-time readers of a team whose runs were all on another track said so
+ * (stranger walk, 3 Oct 2026). The sentence opens by saying it's this
+ * benchmark that hasn't run, because "Your team has 2 runs" directly under
+ * that heading read as a contradiction to both readers of the next walk.
+ * Each name selects that track like its tab.
+ */
+function RunsElsewhere({
+  tracks,
+  onSelectTrack,
+}: {
+  tracks: Dashboard["runsOnOtherTracks"];
+  onSelectTrack: (benchmarkId: string) => void;
+}) {
+  if (tracks.length === 0) return null;
+  return (
+    <p className="mt-2 max-w-[56ch] text-[14.5px] leading-[1.6] text-ink-secondary">
+      Your team hasn't run this benchmark yet; it has{" "}
+      {tracks.map((t, i) => (
+        <Fragment key={t.benchmarkId}>
+          {i > 0 && (i === tracks.length - 1 ? " and " : ", ")}
+          <span className="u-tnum">{t.runs}</span>
+          {i === 0 ? ` run${t.runs === 1 ? "" : "s"} on ` : " on "}
+          <button
+            type="button"
+            className="u-link"
+            // The visible name alone ("Recognition") doesn't say what the
+            // button does when heard out of the sentence.
+            aria-label={`Show ${t.title} runs`}
+            onClick={() => onSelectTrack(t.benchmarkId)}
+          >
+            {t.title}
+          </button>
+        </Fragment>
+      ))}
+      .
+    </p>
+  );
+}
+
 function FirstRun({
   d,
   branches,
   branchesFailed,
+  onSelectTrack,
 }: {
   d: Dashboard;
   branches: string[];
   branchesFailed: boolean;
+  onSelectTrack: (benchmarkId: string) => void;
 }) {
   return (
     <div className="max-w-[var(--measure,42rem)]">
@@ -683,6 +745,7 @@ function FirstRun({
         <h2 id="first-run-heading" className="text-[clamp(1.375rem,1.2rem+0.8vw,1.75rem)]">
           Run it for the first time
         </h2>
+        <RunsElsewhere tracks={d.runsOnOtherTracks} onSelectTrack={onSelectTrack} />
 
         <div className="mt-5">
           <h3 className="mb-3 font-sans text-[16px] font-bold tracking-normal text-ink">Here, from your pushed commit</h3>
