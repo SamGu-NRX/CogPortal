@@ -688,15 +688,50 @@ test("focus before the first session read lands does nothing", async (t) => {
   assert.equal(h.reloads(), 0);
 });
 
-test("a focus check that fails leaves the page showing for the next one", async (t) => {
+for (const found of ["alice", "bob"] as const) {
+  test(`a focus check that fails conceals the page behind Retry, and Retry finding ${found} ${found === "alice" ? "reopens it as it was" : "replaces it"}`, async (t) => {
+    const h = await harness(t);
+    const menu = [...h.container.querySelectorAll("button")].find((b) => b.textContent?.includes("alice"));
+    h.server.session("fail");
+    await h.focusWindow();
+    // Who is signed in is unknown, so nothing of alice's stays usable.
+    assert.ok(!h.exposed().includes(tokenFor("alice")));
+    assert.ok(!h.exposed().includes("Account menu for alice"));
+    assert.deepEqual(h.operableButtons(), ["Try again"]);
+    h.assertConcealment();
+    assert.equal(h.reloads(), 0);
+
+    h.server.session("answer");
+    if (found === "bob") h.server.signInDirectly("bob");
+    const retry = [...h.container.querySelectorAll("button")].find((button) => button.textContent === "Try again");
+    await act(async () => retry!.click());
+    await h.flush();
+    if (found === "bob") {
+      h.assertReplacedForAnotherAccount();
+    } else {
+      assert.equal(h.reloads(), 0);
+      assert.ok(h.exposed().includes(tokenFor("alice")));
+      assert.ok(menu?.isConnected, "the same account's page was remounted");
+      assert.equal(h.container.querySelector("[inert]"), null);
+    }
+  });
+}
+
+test("a focus read that answers after the page was hidden and found bob never reopens alice's page", async (t) => {
   const h = await harness(t);
-  h.server.session("fail");
+  h.server.session("hold");
   await h.focusWindow();
-  assert.equal(h.reloads(), 0);
-  assert.ok(h.exposed().includes(tokenFor("alice")));
-  h.server.session("answer");
+  // The focus read is on the wire as alice when the tab is put away.
+  h.leave("visibility");
+  const sawAlice = h.watchExposed(tokenFor("alice"));
   h.server.signInDirectly("bob");
-  await h.focusWindow();
+  await h.comeBack("visibility");
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.equal(sawAlice(), false, "the late focus answer showed alice's page again");
+  assert.equal(h.reloads(), 0, "the late focus answer decided the switch");
+  h.server.releaseSession("bob");
+  await h.flush();
   h.assertReplacedForAnotherAccount();
 });
 
