@@ -32,14 +32,15 @@ test("practice start stays pending until the dashboard invalidation finishes", a
     invalidationStarted = resolve;
   });
 
-  api.startPractice = async () => ({ runId: "run_practice" });
+  const sent: unknown[][] = [];
+  api.startPractice = async (...args) => { sent.push(args); return { runId: "run_practice" }; };
   client.invalidateQueries = (() => {
     invalidationStarted();
     return invalidation;
   }) as QueryClient["invalidateQueries"];
 
   function Harness() {
-    mutation = useStartPractice("vision-recognition");
+    mutation = useStartPractice("team_shown", "vision-recognition");
     return null;
   }
 
@@ -59,6 +60,8 @@ test("practice start stays pending until the dashboard invalidation finishes", a
     const activeMutation = client.getMutationCache().getAll().at(-1);
     assert.equal(activeMutation?.state.status, "pending");
 
+    // The start names the team the Runs page showed (requireShownTeam).
+    assert.deepEqual(sent, [["team_shown", "vision-recognition", "main"]]);
     finishInvalidation();
     await request;
     assert.equal(activeMutation?.state.status, "success");

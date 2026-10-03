@@ -8,7 +8,7 @@ import {
   StartRunResponseSchema,
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
-import { requireTeam } from "../auth/session";
+import { requireShownTeam, requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import { runs } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
@@ -21,9 +21,13 @@ import { readRecordedWeight, weightPathFromRoute } from "../services/weights";
 import { recordedDispatchJob } from "../execution/runner";
 
 export function registerRunRoutes(app: Hono<AppEnv>): void {
+  // Starting names the team the Runs page showed. The check comes before
+  // startPracticeRun, which claims quota, asks GitHub and creates the run.
+  // Discord and the console start runs through startPracticeRun with an actor
+  // they resolved themselves, so they are not gated here.
   app.post("/runs/practice", async (c) => {
-    const auth = await requireTeam(c);
     const body = await parseBody(c, StartPracticeRequestSchema);
+    const auth = await requireShownTeam(c, body.teamId);
     const result = await startPracticeRun(c.env, actorFromAuth(auth), {
       benchmarkId: body.benchmarkId,
       branch: body.branch,

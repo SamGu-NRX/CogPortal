@@ -593,7 +593,7 @@ function Launcher({
   // The dashboard payload is already scoped to the selected track, so its own
   // benchmark id is the one to run; anything else would start a run the
   // student isn't looking at.
-  const startPractice = useStartPractice(d.benchmark.id);
+  const startPractice = useStartPractice(d.team.id, d.benchmark.id);
   const fallback = d.team.repo?.defaultBranch ?? branches[0] ?? "main";
   const [chosen, setChosen] = useState(rememberedBranch);
   const branch = chosen && branches.includes(chosen) ? chosen : fallback;
