@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   RunSurfaceSnapshotSchema,
+  shouldReplaceRunSurfaceSnapshot,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
 
@@ -19,7 +20,10 @@ export function useRunSurfaceStream(
   const [snapshot, setSnapshot] = useState(initial);
   const [state, setState] = useState<StreamState>(path ? "connecting" : "closed");
 
-  useEffect(() => setSnapshot(initial), [initial]);
+  useEffect(() => {
+    setSnapshot((current) => !initial || !current || current.id !== initial.id || shouldReplaceRunSurfaceSnapshot(current, initial)
+      ? initial : current);
+  }, [initial]);
 
   useEffect(() => {
     if (!path) {
@@ -36,15 +40,18 @@ export function useRunSurfaceStream(
       setState(retry ? "reconnecting" : "connecting");
       socket = new WebSocket(websocketUrl(path));
       socket.addEventListener("open", () => {
+        if (stopped) return;
         retry = 0;
         setState("live");
       });
       socket.addEventListener("message", (event) => {
         try {
           const parsed = RunSurfaceSnapshotSchema.parse(JSON.parse(String(event.data)));
-          setSnapshot(parsed);
+          if (stopped || parsed.id !== initial?.id) return;
+          setSnapshot((current) => !current || current.id !== parsed.id || shouldReplaceRunSurfaceSnapshot(current, parsed)
+            ? parsed : current);
         } catch {
-          // Ignore malformed or stale frames; the next authoritative snapshot wins.
+          // Malformed frames cannot replace a validated snapshot.
         }
       });
       socket.addEventListener("close", () => {
@@ -62,7 +69,10 @@ export function useRunSurfaceStream(
       if (timer !== undefined) window.clearTimeout(timer);
       socket?.close();
     };
-  }, [path]);
+  }, [path, initial?.id]);
 
-  return { snapshot, state };
+  // Show an action response immediately, before effects can process a queued frame.
+  const current = !initial || !snapshot || initial.id !== snapshot.id || shouldReplaceRunSurfaceSnapshot(snapshot, initial)
+    ? initial : snapshot;
+  return { snapshot: current, state };
 }

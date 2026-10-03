@@ -1,0 +1,2830 @@
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { and, eq, ne, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import { generateSignedCookie } from "hono/cookie";
+import { maintainPlatform } from "../worker/execution/maintenance.ts";
+import { buildRunJob, hmacSignature } from "../worker/execution/runner.ts";
+import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
+import {
+  appendRunStreamEvent,
+  buildRunSurfaceSnapshot,
+  listTeamRunSurfaceSnapshots,
+  publishRunSurface,
+} from "../worker/services/run-surfaces.ts";
+import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
+import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
+import {
+  DashboardSchema,
+  RunDetailSchema,
+  RUN_PHASES,
+  RunSurfaceSnapshotSchema,
+  runSurfaceStageStates,
+  type Dashboard,
+  type RunSurfaceSnapshot,
+} from "@cogworks/contracts/schema";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { StaticRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DashboardPage } from "../src/routes/DashboardPage.tsx";
+import { serializeRunDetail } from "../worker/http/serializers.ts";
+import { insertRunWithCapacity, readRunAccounting } from "../worker/services/run-accounting.ts";
+import type { Database } from "../worker/db/client.ts";
+import {
+  benchmarks,
+  cliDevices,
+  cohorts,
+  discordAccounts,
+  leaderboardSelections,
+  localRunSessions,
+  officialAttempts,
+  localReports,
+  runs,
+  runPhases,
+  runSurfaces,
+  runMetrics,
+  teamMembers,
+  teams,
+  users,
+} from "../worker/db/schema.ts";
+import type { AppEnv, Env } from "../worker/env.ts";
+import { ApiHttpError, handleError } from "../worker/http/errors.ts";
+import { createAuth } from "../worker/auth/better-auth.ts";
+import { registerRunRoutes } from "../worker/routes/runs.ts";
+import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
+import { registerRunSurfaceRoutes } from "../worker/routes/run-surfaces.ts";
+import { registerActivityRoutes } from "../worker/routes/activity.ts";
+import { runSourceRefusal } from "../worker/services/run-source.ts";
+import { savedEnvironmentEligibility } from "../worker/services/run-eligibility.ts";
+import { PreparedEnvironmentV1Schema, RunJobV1Schema } from "@cogworks/contracts/protocol";
+import {
+  performRunSurfaceMutation,
+  promotePracticeRun,
+  publishOfficialRun,
+  rerunHostedSurface,
+  startPracticeRun,
+  retryRun,
+  type RunActor,
+} from "../worker/services/run-actions.ts";
+
+const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const NOW = 1_780_000_000_000;
+const BENCHMARK_ID = "vision-recognition";
+const PRACTICE_RUN_ID = "run_practice";
+// Shaped like a real one: publishRunSurface validates this id, and the
+// dispatch tests below now reach that publish, because a run the provider
+// accepted is no longer failed on the way past.
+const SURFACE_ID = "surface_0a1b2c3d4e5f60718293";
+// Deliberately not the team's current name: the practice run below ran before
+// a rename, which keeps the repository id and changes the name.
+const RAN_FROM = "some-org/the-repository-it-ran-from";
+const PREPARED = {
+  ...PreparedEnvironmentV1Schema.parse(JSON.parse(readFileSync(new URL("../../../protocols/v1/fixtures/prepared-environment.valid.json", import.meta.url), "utf8"))),
+  // The runner writes this from the job it received, and the job names the
+  // repository the run recorded.
+  source: { repositoryId: FIXTURE_REPO.repositoryId, fullName: RAN_FROM, sha: "a".repeat(40) },
+};
+
+interface Harness {
+  db: Database;
+  binding: unknown;
+}
+
+function freshDb(): Harness {
+  const sqlite = new DatabaseSync(":memory:");
+  const files = readdirSync(MIGRATIONS)
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .filter((file) => !/^(0002_seed|0016_backfill)/.test(file));
+  for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
+
+  function prepare(query: string) {
+    const statement = sqlite.prepare(query);
+    let bound: never[] = [];
+    const prepared = {
+      bind(...params: unknown[]) {
+        bound = params as never[];
+        return prepared;
+      },
+      run() {
+        return { success: true, meta: statement.run(...bound) };
+      },
+      execute() {
+        const results = statement.all(...bound);
+        const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+        return { success: true, results, meta: { changes } };
+      },
+      async all() {
+        return { success: true, results: statement.all(...bound) };
+      },
+      async raw() {
+        statement.setReturnArrays(true);
+        const rows = statement.all(...bound);
+        statement.setReturnArrays(false);
+        return rows;
+      },
+    };
+    return prepared;
+  }
+
+  const binding = {
+    prepare,
+    // D1 commits a batch as one implicit transaction; mirror that so the
+    // admission rollback is exercised, not stubbed. Each entry carries its own
+    // `results`, which is how D1 returns rows for a batched SELECT.
+    async batch(statements: Array<{ execute(): unknown }>) {
+      sqlite.exec("BEGIN");
+      try {
+        // Execute without yielding, matching D1's serialized transaction writes.
+        const results = [];
+        for (const statement of statements) results.push(statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  };
+  return { db: drizzle(binding as never), binding };
+}
+
+/** Counts snapshot publications, so a refusal can be shown to have had no
+ *  observable effect rather than only to have thrown. */
+let hubPublications = 0;
+
+function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): Promise<void> }): Env {
+  const runtime = {
+    DB: binding,
+    ENVIRONMENT: "development",
+    DEV_AUTH: "disabled",
+    EXECUTION_PROVIDER: provider,
+    PUBLIC_ORIGIN: "https://portal.example",
+    MODAL_RUNNER_URL: "https://runner.example",
+    RUNNER_SIGNING_SECRET: "test-signing-secret-that-is-long-enough",
+    RUN_QUEUE: queue,
+  } as unknown as Env;
+  const namespace = runSurfaceHubs(runtime).namespace;
+  // Keep the refusal tests' publication counter while exercising the real hub's
+  // revision stamping; an empty response no longer satisfies the snapshot API.
+  // SAFETY: snapshot callers use only idFromName and fetch(url, init).
+  runtime.RUN_SURFACES = {
+    idFromName: (name: string) => namespace.idFromName(name),
+    get: (id: DurableObjectId) => ({
+      fetch: (url: string, init: RequestInit) => {
+        if (new URL(url).pathname === "/publish") hubPublications += 1;
+        return namespace.get(id).fetch(url, init);
+      },
+    }),
+  } as unknown as Env["RUN_SURFACES"];
+  return runtime;
+}
+
+async function seedPromotion(db: Database): Promise<RunActor> {
+  await db.insert(cohorts).values({
+    id: "cohort_test",
+    slug: "test",
+    name: "Test cohort",
+    joinCode: "TESTCODE",
+    active: true,
+  });
+  await db.insert(users).values({
+    id: "user_test",
+    name: "Ada",
+    email: "ada@example.test",
+    githubLogin: "ada",
+    cohortId: "cohort_test",
+  });
+  await db.insert(teams).values({
+    id: "team_test",
+    cohortId: "cohort_test",
+    name: "Test team",
+    description: null,
+    repoOwner: FIXTURE_REPO.owner,
+    repoName: FIXTURE_REPO.name,
+    repoFullName: FIXTURE_REPO.fullName,
+    repoUrl: FIXTURE_REPO.url,
+    defaultBranch: FIXTURE_REPO.defaultBranch,
+    repoId: FIXTURE_REPO.repositoryId,
+  });
+  await db.insert(benchmarks).values({
+    id: BENCHMARK_ID,
+    version: 1,
+    contractVersion: "cogworks.submissions.v1",
+    entryPointName: "submission",
+    title: "Vision Recognition",
+    module: "vision",
+    summary: "Test benchmark",
+    active: true,
+    primaryMetricKey: "accuracy",
+    sandboxContract: 1,
+    pluginVersion: "1",
+    datasetVersion: "official-v1",
+    scorerVersion: "1",
+    runtimeVersion: "python-3.11",
+  });
+  await db.insert(runSurfaces).values({
+    id: SURFACE_ID,
+    teamId: "team_test",
+    createdByUserId: "user_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    localRunId: null,
+    supersedesSurfaceId: null,
+    discordChannelId: null,
+    discordMessageId: null,
+    discordNonceGeneration: 0,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  await db.insert(runs).values({
+    id: PRACTICE_RUN_ID,
+    teamId: "team_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1",
+    mode: "practice",
+    status: "succeeded",
+    branch: "main",
+    sha: "a".repeat(40),
+    repositoryId: FIXTURE_REPO.repositoryId,
+    // An official attempt has to inherit the repository its practice run used,
+    // and a promotion that read the team instead would come back with
+    // FIXTURE_REPO.fullName.
+    repositoryFullName: RAN_FROM,
+    parentRunId: null,
+    attemptNumber: null,
+    failureCategory: null,
+    failurePhase: null,
+    failureDetail: null,
+    failureConsumedAttempt: false,
+    log: null,
+    createdAt: NOW,
+    finishedAt: NOW + 1_000,
+    provider: "modal",
+    preparedArtifactId: "artifact_test",
+    preparedEnvironmentJson: JSON.stringify(PREPARED),
+    datasetVersion: "practice-v1",
+    scorerVersion: "1",
+    runtimeVersion: "python-3.11",
+    surfaceId: SURFACE_ID,
+  });
+
+  const [team] = await db.select().from(teams).where(eq(teams.id, "team_test"));
+  assert.ok(team);
+  return {
+    userId: "user_test",
+    githubLogin: "ada",
+    team,
+    role: "write",
+  };
+}
+
+for (const mode of ["practice", "official"] as const) {
+  test(`${mode} Retry keeps its console and inputs, with one successor per failed execution`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const failedId = mode === "official" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+    await db.update(runs).set({
+      status: "failed", provider: "fixture", finishedAt: NOW + 2_000,
+      failureCategory: "student_runtime", failureDetail: "Original failure", diagnosticsJson: '["old finding"]',
+    }).where(eq(runs.id, failedId));
+    const before = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+    assert.ok(before.actions.includes("retry"));
+    const snapshots = await Promise.all(Array.from({ length: 4 }, () => performRunSurfaceMutation(
+      env(binding, "fixture"), actor, SURFACE_ID, "retry", { runId: failedId },
+    )));
+    const successors = await db.select().from(runs).where(eq(runs.retryOfRunId, failedId));
+    assert.equal(successors.length, 1);
+    const next = successors[0];
+    assert.ok(next);
+    assert.equal(next.mode, mode);
+    assert.equal(next.surfaceId, SURFACE_ID);
+    assert.equal(next.sha, "a".repeat(40));
+    assert.equal(next.repositoryId, FIXTURE_REPO.repositoryId);
+    assert.equal(next.parentRunId, mode === "official" ? PRACTICE_RUN_ID : null);
+    assert.equal(next.failureCategory, null);
+    assert.equal(next.diagnosticsJson, null);
+    assert.equal(next.refundedAt, null);
+    for (const snapshot of snapshots) {
+      assert.equal(snapshot.id, SURFACE_ID);
+      assert.deepEqual(snapshot.source, before.source);
+      assert.equal(mode === "official" ? snapshot.officialRunId : snapshot.practiceRunId, next.id);
+      assert.equal(snapshot.executionGeneration, before.executionGeneration + 1);
+      assert.equal(snapshot.actions.includes("retry"), false);
+      assert.equal(snapshot.executionHistory.find((run) => run.id === failedId)?.status, "failed");
+    }
+    if (mode === "official") {
+      assert.equal(next.attemptNumber, 1);
+    }
+    await db.update(runs).set({ status: "failed", finishedAt: Date.now() }).where(eq(runs.id, next.id));
+    await retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId);
+    assert.equal((await db.select().from(runs).where(eq(runs.surfaceId, SURFACE_ID))).length, before.executionGeneration + 1);
+    await retryRun(env(binding, "fixture"), actor, SURFACE_ID, next.id);
+    const [last] = await db.select().from(runs).where(eq(runs.retryOfRunId, next.id));
+    assert.ok(last);
+    await db.update(runs).set({ status: "succeeded", finishedAt: Date.now() }).where(eq(runs.id, last.id));
+    const accounting = await readRunAccounting(db, {
+      teamId: actor.team.id, benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    });
+    assert.equal(mode === "official" ? accounting.officialUsed : accounting.practiceUsed, 1);
+    const final = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+    assert.equal(mode === "official" ? final.officialRunId : final.practiceRunId, last.id);
+    assert.equal(final.status, "succeeded");
+    const [original] = await db.select().from(runs).where(eq(runs.id, failedId));
+    assert.equal(original?.status, "failed");
+    assert.equal(original?.failureDetail, "Original failure");
+    assert.equal(next.repositoryFullName, original?.repositoryFullName);
+  });
+}
+
+for (const mode of ["practice", "official"] as const) {
+  test(`${mode} Retry cannot exceed completed quota or displace another active execution`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const failedId = mode === "official" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+    await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, failedId));
+    const [failed] = await db.select().from(runs).where(eq(runs.id, failedId));
+    assert.ok(failed);
+    const competitor = { ...failed, id: "run_other_candidate", status: "queued" as const, createdAt: Date.now(), finishedAt: null, surfaceId: null, benchmarkVersion: 99 };
+    const raced = await Promise.allSettled([
+      retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId),
+      insertRunWithCapacity(db, competitor),
+    ]);
+    const active = (await db.select().from(runs)).filter((run) => RUN_PHASES.some((phase) => phase === run.status));
+    assert.equal(active.length, 1);
+    assert.equal(raced.filter((result) => result.status === "fulfilled").length, 1);
+    const admitted = active[0];
+    assert.ok(admitted);
+    await db.update(runs).set({ status: "failed" }).where(eq(runs.id, admitted.id));
+    // Use a fresh failure when Retry won the race, so this is admission, not replay.
+    const target = admitted.retryOfRunId === failedId ? admitted.id : failedId;
+    for (let index = 0; index < (mode === "official" ? 3 : 10); index += 1) {
+      await db.insert(runs).values({
+        ...failed, id: `run_completed_${index}`, status: "succeeded", refundedAt: null,
+        surfaceId: null, finishedAt: NOW + 1_000,
+      });
+    }
+    await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, target), /quota is exhausted/);
+    assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, target))).length, 0);
+  });
+}
+
+test("Retry refuses changed provider, repository, configuration, and nonfailed executions", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /Only a failed/);
+  await db.update(runs).set({ status: "failed" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
+  await db.update(runs).set({ provider: "fixture", repositoryId: 999 }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
+  await db.update(runs).set({ repositoryId: FIXTURE_REPO.repositoryId, scorerVersion: "changed" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /configuration has changed/);
+  assert.equal((await db.select().from(runs)).length, 1);
+});
+
+// Every catalog category, both modes, through the console's actions and
+// through admission itself: a "fix" failure is neither offered nor admitted,
+// and every other category, plus an uncategorized failure, still is.
+const RETRY_CATEGORIES = [...Object.keys(FAILURE_CATALOG), null] as Array<keyof typeof FAILURE_CATALOG | null>;
+for (const mode of ["practice", "official"] as const) {
+  for (const category of RETRY_CATEGORIES) {
+    const allowed = category === null || FAILURE_CATALOG[category].remedy !== "fix";
+    test(`${mode} Retry ${allowed ? "admits" : "refuses"} a ${category ?? "uncategorized"} failure`, async () => {
+      const { db, binding } = freshDb();
+      const actor = await seedPromotion(db);
+      const failedId = mode === "official" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+      await db.update(runs).set({
+        status: "failed", provider: "fixture", finishedAt: NOW + 2_000, failureCategory: category,
+      }).where(eq(runs.id, failedId));
+      const snapshot = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+      assert.equal(snapshot.actions.includes("retry"), allowed);
+      // The failure card already says what to fix; this is not a recorded-input refusal.
+      assert.equal(snapshot.retryRefusal, null);
+      const admission = retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId);
+      if (allowed) {
+        await admission;
+        assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, failedId))).length, 1);
+      } else {
+        await assert.rejects(admission, (error: unknown) =>
+          error instanceof ApiHttpError && error.status === 409 && /Retry isn't available for this failure/.test(error.message));
+        assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, failedId))).length, 0);
+        const [failed] = await db.select().from(runs).where(eq(runs.id, failedId));
+        assert.equal(failed?.status, "failed", "a refused Retry leaves the failure as it was");
+      }
+    });
+  }
+}
+
+test("a Retry admitted before the remedy gate still replays to its successor", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ status: "failed", provider: "fixture", finishedAt: NOW + 2_000 })
+    .where(eq(runs.id, PRACTICE_RUN_ID));
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+  // Categorized "fix" after its successor exists, as a row from before this gate would be.
+  await db.update(runs).set({ failureCategory: "timeout" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+  assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID))).length, 1);
+});
+
+test("Retry revalidates the connected team and refuses unknown repository identity", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  // The request's actor still names the old repository after the stored team changes.
+  await db.update(teams).set({ repoId: FIXTURE_REPO.repositoryId + 1 }).where(eq(teams.id, actor.team.id));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
+  await db.update(teams).set({ repoId: null }).where(eq(teams.id, actor.team.id));
+  await db.update(runs).set({ repositoryId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
+  assert.equal((await db.select().from(runs)).length, 1);
+});
+
+async function seedOfficial(
+  db: Database,
+  status: "failed" | "succeeded",
+): Promise<string> {
+  const runId = `run_official_${status}`;
+  await db.insert(runs).values({
+    id: runId,
+    teamId: "team_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1",
+    mode: "official",
+    status,
+    branch: "main",
+    sha: "a".repeat(40),
+    repositoryId: FIXTURE_REPO.repositoryId,
+    parentRunId: PRACTICE_RUN_ID,
+    attemptNumber: 1,
+    failureCategory: status === "failed" ? "provider" : null,
+    failurePhase: status === "failed" ? "queued" : null,
+    failureDetail: status === "failed" ? "The provider stopped the run." : null,
+    failureConsumedAttempt: false,
+    refundedAt: status === "failed" ? NOW + 2_000 : null,
+    log: null,
+    createdAt: NOW + 1_000,
+    finishedAt: NOW + 2_000,
+    // Admitted by current code, which records runner activity (0049).
+    legacyGraceUntil: 0,
+    provider: "modal",
+    preparedArtifactId: "artifact_test",
+    datasetVersion: "official-v1",
+    scorerVersion: "1",
+    runtimeVersion: "python-3.11",
+    surfaceId: SURFACE_ID,
+  });
+  if (status === "succeeded") {
+    await db.insert(officialAttempts).values({
+      id: "attempt_succeeded",
+      teamId: "team_test",
+      benchmarkId: BENCHMARK_ID,
+      benchmarkVersion: 1,
+      runId,
+      attemptNumber: 1,
+      consumed: true,
+      claimedAt: NOW + 1_000,
+    });
+    // A scored official run carries the measure its leaderboard ranks.
+    await db.insert(runMetrics).values({ runId, key: "accuracy", label: "Accuracy",
+      value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  }
+  return runId;
+}
+
+async function authenticatedPromotion(db: Database, binding: unknown) {
+  const runtime: Env = {
+    ...env(binding, "modal"),
+    DEV_AUTH: "enabled",
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
+    BETTER_AUTH_URL: "http://localhost:5173",
+  };
+  const signIn = await createAuth(runtime).api.signUpEmail({
+    body: { email: "promotion@example.test", password: "cogportal-local-dev-password", name: "Promotion" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: "team_test", userId: signIn.response.user.id, role: "write", joinedAt: NOW });
+  const cookie = signIn.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerRunRoutes(app);
+  registerDashboardRoutes(app);
+  registerRunnerEventRoutes(app);
+  app.onError(handleError);
+  return { runtime, app, cookie, promote: (authenticated = true) => app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}/promote`, {
+    method: "POST", headers: authenticated ? { cookie } : {},
+  }), runtime) };
+}
+
+for (const change of ["unknown contract", "changed contract", "changed scorer", "changed runtime", "missing inputs", "malformed inputs", "changed protocol"] as const) {
+  test(`Retry admission matches the projected ${change} refusal and inserts no successor`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const runtime = env(binding, "modal");
+    const [run] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    const [catalog] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, run.benchmarkVersion)));
+    const job = buildRunJob(runtime, run, actor.team, catalog);
+    if (change === "unknown contract") catalog.sandboxContract = null;
+    if (change === "changed contract") catalog.sandboxContract = 2;
+    if (change === "changed scorer") catalog.scorerVersion = "changed";
+    if (change === "changed runtime") catalog.runtimeVersion = "changed";
+    const recordedJobJson = JSON.stringify(change === "changed protocol" ? { ...job, protocolVersion: "2" } : job);
+    await db.update(benchmarks).set(catalog).where(and(eq(benchmarks.id, catalog.id), eq(benchmarks.version, catalog.version)));
+    await db.update(runs).set({ status: "failed", refusalJson: JSON.stringify({ headline: "Historical failure explanation" }),
+      dispatchJobJson: change === "missing inputs" ? null : change === "malformed inputs" ? "{" : recordedJobJson,
+    }).where(eq(runs.id, run.id));
+    const before = await db.select().from(runs);
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    assert.equal(snapshot.status, "failed");
+    assert.equal(snapshot.refusalHeadline, "Historical failure explanation");
+    assert.equal(snapshot.actions.includes("retry"), false);
+    assert.ok(snapshot.retryRefusal);
+    await assert.rejects(retryRun(runtime, actor, SURFACE_ID, run.id), (error) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.message, snapshot.retryRefusal);
+      return true;
+    });
+    assert.deepEqual(await db.select().from(runs), before);
+  });
+}
+
+test("a null catalog sandbox contract pauses hosted practice before inserting an execution", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ sandboxContract: null }).where(eq(benchmarks.id, BENCHMARK_ID));
+  const before = await db.select().from(runs);
+  const surfacesBefore = await db.select().from(runSurfaces);
+  await assert.rejects(startPracticeRun(env(binding, "modal"), actor, { benchmarkId: BENCHMARK_ID, branch: "main" }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "not_promotable");
+      assert.equal(error.message, "This benchmark's hosted environment is not ready.");
+      return true;
+    });
+  assert.deepEqual(await db.select().from(runs), before);
+  assert.deepEqual(await db.select().from(runSurfaces), surfacesBefore);
+});
+
+for (const proof of ["compatible", "missing", "tampered", "replaced-repository", "unknown-repository"] as const) {
+  test(`${proof} saved evidence has one refusal across the surface, dashboard and run detail without changing success`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    // The fixture run is v1; migrations also seed an active Vision v2 row.
+    await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), sql`${benchmarks.version} <> 1`));
+    const preparedEnvironmentJson = proof === "missing" ? null : JSON.stringify({
+      ...PREPARED, ...(proof === "tampered" ? { artifactId: "another-snapshot" } : {}),
+    });
+    await db.update(runs).set({ preparedEnvironmentJson }).where(eq(runs.id, PRACTICE_RUN_ID));
+    if (proof === "replaced-repository" || proof === "unknown-repository") {
+      const repoId = proof === "replaced-repository" ? 999_999_999 : null;
+      assert.notEqual(repoId, actor.team.repoId);
+      await db.update(teams).set({ repoId }).where(eq(teams.id, actor.team.id));
+    }
+    const [team] = await db.select().from(teams).where(eq(teams.id, actor.team.id));
+    assert.equal(team.repoFullName, actor.team.repoFullName);
+    const [before] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    const [benchmark] = await db.select().from(benchmarks).where(eq(benchmarks.id, BENCHMARK_ID));
+    const eligibility = savedEnvironmentEligibility(before, benchmark, team);
+    assert.equal(eligibility.eligible, proof === "compatible");
+    const expectedReason = eligibility.eligible ? null : eligibility.reason;
+    const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
+    if (proof !== "compatible") {
+      // Moving the team off the run's repository trips the source check first,
+      // and that sentence is the more useful one: it names the repository to
+      // start a fresh run on. The artifact's own refusal still reaches every
+      // surface below, because the two answer different questions.
+      const sourceRefusal = runSourceRefusal(team, before, "promote it");
+      const response = await promote();
+      assert.equal(response.status, 409);
+      const body = await response.json() as { error: { code: string; message: string } };
+      assert.equal(body.error.code, sourceRefusal ? "source_changed" : "not_promotable");
+      assert.equal(body.error.message, sourceRefusal ?? expectedReason);
+      assert.equal((await db.select().from(runs)).length, 1);
+    }
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    assert.equal(snapshot.status, "succeeded");
+    assert.equal(snapshot.promotionRefusal, expectedReason);
+    assert.equal(snapshot.actions.includes("promote_official"), proof === "compatible");
+
+    const dashboardResponse = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(dashboardResponse.status, 200);
+    const dashboard = DashboardSchema.parse(await dashboardResponse.json());
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    assert.equal(dashboard.latestCandidate?.status, "succeeded");
+    assert.equal(dashboard.promotionRefusal, expectedReason);
+
+    const detailResponse = await app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(detailResponse.status, 200);
+    const detail = RunDetailSchema.parse(await detailResponse.json());
+    assert.equal(detail.status, "succeeded");
+    assert.equal(detail.promotionRefusal, expectedReason);
+    const [after] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    assert.deepEqual(after, before);
+
+    assert.equal(DashboardSchema.parse({ ...dashboard, promotionRefusal: undefined }).promotionRefusal, null);
+    assert.equal(RunDetailSchema.parse({ ...detail, promotionRefusal: undefined }).promotionRefusal, null);
+  });
+}
+
+test("a candidate whose saved environment cannot be reused loses Promote and says why", async () => {
+  // The dashboard carries two refusals now. This one is the artifact's, with
+  // the run's repository untouched, and it has to survive the whole path: the
+  // eligibility check, the response, and the panel the student reads.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  await db.update(runs).set({ preparedEnvironmentJson: JSON.stringify({ ...PREPARED, sandboxContract: 2 }) })
+    .where(eq(runs.id, PRACTICE_RUN_ID));
+  const { app, cookie, runtime } = await authenticatedPromotion(db, binding);
+
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+  assert.equal(response.status, 200);
+  const dashboard = DashboardSchema.parse(await response.json());
+  assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "the repository is still the connected one");
+  assert.ok(dashboard.promotionRefusal);
+
+  const html = renderDashboard(dashboard);
+  // The whole sentence, not a fragment of it. React escapes the apostrophe in
+  // "isn't", which is the only difference between the two.
+  assert.ok(html.includes(dashboard.promotionRefusal.replaceAll("'", "&#x27;")));
+  assert.match(html, /Can&#x27;t be promoted/);
+  assert.doesNotMatch(html, /Ready to promote/);
+  assert.doesNotMatch(html, /Promote to official/);
+});
+
+for (const official of ["succeeded", "failed"] as const) {
+  test(`a practice run already promoted to a ${official} attempt links to it instead of offering another`, async () => {
+    // Promotion is idempotent per console: asking again returns the attempt it
+    // already started. The dashboard and run page used to keep offering
+    // "Confirm, uses attempt 2 of 3" for that run, a consequence the server
+    // never carries out.
+    const { db, binding } = freshDb();
+    await seedPromotion(db);
+    await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+    await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+      value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+    const officialId = await seedOfficial(db, official);
+    const refusal = official === "failed"
+      ? "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote."
+      : null;
+    const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
+    const scope = { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 };
+    const runsBefore = await db.select().from(runs);
+    const accountingBefore = await readRunAccounting(db, scope);
+
+    const dashboardResponse = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(dashboardResponse.status, 200);
+    const dashboard = DashboardSchema.parse(await dashboardResponse.json());
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    assert.deepEqual(dashboard.latestCandidate?.promotedTo, { runId: officialId, attemptNumber: 1 });
+    assert.equal(dashboard.promotionRefusal, refusal);
+
+    const detailResponse = await app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(detailResponse.status, 200);
+    const detail = RunDetailSchema.parse(await detailResponse.json());
+    assert.deepEqual(detail.promotedTo, { runId: officialId, attemptNumber: 1 });
+    assert.equal(detail.promotionRefusal, refusal);
+
+    const html = renderDashboard(dashboard);
+    assert.doesNotMatch(html, /Promote to official/);
+    assert.doesNotMatch(html, /Ready to promote/);
+    assert.ok(html.includes(`href="/runs/${officialId}"`));
+    assert.match(html, /Official attempt #1/);
+
+    // Twice, so a retried click and a second tab both land on the same answer.
+    for (let request = 0; request < 2; request += 1) {
+      const response = await promote();
+      if (refusal) {
+        assert.equal(response.status, 409);
+        const body = await response.json() as { error: { code: string; message: string } };
+        assert.equal(body.error.code, "not_promotable");
+        assert.equal(body.error.message, refusal);
+      } else {
+        assert.equal(response.status, 201);
+        assert.deepEqual(await response.json(), { runId: officialId });
+      }
+    }
+    assert.deepEqual(await db.select().from(runs), runsBefore);
+    assert.deepEqual(await readRunAccounting(db, scope), accountingBefore);
+  });
+}
+
+test("a practice run with no console says why it can't be promoted, on every path", async () => {
+  // Rows from before run consoles have no surface to attach an official
+  // attempt to. Promotion always refused them while both pages offered it.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  await db.update(runs).set({ surfaceId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const refusal = "This run is from before runs had a console, so it can't be promoted. Start a new practice run to create a candidate.";
+  const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
+
+  const dashboard = DashboardSchema.parse(await (await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime)).json());
+  assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+  assert.equal(dashboard.promotionRefusal, refusal);
+  const html = renderDashboard(dashboard);
+  assert.doesNotMatch(html, /Promote to official/);
+  assert.ok(html.includes(refusal.replaceAll("'", "&#x27;")));
+
+  const detail = RunDetailSchema.parse(await (await app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}`, { headers: { cookie } }), runtime)).json());
+  assert.equal(detail.promotionRefusal, refusal);
+  assert.equal(detail.promotedTo, null);
+
+  const response = await promote();
+  assert.equal(response.status, 409);
+  assert.equal((await response.json() as { error: { message: string } }).error.message, refusal);
+  assert.equal((await db.select().from(runs)).length, 1);
+});
+
+test("an unpromoted candidate still offers Promote with the next attempt number", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const { app, cookie, runtime } = await authenticatedPromotion(db, binding);
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+  const dashboard = DashboardSchema.parse(await response.json());
+  assert.equal(dashboard.latestCandidate?.promotedTo, null);
+  assert.equal(dashboard.promotionRefusal, null);
+  const html = renderDashboard(dashboard);
+  assert.match(html, /Ready to promote/);
+  assert.match(html, /Promote to official/);
+});
+
+test("every run in the log carries its own primary metric, including the ones that have none", async () => {
+  // The dashboard reads one metric row set for the whole page and groups it by
+  // run id. A grouping that drifted would put one run's score on another's
+  // line, and a run that was never scored is where that shows up first.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.81, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const scored = ["run_scored_a", "run_scored_b"];
+  for (const [index, id] of [...scored, "run_unscored"].entries()) {
+    await db.insert(runs).values({
+      id, teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+      contractVersion: "cogworks.submissions.v1", mode: "practice", status: "succeeded",
+      branch: "main", sha: String(index).padStart(40, "b"), repositoryId: FIXTURE_REPO.repositoryId,
+      repositoryFullName: FIXTURE_REPO.fullName, createdAt: NOW - 10_000 * (index + 1),
+      finishedAt: NOW - 10_000 * (index + 1) + 500, provider: "modal",
+    });
+  }
+  for (const [index, id] of scored.entries()) {
+    await db.insert(runMetrics).values([
+      { runId: id, key: "accuracy", label: "Accuracy", value: 0.1 * (index + 1), unit: null,
+        higherIsBetter: true, isPrimary: true, precision: 2 },
+      { runId: id, key: "chance", label: "Chance", value: 0.05, unit: null,
+        higherIsBetter: true, isPrimary: false, precision: 2 },
+    ]);
+  }
+  const { app, cookie, runtime } = await authenticatedPromotion(db, binding);
+
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+  assert.equal(response.status, 200);
+  const dashboard = DashboardSchema.parse(await response.json());
+  assert.deepEqual(
+    Object.fromEntries(dashboard.runs.map((run) => [run.id, run.primaryMetric?.value ?? null])),
+    { [PRACTICE_RUN_ID]: 0.81, run_scored_a: 0.1, run_scored_b: 0.2, run_unscored: null },
+  );
+});
+
+test("authenticated completion, promotion and signed dispatch preserve provisioning across a scorer change", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const { runtime, app, promote } = await authenticatedPromotion(db, binding);
+  await db.update(runs).set({ status: "scoring", createdAt: Date.now(), finishedAt: null, preparedArtifactId: null, preparedEnvironmentJson: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const event = {
+    protocolVersion: "1", type: "completed", eventId: "evt_prepared", runId: PRACTICE_RUN_ID,
+    sequence: 5, occurredAt: Date.now(), preparedArtifactId: PREPARED.artifactId,
+    preparedEnvironment: PREPARED, environmentDigest: "b".repeat(64), sanitizedLog: null,
+    result: { protocolVersion: "1", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+      metrics: [{ key: "accuracy", label: "Accuracy", value: 0.5, unit: null, higherIsBetter: true, primary: true, precision: 2 }],
+      diagnostics: [], outputDigest: "c".repeat(64) },
+  };
+  const body = JSON.stringify(event);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const callback = await app.fetch(new Request("http://localhost:5173/internal/v1/runner/events", {
+    method: "POST", body, headers: { "X-Cogworks-Key-Id": "runner-v1", "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, timestamp, body)}` },
+  }), runtime);
+  assert.equal(callback.status, 200, await callback.text());
+  await db.update(benchmarks).set({ scorerVersion: "new-scorer", runtimeVersion: "new-runtime-label" }).where(eq(benchmarks.id, BENCHMARK_ID));
+  assert.equal((await promote(false)).status, 401);
+  const originalFetch = globalThis.fetch;
+  let sent = 0;
+  globalThis.fetch = async (_input, init) => {
+    const payload = String(init?.body);
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get("X-Cogworks-Signature"), `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, headers.get("X-Cogworks-Timestamp")!, payload)}`);
+    const job = RunJobV1Schema.parse(JSON.parse(payload));
+    assert.deepEqual(job.preparedEnvironment, PREPARED);
+    assert.equal(job.benchmark.sandboxContract, 1);
+    assert.equal(job.benchmark.scorerVersion, "new-scorer");
+    assert.equal(job.preparedArtifactId, PREPARED.artifactId);
+    assert.equal(job.weights, undefined);
+    sent++;
+    return new Response(null, { status: 202 });
+  };
+  try {
+    const response = await promote();
+    assert.equal(response.status, 201, await response.text());
+  } finally { globalThis.fetch = originalFetch; }
+  assert.equal(sent, 1);
+  const [official] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.deepEqual(JSON.parse(official.preparedEnvironmentJson!), PREPARED);
+  assert.equal(official.scorerVersion, "new-scorer");
+});
+
+for (const [name, patch] of Object.entries({
+  legacy: { preparedEnvironmentJson: null },
+  malformed: { preparedEnvironmentJson: "{" },
+  artifact: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, artifactId: "another-artifact" }) },
+  benchmark: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, benchmarkId: "language-search" }) },
+  source: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, source: { ...PREPARED.source, sha: "b".repeat(40) } }) },
+  repository: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, source: { ...PREPARED.source, repositoryId: 999 } }) },
+  contract: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, sandboxContract: 2 }) },
+})) {
+  test(`authenticated promotion refuses ${name} evidence before admission`, async () => {
+    const { db, binding } = freshDb();
+    await seedPromotion(db);
+    await db.update(runs).set(patch).where(eq(runs.id, PRACTICE_RUN_ID));
+    const { promote } = await authenticatedPromotion(db, binding);
+    const response = await promote();
+    assert.equal(response.status, 409);
+    assert.equal((await response.json() as { error: { code: string } }).error.code, "not_promotable");
+    assert.equal((await db.select().from(runs)).length, 1);
+    const accounting = await readRunAccounting(db, { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 });
+    assert.equal(accounting.officialUsed, 0);
+    assert.equal(accounting.officialReserved, 0);
+  });
+}
+
+test("a failed official run blocks same-surface re-promotion", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await seedOfficial(db, "failed");
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "not_promotable");
+      assert.match(error.message, /already ran and failed.*new practice run/);
+      return true;
+    },
+  );
+});
+
+test("a succeeded official run remains idempotent on the same surface", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialRunId = await seedOfficial(db, "succeeded");
+
+  assert.deepEqual(
+    await promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    { runId: officialRunId, surfaceId: SURFACE_ID },
+  );
+});
+
+test("a reaped official result that arrives late offers a fresh hosted run instead of re-promotion", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ status: "evaluating", finishedAt: null }).where(eq(runs.id, officialId));
+  const runtime = env(binding, "modal");
+  await maintainPlatform(runtime, NOW + 3_601_001);
+  const [reaped] = await db.select().from(runs).where(eq(runs.id, officialId));
+  assert.equal(reaped.status, "failed");
+  assert.equal(reaped.refundedAt, null);
+
+  const app = new Hono<AppEnv>();
+  registerRunnerEventRoutes(app);
+  const body = JSON.stringify({
+    protocolVersion: "1",
+    eventId: "event_late_official",
+    runId: officialId,
+    sequence: 5,
+    occurredAt: NOW + 60_000,
+    type: "completed",
+    preparedArtifactId: "artifact_test",
+    environmentDigest: "b".repeat(64),
+    sanitizedLog: null,
+    result: {
+      protocolVersion: "1",
+      benchmarkId: BENCHMARK_ID,
+      benchmarkVersion: 1,
+      metrics: [{ key: "accuracy", label: "Accuracy", value: 0.5, unit: null, higherIsBetter: true, primary: true, precision: 3 }],
+      diagnostics: ["The image stage returned no embeddings."],
+      outputDigest: "c".repeat(64),
+    },
+  });
+  const timestamp = String(Math.floor(Date.now() / 1_000));
+  const response = await app.fetch(new Request("https://portal.example/internal/v1/runner/events", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-Cogworks-Key-Id": "runner-v1",
+      "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, timestamp, body)}`,
+    },
+    body,
+  }), runtime);
+  assert.equal(response.status, 200, await response.text());
+  const [recovered] = await db.select().from(runs).where(eq(runs.id, officialId));
+  assert.equal(recovered.status, "failed");
+  assert.equal(recovered.finishedAt, reaped.finishedAt);
+  assert.equal(recovered.failureDetail, reaped.failureDetail);
+  assert.equal(recovered.refundedAt, reaped.refundedAt);
+  assert.match(recovered.diagnosticsJson!, /image stage/);
+  await assert.rejects(promotePracticeRun(runtime, actor, PRACTICE_RUN_ID), (error: unknown) => {
+    assert.ok(error instanceof ApiHttpError);
+    assert.equal(error.code, "not_promotable");
+    assert.match(error.message, /already ran and failed.*Start a new practice run/);
+    return true;
+  });
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(snapshot.status, "failed");
+  assert.ok(snapshot.actions.includes("rerun_hosted"));
+  assert.ok(!snapshot.actions.includes("publish_result"));
+  assert.ok(!snapshot.actions.includes("promote_official"));
+  const rerun = await rerunHostedSurface(env(binding, "fixture"), actor, SURFACE_ID);
+  assert.notEqual(rerun.surfaceId, SURFACE_ID);
+  const [successor] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, rerun.surfaceId));
+  assert.equal(successor.supersedesSurfaceId, SURFACE_ID);
+});
+
+test("incomplete weight uploads fail hosted dispatch without leaving an active run", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.insert(teamMembers).values({ teamId: actor.team.id, userId: actor.userId, role: "write" });
+  // The report is for version 1, so the run has to be: a report only supplies
+  // weights to a run of its own benchmark version.
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(localReports).values({
+    reportId: "report_missing_weight",
+    userId: actor.userId,
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1",
+    sdkVersion: "0.2.0",
+    pluginVersion: "1",
+    repositoryFullName: FIXTURE_REPO.fullName,
+    sha: "a".repeat(40),
+    dirty: false,
+    startedAt: NOW,
+    finishedAt: NOW + 1_000,
+    metricsJson: "[]",
+    diagnosticsJson: "[]",
+    weightsUsedJson: '["models/first.pkl","models/missing.pkl"]',
+    weightsUsedKnown: true,
+    weightsUploadedJson: JSON.stringify([
+      { path: "models/first.pkl", sha256: "0".repeat(64) },
+      { path: "models/missing.pkl", sha256: "0".repeat(64) },
+    ]),
+    syncedAt: NOW + 2_000,
+  });
+  let sent = 0;
+  const checked: string[] = [];
+  const runtime = env(binding, "modal", { async send() { sent += 1; } });
+  // SAFETY: dispatch only reads head(). No upload or other R2 operation runs here.
+  runtime.ARTIFACTS = {
+    async head(key: string) {
+      checked.push(key);
+      return key.endsWith("first.pkl")
+        ? { size: 3, checksums: { sha256: new Uint8Array(32).buffer } }
+        : null;
+    },
+  } as unknown as R2Bucket;
+
+  // Official promotion reuses a prepared artifact; new hosted practice is
+  // the owning path that assembles uploaded weights before enqueueing.
+  for (let retry = 0; retry < 2; retry += 1) {
+    await assert.rejects(startPracticeRun(runtime, actor, {
+      benchmarkId: BENCHMARK_ID,
+      exactSha: "a".repeat(40),
+    }), {
+      code: "invalid_request",
+      status: 409,
+      message: "Required weight models/missing.pkl has not been uploaded; sync the report again.",
+    });
+  }
+  assert.equal(sent, 0);
+  // Three reads per attempt: the present file resolves at its content-addressed
+  // key, and the absent one costs a second read at the pre-digest key before it
+  // can be called missing.
+  assert.equal(checked.length, 6);
+  assert.ok(checked[1].startsWith("weight-objects/"));
+  assert.ok(checked[1].endsWith("models/missing.pkl"));
+  assert.ok(checked[2].startsWith("weights/"));
+  assert.ok(checked[2].endsWith("models/missing.pkl"));
+  const failed = (await db.select().from(runs)).filter((run) => run.id !== PRACTICE_RUN_ID);
+  assert.equal(failed.length, 2, "retry was not blocked by an active-run row");
+  for (const run of failed) {
+    assert.equal(run.status, "failed");
+    assert.equal(run.failureCategory, "provider");
+    assert.equal(run.failurePhase, "queued");
+    assert.equal(run.failureDetail, "Required weight models/missing.pkl has not been uploaded; sync the report again.");
+    assert.equal(run.failureConsumedAttempt, false);
+    assert.notEqual(run.finishedAt, null);
+    assert.equal(run.lastEventSequence, -1);
+  }
+});
+
+test("an official dispatch failure releases capacity", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const queue = {
+    async send() {
+      throw new Error("dispatch unavailable");
+    },
+  };
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "modal", queue), actor, PRACTICE_RUN_ID),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 502);
+      assert.equal(error.code, "provider_unconfigured");
+      return true;
+    },
+  );
+
+  const [official] = await db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
+  assert.ok(official);
+  assert.equal(official.status, "failed");
+  assert.equal(official.failureCategory, "provider");
+  assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, 0);
+});
+
+for (const status of [400, 401, 502, 503, 200, 302, 202]) {
+  test(`direct Modal dispatch returning ${status} ${status >= 400 && status < 500 ? "fails the run and releases capacity" : "keeps the queued reservation"}`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = async (input) => {
+      assert.equal(input, "https://runner.example");
+      requests += 1;
+      return new Response(null, { status });
+    };
+    try {
+      const promotion = promotePracticeRun(env(binding, "modal"), actor, PRACTICE_RUN_ID);
+      const rejected = status >= 400 && status < 500;
+      if (rejected) {
+        await assert.rejects(promotion, (error: unknown) => {
+          assert.ok(error instanceof ApiHttpError);
+          assert.equal(error.status, 502);
+          assert.equal(error.code, "provider_unconfigured");
+          return true;
+        });
+      } else {
+        assert.equal((await promotion).surfaceId, SURFACE_ID);
+      }
+      assert.equal(requests, 1);
+      const [official] = await db.select().from(runs)
+        .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
+      assert.ok(official);
+      assert.equal(official.status, rejected ? "failed" : "queued");
+      assert.equal(official.dispatchAttempts, status === 202 ? 1 : 0);
+      assert.equal(official.failureCategory, rejected ? "provider" : null);
+      assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, rejected ? 0 : 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+for (const callbackLanded of [false, true]) {
+  test(`a direct Modal network error keeps the ${callbackLanded ? "callback's preparing" : "queued"} reservation`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = async (input, init) => {
+      assert.equal(input, "https://runner.example");
+      requests += 1;
+      if (callbackLanded) {
+        const job = JSON.parse(String(init?.body)) as { runId: string };
+        await db.update(runs)
+          .set({ status: "preparing", lastEventSequence: 0 })
+          .where(eq(runs.id, job.runId));
+      }
+      throw new Error("dispatch acknowledgement lost");
+    };
+    try {
+      const promoted = await promotePracticeRun(env(binding, "modal"), actor, PRACTICE_RUN_ID);
+      assert.equal(promoted.surfaceId, SURFACE_ID);
+      assert.equal(requests, 1);
+      const [official] = await db.select().from(runs).where(eq(runs.id, promoted.runId));
+      assert.ok(official);
+      assert.equal(official.status, callbackLanded ? "preparing" : "queued");
+      if (callbackLanded) assert.equal(official.lastEventSequence, 0);
+      assert.equal(official.failureCategory, null);
+      assert.equal(official.failureDetail, null);
+      assert.equal(
+        official.repositoryFullName,
+        "some-org/the-repository-it-ran-from",
+        "the official attempt lost the repository its practice run used",
+      );
+      assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+test("a callback that lands before the dispatch rejects leaves the live run alone", async () => {
+  // Modal spawns the job before its endpoint answers, and the portal's POST
+  // gives up after fifteen seconds. So a rejection here can belong to a run
+  // that is already executing and has already reported. Unknown acceptance is
+  // not known rejection: this used to overwrite `preparing` with "could not be
+  // queued" and hand back an official attempt mid-run.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialRun = () =>
+    db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
+  const queue = {
+    async send() {
+      const [official] = await officialRun();
+      await db
+        .update(runs)
+        .set({ status: "preparing", lastEventSequence: 0 })
+        .where(eq(runs.id, official!.id));
+      throw new Error("dispatch acknowledgement lost");
+    },
+  };
+
+  const promoted = await promotePracticeRun(env(binding, "modal", queue), actor, PRACTICE_RUN_ID);
+  assert.equal(promoted.surfaceId, SURFACE_ID);
+
+  const [official] = await officialRun();
+  assert.equal(official?.status, "preparing", "the callback's state survived");
+  assert.equal(official?.failureCategory, null);
+  assert.equal(official?.failureDetail, null);
+});
+
+test("dispatch failure remains terminal and blocks same-surface re-promotion", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const queue = {
+    async send() {
+      throw new Error("dispatch unavailable");
+    },
+  };
+
+  await assert.rejects(promotePracticeRun(env(binding, "modal", queue), actor, PRACTICE_RUN_ID));
+
+  const [official] = await db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
+  assert.equal(official?.status, "failed");
+  assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, 0);
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "not_promotable");
+      return true;
+    },
+  );
+});
+
+test("a practice run records the repository it is starting from", async () => {
+  // The one place the name is written. Without this, deleting that line leaves
+  // every run unattributed and every other test still green.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const started = await startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID,
+  });
+
+  const [row] = await db.select().from(runs).where(eq(runs.id, started.runId));
+  assert.ok(row);
+  assert.equal(row.repositoryFullName, FIXTURE_REPO.fullName);
+  assert.equal(row.repositoryId, FIXTURE_REPO.repositoryId, "the id and the name disagree");
+});
+
+/* ── Acting on a run after the repository changed ─────────────────────── */
+
+/**
+ * A team has one connected repository and every write is authorised against
+ * it, so a new promotion, rerun or publication has to be about that
+ * repository. History stays readable and an existing selection stays selected;
+ * only new mutations are refused. Matched on the id, so a rename keeps working.
+ */
+
+/**
+ * Leave the run recording a repository the team is not connected to.
+ *
+ * Equivalent to the team having moved on, and isolated from it on purpose: the
+ * permission check ahead of this rule short-circuits only for the fixture
+ * repository, so moving the team would fail on GitHub access first and never
+ * reach the rule under test. The real end-to-end switch is exercised through
+ * POST /team/repository in the browser.
+ */
+async function runCameFromElsewhere(db: Database, runId: string): Promise<void> {
+  await db
+    .update(runs)
+    .set({
+      repositoryId: FIXTURE_REPO.repositoryId + 1,
+      repositoryFullName: "some-student/week3-capstone",
+    })
+    .where(eq(runs.id, runId));
+}
+
+test("a run from a repository the team has left cannot be promoted", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // Nothing was written: no official row, and no attempt claimed against the
+  // team's budget for a run it refused.
+  const official = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.equal(official.length, 0);
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a run with no recorded repository cannot be promoted either", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ repositoryId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a renamed repository keeps the same id, so its runs stay actionable", async () => {
+  // The seeded practice run records a different NAME from the team's, with the
+  // same id: exactly what a rename leaves behind. It has to keep working.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.notEqual(parent!.repositoryFullName, actor.team.repoFullName, "fixture no longer covers a rename");
+  assert.equal(parent!.repositoryId, actor.team.repoId);
+
+  const promoted = await promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID);
+  assert.ok(promoted.runId);
+});
+
+test("publishing a result from a repository the team has left is refused, and the selection stands", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    runId: officialId,
+    selectedAt: 1,
+  });
+  await runCameFromElsewhere(db, officialId);
+
+  await assert.rejects(
+    publishOfficialRun(env(binding, "fixture"), actor, officialId),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // What is already published stays published. The refusal is about choosing
+  // a new one, not about withdrawing the old.
+  const [selection] = await db.select().from(leaderboardSelections);
+  assert.equal(selection!.runId, officialId);
+  assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
+});
+
+test("rerunning a run from a repository the team has left is refused, with no new run", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  const before = (await db.select().from(runs)).length;
+
+  await assert.rejects(
+    rerunHostedSurface(env(binding, "fixture"), actor, parent!.surfaceId!),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(runs)).length, before, "a refused rerun still created a run");
+});
+
+test("the shared boundary refuses before it publishes anything", async () => {
+  // Every client arrives here: Portal HTTP, the Activity and CogBot RPC. A
+  // refusal must not reach the realtime hub, which broadcasts a snapshot and
+  // can wake a Discord update.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  hubPublications = 0;
+
+  for (const action of ["promote_official", "rerun_hosted"] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+      action,
+    );
+  }
+
+  assert.equal(hubPublications, 0, "a refused mutation published a snapshot");
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("hosted verification of a local run from another repository is refused", async () => {
+  // verify_hosted resolves the local session's commit against the connected
+  // repository, so it is a rerun by another name and takes the same rule.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.insert(cliDevices).values({
+    id: "device_1",
+    userId: actor.userId,
+    name: "laptop",
+    tokenHash: "hash",
+    createdAt: 1,
+    expiresAt: Date.now() + 86_400_000,
+    lastUsedAt: null,
+    revokedAt: null,
+  } as never);
+  await db.insert(localRunSessions).values({
+    id: "local_1",
+    teamId: "team_test",
+    userId: actor.userId,
+    deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId + 1,
+    repositoryFullName: "some-student/week3-capstone",
+    sha: "c".repeat(40),
+    branch: "main",
+    dirty: false,
+    status: "succeeded",
+    phase: "complete",
+    createdAt: 1,
+    updatedAt: 2,
+    lastEventSequence: 0,
+  } as never);
+  await db
+    .update(runSurfaces)
+    .set({ localRunId: "local_1" })
+    .where(eq(runSurfaces.id, SURFACE_ID));
+
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "verify_hosted"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+});
+
+async function seedLocalSource(db: Database): Promise<void> {
+  await db.insert(cliDevices).values({
+    id: "device_source", userId: "user_test", name: "laptop", tokenHash: "source-hash",
+    createdAt: NOW, expiresAt: NOW + 86_400_000,
+  });
+  await db.insert(localRunSessions).values({
+    id: "local_source", teamId: "team_test", userId: "user_test", deviceId: "device_source",
+    benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId, repositoryFullName: "old-name/local-source",
+    sha: "a".repeat(40), branch: "main", dirty: false, status: "succeeded", phase: "complete",
+    createdAt: NOW, updatedAt: NOW + 1_000, finishedAt: NOW + 1_000,
+  });
+  await db.update(runSurfaces).set({ localRunId: "local_source" }).where(eq(runSurfaces.id, SURFACE_ID));
+}
+
+test("a browser-started surface reports no local run through failure, Retry and publication", async () => {
+  // The console used to tick every stage before the current one, and every
+  // stage once published, so this surface claimed a local run it never had.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const stages = async () => runSurfaceStageStates(await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID));
+  await db.update(runs).set({
+    status: "failed", provider: "fixture", finishedAt: NOW + 2_000, failureCategory: "student_runtime",
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.deepEqual(await stages(), { local: "not_run", hosted: "failed", official: "pending", published: "pending" });
+
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+  assert.deepEqual(await stages(), { local: "not_run", hosted: "active", official: "pending", published: "pending" });
+  const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+  assert.ok(successor);
+  await db.update(runs).set({ status: "succeeded", finishedAt: NOW + 3_000 }).where(eq(runs.id, successor.id));
+  // The failed original stays in the history; the hosted mark follows its successor.
+  assert.deepEqual(await stages(), { local: "not_run", hosted: "complete", official: "pending", published: "pending" });
+
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  await publishOfficialRun(env(binding, "fixture"), actor, officialId);
+  const published = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+  assert.equal(published.stage, "published");
+  assert.deepEqual(runSurfaceStageStates(published), {
+    local: "not_run", hosted: "complete", official: "complete", published: "complete",
+  });
+});
+
+test("a local-started surface keeps its local mark through an official failure and publication", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await seedLocalSource(db);
+  const stages = async () => runSurfaceStageStates(await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID));
+  assert.deepEqual(await stages(), { local: "complete", hosted: "complete", official: "pending", published: "pending" });
+
+  const failedId = await seedOfficial(db, "failed");
+  assert.deepEqual(await stages(), { local: "complete", hosted: "complete", official: "failed", published: "pending" });
+
+  await db.delete(runs).where(eq(runs.id, failedId));
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  await publishOfficialRun(env(binding, "fixture"), actor, officialId);
+  assert.deepEqual(await stages(), { local: "complete", hosted: "complete", official: "complete", published: "complete" });
+});
+
+test("local-only console keeps recorded source and uses the verification refusal after a repository change", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  const matching = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(matching.source?.fullName, "old-name/local-source");
+  assert.equal(matching.sha, "a".repeat(40));
+  assert.equal(matching.sourceRefusal, null);
+  assert.ok(matching.actions.includes("verify_hosted"));
+
+  await db.update(teams).set({ repoId: FIXTURE_REPO.repositoryId + 1 }).where(eq(teams.id, "team_test"));
+  const changed = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(changed.source, matching.source);
+  assert.match(changed.sourceRefusal ?? "", /verify it here/);
+  assert.ok(!changed.actions.includes("verify_hosted"));
+
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const unknown = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(unknown.source, matching.source);
+  assert.match(unknown.sourceRefusal ?? "", /predates/);
+  assert.ok(!unknown.actions.includes("verify_hosted"));
+});
+
+test("a hosted console pairs its current stage's source and commit without borrowing local metadata", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  // Distinct metadata makes a mixed-stage projection detectable even though
+  // normal verification preserves the local commit.
+  // The saved environment moves with the commit, so this stays a test of which
+  // stage's metadata the console shows rather than of promotion eligibility.
+  await db.update(runs).set({
+    sha: "b".repeat(40), branch: "hosted-branch",
+    preparedEnvironmentJson: JSON.stringify({ ...PREPARED, source: { ...PREPARED.source, sha: "b".repeat(40) } }),
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const snapshot = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(snapshot.stage, "hosted");
+  assert.equal(snapshot.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(snapshot.sha, "b".repeat(40));
+  assert.equal(snapshot.shortSha, "b".repeat(7));
+  assert.equal(snapshot.branch, "hosted-branch");
+  assert.equal(snapshot.sourceRefusal, null);
+
+  // Legacy verification accepted local sessions before their source was known.
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const legacyHosted = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyHosted.sourceRefusal, null);
+  assert.ok(legacyHosted.actions.includes("promote_official"));
+  assert.ok(legacyHosted.actions.includes("rerun_hosted"));
+  await db.update(runs).set({ mode: "official" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const legacyOfficial = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyOfficial.stage, "official");
+  assert.equal(legacyOfficial.sourceRefusal, null);
+  assert.ok(legacyOfficial.actions.includes("publish_result"));
+});
+
+test("missing hosted stages reject mutations before realtime publication", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  hubPublications = 0;
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "publish_result"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "not_selectable",
+  );
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  for (const [action, code] of [["promote_official", "not_promotable"], ["rerun_hosted", "not_found"], ["publish_result", "not_selectable"]] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === code,
+    );
+  }
+  assert.equal(hubPublications, 0);
+});
+
+function renderDashboard(dashboard: Dashboard): string {
+  (globalThis as typeof globalThis & { React: typeof React }).React = React;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["benchmarks"], [dashboard.benchmark]);
+  client.setQueryData(["dashboard", dashboard.benchmark.id], dashboard);
+  client.setQueryData(["local-reports", dashboard.benchmark.id], []);
+  client.setQueryData(["repositories"], []);
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+    React.createElement(StaticRouter, { location: "/dashboard" }, React.createElement(DashboardPage))));
+}
+
+test("dashboard API and rendered candidate agree with detail for unknown, changed and renamed sources", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const testEnv = { ...env(binding, "modal"), DEV_AUTH: "enabled" as const,
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars", BETTER_AUTH_URL: "http://localhost:5173" };
+  const signedIn = await createAuth(testEnv).api.signUpEmail({
+    body: { email: "dashboard-source@example.test", password: "cogportal-local-dev-password", name: "Source reader" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: actor.team.id, userId: signedIn.response.user.id, role: "admin" });
+  const cookie = signedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerDashboardRoutes(app);
+  for (const repositoryId of [null, FIXTURE_REPO.repositoryId + 1, FIXTURE_REPO.repositoryId]) {
+    await db.update(runs).set({ repositoryId }).where(eq(runs.id, PRACTICE_RUN_ID));
+    const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+    assert.equal(response.status, 200);
+    const dashboard = DashboardSchema.parse(await response.json());
+    const [row] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    assert.ok(row);
+    const detail = await serializeRunDetail(db, row, actor.team);
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    // Each panel's own call to action, stated independently: the dashboard
+    // only offers promotion, and the run detail shares one sentence with
+    // PUBLISH. Compared in full so a changed clause cannot pass unnoticed.
+    assert.equal(dashboard.latestCandidate?.sourceRefusal, runSourceRefusal(actor.team, row, "promote it"));
+    assert.equal(detail.sourceRefusal, runSourceRefusal(actor.team, row, "act on it"));
+    assert.equal(dashboard.latestCandidate?.repo?.fullName, "some-org/the-repository-it-ran-from");
+    const html = renderDashboard(dashboard);
+    if (repositoryId === FIXTURE_REPO.repositoryId) {
+      assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "a same-ID rename remains eligible");
+      assert.match(html, /Ready to promote/);
+      assert.match(html, /Promote to official/);
+      assert.match(renderDashboard({ ...dashboard, quota: { ...dashboard.quota, officialUsed: dashboard.quota.officialLimit } }), /disabled=""[^>]*>Promote to official/);
+    } else {
+      assert.match(html, /Can&#x27;t be promoted/);
+      assert.ok(detail.sourceRefusal);
+      assert.ok(dashboard.latestCandidate?.sourceRefusal);
+      assert.ok(html.includes(dashboard.latestCandidate.sourceRefusal));
+      assert.match(dashboard.latestCandidate.sourceRefusal, /to promote it\.$/);
+      assert.doesNotMatch(html, /Promote to official/);
+      assert.doesNotMatch(html, /Ready to promote/);
+    }
+  }
+  await db.update(runs).set({ mode: "official", attemptNumber: 1 }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await db.insert(leaderboardSelections).values({
+    teamId: actor.team.id, benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    runId: PRACTICE_RUN_ID, selectedAt: NOW,
+  });
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+  assert.equal(response.status, 200);
+  const published = DashboardSchema.parse(await response.json());
+  assert.equal(published.selection?.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(published.selection?.runId, PRACTICE_RUN_ID);
+  assert.match(renderDashboard(published), /On the leaderboard<\/dt>[\s\S]*some-org\/the-repository-it-ran-from/);
+  // The published entry's own board, not the leaderboard's first module.
+  assert.match(renderDashboard(published), /href="\/leaderboard\?benchmark=vision-recognition"/);
+
+  const firstRun = renderDashboard({
+    ...published,
+    benchmark: { ...published.benchmark, id: "language-search", title: "Semantic Image Search", module: "language" },
+    runs: [], latestCandidate: null, selection: null,
+    quota: { ...published.quota, practiceUsed: 0, officialUsed: 0 },
+  });
+  assert.match(firstRun, /Run it for the first time/);
+  // The block holding Code must be able to shrink, so Code scrolls inside it
+  // instead of widening the page on a phone.
+  assert.match(firstRun, /<div class="[^"]*\bmin-w-0\b[^"]*"><h3[^>]*>On your machine/);
+  assert.match(firstRun, /<h3[^>]*>Here, from your pushed commit/);
+  assert.match(firstRun, /class="code-block /);
+  assert.match(firstRun, /cogworks check --benchmark language-search\ncogworks run --benchmark language-search\ncogworks sync/);
+  assert.match(firstRun, /<select[^>]*>[\s\S]*main/);
+});
+
+test("the rule answers every combination of missing and differing ids", () => {
+  const team = { repoId: 7, repoFullName: "owner/connected" };
+  assert.equal(runSourceRefusal(team, { repositoryId: 7 }, "act"), null);
+  assert.match(runSourceRefusal(team, { repositoryId: 8 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(team, { repositoryId: null }, "act") ?? "", /predates/);
+  assert.match(runSourceRefusal(team, null, "act") ?? "", /predates/);
+  // A team with no recorded repository cannot authorise anything against one.
+  const unknownTeam = { repoId: null, repoFullName: "owner/connected" };
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: 7 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: null }, "act") ?? "", /predates/);
+});
+
+const ACCOUNTING_SCOPE = { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 };
+
+async function historyRun(db: Database, id: string, overrides: Partial<typeof runs.$inferInsert> = {}) {
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  const row = { ...parent, id, surfaceId: null, ...overrides };
+  await db.insert(runs).values(row);
+  return row;
+}
+
+test("durable successes alone count, with version and team scope and separate active reservations", async () => {
+  const { db } = freshDb();
+  const actor = await seedPromotion(db);
+  for (const mode of ["practice", "official"] as const) {
+    await historyRun(db, `${mode}_accepted`, { mode, status: "succeeded" });
+    await historyRun(db, `${mode}_refunded_success`, { mode, status: "succeeded", refundedAt: NOW });
+    await historyRun(db, `${mode}_cancelled`, { mode, status: "cancelled" });
+    for (const failureCategory of ["provider", "student_runtime", "timeout", "output_invalid", "scorer"] as const) {
+      await historyRun(db, `${mode}_${failureCategory}`, {
+        mode, status: "failed", failureCategory, failurePhase: "evaluating", failureConsumedAttempt: true,
+      });
+    }
+    await historyRun(db, `${mode}_other_version`, { mode, benchmarkVersion: 2 });
+    await historyRun(db, `${mode}_other_benchmark`, { mode, benchmarkId: "another-benchmark" });
+  }
+  await db.insert(teams).values({ ...actor.team, id: "other_team", repoFullName: "other/repo" });
+  await historyRun(db, "other_team_success", { teamId: "other_team", mode: "official" });
+  // Old consumed claims are deliberately inconsistent with the durable runs.
+  await db.insert(officialAttempts).values({
+    id: "stale_claim", ...ACCOUNTING_SCOPE, runId: "official_student_runtime",
+    attemptNumber: 3, consumed: true, claimedAt: NOW,
+  });
+  assert.deepEqual(await readRunAccounting(db, ACCOUNTING_SCOPE), {
+    practiceUsed: 2, officialUsed: 1, practiceReserved: 0, officialReserved: 0, activeRuns: 0,
+  });
+  assert.deepEqual(await readRunAccounting(db, { teamId: actor.team.id, allBenchmarks: true }), {
+    practiceUsed: 4, officialUsed: 3, practiceReserved: 0, officialReserved: 0, activeRuns: 0,
+  });
+  await historyRun(db, "active", { status: "queued", finishedAt: null });
+  for (const mode of ["practice", "official"] as const) {
+    for (const status of RUN_PHASES) {
+      await db.update(runs).set({ mode, status }).where(eq(runs.id, "active"));
+      assert.deepEqual(await readRunAccounting(db, ACCOUNTING_SCOPE), {
+        practiceUsed: 2, officialUsed: 1,
+        practiceReserved: Number(mode === "practice"), officialReserved: Number(mode === "official"), activeRuns: 1,
+      });
+    }
+  }
+  await db.update(runs).set({ benchmarkVersion: 2 }).where(eq(runs.id, "active"));
+  assert.deepEqual(await readRunAccounting(db, ACCOUNTING_SCOPE), {
+    practiceUsed: 2, officialUsed: 1, practiceReserved: 0, officialReserved: 0, activeRuns: 1,
+  });
+});
+
+for (const mode of ["practice", "official"] as const) {
+  test(`${mode} conditional admission rechecks capacity after a stale read and excludes failures`, async () => {
+    const { db } = freshDb();
+    await seedPromotion(db);
+    const limit = mode === "practice" ? 10 : 3;
+    await db.update(runs).set({ mode }).where(eq(runs.id, PRACTICE_RUN_ID));
+    for (let i = 1; i < limit - 1; i++) await historyRun(db, `accepted_${i}`, { mode });
+    const before = await readRunAccounting(db, ACCOUNTING_SCOPE);
+    assert.equal(before[mode === "practice" ? "practiceUsed" : "officialUsed"], limit - 1);
+    const last = await historyRun(db, "last_completed", { mode });
+    const pending = { ...last, id: "new_execution", status: "queued" as const, finishedAt: null };
+    assert.equal((await insertRunWithCapacity(db, pending)).meta.changes, 0);
+    // The same slot is reserved while the last execution is active, never used.
+    await db.update(runs).set({ status: "evaluating" }).where(eq(runs.id, last.id));
+    assert.equal((await insertRunWithCapacity(db, pending)).meta.changes, 0);
+    await db.update(runs).set({ status: "failed", failureConsumedAttempt: true }).where(eq(runs.id, last.id));
+    assert.equal((await insertRunWithCapacity(db, pending)).meta.changes, 1);
+    const counts = await readRunAccounting(db, ACCOUNTING_SCOPE);
+    assert.equal(counts[mode === "practice" ? "practiceUsed" : "officialUsed"], limit - 1);
+    assert.equal(counts[mode === "practice" ? "practiceReserved" : "officialReserved"], 1);
+  });
+}
+
+test("concurrent practice starts admit only one execution at the last available slot", async () => {
+  const { db, binding } = freshDb();
+  // Catalog migrations seed a newer version; this test targets version 1.
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  for (let i = 1; i < 9; i++) await historyRun(db, `practice_${i}`);
+  const results = await Promise.allSettled([1, 2].map(() => startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40),
+  })));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const active = (await db.select().from(runs)).find((run) => run.status === "queued");
+  assert.equal(active?.benchmarkVersion, 1, JSON.stringify(active));
+  assert.deepEqual(await readRunAccounting(db, ACCOUNTING_SCOPE), {
+    practiceUsed: 9, officialUsed: 0, practiceReserved: 1, officialReserved: 0, activeRuns: 1,
+  });
+});
+
+test("legacy failed claims cannot block concurrent promotion into the last official slot", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  for (let i = 1; i <= 2; i++) await historyRun(db, `accepted_${i}`, { mode: "official" });
+  for (let i = 1; i <= 3; i++) {
+    await historyRun(db, `failed_${i}`, { mode: "official", status: "failed" });
+    await db.insert(officialAttempts).values({
+      id: `claim_${i}`, ...ACCOUNTING_SCOPE, runId: `failed_${i}`, attemptNumber: i, consumed: true, claimedAt: NOW,
+    });
+  }
+  const secondSurface = "surface_11111111111111111111";
+  const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, SURFACE_ID));
+  await db.insert(runSurfaces).values({ ...surface, id: secondSurface });
+  await historyRun(db, "practice_second", { surfaceId: secondSurface });
+  const runtime = env(binding, "modal", { async send() {} });
+  const results = await Promise.allSettled([PRACTICE_RUN_ID, "practice_second"].map((id) => promotePracticeRun(runtime, actor, id)));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const [active] = (await db.select().from(runs)).filter((run) => run.status === "queued");
+  assert.equal(active.attemptNumber, 3, "visible attempt number follows completed evaluations");
+  assert.equal((await db.select().from(runPhases).where(eq(runPhases.runId, active.id))).length, RUN_PHASES.length);
+  assert.deepEqual(await readRunAccounting(db, ACCOUNTING_SCOPE), {
+    practiceUsed: 2, officialUsed: 2, practiceReserved: 0, officialReserved: 1, activeRuns: 1,
+  });
+});
+
+for (const admission of ["promotion", "practice Retry", "official Retry", "practice start"] as const) {
+  test(`${admission} phase failure rolls back admission before dispatch`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const failedId = admission === "official Retry" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+    if (admission === "practice Retry" || admission === "official Retry") {
+      await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, failedId));
+    }
+    const before = await db.select().from(runs);
+    const surfaces = await db.select().from(runSurfaces);
+    // Fail after earlier phase inserts to prove the whole admission rolls back.
+    await db.run(sql`
+      CREATE TRIGGER reject_test_phase BEFORE INSERT ON run_phases
+      WHEN NEW.phase = 'evaluating'
+      BEGIN SELECT RAISE(ABORT, 'test phase write failure'); END
+    `);
+    let dispatched = 0;
+    // Modal for the two that dispatch on success, so `dispatched` is a real check.
+    const runtime = env(binding, admission === "promotion" || admission === "practice start" ? "modal" : "fixture", {
+      async send() { dispatched += 1; },
+    });
+    const admit = () => admission === "promotion"
+      ? promotePracticeRun(runtime, actor, PRACTICE_RUN_ID)
+      : admission === "practice start"
+        ? startPracticeRun(runtime, actor, { benchmarkId: BENCHMARK_ID, exactSha: "b".repeat(40) })
+        : retryRun(runtime, actor, SURFACE_ID, failedId);
+    const publishedBefore = hubPublications;
+    await assert.rejects(admit(), /test phase write failure/);
+    assert.equal(hubPublications, publishedBefore, "a rolled-back admission was published");
+    assert.deepEqual(await db.select().from(runs), before);
+    assert.deepEqual(await db.select().from(runSurfaces), surfaces);
+    assert.deepEqual(await db.select().from(runPhases), []);
+    assert.equal(dispatched, 0);
+    await db.run(sql`DROP TRIGGER reject_test_phase`);
+    await admit();
+    assert.equal((await db.select().from(runs)).length, before.length + 1);
+    assert.equal((await db.select().from(runPhases)).length, RUN_PHASES.length);
+    assert.equal(dispatched, runtime.EXECUTION_PROVIDER === "modal" ? 1 : 0);
+  });
+}
+
+test("historical refunded success stays uncharged and unpublished despite a surviving claim and selection", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const runId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ refundedAt: NOW }).where(eq(runs.id, runId));
+  await db.insert(leaderboardSelections).values({ ...ACCOUNTING_SCOPE, runId, selectedAt: NOW });
+  const runtime = env(binding, "modal");
+  assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialUsed, 0);
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(snapshot.status, "succeeded", "historical state remains readable");
+  assert.equal(snapshot.published, false);
+  assert.equal(snapshot.nextOfficialAttempt, 1);
+  assert.ok(!snapshot.actions.includes("publish_result"));
+  await assert.rejects(publishOfficialRun(runtime, actor, runId), { code: "not_selectable" });
+  await assert.rejects(promotePracticeRun(runtime, actor, PRACTICE_RUN_ID), { code: "not_promotable" });
+});
+
+for (const successSlot of [1, 3]) {
+  test(`promotion numbers by accepted count despite historical attempt ${successSlot}`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    for (let slot = 1; slot <= 3; slot++) {
+      const accepted = slot === successSlot;
+      await historyRun(db, `history_${slot}`, {
+        mode: "official", status: accepted || slot === 2 ? "succeeded" : "cancelled",
+        attemptNumber: slot,
+        refundedAt: !accepted && slot === 2 ? NOW : null,
+      });
+      await db.insert(officialAttempts).values({
+        id: `history_claim_${slot}`, ...ACCOUNTING_SCOPE, runId: `history_${slot}`,
+        attemptNumber: slot, consumed: true, claimedAt: NOW,
+      });
+    }
+    const historicalClaims = await db.select().from(officialAttempts);
+    const promoted = await promotePracticeRun(env(binding, "modal", { async send() {} }), actor, PRACTICE_RUN_ID);
+    const [run] = await db.select().from(runs).where(eq(runs.id, promoted.runId));
+    assert.equal(run.attemptNumber, 2);
+    assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialUsed, 1);
+    assert.deepEqual(await db.select().from(officialAttempts), historicalClaims, "admission leaves historical data untouched");
+  });
+}
+
+for (const [recorded, current] of [[null, null], [null, FIXTURE_REPO.repositoryId], [123, FIXTURE_REPO.repositoryId], [FIXTURE_REPO.repositoryId, null], [FIXTURE_REPO.repositoryId, FIXTURE_REPO.repositoryId]] as const) {
+  test(`Retry advertisement and admission require known matching repository IDs: ${recorded}/${current}`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    await db.update(runs).set({ status: "failed", provider: "fixture", repositoryId: recorded }).where(eq(runs.id, PRACTICE_RUN_ID));
+    await db.update(teams).set({ repoId: current }).where(eq(teams.id, actor.team.id));
+    actor.team.repoId = current;
+    const runtime = env(binding, "fixture");
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    const eligible = recorded !== null && recorded === current;
+    assert.equal(snapshot.actions.includes("retry"), eligible);
+    if (!eligible) await assert.rejects(retryRun(runtime, actor, SURFACE_ID, PRACTICE_RUN_ID), { code: "invalid_request" });
+    else await retryRun(runtime, actor, SURFACE_ID, PRACTICE_RUN_ID);
+  });
+}
+
+test("DO revisions survive recreation and upgrade legacy latest payloads", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(first.snapshotRevision, 1);
+  hubs.get(SURFACE_ID).restart();
+  const second = await publishRunSurface(runtime, SURFACE_ID);
+  assert.equal(second.snapshotRevision, 2);
+  assert.equal(second.updatedAt, first.updatedAt);
+  const { snapshotRevision: _, ...legacy } = second;
+  hubs.get(SURFACE_ID).values.set("latest", JSON.stringify(legacy));
+  hubs.get(SURFACE_ID).values.delete("snapshotRevision");
+  hubs.get(SURFACE_ID).restart();
+  assert.equal((await buildRunSurfaceSnapshot(runtime, SURFACE_ID)).snapshotRevision, 1);
+  assert.deepEqual(hubs.requests.map((request) => request.operation), ["/snapshot", "/publish", "/snapshot"]);
+});
+
+test("socket connection builds a numbered snapshot before any publication and shares the read sequence", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const sent: string[] = [];
+  const previousPair = Object.getOwnPropertyDescriptor(globalThis, "WebSocketPair");
+  Object.assign(globalThis, {
+    WebSocketPair: class {
+      0 = {};
+      1 = { send(payload: string) { sent.push(payload); }, close() {} };
+    },
+  });
+  t.after(() => {
+    if (previousPair) Object.defineProperty(globalThis, "WebSocketPair", previousPair);
+    else Reflect.deleteProperty(globalThis, "WebSocketPair");
+  });
+  // Node's Response rejects 101; only the host upgrade response is substituted.
+  const NativeResponse = Response;
+  t.mock.method(globalThis, "Response", class extends NativeResponse {
+    constructor(body?: BodyInit | null, init?: ResponseInit) {
+      super(body, init?.status === 101 ? { ...init, status: 200 } : init);
+      if (init?.status === 101) Object.defineProperty(this, "status", { value: 101 });
+    }
+  });
+  const response = await hubs.get(SURFACE_ID).fetch(new Request(`https://run-surface.internal/connect?surfaceId=${SURFACE_ID}`, {
+    headers: { Upgrade: "websocket" },
+  }));
+  assert.equal(response.status, 101);
+  assert.equal(JSON.parse(sent[0]).snapshotRevision, 1);
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(read.snapshotRevision, 2);
+  assert.deepEqual(JSON.parse(sent[1]), read);
+  const published = await publishRunSurface(runtime, SURFACE_ID);
+  assert.equal(published.snapshotRevision, 3);
+  assert.deepEqual(JSON.parse(sent[2]), published);
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(JSON.parse(sent[3]).snapshotRevision, 4);
+});
+
+test("snapshot wrappers reject unstamped or wrong-console payloads and await publication failure", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  for (const payload of [{ ...snapshot, snapshotRevision: 0 }, { ...snapshot, id: "surface_aaaaaaaaaaaaaaaaaaaa" }]) {
+    // SAFETY: these wrappers use only namespace lookup and the stub's fetch.
+    runtime.RUN_SURFACES = {
+      idFromName: (id: string) => id,
+      get: () => ({ fetch: async () => Response.json(payload) }),
+    } as unknown as Env["RUN_SURFACES"];
+    await assert.rejects(buildRunSurfaceSnapshot(runtime, SURFACE_ID), /unstamped or mismatched/);
+    await assert.rejects(publishRunSurface(runtime, SURFACE_ID), /unstamped or mismatched/);
+  }
+  // SAFETY: publication reaches only namespace lookup and the stub's fetch.
+  runtime.RUN_SURFACES = {
+    idFromName: (id: string) => id,
+    get: () => ({ fetch: async () => new Response("Unavailable", { status: 503 }) }),
+  } as unknown as Env["RUN_SURFACES"];
+  await assert.rejects(publishRunSurface(runtime, SURFACE_ID), /could not be updated/);
+});
+
+test("overlapping read and publish signals serialize the complete database build", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(runs).set({ status: "queued", finishedAt: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  // SAFETY: freshDb supplies this D1-shaped adapter; the hook only wraps raw.
+  const d1 = binding as { prepare(query: string): { raw(): Promise<unknown> } };
+  const prepare = d1.prepare.bind(d1);
+  let release!: () => void;
+  let entered!: () => void;
+  const blocked = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let builds = 0;
+  d1.prepare = (query) => {
+    const statement = prepare(query);
+    if (query.includes('from "runs"') && query.includes('"runs"."surface_id" = ?') && query.includes("order by")) {
+      const raw = statement.raw.bind(statement);
+      statement.raw = async () => {
+        builds += 1;
+        const rows = await raw();
+        if (builds === 1) { entered(); await gate; }
+        return rows;
+      };
+    }
+    return statement;
+  };
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const firstResponse = buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  await blocked;
+  await db.update(runs).set({ status: "evaluating" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const secondResponse = publishRunSurface(runtime, SURFACE_ID);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(builds, 1, "the second signal must not start its database build while the first is paused");
+  release();
+  const [queued, evaluating] = await Promise.all([firstResponse, secondResponse]);
+  assert.equal(queued.phase, "queued");
+  assert.equal(evaluating.phase, "evaluating");
+  assert.equal(queued.updatedAt, evaluating.updatedAt);
+  assert.equal(queued.snapshotRevision, 1);
+  assert.equal(evaluating.snapshotRevision, 2);
+  assert.deepEqual(hubs.get(SURFACE_ID).messages, [queued, evaluating]);
+});
+
+test("publishing notifies every official console in scope, including the previously selected result", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const firstId = await seedOfficial(db, "succeeded");
+  const [first] = await db.select().from(runs).where(eq(runs.id, firstId));
+  const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, SURFACE_ID));
+  const otherSurface = "surface_aaaaaaaaaaaaaaaaaaaa";
+  const thirdSurface = "surface_bbbbbbbbbbbbbbbbbbbb";
+  const excludedSurface = "surface_cccccccccccccccccccc";
+  for (const [id, version] of [[otherSurface, 1], [thirdSurface, 1], [excludedSurface, 2]] as const) {
+    await db.insert(runSurfaces).values({ ...surface, id, benchmarkVersion: version });
+    await db.insert(runs).values({ ...first, id: `run_${id}`, surfaceId: id, benchmarkVersion: version, attemptNumber: null });
+    await db.insert(runMetrics).values({ runId: `run_${id}`, key: "accuracy", label: "Accuracy",
+      value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  }
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const before = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  await publishOfficialRun(runtime, actor, firstId);
+  const selected = hubs.get(SURFACE_ID).messages.at(-1)!;
+  await publishOfficialRun(runtime, actor, `run_${otherSurface}`);
+  const deselected = hubs.get(SURFACE_ID).messages.at(-1)!;
+  assert.deepEqual([before.published, selected.published, deselected.published], [false, true, false]);
+  assert.deepEqual([before.snapshotRevision, selected.snapshotRevision, deselected.snapshotRevision], [1, 2, 3]);
+  assert.equal(before.updatedAt, deselected.updatedAt);
+  assert.equal(hubs.get(otherSurface).messages.at(-1)?.published, true);
+  assert.deepEqual(new Set(hubs.requests.filter((r) => r.operation === "/publish").map((r) => r.surfaceId)), new Set([SURFACE_ID, otherSurface, thirdSurface]));
+  assert.equal(hubs.requests.some((r) => r.surfaceId === excludedSurface), false);
+});
+
+test("late old-generation evidence updates history without replacing the current execution", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const runtime = env(binding, "fixture");
+  const before = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  const retry = await performRunSurfaceMutation(runtime, actor, SURFACE_ID, "retry", { runId: PRACTICE_RUN_ID });
+  await appendRunStreamEvent(runtime, SURFACE_ID, {
+    eventId: "late_old_execution", source: "practice", sourceRunId: PRACTICE_RUN_ID,
+    sourceSequence: 99, phase: "evaluating", code: "run.failed.runtime", occurredAt: Date.now() + 10_000,
+    elapsedMs: 2_000, progress: null,
+  });
+  const latest = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(latest.executionGeneration, before.executionGeneration + 1);
+  assert.equal(latest.practiceRunId, retry.practiceRunId);
+  assert.equal(latest.phase, retry.phase);
+  assert.ok(latest.snapshotRevision > retry.snapshotRevision);
+  assert.ok(latest.events.some((event) => event.eventId === "late_old_execution"));
+});
+
+test("alarm missing-context cleanup preserves the revision through restoration and recreation", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const first = await publishRunSurface(runtime, SURFACE_ID);
+  const [benchmark] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+  await db.delete(benchmarks);
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(hubs.get(SURFACE_ID).values.has("latest"), false);
+  assert.equal(hubs.get(SURFACE_ID).values.has("surfaceId"), false);
+  assert.equal(hubs.get(SURFACE_ID).values.get("snapshotRevision"), first.snapshotRevision);
+  await db.insert(benchmarks).values(benchmark);
+  hubs.get(SURFACE_ID).restart();
+  assert.equal((await buildRunSurfaceSnapshot(runtime, SURFACE_ID)).snapshotRevision, first.snapshotRevision + 1);
+});
+
+for (const operation of ["snapshot", "publish", "connect", "alarm"] as const) {
+  for (const failure of ["missing_context", "database"] as const) {
+    test(`${operation} handles ${failure} outside the gate without resetting the hub`, async (t) => {
+      const { db, binding } = freshDb();
+      await seedPromotion(db);
+      const runtime = env(binding, "modal");
+      const hubs = runSurfaceHubs(runtime);
+      runtime.RUN_SURFACES = hubs.namespace;
+      const first = await publishRunSurface(runtime, SURFACE_ID);
+      const hub = hubs.get(SURFACE_ID);
+      const [benchmark] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+      const logs: string[] = [];
+      t.mock.method(console, "error", (message: string) => { logs.push(message); });
+      if (failure === "missing_context") {
+        await db.delete(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+      } else {
+        // SAFETY: prepare throws before the builder can use any other D1 method.
+        runtime.DB = { prepare() { throw new Error("Transient database failure"); } } as unknown as Env["DB"];
+      }
+      const started = Date.now();
+      if (operation === "alarm") {
+        await hub.alarm();
+        if (failure === "database") {
+          assert.ok(hub.scheduledAlarm !== null && hub.scheduledAlarm >= started + 2_000);
+          assert.match(logs[0] ?? "", /run_surface_tick_failed/);
+          assert.match(logs[0] ?? "", /Transient database failure/);
+          assert.equal(hub.values.has("latest"), true);
+        } else {
+          assert.equal(hub.scheduledAlarm, null);
+          assert.equal(hub.values.has("latest"), false);
+        }
+      } else if (operation === "connect") {
+        const request = new Request(`https://run-surface.internal/connect?surfaceId=${SURFACE_ID}`, {
+          headers: { Upgrade: "websocket" },
+        });
+        if (failure === "database") await assert.rejects(hub.fetch(request), /Transient database failure/);
+        else {
+          const response = await hub.fetch(request);
+          assert.equal(response.status, 404);
+          assert.equal(await response.text(), "Run surface context no longer exists.");
+        }
+      } else {
+        const request = operation === "snapshot" ? buildRunSurfaceSnapshot : publishRunSurface;
+        if (failure === "database") await assert.rejects(request(runtime, SURFACE_ID), /Transient database failure/);
+        else await assert.rejects(request(runtime, SURFACE_ID), {
+          status: 404, code: "not_found", message: "Run surface context no longer exists.",
+        });
+      }
+      assert.deepEqual(hub.gateRejections, []);
+      assert.equal(hub.messages.length, 1, "a failed build must not broadcast a fallback snapshot");
+      assert.equal(hub.values.get("snapshotRevision"), first.snapshotRevision);
+      if (failure === "missing_context") await db.insert(benchmarks).values(benchmark);
+      else runtime.DB = binding as Env["DB"];
+      const recovered = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+      assert.equal(recovered.snapshotRevision, first.snapshotRevision + 1);
+      assert.deepEqual(hub.gateRejections, []);
+    });
+  }
+}
+
+test("missing snapshot context retains its 404 across the DO request boundary", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.delete(benchmarks);
+  await assert.rejects(buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID), {
+    status: 404, code: "not_found", message: "Run surface context no longer exists.",
+  });
+});
+
+// Older writers omitted these required fields. The tests drive the real hub
+// against Map-backed storage; they do not exercise workerd's storage.
+function historicalPayload(snapshot: RunSurfaceSnapshot): string {
+  const { source: _source, sourceRefusal: _refusal, ...rest } = snapshot;
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(rest).success, false, "the fixture must predate this contract");
+  return JSON.stringify(rest);
+}
+
+test("a payload from an older writer is a cache miss, and the fresh refusal is served", async (t) => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+
+  const before = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(before.sourceRefusal, null);
+  // The team moves off the run's repository, so the fresh read carries a
+  // refusal the cached payload could not have known about.
+  await db.update(teams).set({ repoId: 999_999_999 }).where(eq(teams.id, actor.team.id));
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(before));
+  hubs.get(SURFACE_ID).restart();
+
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.ok(read.sourceRefusal, "the discarded cache was served instead of the fresh read");
+  assert.equal(read.actions.includes("promote_official"), false);
+  // The separate counter still orders the reply; only the unreadable payload went.
+  assert.equal(read.snapshotRevision, before.snapshotRevision + 1);
+  const stored = hubs.get(SURFACE_ID).values.get("latest");
+  assert.ok(typeof stored === "string");
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(stored)).success, true);
+
+  const warned = warnings.map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry.event === "run_surface_cache_discarded");
+  assert.equal(warned.length, 1);
+  assert.equal(warned[0].surfaceId, SURFACE_ID);
+  assert.equal(warned[0].reason, "schema_mismatch");
+  assert.deepEqual(warned[0].fields, ["source", "sourceRefusal"]);
+  // Field paths only: the payload names a repository and a commit.
+  assert.doesNotMatch(warnings.join(""), new RegExp(before.sha));
+  assert.doesNotMatch(warnings.join(""), /cogworks-demo|some-org/);
+});
+
+test("a historical payload with no counter restarts the sequence at one", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).values.delete("snapshotRevision");
+  hubs.get(SURFACE_ID).restart();
+  assert.equal((await buildRunSurfaceSnapshot(runtime, SURFACE_ID)).snapshotRevision, 1);
+});
+
+test("the alarm replaces an unreadable payload instead of retrying the parse", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+  const errors: string[] = [];
+  t.mock.method(console, "error", (line: string) => { errors.push(line); });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(first.status, "succeeded");
+  hubs.get(SURFACE_ID).values.set("surfaceId", SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).restart();
+
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(errors.filter((line) => line.includes("run_surface_tick_failed")).length, 0);
+  // Terminal, so nothing is rescheduled: the 2s error retry would have been.
+  assert.equal(hubs.get(SURFACE_ID).scheduledAlarm, null);
+  const stored = hubs.get(SURFACE_ID).values.get("latest");
+  assert.ok(typeof stored === "string");
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(stored)).success, true);
+
+  warnings.length = 0;
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(warnings.filter((line) => line.includes("run_surface_cache_discarded")).length, 0);
+});
+
+test("a connection is issued over an unreadable payload rather than failing", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  t.mock.method(console, "warn", () => {});
+  const sent: string[] = [];
+  const previousPair = Object.getOwnPropertyDescriptor(globalThis, "WebSocketPair");
+  Object.assign(globalThis, {
+    WebSocketPair: class { 0 = {}; 1 = { send(payload: string) { sent.push(payload); }, close() {} }; },
+  });
+  t.after(() => {
+    if (previousPair) Object.defineProperty(globalThis, "WebSocketPair", previousPair);
+    else Reflect.deleteProperty(globalThis, "WebSocketPair");
+  });
+  const NativeResponse = Response;
+  t.mock.method(globalThis, "Response", class extends NativeResponse {
+    constructor(body?: BodyInit | null, init?: ResponseInit) {
+      super(body, init?.status === 101 ? { ...init, status: 200 } : init);
+      if (init?.status === 101) Object.defineProperty(this, "status", { value: 101 });
+    }
+  });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).restart();
+  const response = await hubs.get(SURFACE_ID).fetch(new Request(`https://run-surface.internal/connect?surfaceId=${SURFACE_ID}`, {
+    headers: { Upgrade: "websocket" },
+  }));
+  assert.equal(response.status, 101);
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(sent[0])).success, true);
+});
+
+test("a truncated payload is the same cache miss", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", JSON.stringify(first).slice(0, 80));
+  hubs.get(SURFACE_ID).restart();
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(read.snapshotRevision, first.snapshotRevision + 1);
+  const warned = warnings.map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry.event === "run_surface_cache_discarded");
+  assert.equal(warned.length, 1);
+  assert.equal(warned[0].reason, "malformed_json");
+  assert.deepEqual(warned[0].fields, []);
+});
+
+test("a result without the ranked measure stays readable everywhere and is never called published", async () => {
+  // The catalog ranks "accuracy". This official run reported only a partial
+  // reading and flagged it primary, the way a Language run without overall
+  // flags text MRR. A selection of it was stored before publication checked.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  // The migrated catalog carries newer versions; the dashboard reads the newest active one.
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.delete(runMetrics).where(eq(runMetrics.runId, officialId));
+  await db.insert(runMetrics).values({ runId: officialId, key: "top1", label: "Top-1", value: 0.99,
+    unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1, runId: officialId, selectedAt: NOW,
+  });
+  // The team best compares like with like: the ranked measure, current scorer.
+  const [official] = await db.select().from(runs).where(eq(runs.id, officialId));
+  for (const [id, key, value, scorerVersion] of [
+    ["run_best", "accuracy", 0.6, "1"],
+    ["run_other_measure", "top1", 0.97, "1"],
+    ["run_old_scorer", "accuracy", 0.95, "0"],
+  ] as const) {
+    await db.insert(runs).values({ ...official, id, surfaceId: null, attemptNumber: null, scorerVersion });
+    await db.insert(runMetrics).values({ runId: id, key, label: key, value,
+      unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  }
+  const selections = await db.select().from(leaderboardSelections);
+  const { app, runtime, cookie } = await authenticatedPromotion(db, binding);
+  const reason = /ranks teams by "accuracy", and this run didn't report it/;
+
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.deepEqual([snapshot.stage, snapshot.published], ["official", false]);
+  assert.ok(!snapshot.actions.includes("publish_result"));
+  assert.match(snapshot.publicationRefusal ?? "", reason);
+  assert.deepEqual([snapshot.primaryMetric?.key, snapshot.primaryMetric?.value], ["top1", 0.99]);
+  assert.deepEqual([snapshot.teamBest?.key, snapshot.teamBest?.value], ["accuracy", 0.6]);
+
+  let refused = "";
+  await assert.rejects(publishOfficialRun(runtime, actor, officialId), (error: unknown) => {
+    assert.ok(error instanceof ApiHttpError);
+    assert.equal(error.code, "not_selectable");
+    assert.match(error.message, reason);
+    refused = error.message;
+    return true;
+  });
+  assert.deepEqual(await db.select().from(leaderboardSelections), selections);
+
+  const read = async (path: string) => {
+    const response = await app.fetch(new Request(`http://localhost:5173${path}`, { headers: { cookie } }), runtime);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const dashboard = DashboardSchema.parse(await read(`/dashboard?benchmark=${BENCHMARK_ID}`));
+  assert.equal(dashboard.selection, null);
+  assert.equal(dashboard.runs.find((run) => run.id === officialId)?.primaryMetric?.key, "top1");
+  const detail = RunDetailSchema.parse(await read(`/runs/${officialId}`));
+  assert.deepEqual([detail.selected, detail.publishable], [false, true]);
+  assert.deepEqual(detail.metrics.map((metric) => metric.key), ["top1"]);
+  // The run page states Publish's answer before anyone presses it.
+  assert.equal(detail.publicationRefusal, refused);
+
+  // Once it reports the ranked measure, every surface agrees it is published,
+  // and they show that measure even though the run's primary flag is elsewhere.
+  await db.insert(runMetrics).values({ runId: officialId, key: "accuracy", label: "Accuracy", value: 0.5,
+    unit: null, higherIsBetter: true, isPrimary: false, precision: 2 });
+  const published = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.deepEqual([published.stage, published.published, published.publicationRefusal], ["published", true, null]);
+  const selected = DashboardSchema.parse(await read(`/dashboard?benchmark=${BENCHMARK_ID}`)).selection;
+  assert.deepEqual([selected?.runId, selected?.primaryMetric.key, selected?.primaryMetric.value], [officialId, "accuracy", 0.5]);
+  const rankable = RunDetailSchema.parse(await read(`/runs/${officialId}`));
+  assert.deepEqual([rankable.selected, rankable.publicationRefusal], [true, null]);
+  // Under an older scorer the same run has no comparable team best, and it
+  // stops being published.
+  await db.update(runs).set({ scorerVersion: "0" }).where(eq(runs.id, officialId));
+  const older = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.deepEqual([older.teamBest, older.published], [null, false]);
+  assert.match(older.publicationRefusal ?? "", /different scoring rules/);
+  assert.equal(RunDetailSchema.parse(await read(`/runs/${officialId}`)).publicationRefusal, older.publicationRefusal);
+});
+
+/* ── Consoles with nothing to show ─────────────────────────────────────── */
+
+// A practice start used to write its console before capacity admission, so a
+// refused start left a console with no run and no local session. The team's
+// list built every one of its ten newest consoles at once, and one such
+// console failed the portal list and the Activity's.
+
+const DISCORD_USER_ID = "discord_lister";
+const ACTIVITY_SESSION_SECRET = "activity-session-secret-long-enough";
+
+async function emptySurface(db: Database, id: string, updatedAt: number, localRunId: string | null = null) {
+  await db.insert(runSurfaces).values({
+    id,
+    teamId: "team_test",
+    createdByUserId: "user_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    localRunId,
+    supersedesSurfaceId: null,
+    discordChannelId: null,
+    discordMessageId: null,
+    discordNonceGeneration: 0,
+    createdAt: updatedAt,
+    updatedAt,
+  });
+}
+
+async function runlessSurfaces(db: Database) {
+  const all = await db.select().from(runSurfaces);
+  const attached = new Set((await db.select({ surfaceId: runs.surfaceId }).from(runs)).map((row) => row.surfaceId));
+  const sessions = new Set((await db.select({ id: localRunSessions.id }).from(localRunSessions)).map((row) => row.id));
+  return all.filter((surface) => !attached.has(surface.id) && !(surface.localRunId && sessions.has(surface.localRunId)));
+}
+
+/** The portal's and the Activity's list routes, each signed in the way it
+ *  really is: a better-auth session and a signed Activity cookie. */
+async function teamLists(db: Database, binding: unknown) {
+  const runtime: Env = {
+    ...env(binding, "fixture"),
+    DEV_AUTH: "enabled",
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
+    BETTER_AUTH_URL: "http://localhost:5173",
+    DISCORD_CLIENT_ID: "activity-client",
+    DISCORD_CLIENT_SECRET: "activity-secret",
+    ACTIVITY_SESSION_SECRET,
+  };
+  const signIn = await createAuth(runtime).api.signUpEmail({
+    body: { email: "lister@example.test", password: "cogportal-local-dev-password", name: "Lister" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: "team_test", userId: signIn.response.user.id, role: "write" });
+  await db.insert(discordAccounts).values({
+    discordUserId: DISCORD_USER_ID, userId: signIn.response.user.id, username: "lister", linkedAt: NOW,
+  });
+  const portalCookie = signIn.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
+  const activityCookie = (await generateSignedCookie(
+    "cog_activity_session",
+    `${DISCORD_USER_ID}.${Date.now() + 60 * 60 * 1000}`,
+    ACTIVITY_SESSION_SECRET,
+  )).split(";")[0]!;
+  const app = new Hono<AppEnv>();
+  registerRunSurfaceRoutes(app);
+  registerActivityRoutes(app);
+  app.onError(handleError);
+  const get = async (path: string, cookie: string) => {
+    const response = await app.fetch(new Request(`http://localhost:5173${path}`, { headers: { cookie } }), runtime);
+    return { status: response.status, body: await response.json() as unknown };
+  };
+  return {
+    portal: () => get("/run-surfaces", portalCookie),
+    activity: () => get("/activity/run-surfaces", activityCookie),
+    one: (surfaceId: string) => get(`/run-surfaces/${surfaceId}`, portalCookie),
+  };
+}
+
+function listedIds(body: unknown): string[] {
+  return (body as Array<{ id: string }>).map((snapshot) => snapshot.id);
+}
+
+test("a start refused at the last practice slot leaves no console, and both lists still render", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  const lists = await teamLists(db, binding);
+  for (let i = 1; i < 9; i++) await historyRun(db, `practice_${i}`);
+
+  const results = await Promise.allSettled([1, 2].map(() => startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40),
+  })));
+
+  const admitted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  const refused = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+  assert.equal(admitted.length, 1);
+  assert.equal(refused.length, 1);
+  assert.ok(refused[0] instanceof ApiHttpError && refused[0].status === 409, String(refused[0]));
+  assert.deepEqual(await runlessSurfaces(db), []);
+  for (const list of [lists.portal, lists.activity]) {
+    const response = await list();
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.deepEqual(new Set(listedIds(response.body)), new Set([SURFACE_ID, admitted[0]!.surfaceId]));
+  }
+});
+
+test("consoles with nothing to show cannot fail the lists or push a real console out of them", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const lists = await teamLists(db, binding);
+  // More empty consoles than the list shows, every one newer than the real
+  // one, and one more that names a local session that does not exist.
+  for (let i = 0; i < 11; i++) await emptySurface(db, `surface_${"e".repeat(18)}${i.toString(16).padStart(2, "0")}`, NOW + 10_000 + i);
+  await emptySurface(db, `surface_${"d".repeat(20)}`, NOW + 20_000, "local_missing");
+
+  for (const list of [lists.portal, lists.activity]) {
+    const response = await list();
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.deepEqual(listedIds(response.body), [SURFACE_ID]);
+  }
+});
+
+test("a single console with no run still answers 404", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const lists = await teamLists(db, binding);
+  const emptyId = `surface_${"c".repeat(20)}`;
+  await emptySurface(db, emptyId, NOW + 10_000);
+
+  await assert.rejects(buildRunSurfaceSnapshot(env(binding, "fixture"), emptyId), {
+    status: 404, code: "not_found", message: "Run surface has no run.",
+  });
+  assert.equal((await lists.one(emptyId)).status, 404);
+});
+
+/** Runs `before` with the console's id ahead of each hub request, so a test can
+ *  change the database between the list's selection and one snapshot build. */
+function interceptHub(runtime: Env, before: (surfaceId: string) => Promise<Response | void>): Env {
+  const inner = runtime.RUN_SURFACES;
+  return {
+    ...runtime,
+    // SAFETY: snapshot callers use only idFromName and fetch(url, init).
+    RUN_SURFACES: {
+      idFromName: (name: string) => inner.idFromName(name),
+      get: (id: DurableObjectId) => ({
+        fetch: async (url: string, init: RequestInit) => {
+          const { surfaceId } = JSON.parse(String(init.body)) as { surfaceId: string };
+          const replaced = await before(surfaceId);
+          return replaced ?? inner.get(id).fetch(url, init);
+        },
+      }),
+    } as unknown as Env["RUN_SURFACES"],
+  };
+}
+
+test("a console whose context vanishes after selection is left out, and other failures still fail the list", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const vanishing = `surface_${"b".repeat(20)}`;
+  const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, SURFACE_ID));
+  await db.insert(runSurfaces).values({ ...surface!, id: vanishing, updatedAt: NOW + 10_000 });
+  await historyRun(db, "run_vanishing", { surfaceId: vanishing });
+
+  // Its run is deleted after the list selected it, so the real builder
+  // answers 404 for this console alone.
+  const vanished = interceptHub(env(binding, "fixture"), async (surfaceId) => {
+    if (surfaceId === vanishing) await db.delete(runs).where(eq(runs.id, "run_vanishing"));
+  });
+  assert.deepEqual((await listTeamRunSurfaceSnapshots(vanished, "team_test")).map((snapshot) => snapshot.id), [SURFACE_ID]);
+
+  // A hub that fails for another reason still fails the list.
+  await historyRun(db, "run_vanishing_again", { surfaceId: vanishing });
+  const broken = interceptHub(env(binding, "fixture"), async (surfaceId) =>
+    surfaceId === vanishing ? new Response("unavailable", { status: 500 }) : undefined);
+  await assert.rejects(listTeamRunSurfaceSnapshots(broken, "team_test"), /could not be updated/);
+
+  // So does a database error inside the real builder.
+  await db.run(sql`ALTER TABLE run_stream_events RENAME TO run_stream_events_hidden`);
+  await assert.rejects(listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test"), (error: unknown) =>
+    !(error instanceof ApiHttpError && error.status === 404));
+});
+
+test("a list read between any two statements of a start never sees a console without its run", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  const inner = binding as {
+    prepare(query: string): {
+      bind(...params: unknown[]): unknown;
+      execute(): unknown;
+      run(): unknown;
+      all(): Promise<unknown>;
+      raw(): Promise<unknown>;
+    };
+    batch(statements: unknown[]): Promise<unknown>;
+  };
+  const failures: string[] = [];
+  let reads = 0;
+  // Reads through the unwrapped binding, so the check itself is not paused.
+  const check = async () => {
+    reads += 1;
+    // The database first: building a snapshot syncs the run, and that sync
+    // writes any missing phases, which would hide a half-written admission.
+    for (const surface of await runlessSurfaces(db)) failures.push(`${surface.id} has no run`);
+    for (const run of await db.select().from(runs).where(ne(runs.id, PRACTICE_RUN_ID))) {
+      const phases = await db.select().from(runPhases).where(eq(runPhases.runId, run.id));
+      if (phases.length !== RUN_PHASES.length) failures.push(`${run.id} has ${phases.length} phases`);
+      const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, run.surfaceId!));
+      if (!surface) failures.push(`${run.id} has no console`);
+    }
+    try {
+      await listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test");
+    } catch (error) {
+      failures.push(String(error));
+    }
+  };
+  const paused = {
+    prepare(query: string) {
+      const statement = inner.prepare(query);
+      const outer = {
+        bind(...params: unknown[]) { statement.bind(...params); return outer; },
+        execute: () => statement.execute(),
+        run: async () => { const result = await statement.run(); await check(); return result; },
+        all: async () => { const result = await statement.all(); await check(); return result; },
+        raw: async () => { const result = await statement.raw(); await check(); return result; },
+      };
+      return outer;
+    },
+    async batch(statements: unknown[]) {
+      const result = await inner.batch(statements);
+      await check();
+      return result;
+    },
+  };
+
+  const started = await startPracticeRun(env(paused, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40),
+  });
+
+  assert.ok(reads > 3, `only ${reads} pauses`);
+  assert.deepEqual(failures, []);
+  const listed = await listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test");
+  assert.ok(listed.some((snapshot) => snapshot.id === started.surfaceId));
+});
+
+test("concurrent replays of one rerun return the winner's run and keep its console", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+
+  const replays = await Promise.all([1, 2, 3].map(() => rerunHostedSurface(env(binding, "fixture"), actor, SURFACE_ID)));
+
+  const [first] = replays;
+  for (const replay of replays) assert.deepEqual(replay, first);
+  const successors = await db.select().from(runSurfaces).where(eq(runSurfaces.supersedesSurfaceId, SURFACE_ID));
+  assert.equal(successors.length, 1);
+  assert.equal(successors[0]!.id, first!.surfaceId);
+  assert.equal(successors[0]!.createdByUserId, actor.userId);
+  assert.deepEqual((await db.select().from(runs).where(eq(runs.surfaceId, first!.surfaceId))).map((run) => run.id), [first!.runId]);
+  assert.equal((await db.select().from(runPhases).where(eq(runPhases.runId, first!.runId))).length, RUN_PHASES.length);
+  // A later replay is the same answer, not a second run.
+  assert.deepEqual(await rerunHostedSurface(env(binding, "fixture"), actor, SURFACE_ID), first);
+  assert.deepEqual(await runlessSurfaces(db), []);
+});
+
+test("refused hosted verification leaves the local console and session exactly as they were", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  await db.insert(cliDevices).values({
+    id: "device_1", userId: actor.userId, name: "laptop", tokenHash: "hash",
+    createdAt: 1, expiresAt: Date.now() + 86_400_000, lastUsedAt: null, revokedAt: null,
+  } as never);
+  await db.insert(localRunSessions).values({
+    id: "local_1",
+    teamId: "team_test",
+    userId: actor.userId,
+    deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId,
+    repositoryFullName: FIXTURE_REPO.fullName,
+    sha: "c".repeat(40),
+    branch: "main",
+    dirty: false,
+    status: "succeeded",
+    phase: "complete",
+    createdAt: 1,
+    updatedAt: 2,
+    lastEventSequence: 0,
+  } as never);
+  const localSurface = `surface_${"f".repeat(20)}`;
+  await emptySurface(db, localSurface, NOW + 10_000, "local_1");
+  for (let i = 1; i < 9; i++) await historyRun(db, `practice_${i}`);
+  const surfaceBefore = await db.select().from(runSurfaces).where(eq(runSurfaces.id, localSurface));
+  const sessionBefore = await db.select().from(localRunSessions);
+  const phasesBefore = await db.select().from(runPhases);
+  // The preflight count sees one slot left. The last success lands just before
+  // the admission batch, so the refusal comes from the SQL capacity guard.
+  const inner = binding as { prepare(query: string): unknown; batch(statements: unknown[]): Promise<unknown> };
+  let filled = false;
+  const racing = {
+    prepare: (query: string) => inner.prepare(query),
+    async batch(statements: unknown[]) {
+      if (!filled) {
+        filled = true;
+        await historyRun(db, "practice_9");
+      }
+      return inner.batch(statements);
+    },
+  };
+
+  await assert.rejects(
+    performRunSurfaceMutation(env(racing, "fixture"), actor, localSurface, "verify_hosted"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "quota_exhausted",
+  );
+
+  assert.ok(filled, "the refusal came from the preflight count, not the admission batch");
+  assert.deepEqual(await db.select().from(runSurfaces).where(eq(runSurfaces.id, localSurface)), surfaceBefore);
+  assert.deepEqual(await db.select().from(localRunSessions), sessionBefore);
+  assert.deepEqual(await db.select().from(runs).where(eq(runs.surfaceId, localSurface)), []);
+  assert.deepEqual(await db.select().from(runPhases), phasesBefore);
+  const listed = await listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test");
+  assert.ok(listed.some((snapshot) => snapshot.id === localSurface), "the local console fell out of the list");
+});
+
+/* ── Which weights a Retry's prepared environment holds ─────────────────── */
+
+// `weightsSuppliedJson` records which weight files a prepared environment
+// holds. A Retry that reuses the failed execution's saved artifact runs on
+// those same files; one that prepares afresh does not, and its completion says
+// what it used. Every list below is seeded metadata; no weight file is uploaded.
+
+const SEEDED_WEIGHTS = '["models/synthetic_seeded_metadata.pkl"]';
+
+async function postRunnerEvent(runtime: Env, event: unknown) {
+  const app = new Hono<AppEnv>();
+  registerRunnerEventRoutes(app);
+  app.onError(handleError);
+  const body = JSON.stringify(event);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const response = await app.fetch(new Request("http://localhost:5173/internal/v1/runner/events", {
+    method: "POST", body, headers: { "X-Cogworks-Key-Id": "runner-v1", "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, timestamp, body)}` },
+  }), runtime);
+  assert.equal(response.status, 200, await response.text());
+}
+
+function completion(runId: string, preparedArtifactId: string, weightsSupplied?: string[]) {
+  return {
+    protocolVersion: "1", type: "completed", eventId: `evt_${runId}_done`, runId,
+    sequence: 5, occurredAt: Date.now(), preparedArtifactId,
+    preparedEnvironment: { ...PREPARED, artifactId: preparedArtifactId },
+    environmentDigest: "b".repeat(64), sanitizedLog: null,
+    result: {
+      protocolVersion: "1", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+      metrics: [{ key: "accuracy", label: "Accuracy", value: 0.5, unit: null, higherIsBetter: true, primary: true, precision: 2 }],
+      diagnostics: [], outputDigest: "c".repeat(64),
+      ...(weightsSupplied ? { weightsSupplied } : {}),
+    },
+  };
+}
+
+for (const seeded of [SEEDED_WEIGHTS, "[]"] as const) {
+  test(`an official Retry on the same saved environment keeps its weights record (${seeded === "[]" ? "none recorded" : "seeded"})`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    await db.update(runs).set({ weightsSuppliedJson: seeded }).where(eq(runs.id, PRACTICE_RUN_ID));
+    // The official dispatch fails after its job is recorded, which is the
+    // ordinary way an official execution becomes retryable.
+    await assert.rejects(promotePracticeRun(env(binding, "modal", {
+      async send() { throw new Error("dispatch unavailable"); },
+    }), actor, PRACTICE_RUN_ID));
+    const [failed] = await db.select().from(runs).where(eq(runs.mode, "official"));
+    assert.ok(failed?.dispatchJobJson);
+    assert.equal(failed.weightsSuppliedJson, seeded, "promotion should inherit the practice run's record");
+
+    const runtime = env(binding, "modal", { async send() {} });
+    await retryRun(runtime, actor, SURFACE_ID, failed.id);
+    const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, failed.id));
+    assert.ok(successor);
+    assert.equal(successor.preparedArtifactId, failed.preparedArtifactId);
+    assert.equal(successor.weightsSuppliedJson, seeded);
+
+    // A completion that does not mention weights leaves the record alone.
+    await db.update(runs).set({ status: "scoring" }).where(eq(runs.id, successor.id));
+    await postRunnerEvent(runtime, completion(successor.id, successor.preparedArtifactId!));
+    const [completed] = await db.select().from(runs).where(eq(runs.id, successor.id));
+    assert.equal(completed?.status, "succeeded");
+    assert.equal(completed?.weightsSuppliedJson, seeded);
+  });
+}
+
+test("a practice Retry that prepares afresh does not inherit the failed run's weights record", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  // The fixture run is v1; migrations also seed an active Vision v2 row.
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), sql`${benchmarks.version} <> 1`));
+  const runtime = env(binding, "modal", { async send() {} });
+  const [practice] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  const [catalog] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+  // Its recorded job prepared its own inputs. A late completion then left an
+  // artifact and a weights list on the row, neither of which the retried job
+  // will use.
+  const job = buildRunJob(runtime, { ...practice!, preparedArtifactId: null, preparedEnvironmentJson: null }, actor.team, catalog!, []);
+  await db.update(runs).set({
+    status: "failed", failureCategory: "provider", failurePhase: "preparing", refundedAt: null,
+    dispatchJobJson: JSON.stringify(job), preparedArtifactId: "artifact_late_completion",
+    weightsSuppliedJson: SEEDED_WEIGHTS,
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await retryRun(runtime, actor, SURFACE_ID, PRACTICE_RUN_ID);
+  const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+  assert.ok(successor);
+  assert.equal(successor.preparedArtifactId, null);
+  assert.equal(successor.weightsSuppliedJson, "[]");
+
+  // Its own completion reports what the fresh preparation actually held.
+  await db.update(runs).set({ status: "scoring" }).where(eq(runs.id, successor.id));
+  await postRunnerEvent(runtime, completion(successor.id, "artifact_fresh_prepare", ["models/fresh_prepare.pkl"]));
+  const [completed] = await db.select().from(runs).where(eq(runs.id, successor.id));
+  assert.equal(completed?.weightsSuppliedJson, '["models/fresh_prepare.pkl"]');
+});
+
+test("a fixture Retry carries the weights record only when it keeps the saved artifact", async () => {
+  for (const artifact of ["artifact_test", null] as const) {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    await db.update(runs).set({
+      status: "failed", provider: "fixture", preparedArtifactId: artifact, weightsSuppliedJson: SEEDED_WEIGHTS,
+    }).where(eq(runs.id, PRACTICE_RUN_ID));
+    await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+    const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+    assert.equal(successor?.preparedArtifactId, artifact);
+    assert.equal(successor?.weightsSuppliedJson, artifact ? SEEDED_WEIGHTS : "[]");
+  }
+});
+
+test("a Retry of a Retry on the same saved environment still keeps its weights record", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ weightsSuppliedJson: SEEDED_WEIGHTS }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(promotePracticeRun(env(binding, "modal", {
+    async send() { throw new Error("dispatch unavailable"); },
+  }), actor, PRACTICE_RUN_ID));
+  const [original] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  const runtime = env(binding, "modal", { async send() {} });
+  await retryRun(runtime, actor, SURFACE_ID, original!.id);
+  const [first] = await db.select().from(runs).where(eq(runs.retryOfRunId, original!.id));
+  await db.update(runs).set({ status: "failed", failureCategory: "provider", finishedAt: Date.now() }).where(eq(runs.id, first!.id));
+
+  await retryRun(runtime, actor, SURFACE_ID, first!.id);
+  const [second] = await db.select().from(runs).where(eq(runs.retryOfRunId, first!.id));
+  assert.equal(second?.preparedArtifactId, original!.preparedArtifactId);
+  assert.equal(second?.weightsSuppliedJson, SEEDED_WEIGHTS);
+});
+
+test("every new execution starts with no runner activity and no rollout grace, never its parent's", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  // The parent carries activity and a grace of its own (0049).
+  await db.update(runs).set({ acceptedActivityAt: 123, legacyGraceUntil: 456 }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await promotePracticeRun(env(binding, "modal", { async send() {} }), actor, PRACTICE_RUN_ID);
+  const [official] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.deepEqual([official?.acceptedActivityAt, official?.legacyGraceUntil], [null, 0], "promotion copied the parent's clock");
+
+  await db.update(runs).set({
+    status: "failed", provider: "fixture", acceptedActivityAt: 789, legacyGraceUntil: 1_011,
+  }).where(eq(runs.id, official!.id));
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, official!.id);
+  const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, official!.id));
+  assert.deepEqual([successor?.acceptedActivityAt, successor?.legacyGraceUntil], [null, 0], "Retry copied the failed run's clock");
+
+  // Settle the Retry so a new practice start is admitted.
+  await db.update(runs).set({ status: "failed", finishedAt: Date.now() }).where(eq(runs.id, successor!.id));
+  const started = await startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID, exactSha: "c".repeat(40),
+  });
+  const [fresh] = await db.select().from(runs).where(eq(runs.id, started.runId));
+  assert.deepEqual([fresh?.acceptedActivityAt, fresh?.legacyGraceUntil], [null, 0]);
+});

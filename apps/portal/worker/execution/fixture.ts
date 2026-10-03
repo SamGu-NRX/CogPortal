@@ -9,7 +9,9 @@ import type {
   ScoreResult,
 } from "./adapter";
 
-export function fixtureScenario(branch: string) {
+// Not exported: a scenario's default detail is Vision's wording, so callers
+// read the run's own track's outcome through fixtureOutcome.
+function fixtureScenario(branch: string) {
   return (
     FIXTURE_SCENARIOS.find((scenario) => scenario.branch === branch) ??
     FIXTURE_SCENARIOS.find((scenario) => scenario.branch === "main")!
@@ -18,13 +20,11 @@ export function fixtureScenario(branch: string) {
 
 /** The scripted outcome with its detail told in the requested track's terms.
  *  Tracks without their own wording keep the default. */
-export function fixtureOutcome(branch: string, benchmarkId: string) {
+export function fixtureOutcome(branch: string, benchmarkId: string): ExecutionResult["outcome"] {
   const { outcome } = fixtureScenario(branch);
   if (outcome.kind === "succeeded") return outcome;
-  return {
-    ...outcome,
-    detail: outcome.detailByBenchmark?.[benchmarkId] ?? outcome.detail,
-  };
+  const { detailByBenchmark, ...failure } = outcome;
+  return { ...failure, detail: detailByBenchmark?.[benchmarkId] ?? failure.detail };
 }
 
 function round4(value: number): number {
@@ -62,11 +62,62 @@ export function fixtureMetrics(
     ];
   }
   if (benchmarkId === "language-search") {
-    // Shapes match the real scorer: a strong text pipeline, a harder trained
-    // encoder, search trailing retrieval slightly (their own glue).
+    // Shapes match the real scorer under retrieval-v3, measured on the
+    // reference submission on the evaluation tier (2026-08-20): text 0.7829,
+    // retrieval 0.2586, search 0.2309, with the four rungs at 0.2572
+    // (verbatim), 0.2735 (keywords), 0.1671 (truncated), 0.2256 (typo).
+    //
+    // Search used to be modelled as retrieval minus 0.006, which matched the
+    // old scorer because `search_mrr` was then the verbatim rung over the
+    // same pool retrieval already ranked. It now averages the four query
+    // rewrites, so it sits meaningfully below retrieval and the preview has
+    // to as well: a fixture that still showed the two nearly equal would
+    // teach whoever reads it the wrong shape.
     const text = round4(0.74 + (hash % 900) / 10_000 + improvement);
     const retrieval = round4(0.23 + ((hash >>> 4) % 1100) / 10_000 + improvement);
-    const search = round4(Math.max(0, retrieval - 0.006));
+    // Reference ratios against the verbatim rung: keywords 1.063, truncated
+    // 0.649, typo 0.877, and verbatim itself 0.9947 of retrieval.
+    const verbatim = round4(Math.max(0, retrieval * 0.9947));
+    const keywords = round4(Math.max(0, verbatim * 1.063));
+    const truncated = round4(Math.max(0, verbatim * 0.649));
+    const typo = round4(Math.max(0, verbatim * 0.877));
+    // Three, not four. Under retrieval-v4 the verbatim rung is reported and
+    // not scored: its queries are captions read out of the file the
+    // submission is handed, so a submission that embedded nothing scored a
+    // perfect 1.0000 on the retrieval one. Averaging four here would show a
+    // preview of a scorer that no longer exists.
+    const search = round4((keywords + truncated + typo) / 3);
+    const retrievalKeywords = round4(retrieval * 1.063);
+    const retrievalTruncated = round4(retrieval * 0.649);
+    const retrievalTypo = round4(retrieval * 0.877);
+    const retrievalScored = round4(
+      (retrievalKeywords + retrievalTruncated + retrievalTypo) / 3,
+    );
+    // The plugin's own pairs (benchmarks/week3, metric_roles and
+    // metric_relations), not ours. Without them the fixture drew three chance
+    // floors with "higher is better" arrows, so no local run could show the
+    // floor rendering. The rung metrics are "plotted" in the plugin because
+    // the sweep curve prints each value beside its point; this fixture emits
+    // no curve, so they stay ordinary rows rather than vanish.
+    const floorOf: Record<string, string> = {
+      chance_mrr: "retrieval_mrr",
+      text_chance: "text_mrr",
+      search_chance: "search_mrr",
+    };
+    const reportedOf: Record<string, string> = {
+      retrieval_mrr_verbatim: "retrieval_mrr",
+      search_mrr_verbatim: "search_mrr",
+    };
+    // Match the plugin's diagnostic roles so these rows stay separate from scores.
+    const diagnostics = new Set([
+      "retrieval_mrr_keywords",
+      "retrieval_mrr_truncated",
+      "retrieval_mrr_typo",
+      "retrieval_recall_at_1",
+      "retrieval_recall_at_5",
+      "retrieval_recall_at_10",
+      "retrieval_median_rank",
+    ]);
     const metric = (key: string, label: string, value: number, primary = false): Metric => ({
       key,
       label,
@@ -75,17 +126,50 @@ export function fixtureMetrics(
       higherIsBetter: key !== "retrieval_median_rank",
       primary,
       precision: 3,
+      ...(floorOf[key]
+        ? { role: "floor" as const, relatesTo: floorOf[key] }
+        : reportedOf[key]
+          ? { role: "reported" as const, relatesTo: reportedOf[key] }
+          : diagnostics.has(key)
+            ? { role: "diagnostic" as const }
+            : {}),
     });
     return [
-      metric("overall", "Overall", round4((text + retrieval + search) / 3), true),
+      metric("overall", "Overall", round4((text + retrievalScored + search) / 3), true),
       metric("text_mrr", "Text MRR", text),
-      metric("retrieval_mrr", "Retrieval MRR", retrieval),
+      metric("retrieval_mrr", "Retrieval MRR", retrievalScored),
       metric("search_mrr", "Search MRR", search),
       metric("retrieval_recall_at_1", "Recall@1", round4(retrieval * 0.52)),
       metric("retrieval_recall_at_5", "Recall@5", round4(Math.min(1, retrieval * 1.44))),
       metric("retrieval_recall_at_10", "Recall@10", round4(Math.min(1, retrieval * 2.2))),
       metric("retrieval_median_rank", "Median rank", round4(8 + ((hash >>> 9) % 40) / 10)),
+      // Three floors, not one. Retrieval ranks the whole 700-image pool;
+      // search returns 50 ids and scores anything past them as a miss, so its
+      // floor is lower; text ranks captions among captions, so its floor is
+      // higher. Exact values from the evaluation tier.
       metric("chance_mrr", "Chance MRR", 0.0102),
+      metric("text_chance", "Text chance MRR", 0.04),
+      metric("search_chance", "Search chance MRR", 0.0064),
+      // The two probes that are run and reported but never scored, which is
+      // the reading that matters most here: an honest submission scores
+      // about the same on these as on the scored numbers, and one that is
+      // matching text rather than meaning scores far higher.
+      metric(
+        "retrieval_mrr_verbatim",
+        "Retrieval MRR, caption unchanged (not scored)",
+        retrieval,
+      ),
+      metric(
+        "search_mrr_verbatim",
+        "Search MRR, caption unchanged (not scored)",
+        verbatim,
+      ),
+      metric("retrieval_mrr_keywords", "Retrieval MRR, keywords only", retrievalKeywords),
+      metric("retrieval_mrr_truncated", "Retrieval MRR, first three words", retrievalTruncated),
+      metric("retrieval_mrr_typo", "Retrieval MRR, one typo", retrievalTypo),
+      metric("search_mrr_keywords", "Search MRR, keywords only", keywords),
+      metric("search_mrr_truncated", "Search MRR, first three words", truncated),
+      metric("search_mrr_typo", "Search MRR, one typo", typo),
     ];
   }
   const known = round4(0.82 + (hash % 1000) / 10_000 + improvement);
@@ -121,7 +205,10 @@ export function fixtureMetrics(
   ];
 }
 
-function failureExcerpt(branch: string): string[] {
+/** The traceback tail printed above the detail line. It has to name the same
+ *  frame as `fixtureOutcome`'s detail for that track, so a branch whose
+ *  detail differs by benchmark needs its excerpt to differ too. */
+function failureExcerpt(branch: string, benchmarkId: string): string[] {
   switch (branch) {
     case "loose-pins":
       return [
@@ -135,7 +222,11 @@ function failureExcerpt(branch: string): string[] {
     case "raw-tuples":
       return ["Traceback (most recent call last):", "  PredictionSchemaError: invalid prediction 14"];
     case "null-descriptor":
-      return ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in recognize"];
+      return benchmarkId === "language-search"
+        ? ["Traceback (most recent call last):", "  File \"search.py\", line 52, in embed_text"]
+        : benchmarkId === "vision-clustering"
+          ? ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in cluster"]
+          : ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in recognize"];
     default:
       return ["runner: submission terminated"];
   }
@@ -147,7 +238,7 @@ export function fixtureLog(
   sha: string,
   benchmarkId = "vision-recognition",
 ): string {
-  const scenario = fixtureScenario(branch);
+  const outcome = fixtureOutcome(branch, benchmarkId);
   const language = benchmarkId === "language-search";
   const installLines = language
     ? [
@@ -170,6 +261,9 @@ export function fixtureLog(
         "Requirement already satisfied: matplotlib==3.7.5",
         "Built wheel for face-finder: face_finder-0.1.0-py3-none-any.whl",
       ];
+  // A failed run's log stops at the stage that failed, as a real one does:
+  // an install failure never reaches evaluation.
+  const failedAt = outcome.kind === "failed" ? outcome.phase : null;
   const lines = [
     // Hosted control runtime is 3.11; week3 evaluates student code through
     // the image's pinned CPython 3.8.20 venv (see modal_app.week3_image).
@@ -178,34 +272,45 @@ export function fixtureLog(
     `Resolved ref refs/heads/${branch} -> ${sha}`,
     `git checkout --detach ${sha}`,
     "python -m pip 25.0.1 install --constraint /opt/cogportal/constraints.txt .",
-    ...installLines,
-    `entry-point discovery: cogworks.submissions.v2["${benchmarkId}"]`,
-    "contract check: adapter factory loaded",
-    "workspace backup complete; restoring into network-disabled evaluation VM",
   ];
-  if (language) {
-    lines.push("loading GloVe KeyedVectors (glove.6B.200d.kv, memory-mapped)");
-    for (const component of ["text", "retrieval", "search"]) {
-      lines.push(`eval component ${component} complete`);
-    }
+  if (failedAt !== "installing") {
+    lines.push(...installLines, `entry-point discovery: cogworks.submissions.v2["${benchmarkId}"]`);
+  }
+  if (failedAt !== "installing" && failedAt !== "contract_check") {
     lines.push(
-      'showcase 01/10 "two dogs running on a sandy beach" -> http://images.cocodataset.org/train2014/COCO_train2014_000000084887.jpg',
+      "contract check: adapter factory loaded",
+      "workspace backup complete; restoring into network-disabled evaluation VM",
     );
-  } else {
-    for (let caseNumber = 1; caseNumber <= 32; caseNumber += 1) {
-      lines.push(`eval case ${caseNumber.toString().padStart(3, "0")}/032 complete`);
+    // An evaluation failure stops partway; a scoring failure follows a
+    // complete evaluation.
+    const evaluated = failedAt === "evaluating" ? 0.5 : 1;
+    if (language) {
+      lines.push("loading GloVe KeyedVectors (glove.6B.200d.kv, memory-mapped)");
+      const components = ["text", "retrieval", "search"];
+      for (const component of components.slice(0, Math.floor(components.length * evaluated))) {
+        lines.push(`eval component ${component} complete`);
+      }
+      if (failedAt === null) {
+        lines.push(
+          'showcase 01/10 "two dogs running on a sandy beach" -> http://images.cocodataset.org/train2014/COCO_train2014_000000084887.jpg',
+        );
+      }
+    } else {
+      for (let caseNumber = 1; caseNumber <= 32 * evaluated; caseNumber += 1) {
+        lines.push(`eval case ${caseNumber.toString().padStart(3, "0")}/032 complete`);
+      }
     }
   }
 
-  if (scenario.outcome.kind === "succeeded") {
+  if (outcome.kind === "succeeded") {
     const primary = fixtureMetrics(runId, branch, benchmarkId)[0]!;
     lines.push(language ? "prediction schema: 3/3 components valid" : "prediction schema: 32/32 cases valid");
     lines.push(`scorer summary: ${primary.key}=${primary.value.toFixed(4)}`);
     lines.push("run completed successfully");
   } else {
-    lines.push(...failureExcerpt(branch));
-    const outcome = fixtureOutcome(branch, benchmarkId);
-    if (outcome.kind === "failed") lines.push(outcome.detail);
+    // A traceback ends on the exception line; where it was raised is the
+    // frame above, which the excerpt already prints.
+    lines.push(...failureExcerpt(branch, benchmarkId), outcome.detail.split("\n")[0]!);
   }
 
   const encoded = new TextEncoder().encode(lines.join("\n"));

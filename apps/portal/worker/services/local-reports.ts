@@ -1,14 +1,37 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   type LocalReportInput,
   LocalReportSchema,
+  LocalReportWeightsSchema,
   MetricSchema,
   type LocalReport,
 } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
-import { localReports, teamMembers, teams, users } from "../db/schema";
+import { benchmarks, localReports, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
+
+/**
+ * Whether a report's recorded repository name is `name`, ignoring letter case.
+ *
+ * GitHub resolves repository names without case, and the CLI records whatever
+ * spelling the student's `origin` remote uses (cogbench `_github_full_name`),
+ * so "demo-org/team-repo" and the team's "Demo-Org/Team-Repo" are one
+ * repository. A name is still only a locator: where both sides know the
+ * repository id, that is what refuses a different repository.
+ */
+function reportRepositoryIs(name: string) {
+  return sql`lower(${localReports.repositoryFullName}) = lower(${name})`;
+}
+
+/** The listing form of the id check upload and dispatch make: a report whose
+ *  known repository id differs from the team's is another repository, whatever
+ *  its name. Unknown on either side is not a conflict. */
+function reportRepositoryIdAgrees(repoId: number | null) {
+  return repoId === null
+    ? sql`1 = 1`
+    : sql`(${localReports.repositoryId} is null or ${localReports.repositoryId} = ${repoId})`;
+}
 
 function parseReportRow(row: {
   report: typeof localReports.$inferSelect;
@@ -31,10 +54,42 @@ function parseReportRow(row: {
     finishedAt: row.report.finishedAt,
     metrics: MetricSchema.array().parse(JSON.parse(row.report.metricsJson)),
     diagnostics: JSON.parse(row.report.diagnosticsJson),
+    weightsUsed: JSON.parse(row.report.weightsUsedJson),
+    weightsUploaded: row.report.weightsUploadedJson == null
+      ? null
+      : JSON.parse(row.report.weightsUploadedJson),
+    command: row.report.command ?? undefined,
     author: { login: row.login ?? row.email.split("@")[0], name: row.name },
     syncedAt: row.report.syncedAt,
     trust: "local_self_reported",
   });
+}
+
+export async function teamMemberUserIds(env: Env, teamId: string): Promise<string[]> {
+  const members = await getDb(env)
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(eq(teamMembers.teamId, teamId));
+  return members.map((member) => member.userId);
+}
+
+async function getUserTeamReportScope(
+  env: Env,
+  userId: string,
+): Promise<
+  { teamId: string; repoFullName: string; repoId: number | null; memberUserIds: string[] } | null
+> {
+  const [membership] = await getDb(env)
+    .select({ teamId: teamMembers.teamId, repoFullName: teams.repoFullName, repoId: teams.repoId })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+    .where(eq(teamMembers.userId, userId))
+    .limit(1);
+  if (!membership) return null;
+  return {
+    ...membership,
+    memberUserIds: await teamMemberUserIds(env, membership.teamId),
+  };
 }
 
 export async function listTeamLocalReports(
@@ -43,29 +98,62 @@ export async function listTeamLocalReports(
   benchmarkId?: string,
 ): Promise<LocalReport[]> {
   const db = getDb(env);
-  const [membership] = await db
-    .select({ teamId: teamMembers.teamId, repoFullName: teams.repoFullName })
-    .from(teamMembers)
-    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-    .where(eq(teamMembers.userId, userId))
-    .limit(1);
-  if (!membership) return [];
-
-  const members = await db
-    .select({ userId: teamMembers.userId })
-    .from(teamMembers)
-    .where(eq(teamMembers.teamId, membership.teamId));
-  if (members.length === 0) return [];
+  const scope = await getUserTeamReportScope(env, userId);
+  if (!scope || scope.memberUserIds.length === 0) return [];
   const predicates = [
-    inArray(localReports.userId, members.map((member) => member.userId)),
-    eq(localReports.repositoryFullName, membership.repoFullName),
+    inArray(localReports.userId, scope.memberUserIds),
+    reportRepositoryIs(scope.repoFullName),
+    reportRepositoryIdAgrees(scope.repoId),
   ];
-  if (benchmarkId) predicates.push(eq(localReports.benchmarkId, benchmarkId));
+  if (benchmarkId) {
+    // A benchmark bump keeps the id and raises the version, so an id-only
+    // filter mixed pre-bump reports into the current list. Pin the list to
+    // the active version, resolved the same way the dashboard route does.
+    const [active] = await db
+      .select({ version: benchmarks.version })
+      .from(benchmarks)
+      .where(and(eq(benchmarks.id, benchmarkId), eq(benchmarks.active, true)))
+      .orderBy(desc(benchmarks.version))
+      .limit(1);
+    if (!active) return [];
+    predicates.push(
+      eq(localReports.benchmarkId, benchmarkId),
+      eq(localReports.benchmarkVersion, active.version),
+    );
+  }
   const rows = await db
     .select({ report: localReports, login: users.githubLogin, email: users.email, name: users.name })
     .from(localReports)
     .innerJoin(users, eq(localReports.userId, users.id))
     .where(and(...predicates))
+    .orderBy(desc(localReports.syncedAt))
+    .limit(50);
+  return rows.map(parseReportRow);
+}
+
+/**
+ * Reports no dashboard track lists: those whose version is not its benchmark's
+ * highest active one, the version `listTeamLocalReports` pins a track to. That
+ * covers an inactive benchmark and a superseded version alike. The rule runs
+ * before the limit, so a busy active track can't push these out of the list.
+ */
+export async function listUntrackedLocalReports(env: Env, userId: string): Promise<LocalReport[]> {
+  const scope = await getUserTeamReportScope(env, userId);
+  if (!scope || scope.memberUserIds.length === 0) return [];
+  // `IS NOT` rather than `<>`: a benchmark with no active version has a null
+  // maximum, and `<>` against null would drop exactly the reports this is for.
+  const trackVersion = sql`(select max(${benchmarks.version}) from ${benchmarks}
+    where ${benchmarks.id} = ${localReports.benchmarkId} and ${benchmarks.active} = 1)`;
+  const rows = await getDb(env)
+    .select({ report: localReports, login: users.githubLogin, email: users.email, name: users.name })
+    .from(localReports)
+    .innerJoin(users, eq(localReports.userId, users.id))
+    .where(and(
+      inArray(localReports.userId, scope.memberUserIds),
+      reportRepositoryIs(scope.repoFullName),
+      reportRepositoryIdAgrees(scope.repoId),
+      sql`${localReports.benchmarkVersion} is not ${trackVersion}`,
+    ))
     .orderBy(desc(localReports.syncedAt))
     .limit(50);
   return rows.map(parseReportRow);
@@ -86,6 +174,10 @@ export async function upsertLocalReport(
   userId: string,
   body: LocalReportInput,
 ): Promise<{ report: LocalReport; created: boolean }> {
+  const provenance = LocalReportWeightsSchema.safeParse(body);
+  if (!provenance.success) {
+    throw new ApiHttpError(400, "invalid_request", "weightsUploaded must name paths from weightsUsed with SHA-256 digests, or be null.");
+  }
   const db = getDb(env);
   const [existing] = await db
     .select({ userId: localReports.userId })
@@ -111,27 +203,194 @@ export async function upsertLocalReport(
     finishedAt: body.finishedAt,
     metricsJson: JSON.stringify(body.metrics),
     diagnosticsJson: JSON.stringify(body.diagnostics),
+    weightsUsedJson: JSON.stringify(body.weightsUsed),
+    // The report schema requires weightsUsed, so this write is an answer.
+    weightsUsedKnown: true,
+    weightsUploadedJson: body.weightsUploaded == null ? null : JSON.stringify(body.weightsUploaded),
+    command: body.command ?? null,
     syncedAt: Date.now(),
   };
+  const update = () => db
+    .update(localReports)
+    .set(values)
+    .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId)));
+  let created = !existing;
   if (existing) {
-    await db
-      .update(localReports)
-      .set(values)
-      .where(and(eq(localReports.reportId, body.reportId), eq(localReports.userId, userId)));
+    await update();
   } else {
     try {
       await db.insert(localReports).values(values);
     } catch (error) {
       const [conflict] = await db
-        .select({ reportId: localReports.reportId })
+        .select({ userId: localReports.userId })
         .from(localReports)
         .where(eq(localReports.reportId, body.reportId))
         .limit(1);
-      if (conflict) throw new ApiHttpError(409, "forbidden", "That report ID is already in use.");
-      throw error;
+      if (!conflict) throw error;
+      if (conflict.userId !== userId) throw new ApiHttpError(409, "forbidden", "That report ID is already in use.");
+      // The same account saved this report a moment ago, from a request that
+      // raced this one (a live run's final event arrives alone and again in a
+      // batch). This is that save repeated, not a stolen id.
+      await update();
+      created = false;
     }
   }
   const report = await getLocalReport(env, body.reportId);
   if (!report) throw new ApiHttpError(500, "provider_unconfigured", "The report could not be saved.");
-  return { report, created: !existing };
+  return { report, created };
+}
+
+/**
+ * Where an upload is allowed to land, decided before any bytes are written.
+ *
+ * The stored object is named by its digest, so admission has to agree with the
+ * report about which digest belongs at which path. A report whose upload list
+ * is unknown, from a CLI too old to send one, cannot supply that agreement, and
+ * the header alone is not a substitute: it would let any digest name any key.
+ * Syncing again is the way out, and the CLI already publishes the list before
+ * it uploads a single file.
+ */
+export async function getWeightUploadTarget(
+  env: Env,
+  userId: string,
+  reportId: string,
+  path: string,
+  sha256: string,
+): Promise<{ repositoryFullName: string; sha: string }> {
+  const scope = await getUserTeamReportScope(env, userId);
+  if (!scope) throw new ApiHttpError(403, "forbidden", "The uploader does not belong to a team.");
+  const [report] = await getDb(env)
+    .select({
+      userId: localReports.userId,
+      repositoryId: localReports.repositoryId,
+      repositoryFullName: localReports.repositoryFullName,
+      sha: localReports.sha,
+      weightsUsedJson: localReports.weightsUsedJson,
+      weightsUploadedJson: localReports.weightsUploadedJson,
+    })
+    .from(localReports)
+    .where(eq(localReports.reportId, reportId))
+    .limit(1);
+  if (!report) throw new ApiHttpError(404, "not_found", "Local report not found.");
+  if (report.userId !== userId) {
+    throw new ApiHttpError(403, "forbidden", "That report belongs to another account.");
+  }
+  const recordedName = report.repositoryFullName;
+  if (recordedName === null || recordedName.toLowerCase() !== scope.repoFullName.toLowerCase()) {
+    throw new ApiHttpError(403, "forbidden", "That report does not belong to the uploader's team repository.");
+  }
+  // Only when both sides know an ID. The CLI's complete pin still reports
+  // none, so this stays inert rather than becoming a second association.
+  if (report.repositoryId != null && scope.repoId != null && report.repositoryId !== scope.repoId) {
+    throw new ApiHttpError(403, "forbidden", "That report names a different repository than the uploader's team.");
+  }
+  const provenance = LocalReportWeightsSchema.safeParse({
+    weightsUsed: JSON.parse(report.weightsUsedJson),
+    weightsUploaded: report.weightsUploadedJson == null
+      ? null
+      : JSON.parse(report.weightsUploadedJson),
+  });
+  if (!provenance.success) {
+    throw new ApiHttpError(409, "invalid_request", "That report has invalid weight provenance; sync the report again.");
+  }
+  const declared = provenance.data.weightsUploaded;
+  if (declared == null) {
+    throw new ApiHttpError(409, "invalid_request", "This report doesn't identify its uploaded weights; update the CLI and sync the report again.");
+  }
+  const required = declared.find((weight) => weight.path === path);
+  if (!required) {
+    throw new ApiHttpError(400, "invalid_request", "That report does not require an upload for that weight path.");
+  }
+  if (required.sha256 !== sha256) {
+    throw new ApiHttpError(409, "invalid_request", "That report declares a different digest for that weight; sync the report again.");
+  }
+  if (!report.sha) {
+    throw new ApiHttpError(400, "invalid_request", "The report has no repository revision for this weight.");
+  }
+  return { repositoryFullName: recordedName, sha: report.sha };
+}
+
+/**
+ * The weight provenance a dispatch should use: the newest report a team member
+ * synced for this benchmark, repository and revision.
+ *
+ * `repositoryId` is checked after selection, not added to the filter. Filtering
+ * on it would drop a conflicting newest report and quietly dispatch an older
+ * one's weights, which is the opposite of noticing the conflict.
+ *
+ * `benchmarkId` is a filter, because two reports for different benchmarks are
+ * not answering the same question. A team connects one repository and runs
+ * every benchmark from it, so two benchmarks at one commit is ordinary, and
+ * Audio names no weights at all. Selecting Audio's report because it synced
+ * more recently dispatched `weights: []` for Language, whose run then scores
+ * near chance with nothing to read. `benchmarkVersion` is a filter for the
+ * same reason: after a version bump, the old version's report at the same
+ * commit answers a different contract.
+ *
+ * The newest report is refused, never stepped over, in two more cases. When
+ * its weight record predates 0033 (`weightsUsedKnown`), its '[]' is a column
+ * default, not "no weights". When it came from a dirty worktree and names
+ * weights, those files may come from uncommitted code, so attaching them to a
+ * run of the clean commit would score inputs the commit does not produce.
+ * Choosing an older clean report instead would hide that the newest one
+ * needs attention.
+ *
+ * "Known" is what the client sent. The pinned CLI (COGBENCH_SOURCE) refuses to
+ * sync a saved report that never recorded its weights; older installed CLIs
+ * send [] for it, which reads as known and empty here. Nothing in the report
+ * shows which client wrote it, so this does not try to tell them apart.
+ */
+export async function getLatestTeamWeights(
+  env: Env,
+  teamId: string,
+  repositoryFullName: string,
+  sha: string,
+  repositoryId: number | null,
+  benchmarkId: string,
+  benchmarkVersion: number,
+): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
+  const memberUserIds = await teamMemberUserIds(env, teamId);
+  if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
+  const [report] = await getDb(env)
+    .select({
+      repositoryId: localReports.repositoryId,
+      dirty: localReports.dirty,
+      weightsUsedKnown: localReports.weightsUsedKnown,
+      weightsUsedJson: localReports.weightsUsedJson,
+      weightsUploadedJson: localReports.weightsUploadedJson,
+    })
+    .from(localReports)
+    .where(
+      and(
+        inArray(localReports.userId, memberUserIds),
+        reportRepositoryIs(repositoryFullName),
+        eq(localReports.sha, sha),
+        eq(localReports.benchmarkId, benchmarkId),
+        eq(localReports.benchmarkVersion, benchmarkVersion),
+      ),
+    )
+    .orderBy(desc(localReports.syncedAt))
+    .limit(1);
+  if (!report) return { weightsUsed: [], weightsUploaded: null };
+  if (repositoryId != null && report.repositoryId != null && report.repositoryId !== repositoryId) {
+    throw new ApiHttpError(409, "invalid_request", "The newest synced report names a different repository than this execution; sync the report again.");
+  }
+  if (!report.weightsUsedKnown) {
+    throw new ApiHttpError(409, "invalid_request",
+      `The newest report for this commit doesn't establish which weight files the run used. To give the hosted run the same files, run \`cogworks run --benchmark ${benchmarkId}\` at this commit, then \`cogworks sync\`, and start the hosted run again.`);
+  }
+  const weights = LocalReportWeightsSchema.safeParse({
+    weightsUsed: JSON.parse(report.weightsUsedJson),
+    weightsUploaded: report.weightsUploadedJson == null
+      ? null
+      : JSON.parse(report.weightsUploadedJson),
+  });
+  if (!weights.success) {
+    throw new ApiHttpError(409, "invalid_request", "The newest synced report has invalid weight provenance; sync the report again.");
+  }
+  if (report.dirty && weights.data.weightsUsed.length > 0) {
+    throw new ApiHttpError(409, "invalid_request",
+      `The newest report for this commit ran with uncommitted changes, so its weight files may not be what this commit produces. Commit and push those changes, run \`cogworks run --benchmark ${benchmarkId}\` at the new commit, then \`cogworks sync\`, and start a hosted run of that commit.`);
+  }
+  return weights.data;
 }

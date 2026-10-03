@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -99,6 +100,108 @@ class RunnerProgressTests(unittest.TestCase):
         self.assertEqual(events[-1]["type"], "failed")
         self.assertEqual(events[-1]["code"], "run.failed.runtime")
         self.assertNotIn("detail", events[-1])
+
+    def test_terminal_batch_bypasses_a_stalled_progress_request(self):
+        stalled = threading.Event()
+        release = threading.Event()
+        batched = threading.Event()
+        finished = threading.Event()
+        singles = []
+        batches = []
+
+        def send(portal, token, session, event):
+            singles.append(event)
+            if event["type"] == "progress":
+                stalled.set()
+                release.wait(5)
+
+        def batch(portal, token, session, history):
+            batches.append((threading.get_ident(), history))
+            batched.set()
+
+        with patch("cogbench.cli.send_local_run_event", side_effect=send), patch(
+            "cogbench.cli.send_local_run_event_batch", side_effect=batch
+        ):
+            live = _LiveRun("https://fixture.invalid", "token", "session")
+            live.progress("preparing")
+            self.assertTrue(stalled.wait(1))
+            live.progress("evaluating", 1, 2)
+            live.progress("scoring")
+
+            def finish():
+                live.failed(RuntimeError())
+                finished.set()
+
+            parent = threading.Thread(target=finish)
+            parent.start()
+            try:
+                self.assertTrue(batched.wait(1), "batch waited for stalled progress HTTP")
+                self.assertTrue(finished.wait(1), "finish joined the stalled sender")
+                self.assertEqual(batches[0][0], parent.ident)
+                history = batches[0][1]
+                self.assertEqual(history[-1]["type"], "failed")
+                self.assertEqual([event["sequence"] for event in history], list(range(4)))
+            finally:
+                release.set()
+                parent.join(timeout=6)
+                live._sender.join(timeout=1)
+                live._heartbeat.join(timeout=1)
+            self.assertFalse(live._sender.is_alive())
+            self.assertEqual([event["type"] for event in singles], ["progress", "failed"])
+            self.assertEqual(singles[-1], batches[0][1][-1])
+
+    def test_live_threads_start_lazily_and_terminal_closure_is_final(self):
+        with patch("cogbench.cli.send_local_run_event"), patch(
+            "cogbench.cli.send_local_run_event_batch"
+        ) as batch:
+            live = _LiveRun("https://fixture.invalid", "token", "session")
+            self.assertFalse(live._sender.is_alive())
+            self.assertFalse(live._heartbeat.is_alive())
+            live.start()
+            self.assertTrue(live._sender.is_alive())
+            live.progress("contract_check")
+            live.progress("evaluating", 1, 2)
+            live.failed(RuntimeError())
+            sequence = live.sequence
+            live.progress("scoring")
+            live.failed(TimeoutError())
+            self.assertEqual(live.sequence, sequence)
+            live._sender.join(timeout=1)
+            self.assertFalse(live._sender.is_alive())
+            self.assertFalse(live._heartbeat.is_alive())
+            batch.assert_called_once()
+            events = batch.call_args.args[3]
+            self.assertEqual([event["sequence"] for event in events], list(range(sequence)))
+            self.assertEqual(events[-1]["type"], "failed")
+            self.assertEqual(events[-1]["phase"], "evaluating")
+            self.assertEqual(events[1]["code"], "contract.passed")
+
+    def test_heartbeat_awakened_before_finish_cannot_reopen_the_run(self):
+        with patch("cogbench.cli.send_local_run_event"), patch(
+            "cogbench.cli.send_local_run_event_batch"
+        ) as batch:
+            live = _LiveRun("https://fixture.invalid", "token", "session")
+            live.start()
+            # Simulate a heartbeat that passed its timed wait just before
+            # terminal closure and reaches the state lock only afterward.
+            awake = threading.Event()
+            release = threading.Event()
+            def delayed_wait(timeout):
+                awake.set()
+                release.wait(2)
+                return False
+            with patch.object(live._closed, "wait", side_effect=delayed_wait):
+                late = threading.Thread(target=live._heartbeat_loop)
+                late.start()
+                self.assertTrue(awake.wait(1))
+                live.failed(RuntimeError())
+                release.set()
+                late.join(timeout=2)
+                live._sender.join(timeout=1)
+            self.assertFalse(late.is_alive())
+            events = batch.call_args.args[3]
+            self.assertEqual([event["type"] for event in events], ["failed"])
+            self.assertEqual(live.sequence, 1)
 
     def test_v2_runner_uses_raw_factory_and_benchmark_driver(self):
         benchmark = _V2Benchmark()

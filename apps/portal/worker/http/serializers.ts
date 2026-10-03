@@ -1,19 +1,31 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   RUN_PHASES,
   RunDetailSchema,
+  runSource,
   type Benchmark,
   type Metric,
   type RunDetail,
   type RunSummary,
   type Team,
 } from "@cogworks/contracts/schema";
+import { runSourceRefusal } from "../services/run-source";
 import type { Database } from "../db/client";
 import {
+  canPublishOfficialRun,
+  existingPromotion,
+  NO_CONSOLE_PROMOTION_REFUSAL,
+  rankingRefusal,
+  savedEnvironmentEligibility,
+} from "../services/run-eligibility";
+import {
+  benchmarks,
   leaderboardSelections,
   runMetrics,
   runPhases,
+  runs,
   type BenchmarkRow,
+  type RunMetricRow,
   type RunRow,
   type TeamRow,
 } from "../db/schema";
@@ -40,6 +52,7 @@ export function serializeTeam(row: TeamRow): Team {
     id: row.id,
     name: row.name,
     description: row.description,
+    provenance: row.provenance,
     repo: {
       owner: row.repoOwner,
       name: row.repoName,
@@ -50,7 +63,7 @@ export function serializeTeam(row: TeamRow): Team {
   };
 }
 
-export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
+export function serializeMetric(row: RunMetricRow): Metric {
   return {
     key: row.key,
     label: row.label,
@@ -60,18 +73,46 @@ export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
     primary: row.isPrimary,
     precision: row.precision,
     help: row.help,
+    role: row.role,
+    relatesTo: row.relatesTo,
   };
 }
 
-export async function serializeRunSummary(db: Database, row: RunRow): Promise<RunSummary> {
-  const [primary] = await db
-    .select()
-    .from(runMetrics)
-    .where(and(eq(runMetrics.runId, row.id), eq(runMetrics.isPrimary, true)))
-    .limit(1);
+/** D1 binds at most 100 parameters per statement; one of them here is the
+ *  primary flag, so an id list is read in pages of 99. */
+const IDS_PER_STATEMENT = 99;
 
+/**
+ * The primary metric of each run named, in as few statements as D1 allows.
+ *
+ * A page that lists runs reads this once for the whole page instead of once
+ * per run, and hands over whatever list it has: the run list has no page
+ * bound, so the paging lives here rather than at each caller.
+ */
+export async function readPrimaryMetrics(
+  db: Database,
+  runIds: string[],
+): Promise<Map<string, RunMetricRow>> {
+  const primaries = new Map<string, RunMetricRow>();
+  for (let start = 0; start < runIds.length; start += IDS_PER_STATEMENT) {
+    const rows = await db
+      .select()
+      .from(runMetrics)
+      .where(and(
+        inArray(runMetrics.runId, runIds.slice(start, start + IDS_PER_STATEMENT)),
+        eq(runMetrics.isPrimary, true),
+      ));
+    for (const row of rows) primaries.set(row.runId, row);
+  }
+  return primaries;
+}
+
+export function buildRunSummary(row: RunRow, primary: RunMetricRow | null): RunSummary {
   return {
     id: row.id,
+    // The run's own source, so a commit in a list can be attributed. Detail
+    // spreads this summary, so both answer from the same place.
+    repo: runSource(row.repositoryFullName),
     mode: row.mode,
     status: row.status,
     benchmarkId: row.benchmarkId,
@@ -89,19 +130,36 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
             category: row.failureCategory,
             phase: row.failurePhase,
             detail: row.failureDetail,
-            consumedAttempt: row.failureConsumedAttempt,
+            // Kept on the wire for older clients; failures no longer use quota.
+            consumedAttempt: false,
           }
         : null,
   };
 }
 
+export async function serializeRunSummary(db: Database, row: RunRow): Promise<RunSummary> {
+  const primaries = await readPrimaryMetrics(db, [row.id]);
+  return buildRunSummary(row, primaries.get(row.id) ?? null);
+}
+
+/**
+ * A run, in full, from the run's own row.
+ *
+ * The team is here for one question only: whether a new promotion of this run
+ * could still be authorised, which is genuinely about the team as it is now.
+ * What the run *was* still comes from the run. Those two were the same
+ * expression once, and that is what made every old run claim the team's
+ * current repository.
+ */
 export async function serializeRunDetail(
   db: Database,
   row: RunRow,
-  team: TeamRow,
+  team: { repoId: number | null; repoFullName: string },
 ): Promise<RunDetail> {
-  const [summary, phases, metrics, selection] = await Promise.all([
-    serializeRunSummary(db, row),
+  // Independent reads, so they travel as one D1 round trip rather than four.
+  // The summary's primary metric comes out of the metrics this already reads,
+  // so it costs no fifth statement.
+  const [phases, metrics, selection, [benchmark]] = await db.batch([
     db.select().from(runPhases).where(eq(runPhases.runId, row.id)).orderBy(asc(runPhases.phase)),
     db.select().from(runMetrics).where(eq(runMetrics.runId, row.id)).orderBy(asc(runMetrics.key)),
     db
@@ -115,20 +173,44 @@ export async function serializeRunDetail(
         ),
       )
       .limit(1),
+    db.select().from(benchmarks)
+      .where(and(eq(benchmarks.id, row.benchmarkId), eq(benchmarks.version, row.benchmarkVersion))).limit(1),
   ]);
+  const summary = buildRunSummary(row, metrics.find((metric) => metric.isPrimary) ?? null);
+  // The check Publish runs after the run's state and source, from the same
+  // catalog row and metrics.
+  const rankingAnswer = rankingRefusal(row, benchmark, metrics);
+  const publishable = canPublishOfficialRun(row);
   const phaseOrder = new Map(RUN_PHASES.map((phase, index) => [phase, index]));
+  let promotionRefusal: string | null = null;
+  let promotedTo: RunDetail["promotedTo"] = null;
+  const promotable = row.mode === "practice" && row.status === "succeeded" && row.refundedAt === null;
+  // The same order promotion checks in: an attempt already promoted from this
+  // console answers before the saved environment is asked about.
+  const promoted = promotable && row.surfaceId
+    ? existingPromotion(await db.select().from(runs).where(eq(runs.surfaceId, row.surfaceId)))
+    : null;
+  if (promotable && !row.surfaceId) {
+    promotionRefusal = NO_CONSOLE_PROMOTION_REFUSAL;
+  } else if (promoted) {
+    promotionRefusal = promoted.refusal;
+    promotedTo = promoted.promotedTo;
+  } else if (promotable && row.provider === "modal") {
+    const eligibility = savedEnvironmentEligibility(row,
+      benchmark ?? { id: row.benchmarkId, sandboxContract: null }, team);
+    if (!eligibility.eligible) promotionRefusal = eligibility.reason;
+  }
 
   return {
     ...summary,
+    promotionRefusal,
+    promotedTo,
+    surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
-    repo: {
-      owner: team.repoOwner,
-      name: team.repoName,
-      fullName: team.repoFullName,
-      url: team.repoUrl,
-      defaultBranch: team.defaultBranch,
-    },
+    // One sentence under both PROMOTE and PUBLISH, so it names no single
+    // action. Same phrase the console uses for the same shared refusal.
+    sourceRefusal: runSourceRefusal(team, row, "act on it"),
     phases: phases
       .sort((a, b) => (phaseOrder.get(a.phase) ?? 0) - (phaseOrder.get(b.phase) ?? 0))
       .map((phase) => ({
@@ -141,8 +223,21 @@ export async function serializeRunDetail(
     // submission's own output shape, never the hidden data.
     diagnostics: parseDiagnostics(row.diagnosticsJson),
     sweep: parseSweep(row.sweepJson),
+    // Named for their own functions, so it is safe on an official run for the
+    // same reason diagnostics are: it describes their code, never the data.
+    wiring: parseWiring(row.wiringJson),
+    // Names their own modules and functions, so it is safe on an official run
+    // for the same reason diagnostics are.
+    refusal: parseRefusal(row.refusalJson),
+    weightsSupplied: parseWeightsSupplied(row.weightsSuppliedJson),
     log: row.mode === "practice" ? row.log : null,
-    selected: selection[0]?.runId === row.id,
+    // A stored selection the board leaves out (an older scorer, or no reading
+    // for the measure it ranks) is not this team's public entry.
+    selected: selection[0]?.runId === row.id && rankingAnswer === null,
+    // Still a fact about the run's own state, so a run the board can't rank
+    // keeps its Publish panel and says why there instead of losing it.
+    publishable,
+    publicationRefusal: publishable ? rankingAnswer : null,
   };
 }
 
@@ -159,6 +254,26 @@ function parseDiagnostics(value: string | null): string[] {
   }
 }
 
+function parseRefusal(value: string | null): RunDetail["refusal"] {
+  if (!value) return null;
+  try {
+    const parsed = RunDetailSchema.shape.refusal.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseWiring(value: string | null): RunDetail["wiring"] {
+  if (!value) return [];
+  try {
+    const parsed = RunDetailSchema.shape.wiring.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Same tolerance as `parseDiagnostics`: a malformed sweep costs the curve,
  *  never the page. Validated against the schema rather than trusted, because
  *  this is stored JSON and a shape change would otherwise reach the browser
@@ -170,5 +285,14 @@ function parseSweep(value: string | null): RunDetail["sweep"] {
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
+  }
+}
+
+function parseWeightsSupplied(value: string): RunDetail["weightsSupplied"] {
+  try {
+    const parsed = RunDetailSchema.shape.weightsSupplied.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
   }
 }

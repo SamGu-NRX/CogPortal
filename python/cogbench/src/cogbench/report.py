@@ -1,0 +1,407 @@
+"""What `cogworks check` prints.
+
+The first version printed nine lines of ``False`` and no next step: every one
+of them true, none of them saying what to do.
+
+So this prints what was found, in the order a person asks about it. Where is
+your code. Which files did we read, and which could we not. What did we wire
+up. Then one line: either you are ready, or here is the single next thing.
+
+Two rules hold. The report never claims more than it saw, so a module that was
+skipped is named with the reason rather than folded into a count. And it never
+guesses at a fix it does not know: a missing package is ours to name, and a
+function that returns the wrong thing is theirs to read.
+"""
+
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from .plugins import benchmark_install_command
+from .resolve import SubmissionReport
+
+__all__ = ["render_check", "render_survey"]
+
+#: Wide enough for the longest label, narrow enough to read on a laptop.
+_LABEL = 22
+
+
+def _line(label: str, value: str) -> str:
+    return "{:<{}} {}".format(label, _LABEL, value)
+
+
+def _plural(count: int, one: str, many: Optional[str] = None) -> str:
+    return "{} {}".format(count, one if count == 1 else (many or one + "s"))
+
+
+def _wrapped(text: str, width: int = 78) -> List[str]:
+    """A paragraph broken to terminal width.
+
+    A paragraph printed as one line wraps at whatever the terminal happens to
+    be and breaks mid-package-name, which is the one part of this report a
+    student is meant to read carefully.
+    """
+
+    import textwrap
+
+    return textwrap.wrap(text, width=width) or [""]
+
+
+def render_survey(record: Dict[str, object]) -> List[str]:
+    """What discovery found in the repository, and what it could not read."""
+
+    lines: List[str] = []
+    modules = record.get("modules") or []
+    skipped = record.get("skipped") or []
+
+    root = str(record.get("root", ""))
+    reason = str(record.get("rootReason", ""))
+    if root:
+        lines.append(_line("looked in", "{}  ({})".format(root.split("/")[-1] or root, reason)))
+
+    # "We could not look" and "there was nothing to find" are different claims
+    # and used to print the same line. A survey whose subprocess died returns
+    # empty lists, which is exactly what an empty repository returns, so a
+    # student whose module crashed the reader was told their repository held
+    # nothing. Said first, because it changes how every line under it reads.
+    if record.get("unread"):
+        why = str(record.get("unreadReason", "")).strip()
+        lines.append(
+            _line(
+                "could not finish",
+                "reading this repository stopped early{}".format(
+                    ": " + why if why else ""
+                ),
+            )
+        )
+        stopped_on = str(record.get("endedWhileReading", "")).strip()
+        if stopped_on:
+            lines.append(
+                _line("stopped while reading", stopped_on.split("/")[-1] or stopped_on)
+            )
+        if modules or skipped:
+            lines.append(
+                _line(
+                    "partial",
+                    "what follows is what was read before it stopped, not the "
+                    "whole repository",
+                )
+            )
+        else:
+            # Nothing survived, so there is nothing below to qualify. Saying
+            # "read nothing" here would be the exact false statement this
+            # branch exists to prevent.
+            lines.append(_line("read", "unknown; nothing was reported before it stopped"))
+            return lines
+
+    if modules:
+        names = ", ".join(str(entry["name"]) for entry in modules)  # type: ignore[index]
+        lines.append(_line("read", "{}: {}".format(_plural(len(modules), "file"), names)))
+        from_notebooks = [
+            str(entry["name"])  # type: ignore[index]
+            for entry in modules
+            if entry.get("origin") == "notebook"  # type: ignore[union-attr]
+        ]
+        if from_notebooks:
+            lines.append(
+                _line(
+                    "from notebooks",
+                    "{} (definitions only; the cells were not run)".format(
+                        ", ".join(from_notebooks)
+                    ),
+                )
+            )
+    else:
+        lines.append(_line("read", "nothing"))
+
+    # A team's own scripts fail here for reasons that are not problems: they
+    # read audio from a data/ directory this machine does not have. Listing
+    # fifteen of those buries the one skip that matters, so they are counted
+    # and the ones that could have held pipeline code are named.
+    notable = [entry for entry in skipped if not _is_a_routine_skip(entry)]
+    routine = len(skipped) - len(notable)
+
+    for entry in notable:
+        name = str(entry["name"])  # type: ignore[index]
+        lines.append(_line("could not read", "{}: {}".format(name, entry["detail"])))  # type: ignore[index]
+    if routine:
+        lines.append(
+            _line(
+                "skipped",
+                "{} that read files or a microphone this machine does not have"
+                .format(_plural(routine, "script")),
+            )
+        )
+
+    return lines
+
+
+def _is_a_routine_skip(entry: Dict[str, object]) -> bool:
+    """Whether a skipped file can be counted rather than named.
+
+    The reason decides, not the filename. `FileNotFoundError` and `EOFError`
+    say what happened and say it about the machine: a data file that is not
+    here, or a script waiting on stdin. There are usually many of those and
+    naming them all drowns the skip that matters.
+
+    Nothing else qualifies. This used to return True for any module called
+    `test*`, `run*` or `*demo*` whatever went wrong, so `demo_features`
+    failing on `OSError: cannot load library libsndfile` was counted as a
+    script that reads a file this machine does not have, and a `SyntaxError`
+    in `run_embeddings` went the same way. A name says a file is a runner
+    rather than a stage. It does not say the failure is uninteresting, and a
+    native library that will not load breaks the real modules too.
+    """
+
+    detail = str(entry.get("detail", ""))
+    return detail.startswith(("FileNotFoundError", "EOFError"))
+
+
+def _branch_rows(
+    record: Dict[str, object],
+) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]], List[str]]:
+    """What a role made of branches bound and what it did not, as report rows.
+
+    Such a role leaves `chain` and the trace empty on purpose (see
+    `Submission.ready`), so without these rows a ready Week 3 check said its
+    code was wired up and named none of it. The side-input functions come
+    first because every branch was called with what they produced. The notes
+    of the branches that did not bind come last, once each, because every
+    branch of one search shares them.
+    """
+
+    wired = [(name, label) for name, label in record.get("fits", [])]
+    wired += [
+        (name, " then ".join(labels)) for name, labels in record.get("branches", {}).items()
+    ]
+    missing = record.get("missing", {})
+    not_found = [(name, entry["detail"]) for name, entry in missing.items()]
+    notes: List[str] = []
+    for entry in missing.values():
+        notes += [note for note in entry.get("notes", []) if note not in notes]
+    return wired, not_found, notes
+
+
+def render_check(
+    *,
+    benchmark: str,
+    python_version: str,
+    hosted_python: Optional[str],
+    benchmark_ready: bool,
+    repository: Optional[str],
+    git_checkout: bool = False,
+    submission: Optional[SubmissionReport] = None,
+    survey: Optional[Dict[str, object]] = None,
+    local_gap_note: str = "",
+    submission_source: Optional[str] = None,
+    submission_detail: Optional[str] = None,
+    installed_reference: bool = False,
+    unread_detail: str = "",
+    search_unavailable: str = "",
+    declaration_error: str = "",
+    benchmark_error: str = "",
+) -> List[str]:
+    """The whole report, in the order a person asks about it.
+
+    ``submission`` is a ``cogbench.resolve.SubmissionReport`` when discovery ran.
+    Passing ``None`` means it did not, which is itself worth saying rather
+    than leaving the reader to infer it from a missing section.
+
+    ``submission_source`` is what would actually be scored, when anything
+    would: ``"file"`` or ``"discovery"``. It decides which sentence explains a
+    report with no search in it, because "your package was used as is" and
+    "this benchmark cannot be searched for" are different facts and the reader
+    acts differently on each.
+
+    ``submission_detail`` is the declaration that resolved, as
+    ``"benchmark_adapter.py:create_submission"``. Only its filename is shown,
+    because a repository can declare in either of two files and naming the
+    wrong one sends the reader to a file that does not exist.
+
+    ``installed_reference`` says a package registering this benchmark is
+    installed on this machine. It is worth one sentence and never counts as
+    readiness: an entry point belongs to whatever was pip-installed, so
+    scoring it while standing in a student's repository reports somebody
+    else's number as theirs.
+
+    ``unread_detail`` explains why no valid check report arrived, including
+    copy refusal, child failure and malformed results. It does not imply that
+    student code ran or caused the failure.
+
+    ``search_unavailable`` is why the search could not run at all, when the
+    benchmark could not describe its task right now. It is a different fact
+    from "this benchmark has no search", and it carries its own next step.
+
+    ``local_gap_note`` is one paragraph naming the graded run's packages this
+    machine cannot import. It goes directly under the list of files that were
+    read, because that list is the thing it qualifies: this command can only
+    read modules whose imports resolve here, and the graded run resolves more
+    of them.
+    """
+
+    lines: List[str] = []
+    benchmark_state = " (could not load)" if benchmark_error else " (not installed)"
+    lines.append(_line("benchmark", benchmark if benchmark_ready else benchmark + benchmark_state))
+    lines.append(_line("python", python_version))
+    if hosted_python and hosted_python != python_version:
+        lines.append(
+            _line(
+                "hosted python",
+                "{} (the hidden evaluation runs on this)".format(hosted_python),
+            )
+        )
+    # `repository` is the GitHub owner/name, which a perfectly good checkout
+    # can lack. Saying "not a git repository" there sent a student to `git
+    # init` in a clean worktree with a valid commit; what they actually need
+    # is an `origin` remote on GitHub.
+    if repository:
+        described = repository
+    elif git_checkout:
+        described = "a git checkout with no GitHub `origin` remote"
+    else:
+        described = "not a git repository"
+    lines.append(_line("repository", described))
+
+    if survey:
+        lines.append("")
+        lines.extend(render_survey(survey))
+
+    # The gap note is a caveat: "this report may have read less than the
+    # graded run will." When the run actually stopped because of that gap the
+    # verdict says so outright, and printing both makes the reader work out
+    # that two paragraphs are one fact. The verdict wins, because it is
+    # specific about which modules and this is general.
+    verdict_covers_the_gap = (
+        submission is not None and submission.verdict.status == "could_not_look"
+    )
+    if local_gap_note and not verdict_covers_the_gap:
+        lines.append("")
+        lines.extend(_wrapped(local_gap_note))
+
+    if benchmark_error:
+        lines.append("")
+        lines.extend(_wrapped("Could not check the installed benchmark: {}".format(benchmark_error)))
+        lines.extend(_wrapped("Check its installation in this Python environment and retry."))
+        return lines
+
+    if unread_detail:
+        lines.append("")
+        lines.extend(
+            _wrapped(
+                "Could not finish checking your repository: {}".format(unread_detail)
+            )
+        )
+        return lines
+
+    if declaration_error:
+        lines.append("")
+        lines.extend(_wrapped("Your adapter file could not be loaded: {}".format(declaration_error)))
+        lines.extend(_wrapped("Fix the error in that file, then run the check again."))
+        return lines
+
+    if submission is None:
+        lines.append("")
+        if not benchmark_ready:
+            lines.append("Nothing was searched for, because {} is not installed here.".format(benchmark))
+            command = benchmark_install_command(benchmark)
+            if command:
+                lines.append(
+                    "Install it with `{}`, then run this again.".format(command)
+                )
+            else:
+                lines.append("Install it, then run this again.")
+        elif submission_source == "file":
+            filename = (submission_detail or "").split(":")[0] or "adapter file"
+            lines.append(
+                "Your {} at the repository root was used, so nothing was "
+                "searched for.".format(filename)
+            )
+        else:
+            # Nothing declared and nothing searched: this benchmark does not
+            # describe its task to the search. Before this branch existed the
+            # sentence above printed here, and a Week 3 repository with no
+            # package and no adapter was told its package "was used as is".
+            if search_unavailable:
+                lines.extend(
+                    _wrapped(
+                        "Nothing was searched for, because {} could not describe "
+                        "its task just now: {}".format(benchmark, search_unavailable)
+                    )
+                )
+                return lines
+            lines.append(
+                "Nothing was searched for: {} does not yet describe its task to "
+                "the search, so a submission must be declared.".format(benchmark)
+            )
+            if installed_reference:
+                lines.extend(
+                    _wrapped(
+                        "A package registering {} is installed here, but it is "
+                        "not this repository, so it is not scored as your "
+                        "work.".format(benchmark)
+                    )
+                )
+            lines.append(
+                "Add a benchmark_adapter.py at the repository root that defines "
+                "create_submission(resources), then run this again."
+            )
+        return lines
+
+    chain = submission.chain
+    attempt = submission.attempt
+    verdict = submission.verdict
+
+    # The trace names each step by the stage it filled; the chain is the
+    # fallback for a resolution that produced no trace. Either is enough to
+    # show the section, and so is a store and query pair on its own.
+    steps = [
+        (step.stage, step.function)
+        for step in verdict.trace
+    ] or [("", step) for step in chain]
+    not_found: List[Tuple[str, str]] = []
+    not_found_notes: List[str] = []
+    if not steps and attempt is None:
+        steps, not_found, not_found_notes = _branch_rows(submission.record or {})
+    if steps or attempt is not None:
+        lines.append("")
+        lines.append("Wired up:")
+        labels = [stage for stage, _ in steps] + [branch for branch, _ in not_found]
+        if attempt is not None:
+            labels += ["store", "query"]
+        # Sized to the widest label rather than fixed, because a function that
+        # does two steps is named for both ("spectrogram + peaks") and a fixed
+        # column put the rest of that row out of line with every other one.
+        width = max([len(label) for label in labels] + [14])
+        for stage, function in steps:
+            lines.append("  {:<{}} {}".format(stage, width, function))
+        if attempt is not None:
+            lines.append("  {:<{}} {}".format("store", width, attempt.enroll))
+            lines.append("  {:<{}} {}".format("query", width, attempt.query))
+        if not_found:
+            lines.append("Not wired up:")
+            for branch, detail in not_found:
+                lines.append("  {:<{}} {}".format(branch, width, detail))
+            for note in not_found_notes:
+                lines.append("")
+                lines.extend(_wrapped(note))
+
+    lines.append("")
+    lines.append(verdict.headline)
+    for note in verdict.notes:
+        lines.append(note)
+    # The files that could not be read and the lines their code raised
+    # on. Taken from the verdict rather than formatted here, so `cogworks
+    # check` and a run page cannot come to print two different reports
+    # out of one record.
+    lines.extend(verdict.problems())
+    if verdict.next_step:
+        lines.append("")
+        lines.append(verdict.next_step)
+
+    if submission.ready:
+        lines.append("")
+        lines.append(
+            "Run `cogworks run --benchmark {}` to score it on your machine.".format(benchmark)
+        )
+
+    return lines

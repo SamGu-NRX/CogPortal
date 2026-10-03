@@ -1,15 +1,21 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { ZodError } from "zod";
 import {
   RUNNER_PROTOCOL_VERSION,
   RunJobV1Schema,
   type RunJobV1,
+  type WeightFile,
 } from "@cogworks/contracts/protocol";
+import { runSource } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
+import { getLatestTeamWeights } from "../services/local-reports";
+import { headRecordedWeight, weightManifest, weightObjectKey } from "../services/weights";
+import { preparedEnvironmentMatchesRun, savedEnvironmentEligibility } from "../services/run-eligibility";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
@@ -51,24 +57,50 @@ export function assertModalConfigured(env: Env): asserts env is Env & {
   origin(env);
 }
 
-export function buildRunJob(
+const RunJobInputsSchema = RunJobV1Schema.omit({ jobId: true, callback: true });
+
+// Render-time Retry checks need the same execution inputs without minting a
+// transport ID or requiring callback/provider configuration.
+function buildRunJobInputs(
   env: Env,
   run: RunRow,
   team: TeamRow,
   benchmark: BenchmarkRow,
-): RunJobV1 {
-  const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
-  return RunJobV1Schema.parse({
+  weights: WeightFile[] = [],
+): Omit<RunJobV1, "jobId" | "callback"> {
+  // The job names the repository the RUN recorded, not the team's current one.
+  // They are the same for anything dispatchable, because a promotion or rerun
+  // of a run from another repository is refused, and a fresh practice run
+  // records the team it started from. Reading it off the run means the job and
+  // the row cannot disagree even if that ever stops holding. The team remains
+  // the fallback for a run predating the recorded name.
+  const source = runSource(run.repositoryFullName) ?? {
+    owner: team.repoOwner,
+    name: team.repoName,
+    fullName: team.repoFullName,
+    url: team.repoUrl,
+  };
+  const path = `${encodeURIComponent(source.owner)}/${encodeURIComponent(source.name)}`;
+  if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
+    throw new ApiHttpError(409, "not_promotable", "The benchmark's execution contract is unknown.");
+  }
+  let preparedEnvironment = null;
+  if (run.preparedArtifactId || run.preparedEnvironmentJson) {
+    const eligibility = savedEnvironmentEligibility(run, benchmark, team);
+    if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
+    preparedEnvironment = eligibility.environment;
+  }
+  return RunJobInputsSchema.parse({
     protocolVersion: RUNNER_PROTOCOL_VERSION,
-    jobId: newId("job_"),
     runId: run.id,
     mode: run.mode,
     preparedArtifactId: run.preparedArtifactId,
+    preparedEnvironment,
     source: {
-      repositoryId: team.repoId,
-      fullName: team.repoFullName,
+      repositoryId: run.repositoryId ?? team.repoId,
+      fullName: source.fullName,
       sha: run.sha,
-      archiveUrl: `https://api.github.com/repos/${fullName}/tarball/${run.sha}`,
+      archiveUrl: `https://api.github.com/repos/${path}/tarball/${run.sha}`,
     },
     benchmark: {
       id: benchmark.id,
@@ -77,6 +109,7 @@ export function buildRunJob(
       pluginVersion: benchmark.pluginVersion,
       datasetVersion: run.mode === "official" ? benchmark.datasetVersion : "practice-v1",
       scorerVersion: benchmark.scorerVersion,
+      sandboxContract: benchmark.sandboxContract,
     },
     runtime: {
       // What the student's code actually runs on, which is not one number
@@ -133,10 +166,155 @@ export function buildRunJob(
       timeoutSeconds: 900,
       maxOutputBytes: 8 * 1_024,
     },
-    callback: {
-      url: `${origin(env)}/api/internal/v1/runner/events`,
-      keyId: env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
-    },
+    ...(run.preparedArtifactId ? {} : { weights }),
+  });
+}
+
+function callbackFor(env: Env): RunJobV1["callback"] {
+  return {
+    url: `${origin(env)}/api/internal/v1/runner/events`,
+    keyId: env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
+  };
+}
+
+export function buildRunJob(
+  env: Env,
+  run: RunRow,
+  team: TeamRow,
+  benchmark: BenchmarkRow,
+  weights: WeightFile[] = [],
+): RunJobV1 {
+  return RunJobV1Schema.parse({
+    ...buildRunJobInputs(env, run, team, benchmark, weights),
+    jobId: newId("job_"), callback: callbackFor(env),
+  });
+}
+
+function retryInputError(detail: string): ApiHttpError {
+  return new ApiHttpError(409, "invalid_request", detail);
+}
+
+/**
+ * The dispatch inputs a run was actually sent with, checked against that run's
+ * own recorded columns. Every comparison is against the row, so this stays a
+ * consistency check and never consults current catalog or team state. That is
+ * what makes it safe to reuse mid-run, where the weight download needs the
+ * recorded source rather than today's repository name.
+ */
+export function recordedDispatchJob(run: RunRow): RunJobV1 {
+  if (!run.dispatchJobJson) {
+    throw retryInputError("This run has no recorded dispatch inputs. Start a new candidate.");
+  }
+  let job: RunJobV1;
+  try {
+    job = RunJobV1Schema.parse(JSON.parse(run.dispatchJobJson));
+  } catch (error) {
+    if (!(error instanceof SyntaxError || error instanceof ZodError)) throw error;
+    throw retryInputError("This run's recorded dispatch inputs are invalid. Start a new candidate.");
+  }
+  if (job.runId !== run.id || job.mode !== run.mode || job.source.sha !== run.sha ||
+      job.source.repositoryId !== run.repositoryId || job.benchmark.id !== run.benchmarkId ||
+      job.benchmark.version !== run.benchmarkVersion ||
+      job.benchmark.contractVersion !== run.contractVersion ||
+      job.benchmark.datasetVersion !== run.datasetVersion ||
+      job.benchmark.scorerVersion !== run.scorerVersion ||
+      job.protocolVersion !== run.protocolVersion || run.provider !== "modal") {
+    throw retryInputError("Recorded dispatch inputs do not match this run.");
+  }
+  if ((job.mode === "official" && !job.preparedArtifactId) ||
+      (!job.preparedArtifactId && !job.weights) ||
+      (job.preparedArtifactId && job.weights !== undefined)) {
+    throw retryInputError("Recorded dispatch artifact or weight inputs are inconsistent.");
+  }
+  if (job.preparedArtifactId) {
+    if (!job.preparedEnvironment || !preparedEnvironmentMatchesRun(job.preparedEnvironment, {
+      ...run, preparedArtifactId: job.preparedArtifactId,
+    }, job.source.fullName)) {
+      throw retryInputError("The recorded saved environment has no matching provisioning evidence.");
+    }
+  } else if (job.preparedEnvironment) {
+    throw retryInputError("Recorded provisioning evidence has no saved artifact.");
+  }
+  return job;
+}
+
+async function validateRecordedWeights(env: Env, job: RunJobV1): Promise<void> {
+  const weights = job.weights ?? [];
+  if (!weights.length) return;
+  if (!env.ARTIFACTS) throw retryInputError("Recorded weight storage is unavailable.");
+  const seen = new Set<string>();
+  for (const weight of weights) {
+    if (seen.has(weight.path)) throw retryInputError("Recorded weight paths contain duplicates.");
+    seen.add(weight.path);
+    try {
+      weightObjectKey(job.source.fullName, job.source.sha, weight.path, weight.sha256);
+    } catch {
+      throw retryInputError("A recorded weight path is invalid.");
+    }
+    const found = await headRecordedWeight(env.ARTIFACTS, job.source.fullName, job.source.sha, weight);
+    if (found.status === "missing") throw retryInputError(`Recorded weight ${weight.path} is unavailable.`);
+    if (found.status === "mismatched") {
+      throw retryInputError(`Recorded weight ${weight.path} has changed or has no matching checksum.`);
+    }
+  }
+}
+
+/** Read-only validation shared by admission and Retry advertisement. It returns
+ * the original dispatch inputs and performs no transport or availability work. */
+export function validateRetryInputs(
+  env: Env,
+  failedRun: RunRow,
+  team: TeamRow,
+  benchmark: BenchmarkRow,
+): RunJobV1 {
+  const saved = recordedDispatchJob(failedRun);
+  // The job carries the repository the run recorded, so current identity is
+  // checked here rather than inferred from the rebuilt job. A run and a team
+  // that both record no repository are not a match.
+  if (failedRun.status !== "failed" || failedRun.teamId !== team.id ||
+      failedRun.repositoryId === null || failedRun.repositoryId !== team.repoId ||
+      env.EXECUTION_PROVIDER !== failedRun.provider ||
+      failedRun.runtimeVersion !== benchmark.runtimeVersion) {
+    throw retryInputError("Retry status, team, repository, provider, or runtime version does not match.");
+  }
+  // The row may carry an artifact from a late completion. Only the dispatch
+  // record identifies whether the original execution prepared its own inputs.
+  let current: Omit<RunJobV1, "jobId" | "callback">;
+  try {
+    current = buildRunJobInputs(env, {
+      ...failedRun, preparedArtifactId: saved.preparedArtifactId,
+      preparedEnvironmentJson: saved.preparedEnvironment ? JSON.stringify(saved.preparedEnvironment) : null,
+    }, team, benchmark, saved.weights);
+  } catch (error) {
+    if (!(error instanceof ZodError) && !(error instanceof ApiHttpError && error.status === 409)) throw error;
+    throw retryInputError("Current repository or benchmark/runtime configuration is invalid for retry.");
+  }
+  if (JSON.stringify(saved.source) !== JSON.stringify(current.source) ||
+      JSON.stringify(saved.benchmark) !== JSON.stringify(current.benchmark) ||
+      JSON.stringify(saved.runtime) !== JSON.stringify(current.runtime) ||
+      saved.protocolVersion !== current.protocolVersion) {
+    throw retryInputError("Repository or benchmark/runtime configuration changed since this run.");
+  }
+  return saved;
+}
+
+/** Availability and transport checks stay at admission. A missing snapshot is
+ * still the provider's terminal failure, never a render-time preflight. */
+export async function prepareRetryJob(
+  env: Env,
+  failedRun: RunRow,
+  team: TeamRow,
+  benchmark: BenchmarkRow,
+  newRunId: string,
+): Promise<RunJobV1> {
+  const saved = validateRetryInputs(env, failedRun, team, benchmark);
+  assertModalConfigured(env);
+  await validateRecordedWeights(env, saved);
+  if (!newRunId || newRunId === failedRun.id) {
+    throw retryInputError("Retry requires a new execution ID.");
+  }
+  return RunJobV1Schema.parse({
+    ...saved, jobId: newId("job_"), runId: newRunId, callback: callbackFor(env),
   });
 }
 
@@ -146,9 +324,8 @@ export function buildRunJob(
  * The queue gives retry with backoff and a dead-letter path, so it stays the
  * production shape. Without it -- `wrangler dev`, or a deployment before
  * Queues is enabled on the account -- this posts directly instead of
- * refusing. The direct path has no retry: a failed dispatch surfaces
- * immediately as a failed run rather than being retried for thirty seconds,
- * which is the honest trade for being able to run the real path at all.
+ * refusing. The direct path has no retry: definite rejections fail the run
+ * immediately; unknown acceptance waits for a callback or the stale-run reaper.
  */
 export async function enqueueRun(
   env: Env,
@@ -157,7 +334,37 @@ export async function enqueueRun(
   benchmark: BenchmarkRow,
 ): Promise<void> {
   assertModalConfigured(env);
-  const job = buildRunJob(env, run, team, benchmark);
+  const db = getDb(env);
+  const [stored] = await db.select().from(runs).where(eq(runs.id, run.id)).limit(1);
+  if (!stored) throw retryInputError("The execution to dispatch does not exist.");
+  if (stored.provider !== env.EXECUTION_PROVIDER || stored.teamId !== team.id) {
+    throw retryInputError("Dispatch provider or team does not match the recorded execution.");
+  }
+  if (stored.dispatchJobJson === null) {
+    let weights: WeightFile[] = [];
+    if (!stored.preparedArtifactId) {
+      // Match weights to the run's recorded source and benchmark.
+      const repository = stored.repositoryFullName ?? team.repoFullName;
+      const report = await getLatestTeamWeights(
+        env, stored.teamId, repository, stored.sha, stored.repositoryId, stored.benchmarkId,
+        stored.benchmarkVersion,
+      );
+      weights = await weightManifest(
+        env.ARTIFACTS, repository, stored.sha, report.weightsUsed, report.weightsUploaded,
+      );
+    }
+    const candidate = buildRunJob(env, stored, team, benchmark, weights);
+    const dispatchJobJson = JSON.stringify(candidate);
+    recordedDispatchJob({ ...stored, dispatchJobJson });
+    // Concurrent dispatchers may prepare different jobs. The first persisted
+    // inputs win; every sender reloads that record rather than sending its own.
+    await db.update(runs).set({ dispatchJobJson })
+      .where(and(eq(runs.id, stored.id), isNull(runs.dispatchJobJson)));
+  }
+  const [recorded] = await db.select().from(runs).where(eq(runs.id, run.id)).limit(1);
+  if (!recorded) throw retryInputError("The execution to dispatch no longer exists.");
+  const job = recordedDispatchJob(recorded);
+  await validateRecordedWeights(env, job);
   if (env.RUN_QUEUE) {
     await env.RUN_QUEUE.send(job, { contentType: "json" });
     return;
@@ -183,28 +390,65 @@ export async function hmacSignature(secret: string, timestamp: string, body: str
     .join("");
 }
 
+/**
+ * The provider did not acknowledge acceptance or refusal of the job.
+ *
+ * `submit_job` spawns the run before it replies (see the Modal runner), so a
+ * request that times out or fails in transit may well have started a run.
+ * An infrastructure response can also hide that acknowledgement.
+ */
+export class DispatchUnacknowledged extends Error {
+  constructor(cause: unknown) {
+    super("The Modal runner did not answer the dispatch request.");
+    this.name = "DispatchUnacknowledged";
+    this.cause = cause;
+  }
+}
+
 async function dispatchToModal(env: Env, job: RunJobV1): Promise<void> {
   assertModalConfigured(env);
   const body = JSON.stringify(job);
   const timestamp = Math.floor(Date.now() / 1_000).toString();
-  const response = await fetch(env.MODAL_RUNNER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Cogworks-Timestamp": timestamp,
-      "X-Cogworks-Key-Id": env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
-      "X-Cogworks-Signature": `v1=${await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body)}`,
-    },
-    body,
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (response.status !== 202) {
+  const signature = await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body);
+  const signal = AbortSignal.timeout(15_000);
+  let response: Response;
+  try {
+    response = await fetch(env.MODAL_RUNNER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cogworks-Timestamp": timestamp,
+        "X-Cogworks-Key-Id": env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
+        "X-Cogworks-Signature": `v1=${signature}`,
+      },
+      body,
+      signal,
+    });
+  } catch (error) {
+    throw new DispatchUnacknowledged(error);
+  }
+  // modal_app.py submit_job returns 400/401 before spawning, then 202.
+  // A 4xx is refusal; other unexpected statuses may come from a gateway
+  // that lost the 202 after the job started, so acceptance is unknown.
+  if (response.status >= 400 && response.status < 500) {
     throw new Error(`Modal runner rejected job with status ${response.status}.`);
   }
-  await getDb(env)
-    .update(runs)
-    .set({ dispatchAttempts: sql`${runs.dispatchAttempts} + 1` })
-    .where(eq(runs.id, job.runId));
+  if (response.status !== 202) {
+    throw new DispatchUnacknowledged(
+      new Error(`Modal dispatch returned unexpected status ${response.status}.`),
+    );
+  }
+  // Modal holds the job from here on. The attempt counter is bookkeeping; a
+  // failed write must not read as a failed dispatch, or the caller would
+  // release an official-attempt claim for a run that is actually executing.
+  try {
+    await getDb(env)
+      .update(runs)
+      .set({ dispatchAttempts: sql`${runs.dispatchAttempts} + 1` })
+      .where(eq(runs.id, job.runId));
+  } catch {
+    // Accepted; the counter is off by one and nothing else is wrong.
+  }
 }
 
 export async function handleRunQueue(batch: MessageBatch<RunJobV1>, env: Env): Promise<void> {

@@ -6,6 +6,10 @@ accessibility first: local practice works offline after installation, hosted
 practice gives reproducible diagnostics, and official evaluation remains a
 separate, attempt-limited trust tier.
 
+Students start with [the CogWorks Benchmark CLI guide](python/cogbench/README.md).
+Instructors and TAs start with
+[how to run a CogWorks cohort](docs/how-to/run-the-course.md).
+
 ## Honest status
 
 - Portal, Discord interactions, account linking, the offline CLI, shared
@@ -57,11 +61,11 @@ cp apps/portal/.dev.vars.example apps/portal/.dev.vars
 pnpm dev
 ```
 
-`pnpm dev` applies local D1 migrations and starts CogPortal. With
-`DEV_AUTH=enabled`, local sign-in accepts a development username; the seeded
-cohort code is `VISION26`. After the monorepo move, an old root-level
-`.dev.vars` is intentionally not loaded; copy only the values you still need
-into `apps/portal/.dev.vars`.
+`pnpm dev` applies local D1 migrations, loads the local demo data
+(`pnpm db:seed:local`), and starts CogPortal. With `DEV_AUTH=enabled`, local
+sign-in accepts a development username; the demo cohort code is `VISION26`.
+After the monorepo move, an old root-level `.dev.vars` is intentionally not
+loaded; copy only the values you still need into `apps/portal/.dev.vars`.
 
 For the student-style path, install the local packages into the already active
 CogWorks prerequisite environment. Your environment may be named
@@ -69,6 +73,7 @@ CogWorks prerequisite environment. Your environment may be named
 
 ```sh
 conda activate cogworks_week1
+git submodule sync --recursive
 git submodule update --init --recursive
 python -m pip install -e python/cogbench -e "benchmarks/week2[data]" -e "benchmarks/week2/face_recognition_app[test]"
 cogworks check --benchmark vision-recognition
@@ -92,6 +97,17 @@ developers who do not use the course conda environment may use any Python 3.8+
 virtual environment instead.
 
 ## Verification
+
+The submodule validators load each installed v2 benchmark's metric declarations,
+so install the checked-out packages in the Python environment used by `pnpm test`:
+
+```sh
+git submodule update --init --recursive
+python3 -m pip install -e python/cogbench -e benchmarks/week1 -e benchmarks/week2 -e benchmarks/week3
+```
+
+The validators reject unknown primary or sweep metrics and malformed help metadata.
+Help strings have no character cap. Validation does not load datasets or run student code.
 
 ```sh
 pnpm check

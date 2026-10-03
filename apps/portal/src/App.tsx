@@ -3,7 +3,8 @@ import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import type { Session } from "@cogworks/contracts/schema";
-import { LoadingMark } from "@/components/Feedback";
+import { LoadingMark, QueryError } from "@/components/Feedback";
+import { Concealed, RestoreGate } from "@/components/RestoreGate";
 import { Shell } from "@/components/Shell";
 import { useSession } from "@/lib/queries";
 import { AdminPage } from "@/routes/AdminPage";
@@ -20,7 +21,8 @@ import { RunSurfacePage } from "@/routes/RunSurfacePage";
 import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
 import { TeamPage } from "@/routes/TeamPage";
-import { rememberConnectionReturn } from "@/lib/pending-return";
+import { clearPendingReturn, rememberDroppedDeviceLink, rememberReturn } from "@/lib/pending-return";
+import { canOpenAdmin } from "@/lib/roles";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,139 +31,177 @@ const queryClient = new QueryClient({
 });
 
 /** Where the student's onboarding actually stands (plan §1 success path):
- *  sign in → join cohort → connect repository → dashboard. */
+ *  sign in → join cohort → connect repository → dashboard. Staff and TAs run
+ *  the course from the admin console and need no team, so without one that is
+ *  where they belong; with one, their runs come first like anyone's. */
 export function nextStagePath(session: Session): string {
   if (!session.user) return "/signin";
+  if (!session.team && canOpenAdmin(session.user)) return "/admin";
   if (!session.cohort) return "/join";
   if (!session.team) return "/connect";
   return "/dashboard";
 }
 
-function RequireStage({
+/** Exported for the render tests; routes reach it through App alone. */
+export function RequireStage({
   stage,
   children,
 }: {
   stage: "user" | "cohort" | "team";
   children: ReactNode;
 }) {
-  const { data: session, isPending } = useSession();
+  const { data: session, isPending, isError, error, refetch } = useSession();
   const location = useLocation();
   if (isPending) return <LoadingMark />;
-  if (!session) return <LoadingMark />;
-
-  if (!session.user) {
-    if (location.pathname === "/connections") {
-      rememberConnectionReturn(`${location.pathname}${location.search}${location.hash}`);
+  if (!session) {
+    // A failed session read with nothing cached would otherwise be an
+    // unresolvable loading mark. A warm tab still has data and falls
+    // through to the stage checks below. The error sits under the restore
+    // gate, because a read the gate retried and lost is the gate's failure,
+    // and only the gate's retry reopens it.
+    if (isError) {
+      return (
+        <Concealed status className="flex flex-1 flex-col">
+          <QueryError error={error} retry={() => void refetch()} />
+        </Concealed>
+      );
     }
+    return <LoadingMark />;
+  }
+
+  const here = `${location.pathname}${location.search}${location.hash}`;
+  if (!session.user) {
+    rememberReturn(here);
     return <Navigate to="/signin" replace />;
   }
-  if (stage !== "user" && !session.cohort) return <Navigate to="/join" replace />;
-  if (stage === "team" && !session.team) return <Navigate to="/connect" replace />;
-  return <>{children}</>;
+  // Signed in, so sign-in has already used the saved link or never will.
+  clearPendingReturn();
+  const owed = (stage !== "user" && !session.cohort) || (stage === "team" && !session.team);
+  if (owed) {
+    // A dropped device or Discord link is named on the next page
+    // (DroppedLinkNotice). A dropped run link is not: a run belongs to a
+    // team, and whoever has none yet has no run of their own to see.
+    rememberDroppedDeviceLink(here);
+    // A team page sends whoever lacks a team to their own next stage: the
+    // onboarding step a student owes, or the console for staff. /connect is
+    // itself onboarding, asked for by name, so it only ever owes a cohort.
+    return <Navigate to={stage === "team" ? nextStagePath(session) : "/join"} replace />;
+  }
+  return <Concealed status className="flex flex-1 flex-col">{children}</Concealed>;
 }
 
 /** Staff-only gate — students never see the admin console. */
-function RequireStaff({ children }: { children: ReactNode }) {
-  const { data: session, isPending } = useSession();
+export function RequireStaff({ children }: { children: ReactNode }) {
+  const { data: session, isPending, isError, error, refetch } = useSession();
+  if (isError && !session) {
+    return (
+      <Concealed status className="flex flex-1 flex-col">
+        <QueryError error={error} retry={() => void refetch()} />
+      </Concealed>
+    );
+  }
   if (isPending || !session) return <LoadingMark />;
   if (!session.user) return <Navigate to="/signin" replace />;
-  if (session.user.platformRole !== "staff" && !session.user.isTa) {
+  if (!canOpenAdmin(session.user)) {
     return <Navigate to="/" replace />;
   }
-  return <>{children}</>;
+  return <Concealed status className="flex flex-1 flex-col">{children}</Concealed>;
 }
 
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <MotionConfig reducedMotion="user">
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Shell />}>
-            <Route index element={<Landing />} />
-            <Route path="leaderboard" element={<LeaderboardPage />} />
-            <Route path="signin" element={<SignInPage />} />
-            <Route
-              path="join"
-              element={
-                <RequireStage stage="user">
-                  <JoinPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="connect"
-              element={
-                <RequireStage stage="cohort">
-                  <ConnectPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="connections"
-              element={
-                <RequireStage stage="team">
-                  <ConnectionsPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="setup"
-              element={
-                <RequireStage stage="team">
-                  <SetupPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="dashboard"
-              element={
-                <RequireStage stage="team">
-                  <DashboardPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="team"
-              element={
-                <RequireStage stage="team">
-                  <TeamPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="runs/:runId"
-              element={
-                <RequireStage stage="team">
-                  <RunDetailPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="run-surfaces/:surfaceId"
-              element={
-                <RequireStage stage="team">
-                  <RunSurfacePage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="admin"
-              element={
-                <RequireStaff>
-                  <AdminPage />
-                </RequireStaff>
-              }
-            />
-            {/* Surfaces whose interesting states need a specific run to
-                reach. Stripped from a production bundle by the condition. */}
-            {import.meta.env.DEV && (
-              <Route path="__gallery" element={<GalleryPage />} />
-            )}
-            <Route path="*" element={<NotFound />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+        <BrowserRouter>
+          {/* Inside the router, because its failure state links out. */}
+          <RestoreGate>
+          <Routes>
+            <Route element={<Shell />}>
+              <Route index element={<Landing />} />
+              <Route path="leaderboard" element={<LeaderboardPage />} />
+              <Route path="signin" element={<SignInPage />} />
+              <Route
+                path="join"
+                element={
+                  <RequireStage stage="user">
+                    <JoinPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="connect"
+                element={
+                  <RequireStage stage="cohort">
+                    <ConnectPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="connections"
+                element={
+                  <RequireStage stage="team">
+                    <ConnectionsPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="setup"
+                element={
+                  <RequireStage stage="team">
+                    <SetupPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="dashboard"
+                element={
+                  <RequireStage stage="team">
+                    <DashboardPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="team"
+                element={
+                  <RequireStage stage="team">
+                    <TeamPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="runs/:runId"
+                element={
+                  <RequireStage stage="team">
+                    <RunDetailPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="run-surfaces/:surfaceId"
+                element={
+                  <RequireStage stage="team">
+                    <RunSurfacePage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="admin"
+                element={
+                  <RequireStaff>
+                    <AdminPage />
+                  </RequireStaff>
+                }
+              />
+              {/* Surfaces whose interesting states need a specific run to
+                  reach. Stripped from a production bundle by the condition. */}
+              {import.meta.env.DEV && (
+                <Route path="__gallery" element={<GalleryPage />} />
+              )}
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+          </RestoreGate>
+        </BrowserRouter>
       </MotionConfig>
     </QueryClientProvider>
   );

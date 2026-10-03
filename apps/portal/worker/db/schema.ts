@@ -1,5 +1,7 @@
+import type { MetricRole } from "@cogworks/contracts/schema";
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -7,6 +9,7 @@ import {
   sqliteTable,
   text,
   uniqueIndex,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
 export const cohorts = sqliteTable("cohorts", {
@@ -140,6 +143,10 @@ export const teams = sqliteTable(
     repoId: integer("repo_id"),
     templateSourceRepoId: integer("template_source_repo_id"),
     discordChannelId: text("discord_channel_id"),
+    /** The leaderboard must label rows the pipeline did not produce for a living team. */
+    provenance: text("provenance", { enum: ["live", "archive"] })
+      .notNull()
+      .default("live"),
   },
   (table) => [
     uniqueIndex("teams_cohort_repo_unique").on(table.cohortId, table.repoFullName),
@@ -164,13 +171,10 @@ export const teamNudges = sqliteTable(
 );
 
 /**
- * The last computed process signals for a team (stage footprint, first
- * light, boundary churn, ownership breadth) -- see
- * `worker/services/process-signals.ts` for what those are and
- * `worker/routes/team.ts` for the 30-minute recompute cadence. One row per
- * team, always replaced as a whole: `historyQuality` is pulled out of
- * `signalsJson` into its own column only so a future query can filter by it
- * without parsing JSON in SQL.
+ * A team's GitHub commit history, reused for 30 minutes; the signals built
+ * from it are not stored (`worker/routes/team.ts`). `signalsJson` keeps its
+ * old name, and `computedAt` is 0 for those rows (see `StoredCommitHistorySchema`).
+ * `historyQuality` is a column so a query can filter on it.
  */
 export const teamProcessSignals = sqliteTable("team_process_signals", {
   teamId: text("team_id").primaryKey().references(() => teams.id),
@@ -203,15 +207,51 @@ export const teamTas = sqliteTable(
   (table) => [primaryKey({ columns: [table.teamId, table.userId] })],
 );
 
+/**
+ * Platform staff roster, owner-managed at runtime (migration 0031).
+ *
+ * Keyed on the lowercased login because GitHub logins are case-insensitive and
+ * this replaces an env list that was compared case-insensitively. Owners are
+ * NOT in this table; they stay in PLATFORM_OWNER_LOGINS so a writable roster
+ * can never mint an owner, and so an empty table still has somebody who can
+ * add the first row.
+ */
+export const platformStaff = sqliteTable("platform_staff", {
+  /** Lowercased GitHub login. The only value ever compared. */
+  login: text("login").primaryKey(),
+  /** The casing the owner typed, so the roster reads back as entered. */
+  displayLogin: text("display_login").notNull(),
+  /** Granting owner's login, stored as text: an audit row must outlive the
+   *  granter's account, so this is deliberately not a foreign key. */
+  grantedBy: text("granted_by").notNull(),
+  grantedAt: integer("granted_at").notNull(),
+});
+
 export const setupVerifications = sqliteTable(
   "setup_verifications",
   {
     userId: text("user_id").notNull().references(() => users.id),
     teamId: text("team_id").notNull().references(() => teams.id),
     step: text("step").notNull(),
+    /**
+     * The benchmark this evidence is about, or "" when it is not about one.
+     *
+     * `clone` is the same fact whatever track is selected, so it is stored
+     * unscoped. `environment`, `project` and `wiring` all describe the one
+     * environment that was active, so they are stored against the benchmark
+     * the evidence was about (BENCHMARK_SCOPED_SETUP_STEPS). An older CLI
+     * sends no benchmark and its rows stay "", which no longer satisfies a
+     * per-track claim (migration 0036).
+     */
+    benchmarkId: text("benchmark_id").notNull().default(""),
     verifiedAt: integer("verified_at").notNull(),
+    /** "cli" when a linked device reported it, "self" when the student ran
+     *  the check-off command from this page (migration 0039). */
+    source: text("source").notNull().default("cli"),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.teamId, table.step] })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.teamId, table.step, table.benchmarkId] }),
+  ],
 );
 
 export const benchmarks = sqliteTable(
@@ -230,8 +270,12 @@ export const benchmarks = sqliteTable(
     datasetVersion: text("dataset_version").notNull().default("practice-v1"),
     scorerVersion: text("scorer_version").notNull().default("1"),
     runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
+    sandboxContract: integer("sandbox_contract"),
   },
-  (table) => [primaryKey({ columns: [table.id, table.version] })],
+  (table) => [
+    primaryKey({ columns: [table.id, table.version] }),
+    check("benchmarks_sandbox_contract_positive", sql`${table.sandboxContract} IS NULL OR (typeof(${table.sandboxContract}) = 'integer' AND ${table.sandboxContract} > 0)`),
+  ],
 );
 
 export const benchmarkFamilies = sqliteTable(
@@ -287,7 +331,24 @@ export const runs = sqliteTable("runs", {
   branch: text("branch").notNull(),
   sha: text("sha").notNull(),
   repositoryId: integer("repository_id"),
+  /**
+   * The repository this run actually ran from, by name, as it was at the time.
+   *
+   * `repositoryId` identifies the source but reads as a number, so without
+   * this the only readable name available was the team's current one, and a
+   * team that changed its repository rewrote what every earlier run claimed
+   * (B-06). Written once at creation and never updated: a run's source is
+   * evidence about that run, not a copy of team state that has to be kept in
+   * step with it.
+   *
+   * Null for a run created before this column, or before `repository_id`
+   * existed. That is reported as unknown; it is not filled in from the team.
+   */
+  repositoryFullName: text("repository_full_name"),
   parentRunId: text("parent_run_id"),
+  retryOfRunId: text("retry_of_run_id").references((): AnySQLiteColumn => runs.id),
+  /** Original dispatch inputs, including weight digests, for exact-source Retry. */
+  dispatchJobJson: text("dispatch_job_json"),
   attemptNumber: integer("attempt_number"),
   failureCategory: text("failure_category", {
     enum: [
@@ -312,26 +373,56 @@ export const runs = sqliteTable("runs", {
   failureConsumedAttempt: integer("failure_consumed_attempt", { mode: "boolean" })
     .notNull()
     .default(false),
+  /** When the portal released this execution's quota: historical refunds,
+   *  and capacity releases such as 0048 (Week 2 runs scored before 0044's
+   *  scorer correction). A succeeded execution with this set does not count
+   *  as used and cannot be promoted or published. An active one keeps its
+   *  reservation until it ends, and completing does not clear this. */
+  refundedAt: integer("refunded_at"),
   log: text("log"),
   /** Scorer diagnostics from the succeeded event: the benchmark's own
    *  explanation of what a submission got wrong. JSON array of strings. */
   diagnosticsJson: text("diagnostics_json"),
+  /** Which of the team's own functions ran, when the platform found them
+   *  itself. Null when the repository declared its own submission. */
+  wiringJson: text("wiring_json"),
+  /** Why nothing could be found to score. Null for every other failure:
+   *  their code raising is theirs to read, and the log is where it belongs. */
+  refusalJson: text("refusal_json"),
   /** The scorer's difficulty sweep, as JSON. Null when the benchmark has no
    *  difficulty knob, or when the run predates migration 0023. */
   sweepJson: text("sweep_json"),
+  /** Repository-relative weight paths present in this run's prepared snapshot. */
+  weightsSuppliedJson: text("weights_supplied_json").notNull().default("[]"),
   createdAt: integer("created_at").notNull(),
   finishedAt: integer("finished_at"),
   provider: text("provider", { enum: ["fixture", "modal"] }).notNull().default("fixture"),
   protocolVersion: text("protocol_version").notNull().default("1"),
   preparedArtifactId: text("prepared_artifact_id"),
+  /** Authenticated controller provisioning evidence. Null means unknown, not a
+   * match to the current image or scorer labels. */
+  preparedEnvironmentJson: text("prepared_environment_json"),
   environmentDigest: text("environment_digest"),
   datasetVersion: text("dataset_version").notNull().default("practice-v1"),
   scorerVersion: text("scorer_version").notNull().default("1"),
   runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
   dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
+  /** Server time of the last runner callback that advanced this execution's
+   *  sequence while it was active (0049). Null until one does. */
+  acceptedActivityAt: integer("accepted_activity_at"),
+  /** Inactivity grace for executions that predate acceptedActivityAt (0049).
+   *  Null: such a row the stale-run sweep has not reached. 0: written by code
+   *  that records activity, so no grace. Otherwise the time before which the
+   *  sweep will not fail it for silence. */
+  legacyGraceUntil: integer("legacy_grace_until"),
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
   surfaceId: text("surface_id"),
 }, (table) => [
+  uniqueIndex("runs_retry_of_unique").on(table.retryOfRunId),
+  // Each mode starts one chain; failed executions can each have one successor.
+  uniqueIndex("runs_surface_mode_unique")
+    .on(table.surfaceId, table.mode)
+    .where(sql`${table.retryOfRunId} IS NULL`),
   // Enforce the quota check across concurrent run starts (migration 0015).
   uniqueIndex("runs_one_active_per_team_benchmark")
     .on(table.teamId, table.benchmarkId)
@@ -410,6 +501,16 @@ export const localReports = sqliteTable("local_reports", {
   finishedAt: integer("finished_at").notNull(),
   metricsJson: text("metrics_json").notNull(),
   diagnosticsJson: text("diagnostics_json").notNull(),
+  /** Paths discovery read while producing this local report. */
+  weightsUsedJson: text("weights_used_json").notNull().default("[]"),
+  /** Whether weightsUsedJson is the report's answer. False on reports synced
+   *  before 0033 recorded it, whose '[]' is only the column default
+   *  (migration 0047). Every write since sets it. */
+  weightsUsedKnown: integer("weights_used_known", { mode: "boolean" }).notNull().default(false),
+  /** Required uploads; NULL preserves unknown provenance on legacy reports. */
+  weightsUploadedJson: text("weights_uploaded_json"),
+  /** `test` or `run`; NULL for a report synced before the CLI recorded it. */
+  command: text("command", { enum: ["test", "run"] }),
   syncedAt: integer("synced_at").notNull(),
 });
 
@@ -541,6 +642,21 @@ export const runMetrics = sqliteTable(
      * that were true when it ran.
      */
     help: text("help"),
+    /**
+     * What kind of number this is, when the scorer says. "floor" is the one
+     * that matters today: a chance baseline is a fact about the dataset, so
+     * the run page shows it without a direction arrow.
+     *
+     * Written when a result arrives, from what that scorer declared. One
+     * exception: 0037 filled it in for Week 1 Audio rows from the plugin's own
+     * declaration, which was safe there because the scorer version did not
+     * move. Null still means nothing was recorded, which is not the same as
+     * "ordinary", and 0035 backfills nothing on its own.
+     */
+    role: text("role").$type<MetricRole>(),
+    /** The key of the metric this one is about, for a floor or a companion
+     *  measure that only means something beside its parent. */
+    relatesTo: text("relates_to"),
   },
   (table) => [primaryKey({ columns: [table.runId, table.key] })],
 );
@@ -589,6 +705,7 @@ export const schema = {
   teams,
   teamMembers,
   teamTas,
+  platformStaff,
   setupVerifications,
   benchmarks,
   benchmarkFamilies,
@@ -614,6 +731,7 @@ export const schema = {
 
 export type TeamProcessSignalsRow = typeof teamProcessSignals.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
+export type RunMetricRow = typeof runMetrics.$inferSelect;
 export type BenchmarkRow = typeof benchmarks.$inferSelect;
 export type TeamRow = typeof teams.$inferSelect;
 export type RunSurfaceRow = typeof runSurfaces.$inferSelect;

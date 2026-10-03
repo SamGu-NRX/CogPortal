@@ -22,6 +22,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cogbench.plugins import load_plugin
+from benchmark_tree import require_reviewed_tree
+from validate_metric_metadata import validate_metric_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week1"
 PLUGIN = BENCHMARK / "audio_identification_benchmark" / "plugins.py"
@@ -29,7 +33,7 @@ MIGRATIONS = ROOT / "apps" / "portal" / "migrations"
 MIGRATION = MIGRATIONS / "0020_week1_audio.sql"
 RUNNER = ROOT / "apps" / "portal" / "worker" / "execution" / "runner.ts"
 
-REVIEWED_COMMIT = "61ef56ebb14a47419ad9b27c79dfdd82aca798f2"
+REVIEWED_COMMIT = "4e516f39ffbeefe579e093260b2865eb354c17a7"
 
 # The literal values reviewed into 0020_week1_audio.sql. Checked against
 # every migration, not that file: a later migration rewriting the row is
@@ -130,7 +134,9 @@ def main() -> int:
                 actual, REVIEWED_COMMIT
             )
         )
+    require_reviewed_tree(BENCHMARK, "benchmarks/week1")
 
+    validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", "audio-identification"))
     problems = []
 
     # Every migration, not only 0020: a version bump lands as a new

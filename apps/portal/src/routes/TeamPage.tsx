@@ -1,43 +1,57 @@
-import { ArrowRight01Icon, TeacherIcon } from "@hugeicons/core-free-icons";
+import { ArrowUpRight01Icon, PencilEdit02Icon, UserAdd01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useId, useRef, useState } from "react";
 import type { GithubRepo, TeamDetail } from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
+import { GitHubIcon } from "@/components/GitHubIcon";
 import { GrantAccess } from "@/components/GrantAccess";
+import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberPalette } from "@/components/MemberPalette";
-import { Panel } from "@/components/Panel";
+import { PageSection } from "@/components/PageSection";
+import { ProcessPanel } from "@/components/ProcessPanel";
+import { RemoveButton } from "@/components/RemoveButton";
 import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
   useChangeTeamRepo,
   useRemoveTeamMember,
   useRepositories,
+  useSession,
   useTeam,
   useUpdateTeam,
 } from "@/lib/queries";
 
+/**
+ * Portal roles mirror the team's GitHub repository permissions: whoever GitHub
+ * calls an admin on the fork is a team admin here, with the settings and
+ * repository controls that implies. This is deliberate, so the label says
+ * "Admin" rather than "Creator": there can be more than one, and the way to
+ * grant or revoke it is on GitHub. Ordinary members carry no label, since a
+ * word repeated on every row tells the reader nothing.
+ */
 const ROLE_LABELS: Record<string, string> = {
-  admin: "creator",
-  maintain: "maintainer",
-  write: "member",
+  admin: "Admin",
+  maintain: "Maintainer",
 };
 
-/** Team settings: name, description, members, and the connected repository. */
+/**
+ * Where a team looks at itself: who is on it, the repository it runs from,
+ * and, last, what its commits and runs say about how the work went.
+ *
+ * People come first because they are what a student opens this page to check
+ * (did my teammate get added, who is our TA). Everything a team admin can
+ * change is edited in place, where it is read, rather than on a separate
+ * settings form.
+ */
 export function TeamPage() {
   const team = useTeam();
-  const update = useUpdateTeam();
-  const [editingName, setEditingName] = useState(false);
-  const [name, setName] = useState("");
-  const [editingDescription, setEditingDescription] = useState(false);
-  const [description, setDescription] = useState("");
 
   if (team.isPending) return <LoadingMark label="Loading team" />;
   if (team.isError) {
     return (
-      <div className="py-14">
+      <div className="page">
         <QueryError error={team.error} retry={() => void team.refetch()} />
       </div>
     );
@@ -45,202 +59,279 @@ export function TeamPage() {
 
   const t = team.data;
 
+  return (
+    <div className="page anim-rise">
+      <TeamHeading team={t} />
+      <PeopleSection team={t} />
+      <RepositorySection team={t} />
+      {/* Last on the page, and the only section that is a reading rather
+          than a setting: everything above it is something you change. */}
+      <ProcessPanel members={t.members} />
+    </div>
+  );
+}
+
+/* ── Name and description ──────────────────────────────────────────────── */
+
+const titleClass = "text-[clamp(2rem,1.5rem+2vw,2.75rem)] text-ink wrap-anywhere";
+
+/** A quiet pencil control that sits on the line it edits. */
+function EditControl({
+  label,
+  onClick,
+  buttonRef,
+  describedBy,
+}: {
+  label: string;
+  onClick: () => void;
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  describedBy?: string;
+}) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={onClick}
+      aria-describedby={describedBy}
+      className="u-pressable inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-control px-2 text-[13.5px] font-semibold text-ink-secondary transition-colors duration-150 hover:bg-ink/[0.045] hover:text-ink"
+    >
+      <HugeiconsIcon icon={PencilEdit02Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Focus goes back to the control that opened an editor once it closes, by
+ * Save or by Cancel, so a keyboard user is never dropped at the top of the
+ * document when the field unmounts.
+ */
+function useEditor() {
+  const [editing, setEditing] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const returning = useRef(false);
+
+  useEffect(() => {
+    if (!editing && returning.current) {
+      returning.current = false;
+      trigger.current?.focus();
+    }
+  }, [editing]);
+
+  return {
+    editing,
+    trigger,
+    open: () => setEditing(true),
+    close: () => {
+      returning.current = true;
+      setEditing(false);
+    },
+  };
+}
+
+function TeamHeading({ team }: { team: TeamDetail }) {
+  const name = useEditor();
+  const description = useEditor();
+  const nameUpdate = useUpdateTeam();
+  const descriptionUpdate = useUpdateTeam();
+  const [nameDraft, setNameDraft] = useState("");
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const descriptionHint = useId();
+
   const saveName = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || update.isPending) return;
-    update.mutate({ name: name.trim() }, { onSuccess: () => setEditingName(false) });
+    if (!nameDraft.trim() || nameUpdate.isPending) return;
+    // Saving the name it already has is a no-op the server would still be asked about.
+    if (nameDraft.trim() === team.name) return name.close();
+    nameUpdate.mutate({ name: nameDraft.trim() }, { onSuccess: name.close });
   };
 
   const saveDescription = (e: React.FormEvent) => {
     e.preventDefault();
-    if (update.isPending) return;
-    update.mutate(
-      { description: description.trim() || null },
-      { onSuccess: () => setEditingDescription(false) },
+    if (descriptionUpdate.isPending) return;
+    descriptionUpdate.mutate(
+      { description: descriptionDraft.trim() || null },
+      { onSuccess: description.close },
     );
   };
 
-  return (
-    <div className="anim-rise mx-auto w-full max-w-lg py-14">
-      <p className="u-kicker">Team settings</p>
+  const escapeCancels = (close: () => void, reset: () => void) => (e: React.KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    reset();
+    close();
+  };
 
-      {/* ── Name ── */}
-      {editingName ? (
-        <form onSubmit={saveName} className="mt-2 flex items-center gap-2">
+  return (
+    <header className="max-w-[42rem]">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="u-eyebrow">Your team</span>
+        {team.provenance === "archive" && (
+          <span className="text-[13px] text-ink-faint">2026 cohort, anonymized</span>
+        )}
+      </div>
+
+      {name.editing ? (
+        <form
+          onSubmit={saveName}
+          onKeyDown={escapeCancels(name.close, nameUpdate.reset)}
+          className="flex flex-wrap items-center gap-2"
+        >
           <label htmlFor="rename" className="sr-only">
             Team name
           </label>
           <input
             id="rename"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
             maxLength={60}
             autoFocus
-            className="h-11 min-w-0 flex-1 border border-rule bg-paper-sunken px-3 font-serif text-xl font-semibold text-ink"
+            autoComplete="off"
+            aria-invalid={nameUpdate.isError || undefined}
+            className="h-14 min-w-0 flex-[1_1_18rem] rounded-control border border-rule-strong bg-paper-raised px-3 font-serif text-[28px] font-semibold tracking-[-0.018em] text-ink transition-colors duration-150 focus-visible:border-ink focus-visible:outline-offset-1 aria-invalid:border-detect"
           />
-          <Button type="submit" busy={update.isPending} disabled={!name.trim()}>
-            Save
-          </Button>
-          <Button type="button" variant="quiet" onClick={() => setEditingName(false)}>
-            Cancel
-          </Button>
-        </form>
-      ) : (
-        <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <h1 className="text-3xl">{t.name}</h1>
-          {t.isAdmin && (
-            <button
-              type="button"
-              onClick={() => {
-                setName(t.name);
-                setEditingName(true);
-              }}
-              className="u-pressable min-h-8 font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
-            >
-              Rename
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ── Description ── */}
-      {editingDescription ? (
-        <form onSubmit={saveDescription} className="mt-3">
-          <label htmlFor="team-description" className="sr-only">
-            Team description
-          </label>
-          <textarea
-            id="team-description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            maxLength={280}
-            rows={3}
-            autoFocus
-            placeholder="One line about your approach, shown on the leaderboard."
-            className="w-full border border-rule bg-paper-sunken px-3 py-2 text-[14px] text-ink placeholder:text-ink-faint"
-          />
-          <div className="mt-2 flex items-center gap-2">
-            <Button type="submit" busy={update.isPending}>
-              Save
+          <span className="flex items-center gap-2">
+            <Button type="submit" busy={nameUpdate.isPending} disabled={!nameDraft.trim()}>
+              Save name
             </Button>
-            <Button type="button" variant="quiet" onClick={() => setEditingDescription(false)}>
+            <Button
+              type="button"
+              variant="quiet"
+              onClick={() => {
+                nameUpdate.reset();
+                name.close();
+              }}
+            >
               Cancel
             </Button>
-          </div>
+          </span>
         </form>
       ) : (
-        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          {t.description ? (
-            <p className="text-[14px] text-ink-secondary">{t.description}</p>
-          ) : t.isAdmin ? (
-            <p className="text-[13px] text-ink-faint">No description yet.</p>
-          ) : null}
-          {t.isAdmin && (
-            <button
-              type="button"
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className={titleClass}>{team.name}</h1>
+          {team.isAdmin && (
+            <EditControl
+              label="Rename"
+              buttonRef={name.trigger}
               onClick={() => {
-                setDescription(t.description ?? "");
-                setEditingDescription(true);
+                setNameDraft(team.name);
+                name.open();
               }}
-              className="u-pressable min-h-8 font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
-            >
-              {t.description ? "Edit" : "Add description"}
-            </button>
+            />
           )}
         </div>
       )}
-      {update.error && (
-        <p role="alert" className="mt-2 text-[13px] text-detect-deep">
-          {update.error instanceof ApiRequestError
-            ? update.error.message
-            : "Update failed."}
+      {nameUpdate.error && (
+        <p role="alert" className="mt-2 text-[14px] text-detect-deep">
+          {nameUpdate.error instanceof ApiRequestError
+            ? nameUpdate.error.message
+            : "The new name didn't save. Try again in a moment."}
         </p>
       )}
 
-      {/* ── Assigned teaching staff ── */}
-      <Panel label={t.tas.length === 1 ? "ASSIGNED TA" : "ASSIGNED TAS"} className="mt-8">
-        {t.tas.length > 0 ? (
-          <ul className="divide-y divide-rule-soft">
-            {t.tas.map((ta) => (
-              <li key={ta.login} className="flex items-center gap-3 py-2.5">
-                {ta.avatarUrl ? (
-                  <img src={ta.avatarUrl} alt="" className="size-7 rounded-[2px]" />
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    className="flex size-7 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
-                  >
-                    {ta.login[0]}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-ink">
-                    {ta.name ?? ta.login}
-                  </span>
-                  {ta.name ? (
-                    <span className="block truncate font-mono text-[11px] text-ink-faint">
-                      @{ta.login}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.08em] text-verify-deep uppercase">
-                  <HugeiconsIcon icon={TeacherIcon} size={14} strokeWidth={1.8} aria-hidden="true" />
-                  TA
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="py-2 text-[13px] text-ink-faint">No TA has been assigned yet.</p>
-        )}
-      </Panel>
-
-      {/* ── Members ── */}
-      <MembersPanel team={t} />
-
-      {/* ── Repository ── */}
-      <Panel label="REPOSITORY" className="mt-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <a
-            href={t.repo.url}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-          >
-            {t.repo.fullName}
-          </a>
-          <span className="font-mono text-[11px] text-ink-faint">
-            default {t.repo.defaultBranch}
-          </span>
+      {description.editing ? (
+        <form
+          onSubmit={saveDescription}
+          onKeyDown={escapeCancels(description.close, descriptionUpdate.reset)}
+          className="mt-4"
+        >
+          <label htmlFor="team-description" className="u-label">
+            A line about your approach
+          </label>
+          <textarea
+            id="team-description"
+            value={descriptionDraft}
+            onChange={(e) => setDescriptionDraft(e.target.value)}
+            maxLength={280}
+            rows={3}
+            autoFocus
+            aria-describedby={descriptionHint}
+            aria-invalid={descriptionUpdate.isError || undefined}
+            placeholder="We fingerprint peaks in pairs, so a short clip still lines up with the song."
+            className="u-field mt-1.5 resize-y py-2.5 leading-[1.5]"
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <p id={descriptionHint} className="text-[13.5px] text-ink-secondary">
+              Shown beside your published result on the leaderboard.{" "}
+              <span className="u-tnum font-mono text-[12.5px] text-ink-faint">
+                {descriptionDraft.length}/280
+              </span>
+            </p>
+            <span className="flex items-center gap-2">
+              <Button type="submit" busy={descriptionUpdate.isPending}>
+                Save
+              </Button>
+              <Button
+                type="button"
+                variant="quiet"
+                onClick={() => {
+                  descriptionUpdate.reset();
+                  description.close();
+                }}
+              >
+                Cancel
+              </Button>
+            </span>
+          </div>
+        </form>
+      ) : team.description ? (
+        <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <p className="max-w-[58ch] text-[16px] leading-[1.6] text-ink-secondary">
+            {team.description}
+          </p>
+          {team.isAdmin && (
+            <EditControl
+              label="Edit"
+              buttonRef={description.trigger}
+              onClick={() => {
+                setDescriptionDraft(team.description ?? "");
+                description.open();
+              }}
+            />
+          )}
         </div>
-        {t.isAdmin && <ChangeRepository currentFullName={t.repo.fullName} />}
-      </Panel>
-
-      <Link
-        to="/dashboard"
-        className="u-pressable mt-8 inline-flex h-11 items-center gap-2 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
-      >
-        Open dashboard
-        <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
-      </Link>
-    </div>
+      ) : team.isAdmin ? (
+        <div className="mt-2">
+          <EditControl
+            label="Add a line about your approach"
+            buttonRef={description.trigger}
+            onClick={() => {
+              setDescriptionDraft("");
+              description.open();
+            }}
+          />
+        </div>
+      ) : null}
+      {descriptionUpdate.error && (
+        <p role="alert" className="mt-2 text-[14px] text-detect-deep">
+          {descriptionUpdate.error instanceof ApiRequestError
+            ? descriptionUpdate.error.message
+            : "The description didn't save. Your text is still in the box; try again."}
+        </p>
+      )}
+    </header>
   );
 }
 
-/** Members, and — for the creator — the door: add cohort students without a
- *  team, remove anyone but the creator. Portal membership only; a GitHub
- *  collaborator invite is still what lets them push. */
-function MembersPanel({ team }: { team: TeamDetail }) {
+/* ── People ────────────────────────────────────────────────────────────── */
+
+/** Members, and for a team admin the door: add cohort students without a
+ *  team, remove anyone but a team admin. Portal membership only; a GitHub
+ *  collaborator invite is still what lets them push, and the palette says so
+ *  when someone is added. */
+function PeopleSection({ team }: { team: TeamDetail }) {
   const [adding, setAdding] = useState(false);
-  // Remove unmounts the focused control — hand focus back to the panel
-  // toggle so keyboard users aren't dropped at the document root.
+  const { data: session } = useSession();
+  const me = session?.user?.login.toLowerCase() ?? null;
+  // Remove unmounts the focused control; hand focus back to the add toggle
+  // so keyboard users aren't dropped at the document root.
   const toggleRef = useRef<HTMLButtonElement>(null);
   const restoreFocus = () => toggleRef.current?.focus();
 
   return (
-    <Panel
-      label="MEMBERS"
-      className="mt-4"
+    <PageSection
+      id="team-people"
+      title="People"
       aside={
         team.isAdmin ? (
           <span className="relative">
@@ -250,104 +341,143 @@ function MembersPanel({ team }: { team: TeamDetail }) {
               aria-expanded={adding}
               aria-haspopup="dialog"
               onClick={() => setAdding((open) => !open)}
-              className="u-pressable min-h-8 font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
-            >
-              {adding ? "Close" : "Add member"}
-            </button>
-            <MemberPalette
-              open={adding}
-              onClose={() => setAdding(false)}
-              triggerRef={toggleRef}
-            />
-          </span>
-        ) : undefined
-      }
-    >
-      <ul className="divide-y divide-rule-soft">
-        {team.members.map((m) => (
-          <li key={m.login} className="flex items-center gap-3 py-2.5">
-            <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} />
-            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
-              {m.login}
-              {m.name && <span className="ml-2 text-ink-faint">{m.name}</span>}
-            </span>
-            {team.isAdmin && m.role !== "admin" && (
-              <RemoveMember login={m.login} onRemoved={restoreFocus} />
-            )}
-            <span
-              className={`font-mono text-[10.5px] tracking-[0.08em] uppercase ${
-                m.role === "admin" ? "text-detect-deep" : "text-ink-faint"
+              className={`u-pressable inline-flex min-h-11 items-center gap-2 rounded-control border px-3.5 text-[14px] font-semibold transition-colors duration-150 ${
+                adding
+                  ? "border-ink bg-paper-raised text-ink"
+                  : "border-rule-strong bg-paper-raised text-ink hover:border-ink"
               }`}
             >
-              {ROLE_LABELS[m.role] ?? m.role}
-            </span>
-          </li>
-        ))}
-      </ul>
+              <HugeiconsIcon icon={UserAdd01Icon} size={16} strokeWidth={1.8} aria-hidden="true" />
+              Add someone
+            </button>
+            <MemberPalette open={adding} onClose={() => setAdding(false)} triggerRef={toggleRef} />
+          </span>
+        ) : (
+          // Where the missing Add button would be: who can change the list,
+          // and that the role comes from GitHub rather than this page.
+          <span className="text-[13px] text-ink-faint">GitHub repository admins manage people</span>
+        )
+      }
+    >
+      <div className="lg:max-w-[42rem]">
+        <ul className="divide-y divide-rule-soft">
+          {team.members.map((m, i) => {
+            const isMe = me !== null && m.login.toLowerCase() === me;
+            return (
+              // The login is the display name, and two development accounts can
+              // share one (demo@dev.local beside a GitHub "demo"); GitHub logins
+              // are unique, so the index only ever breaks a tie the server made.
+              <li key={`${m.login}:${i}`} className="flex min-h-16 items-center gap-3.5 py-2.5">
+                <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} size={36} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2">
+                    <span className="truncate text-[15.5px] font-semibold text-ink">
+                      {m.name ?? m.login}
+                    </span>
+                    {isMe && <span className="shrink-0 text-[13px] text-ink-faint">you</span>}
+                  </span>
+                  {m.name && m.name !== m.login && (
+                    <span className="block truncate font-mono text-[12.5px] text-ink-faint">
+                      {m.login}
+                    </span>
+                  )}
+                </span>
+                {ROLE_LABELS[m.role] && (
+                  <span className="shrink-0 text-[13px] font-semibold text-ink-secondary">
+                    {ROLE_LABELS[m.role]}
+                  </span>
+                )}
+                {team.isAdmin && m.role !== "admin" && (
+                  <RemoveMember login={m.login} onRemoved={restoreFocus} />
+                )}
+              </li>
+            );
+          })}
+        </ul>
 
-    </Panel>
+        <h3 className="mt-6 u-label">Teaching staff</h3>
+        {team.tas.length > 0 ? (
+          <ul className="mt-1 divide-y divide-rule-soft">
+            {team.tas.map((ta) => (
+              <li key={ta.login} className="flex min-h-14 items-center gap-3.5 py-2">
+                <MemberAvatar login={ta.login} avatarUrl={ta.avatarUrl} size={30} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-semibold text-ink">
+                    {ta.name ?? ta.login}
+                  </span>
+                  {ta.name && (
+                    <span className="block truncate font-mono text-[12.5px] text-ink-faint">
+                      {ta.login}
+                    </span>
+                  )}
+                </span>
+                <span className="shrink-0 text-[13px] font-semibold text-ink-secondary">TA</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1.5 text-[14.5px] text-ink-secondary">No TA assigned yet.</p>
+        )}
+      </div>
+    </PageSection>
   );
 }
 
-/** Two-step inline remove — arm, then confirm; arming decays after 4s. */
 function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => void }) {
   const remove = useRemoveTeamMember();
-  const [armed, setArmed] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-
-  const click = () => {
-    if (!armed) {
-      setArmed(true);
-      timer.current = setTimeout(() => setArmed(false), 4000);
-      return;
-    }
-    if (timer.current) clearTimeout(timer.current);
-    setArmed(false);
-    remove.mutate(login, { onSuccess: onRemoved });
-  };
-
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex shrink-0 flex-col items-end">
+      <RemoveButton
+        armedLabel="Confirm, they leave"
+        subject={`@${login} from the team`}
+        armedSubject={`@${login}`}
+        busy={remove.isPending}
+        onConfirm={() => remove.mutate(login, { onSuccess: onRemoved })}
+      />
       {remove.error && (
-        <span role="alert" className="text-[11px] text-detect-deep">
-          {remove.error instanceof ApiRequestError ? remove.error.message : "Failed."}
+        <span role="alert" className="max-w-[16rem] text-right text-[12.5px] text-detect-deep">
+          {remove.error instanceof ApiRequestError
+            ? remove.error.message
+            : `@${login} is still on the team. Try removing them again.`}
         </span>
       )}
-      <button
-        type="button"
-        onClick={click}
-        disabled={remove.isPending}
-        aria-label={
-          armed ? `Confirm removing @${login}` : `Remove @${login} from the team`
-        }
-        aria-live="polite"
-        className={`u-pressable min-h-8 px-1.5 font-mono text-[10.5px] tracking-[0.08em] uppercase transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
-          armed ? "text-detect-deep" : "text-ink-faint hover:text-ink"
-        }`}
-      >
-        {remove.isPending ? "Removing…" : armed ? "Confirm remove?" : "Remove"}
-      </button>
     </span>
   );
 }
 
-function MemberAvatar({ login, avatarUrl }: { login: string; avatarUrl: string | null }) {
-  return avatarUrl ? (
-    <img src={avatarUrl} alt="" className="size-6 rounded-[2px]" />
-  ) : (
-    <span
-      aria-hidden="true"
-      className="flex size-6 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
-    >
-      {login[0]}
-    </span>
+/* ── Repository ────────────────────────────────────────────────────────── */
+
+function RepositorySection({ team }: { team: TeamDetail }) {
+  return (
+    <PageSection id="team-repository" title="Repository">
+      <div className="lg:max-w-[42rem]">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <a
+            href={team.repo.url}
+            target="_blank"
+            rel="noreferrer"
+            className="group inline-flex min-h-11 min-w-0 items-center gap-2.5 text-ink"
+          >
+            <GitHubIcon className="size-[18px] shrink-0" />
+            <span className="truncate font-mono text-[14.5px] underline decoration-rule-strong underline-offset-4 transition-colors duration-150 group-hover:decoration-ink">
+              {team.repo.fullName}
+            </span>
+            <HugeiconsIcon
+              icon={ArrowUpRight01Icon}
+              size={14}
+              strokeWidth={1.8}
+              className="shrink-0 text-ink-faint"
+              aria-hidden="true"
+            />
+            <span className="sr-only">(opens GitHub)</span>
+          </a>
+          <span className="font-mono text-[12.5px] text-ink-faint">
+            default branch {team.repo.defaultBranch}
+          </span>
+        </div>
+        {team.isAdmin && <ChangeRepository currentFullName={team.repo.fullName} />}
+      </div>
+    </PageSection>
   );
 }
 
@@ -358,13 +488,36 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
   const [selected, setSelected] = useState<GithubRepo | null>(null);
   const repos = useRepositories(open);
   const change = useChangeTeamRepo();
+  const toggle = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const returning = useRef(false);
+  const labelId = useId();
+
+  // The toggle unmounts as the panel opens, so without this focus falls to
+  // the page. From the panel, the next Tab reaches the first repository.
+  useEffect(() => {
+    if (open) {
+      panel.current?.focus();
+    } else if (returning.current) {
+      returning.current = false;
+      toggle.current?.focus();
+    }
+  }, [open]);
+
+  const close = () => {
+    returning.current = true;
+    setOpen(false);
+    setSelected(null);
+    change.reset();
+  };
 
   if (!open) {
     return (
       <button
+        ref={toggle}
         type="button"
         onClick={() => setOpen(true)}
-        className="u-pressable mt-3 min-h-8 border-t border-rule-soft pt-3 font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
+        className="u-pressable mt-2 -ml-2 inline-flex min-h-11 items-center rounded-control px-2 text-[14px] font-semibold text-ink-secondary transition-colors duration-150 hover:bg-ink/[0.045] hover:text-ink"
       >
         Change repository
       </button>
@@ -372,7 +525,14 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
   }
 
   return (
-    <div className="anim-rise mt-4 border-t border-rule-soft pt-4">
+    <div
+      ref={panel}
+      role="group"
+      aria-labelledby={labelId}
+      tabIndex={-1}
+      className="anim-rise mt-4 rounded-surface border border-rule bg-paper-raised p-4 sm:p-5"
+    >
+      <p id={labelId} className="u-label mb-3">Pick the repository your next run starts from</p>
       {repos.isPending ? (
         <LoadingMark label="Listing repositories" />
       ) : repos.isError ? (
@@ -392,21 +552,22 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
       )}
 
       {change.error && (
-        <p role="alert" className="mt-3 text-[13px] text-detect-deep">
+        <p role="alert" className="mt-3 text-[14px] text-detect-deep">
           {change.error instanceof ApiRequestError
             ? change.error.message
-            : "Changing the repository failed."}
+            : "The repository didn't change. Pick it again and confirm."}
         </p>
       )}
 
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <ConfirmButton
-          label="Change repository"
-          confirmLabel="Confirm — history stays with the team"
+          label={selected ? `Switch to ${selected.fullName}` : "Change repository"}
+          confirmLabel="Confirm, history and attempts stay with the team"
           onConfirm={() => {
             if (!selected) return;
             change.mutate(selected.fullName, {
               onSuccess: () => {
+                returning.current = true;
                 setOpen(false);
                 setSelected(null);
               },
@@ -416,14 +577,7 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
           disabled={!selected}
           variant="primary"
         />
-        <Button
-          type="button"
-          variant="quiet"
-          onClick={() => {
-            setOpen(false);
-            setSelected(null);
-          }}
-        >
+        <Button type="button" variant="quiet" onClick={close}>
           Cancel
         </Button>
       </div>

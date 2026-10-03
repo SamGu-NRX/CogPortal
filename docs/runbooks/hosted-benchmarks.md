@@ -11,7 +11,10 @@ PEP 668 managed and refuses `pip install`, and the deploy script imports both
 `modal` and `fastapi`.
 
     uv venv --python 3.11 .venv-deploy
-    uv pip install --python .venv-deploy/bin/python "modal>=1.0,<2" "fastapi>=0.115,<1"
+    # 1.5 rather than the runner's 1.4 floor: smoke_reference_sandbox.py sets
+    # snapshot_filesystem(ttl=), which modal 1.5.0 added, and refuses to start
+    # on an older client.
+    uv pip install --python .venv-deploy/bin/python "modal>=1.5,<2" "fastapi>=0.115,<1"
 
     # The plugins, so the smoke test can build a manifest and score what the
     # sandbox returns. --no-deps: their pins target 3.8 for the sandbox, and
@@ -60,8 +63,9 @@ objects the container references by name.
 Republishing is cheap when nothing changed: `Image.build` returns the cached
 image. Changing anything under `benchmarks/`, `python/cogbench/`, or
 `apps/runner-modal/src/` requires a redeploy before the sandbox sees it. The
-three benchmarks are git submodules, so `git submodule update --init` before
-deploying, or the images carry whatever commit your tree happens to hold.
+three benchmarks are git submodules, so `git submodule sync --recursive &&
+git submodule update --init` before deploying, or the images carry whatever
+commit your tree happens to hold, from whichever source it was cloned with.
 
 ## Score a repository
 
@@ -73,9 +77,8 @@ It calls the same `_prepare` and `_evaluate_week1` the job runner calls, so a
 pass here means the deployed path works rather than that a parallel copy of it
 does. Add `--sha` to pin a commit; the default is the default branch head.
 
-A pass prints the metrics, the diagnostics, and the provenance line naming
-every piece of wiring we supplied, when the repository was scored through an
-instructor-written adapter.
+A pass prints the metrics, diagnostics, and the selected function mapping
+when automatic discovery binds the repository.
 
 Week 1 also prints the sweep sentence, which is the first diagnostic:
 
@@ -86,27 +89,52 @@ Measured on `KrazeeCoder/week1-capstone-team4`, 72 s, `identification_score`
 0.5375. The sweep costs no extra calls into student code, so a run with it
 takes the same time as one without.
 
+## Trained weights
+
+R2 is enabled on the Cloudflare account and each environment binds `ARTIFACTS`
+to its own private bucket: staging to `cogportal-artifacts-dev`, production to
+`cogportal-artifacts-prod`. They are never the same bucket, because weights are
+addressed by repository and commit; see docs/runbooks/platform.md, "Gate R2". Each uploaded file is capped at 100 MiB because Workers
+limits request bodies to 100 MB on Free and Pro plans, and this account's plan
+is not established. A hosted run builds its weight manifest from the newest
+synced report for that repository and commit.
+
 ## Week 3
 
-Same deploy. Two smoke tests, because Week 3 has a problem Week 1 does not:
-its reference submission lives in this monorepo and is deliberately not
-published, so a tarball fetch cannot reach it.
+Same deploy, and the same `smoke_modal.py` for discovery against a public
+repository. Expect adapter_missing for any student repository until one
+carries a submission.py.
 
-    # Discovery, against a public repository. Expect adapter_missing for any
-    # student repository until one carries a submission.py.
     .venv-deploy/bin/python apps/runner-modal/tools/smoke_modal.py \
         --benchmark language-search --repo BagelBreaker/week3_capstone
 
-    # Evaluation, against the private reference. Uploads it into a sandbox
-    # built from the published image and runs the same EVALUATE_SCRIPT.
-    .venv-deploy/bin/python apps/runner-modal/tools/smoke_week3_sandbox.py
+## Score the private reference
 
-The second should print `overall 0.4329` against `chance_mrr 0.0102`, the
-three query rungs (`search_mrr_keywords` 0.2735, `search_mrr_truncated`
-0.1671, `search_mrr_typo` 0.2256), and `student python 3.8.20` in the
-submission log. Those numbers match what
-`examples/week3-language-submission/README.md` documents for the evaluation
-tier, which is the point: the harness measures a known-good system correctly.
+The Week 1 and Week 3 references live in this monorepo and are deliberately
+not published, so a tarball fetch cannot reach them. This uploads one through
+Modal's filesystem API into a network-blocked sandbox built from an exact
+image id, runs the runner's prepare script and `_evaluate_week3` or
+`_evaluate_week1` on it, and scores the result here:
+
+    .venv-deploy/bin/python apps/runner-modal/tools/smoke_reference_sandbox.py \
+        --benchmark language-search \
+        --image-id im-XXXXXXXXXXXXXXXXXXXXXX \
+        --catalog-row build/language-search-row.json \
+        --sdk-commit <commit the release advertises> \
+        --result build/language-search-smoke.json
+
+The image id comes from a probe receipt. The catalog row is that benchmark's
+`benchmarks` row from the target D1, saved as one JSON object, so the versions
+are checked against the database runs are dispatched from rather than against
+the image. The tool refuses a dirty tree, a name instead of an id, and any
+sandbox with network access, and it writes a result file for every remote
+attempt, pass or fail.
+
+A pass is sandbox evidence only. The portal's queue, sign-in, callback and run
+page are not exercised, and nor is the PyPI access a real prepare step has.
+`examples/week3-language-submission/README.md` documents earlier
+evaluation-tier numbers; compare against them only when the result's scorer
+and dataset versions are the ones that README measured.
 
 ## When it fails
 
@@ -121,11 +149,10 @@ uses should go through `exactmath`, so a difference means either a new numpy
 call crept into `synth.py` or `exactmath` itself grew one. Background:
 `docs/decisions/week1-corpus-determinism.md`.
 
-**`No adapter found in <repo>`.** The repository has no `submission.py` at its
-root, no packaging file with a `cogworks.submissions.v2` entry point, and no
-instructor adapter under `benchmarks/adapters/<owner>__<name>/`. Adding one of
-the three fixes it; adding the third requires a redeploy, since the adapters
-are baked into the images.
+**`No adapter found in <repo>`.** The repository has no installed
+`cogworks.submissions.v2` entry point, no `cogworks.toml` or root
+`submission.py` declaration, and automatic discovery could not bind its
+functions. Add a declaration or fix the refusal reported by discovery.
 
 **`Evaluation ran past its N second budget`.** The submission is too slow on
 the evaluation corpus, and the message says the usual reason: a database
@@ -136,15 +163,19 @@ algorithm, not our infrastructure.
 
 **A keyword the current source has, rejected inside the sandbox.**
 `__init__() got an unexpected keyword argument ...`, while every local test
-passes. A `build/` directory in the benchmark is shadowing the real module:
-the image installs with `pip install /opt/weekN`, which builds from source,
-and setuptools reuses whatever is already there. `deploy.py` now refuses to
-run and names the directory; delete it and redeploy.
+passes. The sandbox is importing benchmark code other than this checkout's.
+A local `build/` used to cause this, because setuptools installed it in place
+of the source; the source copies now leave it out (`is_build_junk` in
+`modal_app.py`). Run `apps/runner-modal/tools/probe_prepared_environment.py`
+against the image id the run used. If the installed benchmark is not the
+accepted source, it exits 1 and says how many files are missing, extra or changed.
 
 **`modal.exception.ExecutionError: ... was modified during build process`.**
 A file changed while the image copied it, almost always `.pytest_cache`
-because tests were running. `BUILD_JUNK` in `modal_app.py` excludes the usual
-suspects; add the path there rather than deleting it by hand each time.
+because tests were running. `BUILD_JUNK` in
+`apps/runner-modal/src/cogworks_runner/source_tree.py` excludes the usual
+suspects, for the image copy and the release probe's manifests alike; add the
+directory name there rather than deleting it by hand each time.
 
 **`AttributeError: module 'modal' has no attribute 'runner'`.** `modal.runner`
 resolves through a lazy `__getattr__` with a curated name list that omits it;

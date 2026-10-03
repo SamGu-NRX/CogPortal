@@ -9,13 +9,16 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildArgs } from "./wrangler-args.mjs";
 
 const appDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 const wranglerBin = join(appDirectory, "node_modules", "wrangler", "bin", "wrangler.js");
-const command = process.argv[2];
 
-if (!new Set(["build", "deploy", "dev"]).has(command)) {
-  console.error("Usage: node scripts/wrangler-safe.mjs <build|deploy|dev>");
+let args;
+try {
+  args = buildArgs(process.argv.slice(2));
+} catch (error) {
+  console.error(error.message);
   process.exit(2);
 }
 
@@ -31,10 +34,6 @@ for (const filename of [".dev.vars", ".env", ".env.local"]) {
   const source = join(appDirectory, filename);
   if (existsSync(source)) symlinkSync(source, join(stagingDirectory, filename), "file");
 }
-
-const args = command === "build"
-  ? ["deploy", "--dry-run", "--outdir", "dist"]
-  : [command];
 
 const child = spawn(
   process.execPath,

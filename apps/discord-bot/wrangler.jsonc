@@ -1,18 +1,37 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
+
+  // One Discord application, one guild, and one Interactions Endpoint URL, so
+  // this Worker serves exactly one portal at a time and there is no second bot
+  // to add. Hence no named environments here. Deploying this changes which
+  // portal the bot talks to and nothing on Discord's side.
+  //
+  // Two ways back to development. `wrangler rollback <version-id> --name
+  // cogbot` restores a recorded version without rebuilding; capture the id
+  // before cutover. Or set "service" to "cogportal" and "PORTAL_ORIGIN" to
+  // "https://cogportal-dev.sillion.app" and redeploy, which does rebuild.
+  //
+  // Cutover steps and the Discord-side settings are in
+  // docs/runbooks/platform.md, section 5.
   "name": "cogbot",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
   "services": [
     {
+      // A wrangler named environment deploys as "<name>-<env>", so the portal's
+      // env.production is the script "cogportal-production". Deploy it first or
+      // the PortalRpc entrypoint does not resolve.
       "binding": "PORTAL",
-      "service": "cogportal",
+      "service": "cogportal-production",
       "entrypoint": "PortalRpc"
     }
   ],
   "vars": {
     "COURSE_GUILD_ID": "1515858059027550321",
-    "PORTAL_ORIGIN": "https://cogportal-dev.sillion.app"
+    // Must name the same environment as the service binding above. A binding
+    // pointed at production with a staging origin still answers commands, and
+    // every link it hands a student goes to the wrong portal.
+    "PORTAL_ORIGIN": "https://cogportal.sillion.app"
   }
 }

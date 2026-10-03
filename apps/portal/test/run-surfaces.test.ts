@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { StaticRouter, Routes, Route } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RunDetailPage } from "../src/routes/RunDetailPage.tsx";
+import { api } from "../src/lib/api.ts";
 import {
+  RunDetailSchema,
   RunStreamEventSchema,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
@@ -8,7 +15,95 @@ import { effectiveDiscordChannelPermissions } from "../worker/services/discord.t
 import { runSurfaceMessage } from "../worker/services/discord-messages.ts";
 import { runnerSurfaceStatusCode } from "../worker/routes/runner-events.ts";
 
+Object.assign(globalThis, { React });
+
 const VIEW_AND_SEND = String((1n << 10n) | (1n << 11n));
+
+function renderOfficialDetail(publishable: boolean, selected = false): string {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const run = RunDetailSchema.parse({
+    id: "run_refunded",
+    mode: "official",
+    status: "succeeded",
+    benchmarkId: "vision-recognition",
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1",
+    branch: "main",
+    sha: "a".repeat(40),
+    shortSha: "aaaaaaa",
+    createdAt: 1_780_000_000_000,
+    finishedAt: 1_780_000_060_000,
+    attemptNumber: 1,
+    primaryMetric: null,
+    parentRunId: null,
+    failure: null,
+    repo: { owner: "course", name: "team", fullName: "course/team", url: "https://github.com/course/team", defaultBranch: "main" },
+    sourceRefusal: null,
+    phases: [],
+    metrics: [],
+    diagnostics: ["The image stage returned no embeddings."],
+    log: null,
+    selected,
+    publishable,
+  });
+  client.setQueryData(["run", run.id], run);
+  try {
+    return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+      React.createElement(StaticRouter, { location: `/runs/${run.id}` },
+        React.createElement(Routes, null,
+          React.createElement(Route, { path: "/runs/:runId", element: React.createElement(RunDetailPage) }),
+        ),
+      ),
+    ));
+  } finally {
+    client.clear();
+  }
+}
+
+test("browser Retry posts the supplied execution ID on every replay", async (t) => {
+  const latest = snapshot("failed");
+  const calls: Array<{ path: string; init?: RequestInit }> = [];
+  t.mock.method(globalThis, "fetch", async (path: string, init?: RequestInit) => {
+    calls.push({ path, init });
+    return Response.json(latest);
+  });
+  const target = { runId: "run_0123456789" };
+  for (let replay = 0; replay < 2; replay += 1) {
+    const result = await api.mutateRunSurface(latest.id, "retry", target);
+    assert.equal(result.id, latest.id);
+  }
+  for (const call of calls) {
+    assert.equal(call.path, `/api/run-surfaces/${latest.id}/actions/retry`);
+    assert.equal(call.init?.method, "POST");
+    assert.equal(call.init?.credentials, "same-origin");
+    assert.equal(call.init?.body, JSON.stringify(target));
+  }
+  await api.mutateRunSurface(latest.id, "verify_hosted");
+  assert.equal(calls[2]?.path, `/api/run-surfaces/${latest.id}/actions/verify_hosted`);
+  assert.equal(calls[2]?.init?.body, undefined);
+});
+
+test("run detail requires the server's publication decision", () => {
+  assert.equal(RunDetailSchema.shape.publishable.safeParse(undefined).success, false);
+});
+
+test("an unpublishable official result keeps its finding without refund bookkeeping", () => {
+  const html = renderOfficialDetail(false);
+  assert.match(html, /The image stage returned no embeddings/);
+  assert.doesNotMatch(html, /ATTEMPT REFUNDED|returned your attempt|Publish to leaderboard|Confirm, make this the public result|PROMOTE/);
+});
+
+test("an eligible official result still offers Publish and a selected result links to the leaderboard", () => {
+  const eligible = renderOfficialDetail(true);
+  assert.match(eligible, /Publish to leaderboard/);
+  assert.doesNotMatch(eligible, /ATTEMPT REFUNDED/);
+  const selected = renderOfficialDetail(true, true);
+  assert.match(selected, />Published</);
+  assert.match(selected, /See it on the leaderboard/);
+  // The leaderboard opens on the first course module unless told otherwise.
+  assert.match(selected, /href="\/leaderboard\?benchmark=vision-recognition"/);
+  assert.doesNotMatch(selected, /Publish to leaderboard|ATTEMPT REFUNDED/);
+});
 
 test("private team-channel permissions honor role overwrites", () => {
   const permissions = effectiveDiscordChannelPermissions(
@@ -42,6 +137,20 @@ test("member deny wins after role allows", () => {
   assert.equal(permissions & (1n << 11n), 0n);
 });
 
+test("Discord recovery buttons retain the failed physical execution ID", () => {
+  for (const stage of ["hosted", "official"] as const) {
+    const value = snapshot("failed");
+    value.stage = stage;
+    value.practiceRunId = "run_0123456789";
+    value.officialRunId = stage === "official" ? "run_9876543210" : null;
+    value.actions = ["open_console", "open_portal", "retry", "rerun_hosted"];
+    const retry = buttonsOf(value).find((button) => button.label === "Retry");
+    assert.ok(retry);
+    assert.equal(retry.style, 1);
+    assert.equal(retry.custom_id, `cog:surface:${value.id}:retry:${value.officialRunId ?? value.practiceRunId}`);
+  }
+});
+
 function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceSnapshot {
   const started = 1_750_000_000_000;
   return {
@@ -52,6 +161,8 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     sha: "b".repeat(40),
     shortSha: "bbbbbbb",
     branch: "main",
+    source: null,
+    sourceRefusal: null,
     dirty: false,
     stage: "local",
     status,
@@ -59,6 +170,7 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     createdAt: started,
     updatedAt: started + 8_000,
     finishedAt: status === "running" ? null : started + 8_000,
+    silentSince: null,
     elapsedMs: 8_000,
     progress: { current: 18, total: 40, unit: "cases" },
     primaryMetric: status === "succeeded" ? {
@@ -77,6 +189,10 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     officialRunId: null,
     published: false,
     nextOfficialAttempt: 2,
+    refusalHeadline: null,
+    executionHistory: [],
+    executionGeneration: 0,
+    snapshotRevision: 1,
     events: [0, 1, 2, 3].map((sequence) => ({
       eventId: `stream_event_${sequence}`,
       source: "local" as const,
@@ -231,6 +347,24 @@ test("running shows the team best for context and local success never claims a d
   assert.doesNotMatch(message, /new team best/);
 });
 
+test("a run that leads with another measure is not compared with the team best", () => {
+  // A partial Language run has no overall and leads with text MRR; the team
+  // best is on overall, the measure the board ranks.
+  const value = snapshot("succeeded");
+  value.stage = "hosted";
+  value.practiceRunId = "run_hosted_123";
+  value.primaryMetric = { key: "text_mrr", label: "Text MRR", value: 0.95, unit: null, higherIsBetter: true, primary: true, precision: 3 };
+  value.metrics = [value.primaryMetric];
+  value.teamBest = { key: "overall", label: "Overall", value: 0.4, unit: null, higherIsBetter: true, primary: true, precision: 3 };
+  const message = rendered(value);
+  assert.match(message, /team best overall so far 0\.400/);
+  assert.doesNotMatch(message, /new team best|team best stays/);
+
+  // Same key, conflicting direction: also no verdict.
+  value.primaryMetric = { ...value.teamBest, value: 0.5, higherIsBetter: false };
+  assert.doesNotMatch(rendered(value), /new team best|team best stays/);
+});
+
 test("hosted running resets the loader instead of inheriting local progress", () => {
   const hosted = snapshot();
   hosted.stage = "hosted";
@@ -306,4 +440,62 @@ test("shared event parsing strips raw local detail, paths, predictions, and envi
     predictions: [secretCanary],
   });
   assert.doesNotMatch(JSON.stringify(parsed), /COG_SECRET_CANARY|Users\/student|face-17/);
+});
+
+test("repository-controlled text cannot carry Discord formatting into a team channel", () => {
+  // The refusal headline is built from the team's own function names and the
+  // shapes their code returned, and it lands in a channel the whole team reads.
+  // `allowed_mentions: {parse: []}` on the payload already stops @everyone
+  // from pinging; it does nothing about Markdown, so a link would render.
+  const hostile = snapshot("failed");
+  const value: RunSurfaceSnapshot = {
+    ...hostile,
+    actor: { login: "ada", name: "[Staff](https://evil.example)" },
+    refusalHeadline:
+      "@everyone nothing took [click here](https://evil.example) for the `peaks` step\n" +
+      "### Run passed\n-# <t:0:R> see <https://evil.example>",
+  };
+
+  const posted = textContents(value).join("\n");
+  assert.equal(render(value).allowed_mentions.parse.length, 0);
+  // Their brackets and backticks arrive escaped, so a masked link renders as
+  // its own source. The chips around it are ours and stay formatted.
+  // The actor's profile name is never posted at all.
+  assert.ok(!posted.includes("Staff"), posted);
+  assert.ok(posted.includes("\\[click here\\](https://evil.example)"), posted);
+  assert.ok(posted.includes("\\`peaks\\`"), posted);
+  assert.ok(!posted.includes("[click here]("), "an unescaped masked link survived");
+  // A line break of theirs cannot start a heading or a subtext line of ours,
+  // and none of the sequences Discord reads inside angle brackets survive.
+  assert.ok(!/\n#/.test(posted.slice(posted.indexOf("@everyone"))), "their newline opened a heading");
+  assert.ok(!posted.includes("<t:0:R>"), "a timestamp sequence survived");
+  assert.ok(!posted.includes("<https://evil.example>"), "an angle-bracket link survived");
+  // Defused, not censored: the team still reads what the run reported.
+  assert.ok(posted.includes("@everyone nothing took"), posted);
+  assert.ok(posted.includes("Run passed"), "their words are kept, only their markup is not");
+});
+
+test("no posted state names the person who ran it", () => {
+  // A name beside a result reads as that student's score. The run is
+  // identified by its benchmark and commit; who started it stays internal.
+  const states: Array<[RunSurfaceSnapshot["stage"], RunSurfaceSnapshot["status"], boolean]> = [
+    ["local", "running", false],
+    ["local", "succeeded", false],
+    ["hosted", "succeeded", false],
+    ["official", "succeeded", true],
+    ["hosted", "failed", false],
+  ];
+  for (const [stage, status, published] of states) {
+    const value = snapshot(status);
+    value.stage = stage;
+    value.published = published;
+    value.actor = { login: "zq-synthetic-runner", name: "Quillon Synthetic" };
+    const posted = textContents(value).join("\n");
+    const label = `${stage} ${status}${published ? " published" : ""}`;
+    assert.ok(!/zq-synthetic-runner|Quillon Synthetic|\bby\b/.test(posted), `${label}: ${posted}`);
+    assert.ok(posted.includes("Vision Recognition"), `${label} lost its benchmark`);
+    assert.ok(posted.includes("bbbbbbb"), `${label} lost its commit`);
+    if (status === "succeeded") assert.ok(posted.includes("0.913"), `${label} lost its result`);
+    if (published) assert.ok(posted.includes("Published"), `${label} lost its state`);
+  }
 });

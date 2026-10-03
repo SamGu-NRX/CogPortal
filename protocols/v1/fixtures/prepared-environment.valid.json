@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "artifactId": "artifact_test",
+  "benchmarkId": "vision-recognition",
+  "source": {
+    "repositoryId": 42,
+    "fullName": "cogworks-test/team_1",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "sandboxContract": 1,
+  "baseImageId": "im-provisioned-base",
+  "pythonVersion": "3.11.9",
+  "sdkVersion": "0.2.0",
+  "modules": [
+    {
+      "name": "cogbench.execution",
+      "path": "/opt/platform/cogbench/execution.py",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "weights": []
+}

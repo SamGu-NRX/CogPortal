@@ -1,27 +1,35 @@
 import {
+  queryOptions,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
   ACTIVE_RUN_POLL_MS,
-  SETUP_STEPS,
+  isBenchmarkScopedStep,
   isTerminal,
+  shouldReplaceRunSurfaceSnapshot,
+  type RunSurfaceSnapshot,
   type AdminOverview,
+  type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
-import { api } from "./api";
+import { api, type RunSurfaceMutationInput } from "./api";
+import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
 
 /** Only used before the benchmark list resolves, as a first-render probe.
  *  Which track a team is actually looking at is `useTrack()` in lib/track.ts;
  *  do not reach for this constant to scope a run, a quota, or setup copy. */
 export const DEFAULT_BENCHMARK = "vision-recognition";
 
+/** Shared with the restore gate, which reads the same entry fresh. */
+export const sessionQuery = queryOptions({
+  queryKey: ["session"],
+  queryFn: api.session,
+  staleTime: 60_000,
+});
+
 export function useSession() {
-  return useQuery({
-    queryKey: ["session"],
-    queryFn: api.session,
-    staleTime: 60_000,
-  });
+  return useQuery(sessionQuery);
 }
 
 export function useBenchmarks() {
@@ -50,6 +58,16 @@ export function useLocalReports(benchmarkId: string) {
   });
 }
 
+/** Reports no track's benchmark-scoped list can reach, such as those for an
+ *  inactive benchmark. The server decides which those are. */
+export function useUntrackedLocalReports() {
+  return useQuery({
+    queryKey: ["untracked-local-reports"],
+    queryFn: api.untrackedLocalReports,
+    staleTime: 30_000,
+  });
+}
+
 export function useRun(runId: string) {
   return useQuery({
     queryKey: ["run", runId],
@@ -71,15 +89,12 @@ export function useRunSurface(surfaceId: string) {
 export function useMutateRunSurface() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      surfaceId,
-      action,
-    }: {
-      surfaceId: string;
-      action: "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
-    }) => api.mutateRunSurface(surfaceId, action),
+    mutationFn: (input: RunSurfaceMutationInput) => input.action === "retry"
+      ? api.mutateRunSurface(input.surfaceId, "retry", { runId: input.runId })
+      : api.mutateRunSurface(input.surfaceId, input.action),
     onSuccess: (snapshot) => {
-      qc.setQueryData(["run-surface", snapshot.id], snapshot);
+      qc.setQueryData<RunSurfaceSnapshot>(["run-surface", snapshot.id], (current) =>
+        !current || shouldReplaceRunSurfaceSnapshot(current, snapshot) ? snapshot : current);
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
       void qc.invalidateQueries({ queryKey: ["runs"] });
     },
@@ -212,6 +227,16 @@ export function useTeam() {
   return useQuery({ queryKey: ["team"], queryFn: api.team });
 }
 
+/** The four process signals. Runs are read fresh by the worker, so each
+ *  visit asks again; no polling. */
+export function useTeamProcess() {
+  return useQuery({
+    queryKey: ["team-process"],
+    queryFn: api.teamProcess,
+    staleTime: 0,
+  });
+}
+
 export function useUpdateTeam() {
   const qc = useQueryClient();
   return useMutation({
@@ -231,25 +256,65 @@ export function useChangeTeamRepo() {
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["session"] });
-      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // These answer relative to the connected repository: which one it is,
+      // whether a run may still be promoted or published, which local reports
+      // belong to it. Invalidating kept the old answer on screen until the
+      // refetch landed, so Runs opened right after a save showed the previous
+      // repository as connected and offered a promotion the server now
+      // refuses. Resetting drops them, so the next read waits for the new one.
+      for (const key of ["dashboard", "run", "run-surface", "local-reports", "untracked-local-reports"]) {
+        void qc.resetQueries({ queryKey: [key] });
+      }
       void qc.invalidateQueries({ queryKey: ["repositories"] });
       void qc.invalidateQueries({ queryKey: ["leaderboard"] });
+      // The signals describe a repository's history, so they belong to the
+      // repository rather than to the team. Leaving them cached showed the
+      // previous repository's stages under the new repository's name.
+      void qc.invalidateQueries({ queryKey: ["team-process"] });
     },
   });
 }
 
-/** TanStack Query pauses this polling when the page is unmounted or backgrounded. */
-export function useSetupState(enabled = true) {
+/**
+ * TanStack Query pauses this polling when the page is unmounted or backgrounded.
+ *
+ * `benchmarkId` is the selected track, and it is what the stop condition is
+ * about. Two of the four checklist steps are recorded per benchmark, so the
+ * raw `verified` array is the wrong thing to wait on in both directions: an
+ * older CLI's unscoped rows would stop the poll while the selected track is
+ * still incomplete, and a current CLI's scoped rows would never stop it at
+ * all. Undefined while the track loads, which keeps polling.
+ */
+export function useSetupState(benchmarkId?: string) {
+  const { data: session } = useSession();
+  const login = session?.user?.login ?? null;
+  const teamId = session?.team?.id ?? null;
   return useQuery({
-    queryKey: ["setup-state"],
-    queryFn: api.setupState,
-    enabled,
+    // The key names everything the response is about: the evidence is read
+    // per account and team, and each check-off token is signed for one
+    // account, one team and one track.
+    queryKey: ["setup-state", login, teamId, benchmarkId ?? null],
+    queryFn: () => api.setupState(benchmarkId),
+    // Both consumers sit behind the team route guard, so this only holds the
+    // request while a sign-in or sign-out is settling.
+    enabled: login !== null && teamId !== null,
     staleTime: 3_000,
     refetchInterval: (query) => {
-      const verified = query.state.data?.verified;
-      return verified && SETUP_STEPS.every((step) => verified.includes(step))
-        ? false
-        : 2_500;
+      const data = query.state.data;
+      if (!data) return 2_500;
+      // The visible checklist's own completion set. SETUP_STEPS also carries
+      // test/run milestones the checklist never shows, so waiting on every
+      // step kept a finished page polling forever.
+      // A checked-off step stops the poll too: the box is ticked and nothing
+      // further is going to arrive for it on its own.
+      const scoped = (benchmarkId && data.verifiedByBenchmark[benchmarkId]) || [];
+      const scopedChecked = (benchmarkId && data.checkedByBenchmark[benchmarkId]) || [];
+      const complete = CHECKLIST_MACHINE_STEPS.every((step) =>
+        isBenchmarkScopedStep(step)
+          ? scoped.includes(step) || scopedChecked.includes(step)
+          : data.verified.includes(step) || data.checked.includes(step),
+      );
+      return complete ? false : 2_500;
     },
   });
 }
@@ -392,13 +457,42 @@ export function useAdminRemoveTa() {
   });
 }
 
+/* The roster is owner-only on the server, so a TA's request would 403. The
+ * query is disabled for them rather than left to fail, so the console does not
+ * show an error for a panel it is not going to render. */
+export function useAdminStaffRoster(enabled = true) {
+  return useQuery({
+    queryKey: ["admin", "staff"],
+    queryFn: api.adminStaffRoster,
+    enabled,
+  });
+}
+
+function useSetStaffRoster() {
+  const qc = useQueryClient();
+  // Both mutations return the whole roster, so the response is authoritative
+  // and replaces the cache directly. Same reason useAdminPatchCohort does.
+  return (roster: AdminStaffRoster) => qc.setQueryData(["admin", "staff"], roster);
+}
+
+export function useAdminAddStaff() {
+  const setRoster = useSetStaffRoster();
+  return useMutation({ mutationFn: api.adminAddStaff, onSuccess: setRoster });
+}
+
+export function useAdminRemoveStaff() {
+  const setRoster = useSetStaffRoster();
+  return useMutation({ mutationFn: api.adminRemoveStaff, onSuccess: setRoster });
+}
+
 export function useStartPractice(benchmarkId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (branch?: string) => api.startPractice(benchmarkId, branch),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["dashboard", benchmarkId] });
-    },
+    // Returning this promise keeps the launch pending until the stale
+    // zero-run dashboard has been replaced by the refetched state.
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["dashboard", benchmarkId] }),
   });
 }
 

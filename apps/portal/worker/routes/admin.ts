@@ -1,25 +1,28 @@
 import type { Hono } from "hono";
-import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
+  AdminAddStaffRequestSchema,
   AdminAssignTaRequestSchema,
   AdminCohortPatchSchema,
   AdminOverviewSchema,
+  AdminStaffRosterSchema,
   AdminTeamSummarySchema,
   UpdateTeamRequestSchema,
 } from "@cogworks/contracts/schema";
-import type { AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
-import { isPlatformOwner, requireStaff } from "../auth/roles";
+import type { AdminStaffRoster, AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
+import { isPlatformOwner, normalizeLogin, requireStaff } from "../auth/roles";
 import { authorizationLogin } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import type { Database } from "../db/client";
 import { getDb } from "../db/client";
-import type { AppEnv } from "../env";
+import type { AppEnv, Env } from "../env";
 import {
+  benchmarks,
   cohorts,
   leaderboardSelections,
-  officialAttempts,
+  platformStaff,
   runMetrics,
   runs,
   teamMembers,
@@ -29,6 +32,9 @@ import {
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
+import { isUniqueConstraintError } from "./team";
+import { readUsedRunsByTeam } from "../services/run-accounting";
+import { rankingRefusal } from "../services/run-eligibility";
 
 const AdminCohortSchema = z.object({
   slug: z.string(),
@@ -42,14 +48,23 @@ function memberRole(role: string): TeamMember["role"] {
   throw new Error("Team member has an invalid role.");
 }
 
-async function getAdminTeamSummary(
+/**
+ * Console summaries for every team `teamWhere` selects, in name order.
+ *
+ * Each part is one statement for all teams rather than one per team. The
+ * overview used to spend six per team: 223 D1 queries for one page load on a
+ * local cohort of 36 live teams. D1's free plan documents a limit of 50 per
+ * invocation, which that pattern passes at about eight teams.
+ */
+async function readAdminTeamSummaries(
   db: Database,
-  teamId: string,
-): Promise<AdminTeamSummary> {
-  const [[team], members, tas, [practice], [official], [published]] = await Promise.all([
-    db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
+  teamWhere: SQL,
+): Promise<AdminTeamSummary[]> {
+  const [teamRows, members, tas, used, executed, published] = await Promise.all([
+    db.select().from(teams).where(teamWhere).orderBy(asc(teams.name)),
     db
       .select({
+        teamId: teamMembers.teamId,
         login: users.githubLogin,
         email: users.email,
         name: users.name,
@@ -57,9 +72,11 @@ async function getAdminTeamSummary(
       })
       .from(teamMembers)
       .innerJoin(users, eq(teamMembers.userId, users.id))
-      .where(eq(teamMembers.teamId, teamId)),
+      .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+      .where(teamWhere),
     db
       .select({
+        teamId: teamTas.teamId,
         login: users.githubLogin,
         email: users.email,
         name: users.name,
@@ -67,59 +84,170 @@ async function getAdminTeamSummary(
       })
       .from(teamTas)
       .innerJoin(users, eq(teamTas.userId, users.id))
-      .where(eq(teamTas.teamId, teamId))
+      .innerJoin(teams, eq(teams.id, teamTas.teamId))
+      .where(teamWhere)
       .orderBy(asc(users.githubLogin)),
+    // Admin team totals intentionally span every benchmark and version.
+    readUsedRunsByTeam(db, teamWhere),
+    // Every hosted execution in any state, so a team whose runs all failed
+    // is not mistaken for one that never ran. Teams as a subquery, for the
+    // reason readUsedRunsByTeam gives (runs has no team_id index).
     db
-      .select({ value: count() })
+      .select({ teamId: runs.teamId, count: sql<number>`count(*)`.mapWith(Number) })
       .from(runs)
-      .where(and(eq(runs.teamId, teamId), eq(runs.mode, "practice"))),
+      .where(inArray(runs.teamId, db.select({ id: teams.id }).from(teams).where(teamWhere)))
+      .groupBy(runs.teamId),
+    // Every team's selections, newest first. The first per team that the
+    // board would rank is the one shown (`rankingRefusal` below).
     db
-      .select({ value: count() })
-      .from(officialAttempts)
-      .where(eq(officialAttempts.teamId, teamId)),
-    db
-      .select({ value: runMetrics.value })
+      .select({
+        teamId: leaderboardSelections.teamId,
+        run: {
+          mode: runs.mode,
+          status: runs.status,
+          refundedAt: runs.refundedAt,
+          scorerVersion: runs.scorerVersion,
+        },
+        benchmark: {
+          scorerVersion: benchmarks.scorerVersion,
+          primaryMetricKey: benchmarks.primaryMetricKey,
+        },
+        metricKey: runMetrics.key,
+        value: runMetrics.value,
+        benchmarkName: benchmarks.title,
+        benchmarkVersion: leaderboardSelections.benchmarkVersion,
+      })
       .from(leaderboardSelections)
-      .innerJoin(
+      // Left joins, so a selection with no catalog row or no reading for the
+      // ranked measure still arrives and is refused by the same rule the
+      // board uses, rather than vanishing in SQL for a different reason.
+      .leftJoin(
+        benchmarks,
+        and(
+          eq(benchmarks.id, leaderboardSelections.benchmarkId),
+          eq(benchmarks.version, leaderboardSelections.benchmarkVersion),
+        ),
+      )
+      .leftJoin(
         runMetrics,
         and(
           eq(runMetrics.runId, leaderboardSelections.runId),
-          eq(runMetrics.isPrimary, true),
+          eq(runMetrics.key, benchmarks.primaryMetricKey),
         ),
       )
-      .where(eq(leaderboardSelections.teamId, teamId))
-      .orderBy(desc(leaderboardSelections.selectedAt))
-      .limit(1),
+      .innerJoin(runs, eq(runs.id, leaderboardSelections.runId))
+      .innerJoin(teams, eq(teams.id, leaderboardSelections.teamId))
+      .where(teamWhere)
+      .orderBy(desc(leaderboardSelections.selectedAt)),
   ]);
-  if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
+  const executions = new Map(executed.map((row) => [row.teamId, row.count]));
   const roleOrder: Record<TeamMember["role"], number> = {
     admin: 0,
     maintain: 1,
     write: 2,
   };
-  const serializedMembers = members
-    .map((member) => ({
-      login: member.login ?? member.email.split("@")[0],
-      name: member.name,
-      role: memberRole(member.role),
-    }))
-    .sort(
-      (left, right) =>
-        roleOrder[left.role] - roleOrder[right.role] || left.login.localeCompare(right.login),
-    );
+  return teamRows.map((team) => {
+    const latest = published.find((row) => row.teamId === team.id &&
+      rankingRefusal(row.run, row.benchmark, row.metricKey === null ? [] : [{ key: row.metricKey }]) === null);
+    const usage = used.get(team.id);
+    return {
+      id: team.id,
+      name: team.name,
+      provenance: team.provenance,
+      repoFullName: team.repoFullName,
+      members: members
+        .filter((member) => member.teamId === team.id)
+        .map((member) => ({
+          login: member.login ?? member.email.split("@")[0],
+          name: member.name,
+          role: memberRole(member.role),
+        }))
+        .sort(
+          (left, right) =>
+            roleOrder[left.role] - roleOrder[right.role] || left.login.localeCompare(right.login),
+        ),
+      tas: tas
+        .filter((ta) => ta.teamId === team.id)
+        .map((ta) => ({
+          login: ta.login ?? ta.email.split("@")[0],
+          name: ta.name,
+          avatarUrl: ta.avatarUrl,
+        })),
+      practiceUsed: usage?.practiceUsed ?? 0,
+      officialUsed: usage?.officialUsed ?? 0,
+      hostedRuns: executions.get(team.id) ?? 0,
+      // Retained for older clients. Failures no longer require a refund decision.
+      refundsGiven: 0,
+      published:
+        latest?.value == null
+          ? null
+          : {
+              score: latest.value,
+              benchmarkName: latest.benchmarkName ?? null,
+              benchmarkVersion: latest.benchmarkVersion,
+            },
+    };
+  });
+}
+
+async function getAdminTeamSummary(db: Database, teamId: string): Promise<AdminTeamSummary> {
+  const [summary] = await readAdminTeamSummaries(db, eq(teams.id, teamId));
+  if (!summary) throw new ApiHttpError(404, "not_found", "Team not found.");
+  return summary;
+}
+
+/**
+ * The staff roster as the console shows it.
+ *
+ * A roster row is a login string, not an account (migration 0031 explains
+ * why), so the account is looked up separately and may not exist. `name` null
+ * therefore means "nobody with this login has signed in yet", which is also
+ * what a typo looks like; the console says so rather than leaving an entry
+ * that silently grants nothing.
+ *
+ * Owners are listed alongside because they are staff without a roster row. An
+ * owner reading a roster that omits them would reasonably conclude their own
+ * access was missing.
+ */
+async function getStaffRoster(db: Database, env: Env): Promise<AdminStaffRoster> {
+  const entries = await db
+    .select({
+      login: platformStaff.displayLogin,
+      matchLogin: platformStaff.login,
+      grantedBy: platformStaff.grantedBy,
+      grantedAt: platformStaff.grantedAt,
+    })
+    .from(platformStaff)
+    .orderBy(asc(platformStaff.login));
+  // Lowercased on both sides. users.github_login stores GitHub's own casing,
+  // so an exact IN would report a rostered person as "not signed in yet"
+  // purely because the owner typed their login differently. Same reason
+  // routes/team-membership.ts compares logins this way.
+  const accounts = entries.length
+    ? await db
+        .select({ login: users.githubLogin, name: users.name })
+        .from(users)
+        .where(
+          inArray(
+            sql`lower(${users.githubLogin})`,
+            entries.map((entry) => entry.matchLogin),
+          ),
+        )
+    : [];
+  const nameByLogin = new Map(
+    accounts.map((account) => [normalizeLogin(account.login ?? ""), account.name]),
+  );
   return {
-    id: team.id,
-    name: team.name,
-    repoFullName: team.repoFullName,
-    members: serializedMembers,
-    tas: tas.map((ta) => ({
-      login: ta.login ?? ta.email.split("@")[0],
-      name: ta.name,
-      avatarUrl: ta.avatarUrl,
+    entries: entries.map((entry) => ({
+      login: entry.login,
+      name: nameByLogin.get(entry.matchLogin) ?? null,
+      grantedBy: entry.grantedBy,
+      grantedAt: entry.grantedAt,
     })),
-    practiceUsed: practice?.value ?? 0,
-    officialUsed: official?.value ?? 0,
-    publishedScore: published?.value ?? null,
+    owners: (env.PLATFORM_OWNER_LOGINS ?? "")
+      .split(",")
+      .map((login) => login.trim())
+      .filter(Boolean),
   };
 }
 
@@ -184,10 +312,14 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     // Owner responses contain the active enrollment credential. They must
     // always reflect D1 and must never be retained by a browser or intermediary.
     c.header("Cache-Control", "private, no-store");
-    const teamRows = scope.isOwner
-      ? await db.select({ id: teams.id }).from(teams).where(eq(teams.cohortId, cohort.id)).orderBy(asc(teams.name))
+    // Archive teams are last year's scores under replaced names. They have no
+    // members and will never run, so on a triage list they would all read
+    // "no hosted runs" and sit above every live team. Staff manage live teams.
+    const live = and(eq(teams.cohortId, cohort.id), eq(teams.provenance, "live"))!;
+    const summaries = scope.isOwner
+      ? await readAdminTeamSummaries(db, live)
       : scope.teamIds.length > 0
-        ? await db.select({ id: teams.id }).from(teams).where(and(eq(teams.cohortId, cohort.id), inArray(teams.id, scope.teamIds))).orderBy(asc(teams.name))
+        ? await readAdminTeamSummaries(db, and(live, inArray(teams.id, scope.teamIds))!)
         : [];
     const unassigned = scope.isOwner
       ? await db
@@ -202,9 +334,6 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
         .where(and(eq(users.cohortId, cohort.id), isNull(teamMembers.teamId)))
         .orderBy(asc(users.githubLogin))
       : [];
-    const summaries = await Promise.all(
-      teamRows.map((team) => getAdminTeamSummary(db, team.id)),
-    );
     const serializedUnassigned = unassigned.map((user) => ({
       login: user.login ?? user.email.split("@")[0],
       name: user.name,
@@ -263,19 +392,52 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const teamId = c.req.param("teamId");
     await requireTeamScope(c, teamId);
     const [[team], [user]] = await Promise.all([
-      db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1),
-      db.select({ id: users.id }).from(users).where(eq(users.githubLogin, body.login)).limit(1),
+      db
+        .select({ id: teams.id, cohortId: teams.cohortId })
+        .from(teams)
+        .where(eq(teams.id, teamId))
+        .limit(1),
+      db
+        .select({ id: users.id, cohortId: users.cohortId })
+        .from(users)
+        .where(sql`lower(${users.githubLogin}) = lower(${body.login})`)
+        .limit(1),
     ]);
     if (!team || !user) {
       throw new ApiHttpError(404, "not_found", !team ? "Team not found." : "User not found.");
     }
-    await db
-      .insert(teamMembers)
-      .values({ teamId, userId: user.id, role: "write" })
-      .onConflictDoUpdate({
-        target: [teamMembers.teamId, teamMembers.userId],
-        set: { role: "write" },
-      });
+    // The same refusals the student-facing path makes (routes/team-membership.ts):
+    // without them, a cross-cohort add succeeds silently and the one-team unique
+    // index surfaces as a raw 500.
+    if (user.cohortId !== team.cohortId) {
+      throw new ApiHttpError(403, "not_in_cohort", `@${body.login} is not in this team's cohort.`);
+    }
+    const [membership] = await db
+      .select({ teamId: teamMembers.teamId, teamName: teams.name })
+      .from(teamMembers)
+      .leftJoin(teams, eq(teamMembers.teamId, teams.id))
+      .where(eq(teamMembers.userId, user.id))
+      .limit(1);
+    if (membership) {
+      // Already on this team included: refusing instead of upserting is what
+      // preserves an existing member's role (re-adding a creator used to
+      // silently demote them to "write").
+      throw new ApiHttpError(
+        409,
+        "already_on_team",
+        membership.teamId === teamId
+          ? `@${body.login} is already on this team.`
+          : `@${body.login} is already on team ${membership.teamName ?? "another team"}.`,
+      );
+    }
+    try {
+      await db.insert(teamMembers).values({ teamId, userId: user.id, role: "write" });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ApiHttpError(409, "already_on_team", `@${body.login} is already on a team.`);
+      }
+      throw error;
+    }
     return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
   });
 
@@ -288,9 +450,23 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const [user] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.githubLogin, c.req.param("login")))
+      .where(sql`lower(${users.githubLogin}) = lower(${c.req.param("login")})`)
       .limit(1);
     if (user) {
+      // Same refusal as the team page's removal path (routes/team-membership.ts):
+      // removing the creator strands the team's settings for everyone.
+      const [membership] = await db
+        .select({ role: teamMembers.role })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+        .limit(1);
+      if (membership?.role === "admin") {
+        throw new ApiHttpError(
+          403,
+          "cannot_remove_creator",
+          "A team admin can't be removed.",
+        );
+      }
       await db
         .delete(teamMembers)
         .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)));
@@ -305,7 +481,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const teamId = c.req.param("teamId");
     const [[team], [user]] = await Promise.all([
       db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1),
-      db.select({ id: users.id }).from(users).where(eq(users.githubLogin, body.login)).limit(1),
+      db.select({ id: users.id }).from(users).where(sql`lower(${users.githubLogin}) = lower(${body.login})`).limit(1),
     ]);
     if (!team || !user) {
       throw new ApiHttpError(404, "not_found", !team ? "Team not found." : "User must sign in before being assigned as a TA.");
@@ -324,11 +500,58 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const [user] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.githubLogin, c.req.param("login")))
+      .where(sql`lower(${users.githubLogin}) = lower(${c.req.param("login")})`)
       .limit(1);
     if (user) {
       await db.delete(teamTas).where(and(eq(teamTas.teamId, teamId), eq(teamTas.userId, user.id)));
     }
     return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+  });
+
+  /* ── Platform staff roster (owner only) ──────────────────────────────
+   *
+   * Every one of these is owner-gated, including the read. Staff granting
+   * staff is privilege escalation: a TA who could add a login could add their
+   * own second account, and the roster would stop meaning what an owner set
+   * it to. Owners themselves are not in this table and cannot be added to it,
+   * so no request here can create an owner (auth/roles.ts, migration 0031).
+   */
+
+  app.get("/admin/staff", async (c) => {
+    await requireOwner(c);
+    return respond(c, AdminStaffRosterSchema, await getStaffRoster(getDb(c.env), c.env));
+  });
+
+  app.post("/admin/staff", async (c) => {
+    const auth = await requireOwner(c);
+    const body = await parseBody(c, AdminAddStaffRequestSchema);
+    const db = getDb(c.env);
+    // No users lookup, and that is the point: an owner names the teaching
+    // staff before the term starts, when none of them have signed in. The
+    // response reports whether an account exists so a typo is visible.
+    await db
+      .insert(platformStaff)
+      .values({
+        login: normalizeLogin(body.login),
+        displayLogin: body.login.trim(),
+        grantedBy: authorizationLogin(c.env, auth.user),
+        grantedAt: Date.now(),
+      })
+      // Do nothing rather than update: re-adding somebody already on the
+      // roster should not rewrite who granted it and when. The first grant is
+      // the fact the audit trail exists to keep.
+      .onConflictDoNothing();
+    return respond(c, AdminStaffRosterSchema, await getStaffRoster(db, c.env));
+  });
+
+  app.delete("/admin/staff/:login", async (c) => {
+    await requireOwner(c);
+    const db = getDb(c.env);
+    // Idempotent, like the TA and member removals above: a login that is not
+    // on the roster is already in the state the caller asked for.
+    await db
+      .delete(platformStaff)
+      .where(eq(platformStaff.login, normalizeLogin(c.req.param("login"))));
+    return respond(c, AdminStaffRosterSchema, await getStaffRoster(db, c.env));
   });
 }

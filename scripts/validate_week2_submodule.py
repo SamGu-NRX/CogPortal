@@ -4,10 +4,14 @@ import json
 import subprocess
 from pathlib import Path
 
+from cogbench.plugins import load_plugin
+from benchmark_tree import require_reviewed_tree
+from validate_metric_metadata import validate_metric_metadata
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week2"
-REVIEWED_COMMIT = "65200e909264414761a55c670a3c323b5122c7fb"
+REVIEWED_COMMIT = "a3dd948d0c108fabf070b4f159acdecd4d6c3897"
 
 
 def main() -> None:
@@ -25,16 +29,18 @@ def main() -> None:
                 actual, REVIEWED_COMMIT
             )
         )
+    require_reviewed_tree(BENCHMARK, "benchmarks/week2")
     descriptor = json.loads(
         (BENCHMARK / "facial_recognition_benchmark" / "descriptor.json").read_text(
             encoding="utf-8"
         )
     )
     expected = {
-        "vision-recognition": (2, "recognition-v1", "recognition_score"),
+        "vision-recognition": (2, "recognition-v2", "recognition_score"),
         "vision-clustering": (2, "clustering-v2", "clustering_pairwise_f1"),
     }
     for track, values in expected.items():
+        validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", track))
         record = descriptor["tracks"].get(track)
         actual_values = (
             record.get("benchmark_version"),
@@ -53,7 +59,7 @@ def main() -> None:
     for value in (
         "cogworks.submissions.v2",
         "celeba-official-v1",
-        "recognition-v1",
+        "recognition-v2",
         "clustering-v2",
     ):
         if value not in migration:

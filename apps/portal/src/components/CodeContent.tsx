@@ -1,0 +1,101 @@
+import { useEffect, useState } from "react";
+
+/** `text` skips grammar loading for opaque tokens. */
+export type CodeLang = "bash" | "toml" | "python" | "text";
+
+const PAPER_THEME = {
+  name: "cogportal-paper",
+  type: "light" as const,
+  colors: {
+    "editor.background": "#00000000",
+    "editor.foreground": "#1b1f24",
+  },
+  tokenColors: [
+    { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: "#5f656d", fontStyle: "italic" } },
+    { scope: ["string", "string.quoted", "punctuation.definition.string"], settings: { foreground: "#2a6a4e" } },
+    { scope: ["keyword", "storage.type", "storage.modifier", "keyword.operator.assignment"], settings: { foreground: "#b5392b" } },
+    { scope: ["entity.name.function", "support.function", "meta.function-call.generic"], settings: { foreground: "#2e52bf" } },
+    { scope: ["constant.numeric", "constant.language"], settings: { foreground: "#a3311f" } },
+    { scope: ["entity.name.tag", "support.type.property-name", "entity.name.section", "keyword.key.toml", "variable.other"], settings: { foreground: "#2e52bf" } },
+    { scope: ["punctuation"], settings: { foreground: "#4a5058" } },
+  ],
+};
+
+type Highlight = (code: string, lang: Exclude<CodeLang, "text">, focusable: boolean) => string;
+let highlighterPromise: Promise<Highlight> | null = null;
+
+function loadHighlighter(): Promise<Highlight> {
+  highlighterPromise ??= Promise.all([
+    import("shiki/core"),
+    import("shiki/engine/javascript"),
+    import("@shikijs/langs/bash"),
+    import("@shikijs/langs/toml"),
+    import("@shikijs/langs/python"),
+  ]).then(async ([{ createHighlighterCore }, { createJavaScriptRegexEngine }, bash, toml, python]): Promise<Highlight> => {
+    const h = await createHighlighterCore({
+      themes: [PAPER_THEME],
+      langs: [bash.default, toml.default, python.default],
+      engine: createJavaScriptRegexEngine(),
+    });
+    // Shiki stops tokenizing a line after 500 ms of wall time by default and
+    // paints the rest in one colour. Every line here is a short command the
+    // portal writes, so there is no runaway line to guard against, and a line
+    // that runs past the cutoff should highlight late but whole.
+    return (code, lang, focusable) =>
+      h.codeToHtml(code, { lang, theme: "cogportal-paper", tabindex: focusable ? "0" : false, tokenizeTimeLimit: 0 });
+  }).catch((error: unknown) => {
+    // Not cached: the next mount asks again, which recovers wherever the
+    // browser refetches a failed module (whatwg/html#10327). Browsers that
+    // keep the failure answer from their own cache without a request.
+    highlighterPromise = null;
+    throw error;
+  });
+  return highlighterPromise;
+}
+
+/** Syntax only. Callers own layout and copying. */
+export function CodeContent({
+  code,
+  lang,
+  className = "",
+  plainAs = "pre",
+  focusable = true,
+}: {
+  code: string;
+  lang: CodeLang;
+  /** Disable Shiki's default tab stop when the caller already owns scrolling. */
+  focusable?: boolean;
+  /** Fallback styling; highlighted markup inherits the caller's layout. */
+  className?: string;
+  plainAs?: "pre" | "code";
+}) {
+  // Never display an async result beside a different command's copy control.
+  const [rendered, setRendered] = useState<{
+    code: string; lang: CodeLang; focusable: boolean; html: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (lang === "text") return;
+    let alive = true;
+    loadHighlighter().then(
+      (highlight) => {
+        if (alive) setRendered({ code, lang, focusable, html: highlight(code, lang, focusable) });
+      },
+      // The plain text already on screen is the result: readable and copyable.
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [code, lang, focusable]);
+
+  const html = rendered?.code === code && rendered.lang === lang && rendered.focusable === focusable
+    ? rendered.html
+    : null;
+  if (html === null) {
+    const Plain = plainAs;
+    return <Plain className={className}>{code}</Plain>;
+  }
+  // Generated locally by Shiki, which escapes the literal code string.
+  return <div dangerouslySetInnerHTML={{ __html: html }} />;
+}

@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
-import type {
-  FamilyLeaderboard,
-  Leaderboard,
-  LeaderboardEntry,
+import {
+  runSource,
+  type FamilyLeaderboard,
+  type Leaderboard,
+  type LeaderboardEntry,
 } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
@@ -16,6 +17,7 @@ import {
   teams,
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
+import { canPublishOfficialRun, rankingRefusal } from "./run-eligibility";
 import { serializeBenchmark, serializeMetric } from "../http/serializers";
 import {
   hasSharedBenchmarkSource,
@@ -52,6 +54,8 @@ export async function getLeaderboardReadModel(
       and(
         eq(leaderboardSelections.benchmarkId, benchmark.id),
         eq(leaderboardSelections.benchmarkVersion, benchmark.version),
+        // Historical selections stay stored, but different scorers do not rank together.
+        eq(runs.scorerVersion, benchmark.scorerVersion),
       ),
     );
   const metrics = selected.length
@@ -70,28 +74,53 @@ export async function getLeaderboardReadModel(
   const entries: LeaderboardEntry[] = [];
   for (const row of selected) {
     const runMetricsForRow = metricsByRun.get(row.run.id) ?? [];
-    const primary = runMetricsForRow.find((metric) => metric.isPrimary);
-    if (!primary || row.run.finishedAt === null) continue;
+    // The catalog's measure, not the run's own primary flag.
+    const ranked = runMetricsForRow.find((metric) => metric.key === benchmark.primaryMetricKey);
+    if (!ranked || rankingRefusal(row.run, benchmark, runMetricsForRow) !== null || row.run.finishedAt === null) {
+      continue;
+    }
     entries.push({
       rank: 0,
       teamName: row.team.name,
       teamDescription: row.team.description,
-      repoUrl: row.team.repoUrl,
-      sha: row.run.sha,
-      shortSha: row.run.sha.slice(0, 7),
-      primaryMetric: serializeMetric(primary),
+      provenance: row.team.provenance,
+      // An archive row is labeled anonymized on the page. The repository link
+      // names a GitHub account and a commit SHA resolves to its repository
+      // through GitHub search, so neither leaves the server for those rows.
+      //
+      // Otherwise the link names the repository this run used, which is not
+      // always the one the team has now. Pairing the team's current repository
+      // with a published run's commit sent a reader to a repository that never
+      // held it. Null when the run predates the recorded name; the page
+      // already omits the row rather than showing a guess.
+      repoUrl:
+        row.team.provenance === "archive"
+          ? null
+          : (runSource(row.run.repositoryFullName)?.url ?? null),
+      sha: row.team.provenance === "archive" ? "" : row.run.sha,
+      shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
+      primaryMetric: { ...serializeMetric(ranked), primary: true },
       supportingMetrics: runMetricsForRow
-        .filter((metric) => !metric.isPrimary)
-        .map(serializeMetric),
+        .filter((metric) => metric !== ranked)
+        .map((metric) => ({ ...serializeMetric(metric), primary: false })),
       completedAt: row.run.finishedAt,
       isYou: teamId === row.team.id,
     });
   }
-  entries.sort((left, right) => {
-    const direction = left.primaryMetric.higherIsBetter ? -1 : 1;
-    const scoreOrder = direction * (left.primaryMetric.value - right.primaryMetric.value);
-    return scoreOrder !== 0 ? scoreOrder : left.completedAt - right.completedAt;
-  });
+  // One key under one scorer should carry one direction. Two means the
+  // scorer's direction changed without a new scorer version, and any order
+  // picked here would be a guess presented as a ranking.
+  const directions = new Set(entries.map((entry) => entry.primaryMetric.higherIsBetter));
+  if (directions.size > 1) {
+    throw new Error(
+      `Leaderboard ${benchmark.id}@${benchmark.version}: "${benchmark.primaryMetricKey}" under scorer ` +
+      `${benchmark.scorerVersion} is stored as both higher-is-better and lower-is-better; bump the scorer version.`,
+    );
+  }
+  const direction = entries[0]?.primaryMetric.higherIsBetter === false ? 1 : -1;
+  entries.sort((left, right) =>
+    direction * (left.primaryMetric.value - right.primaryMetric.value) ||
+    left.completedAt - right.completedAt);
   entries.forEach((entry, index) => {
     entry.rank = index + 1;
   });
@@ -122,22 +151,30 @@ export async function getFamilyLeaderboardReadModel(
     )
     .orderBy(asc(benchmarkFamilyComponents.sortOrder));
   const selected = await db
-    .select({ selection: leaderboardSelections, run: runs, team: teams })
+    .select({ selection: leaderboardSelections, run: runs, team: teams, benchmark: benchmarks })
     .from(leaderboardSelections)
     .innerJoin(runs, eq(leaderboardSelections.runId, runs.id))
-    .innerJoin(teams, eq(leaderboardSelections.teamId, teams.id));
-  const relevant = selected.filter((row) =>
-    components.some(
+    .innerJoin(teams, eq(leaderboardSelections.teamId, teams.id))
+    .innerJoin(
+      benchmarks,
+      and(
+        eq(runs.benchmarkId, benchmarks.id),
+        eq(runs.benchmarkVersion, benchmarks.version),
+        eq(runs.scorerVersion, benchmarks.scorerVersion),
+      ),
+    );
+  const candidates = selected.filter((row) =>
+    canPublishOfficialRun(row.run) && components.some(
       (component) =>
         component.benchmarkId === row.run.benchmarkId &&
         component.benchmarkVersion === row.run.benchmarkVersion,
     ),
   );
-  const metrics = relevant.length
+  const metrics = candidates.length
     ? await db
         .select()
         .from(runMetrics)
-        .where(inArray(runMetrics.runId, relevant.map((row) => row.run.id)))
+        .where(inArray(runMetrics.runId, candidates.map((row) => row.run.id)))
     : [];
   const metricsByRun = new Map<string, typeof metrics>();
   for (const metric of metrics) {
@@ -145,6 +182,10 @@ export async function getFamilyLeaderboardReadModel(
     values.push(metric);
     metricsByRun.set(metric.runId, values);
   }
+  // A selection its own board leaves out (no reading for the catalog's ranked
+  // measure) isn't published, so it can't count toward the family either.
+  const relevant = candidates.filter((row) =>
+    rankingRefusal(row.run, row.benchmark, metricsByRun.get(row.run.id) ?? []) === null);
 
   const requiredTracks = new Set(
     components.map((component) => `${component.benchmarkId}@${component.benchmarkVersion}`),
@@ -192,9 +233,22 @@ export async function getFamilyLeaderboardReadModel(
       rank: 0,
       teamName: row.team.name,
       teamDescription: row.team.description,
-      repoUrl: row.team.repoUrl,
-      sha: row.run.sha,
-      shortSha: row.run.sha.slice(0, 7),
+      provenance: row.team.provenance,
+      // An archive row is labeled anonymized on the page. The repository link
+      // names a GitHub account and a commit SHA resolves to its repository
+      // through GitHub search, so neither leaves the server for those rows.
+      //
+      // Otherwise the link names the repository this run used, which is not
+      // always the one the team has now. Pairing the team's current repository
+      // with a published run's commit sent a reader to a repository that never
+      // held it. Null when the run predates the recorded name; the page
+      // already omits the row rather than showing a guess.
+      repoUrl:
+        row.team.provenance === "archive"
+          ? null
+          : (runSource(row.run.repositoryFullName)?.url ?? null),
+      sha: row.team.provenance === "archive" ? "" : row.run.sha,
+      shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
       primaryMetric: {
         key: "overall",
         label: "Overall",

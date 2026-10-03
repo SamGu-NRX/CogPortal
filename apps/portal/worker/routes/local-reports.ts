@@ -6,9 +6,16 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireDevice } from "../auth/device";
+import { ApiHttpError } from "../http/errors";
 import { requireTeam } from "../auth/session";
 import { parseBody, respond } from "../http/respond";
-import { listTeamLocalReports, upsertLocalReport } from "../services/local-reports";
+import {
+  getWeightUploadTarget,
+  listTeamLocalReports,
+  listUntrackedLocalReports,
+  upsertLocalReport,
+} from "../services/local-reports";
+import { parseWeightDigest, uploadWeight, weightPathFromRoute } from "../services/weights";
 
 export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/local-reports", async (c) => {
@@ -18,9 +25,48 @@ export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
     return respond(c, LocalReportSchema, result.report, result.created ? 201 : 200);
   });
 
+  app.put("/v1/local-reports/:reportId/weights/*", async (c) => {
+    const device = await requireDevice(c);
+    const path = weightPathFromRoute(c.req.routePath, c.req.url);
+    // The digest names the stored object, so admission has to see it before
+    // anything is written rather than learning it from the bytes.
+    const sha256 = parseWeightDigest(c.req.header("X-Cogworks-Weight-SHA256"));
+    const target = await getWeightUploadTarget(
+      c.env,
+      device.userId,
+      c.req.param("reportId"),
+      path,
+      sha256,
+    );
+    if (!c.env.ARTIFACTS) {
+      throw new ApiHttpError(
+        501,
+        "provider_unconfigured",
+        "This portal cannot store trained weights yet. Your report synced; the score stands.",
+      );
+    }
+    const uploaded = await uploadWeight(
+      c.env.ARTIFACTS,
+      target.repositoryFullName,
+      target.sha,
+      path,
+      c.req.raw.body,
+      c.req.header("Content-Length"),
+      sha256,
+    );
+    return c.json(uploaded, 201);
+  });
+
   app.get("/v1/local-reports", async (c) => {
     const auth = await requireTeam(c);
-    const reports = await listTeamLocalReports(c.env, auth.user.id, c.req.query("benchmark"));
+    const benchmarkId = c.req.query("benchmark");
+    const untracked = c.req.query("untracked");
+    if (untracked !== undefined && (untracked !== "1" || benchmarkId !== undefined)) {
+      throw new ApiHttpError(400, "invalid_request", "Use untracked=1 on its own, without a benchmark.");
+    }
+    const reports = untracked
+      ? await listUntrackedLocalReports(c.env, auth.user.id)
+      : await listTeamLocalReports(c.env, auth.user.id, benchmarkId);
     return respond(c, LocalReportListSchema, reports);
   });
 }

@@ -8,23 +8,37 @@ import re
 import subprocess
 from pathlib import Path
 
+from cogbench.plugins import load_plugin
+from benchmark_tree import require_reviewed_tree
+from validate_metric_metadata import validate_metric_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "abdce758b85c347bc7ac0c15e31c5bc015ca5803"
+REVIEWED_COMMIT = "4b1755433110b387b8a37021ef173300636d3b8c"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
     "benchmark_version = 1": "benchmark version",
     'contract_version = "cogworks.submissions.v2"': "contract version",
-    'scorer_version = "retrieval-v2"': "scorer version",
+    # Tracks the catalog row, which migration 0032 moved to retrieval-v4 when
+    # `search_mrr` changed from the verbatim rung alone to the mean of the
+    # three query rewrites. Leaving this at retrieval-v2 would assert the
+    # catalog says something it no longer says.
+    'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
 }
 
+# Every superseded version stays listed. The check is that some migration
+# mentions each value, so keeping the older ones asserts that the history
+# explaining each bump is still in the tree rather than having been squashed
+# away; a run scored under an older version is still readable only because
+# its migration says what that version measured.
 MIGRATION_EXPECTATIONS = (
     "language-search",
     "cogworks.submissions.v2",
     "language-search-official-v1",
     "retrieval-v2",
+    "retrieval-v3",
     "week3-cpu-v1",
 )
 
@@ -44,6 +58,7 @@ def main() -> None:
                 actual, REVIEWED_COMMIT
             )
         )
+    require_reviewed_tree(BENCHMARK, "benchmarks/week3")
 
     # Judge tracked files, not the working tree: local editable installs
     # legitimately drop egg-info next to the source.
@@ -69,6 +84,7 @@ def main() -> None:
             "package; found {}.".format(packages)
         )
 
+    validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", "language-search"))
     plugin_source = (BENCHMARK / "language_search_benchmark" / "plugins.py").read_text(
         encoding="utf-8"
     )

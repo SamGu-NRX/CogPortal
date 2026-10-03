@@ -1,0 +1,923 @@
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { dirname, join } from "node:path";
+import { test, type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import {
+  LocalReportInputSchema,
+  StartLocalRunResponseSchema,
+  type LocalRunEvent,
+  type StartLocalRunRequest,
+} from "@cogworks/contracts/schema";
+import type { Database } from "../worker/db/client.ts";
+import {
+  benchmarks,
+  cliDevices,
+  cohorts,
+  localRunSessions,
+  runStreamEvents,
+  runSurfaces,
+  teamMembers,
+  teams,
+  users,
+} from "../worker/db/schema.ts";
+import type { AppEnv, Env } from "../worker/env.ts";
+import { handleError } from "../worker/http/errors.ts";
+import { registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
+import { runSurfaceMessage } from "../worker/services/discord-messages.ts";
+import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
+import { sha256Hex } from "../worker/util/crypto.ts";
+import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
+
+/**
+ * Which repository a local session is recorded against. The route checked the
+ * submitted name and then stored the SDK's null id, so a fresh run read as
+ * predating the record and lost hosted verification.
+ */
+
+const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const NOW = 1_780_000_000_000;
+const DEVICE_TOKEN = "cog_localrunstarttoken";
+const BENCHMARK_ID = "vision-recognition";
+const SESSION = `localrun_${"a".repeat(32)}`;
+const SHA = "b".repeat(40);
+const OTHER_REPO_ID = 999_999_999;
+
+/** Lets a test hide the session lookup once, so the insert races a row that
+ *  already exists and the conflict branch is the one under test. */
+interface Race { hideSessionSelect: number; queries: string[] }
+
+function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Database; binding: unknown; sqlite: DatabaseSync } {
+  const sqlite = new DatabaseSync(":memory:");
+  for (const file of readdirSync(MIGRATIONS)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()
+    .filter((name) => !/^(0002_seed|0016_backfill)/.test(name))) {
+    sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
+  }
+  const binding = {
+    prepare(query: string) {
+      const statement = sqlite.prepare(query);
+      let bound: SQLInputValue[] = [];
+      const prepared = {
+        bind(...params: SQLInputValue[]) {
+          bound = params;
+          return prepared;
+        },
+        hidden() {
+          if (race.hideSessionSelect <= 0) return false;
+          if (!/^select\b[\s\S]*"local_run_sessions"/i.test(query)) return false;
+          race.hideSessionSelect -= 1;
+          return true;
+        },
+        async run() {
+          race.queries.push(query);
+          return { success: true, meta: statement.run(...bound) };
+        },
+        /** One statement of a batch, run synchronously inside its transaction. */
+        execute() {
+          race.queries.push(query);
+          const results = statement.all(...bound);
+          const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+          return { success: true, results, meta: { changes } };
+        },
+        async all() {
+          race.queries.push(query);
+          if (prepared.hidden()) return { success: true, results: [] };
+          return { success: true, results: statement.all(...bound) };
+        },
+        async raw() {
+          race.queries.push(query);
+          if (prepared.hidden()) return [];
+          statement.setReturnArrays(true);
+          const rows = statement.all(...bound);
+          statement.setReturnArrays(false);
+          return rows;
+        },
+      };
+      return prepared;
+    },
+    // D1 commits a batch as one transaction; mirror that so a failure inside
+    // one rolls back what the batch wrote before it.
+    async batch(statements: Array<{ execute(): unknown }>) {
+      sqlite.exec("BEGIN");
+      try {
+        const results = statements.map((statement) => statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  };
+  // SAFETY: this shim implements the prepared-statement methods used here;
+  // Cloudflare's D1 type also requires host methods these tests never call.
+  return { db: drizzle(binding as never), binding, sqlite };
+}
+
+async function seed(db: Database, teamRepoId: number | null = FIXTURE_REPO.repositoryId): Promise<void> {
+  await db.insert(cohorts).values({ id: "cohort_1", slug: "c", name: "Cohort", joinCode: "JOINCODE1", active: true });
+  await db.insert(users).values({ id: "user_1", name: "Ada", email: "ada@example.test", githubLogin: "ada", cohortId: "cohort_1" });
+  await db.insert(teams).values({
+    id: "team_1", cohortId: "cohort_1", name: "Team", description: null,
+    repoOwner: FIXTURE_REPO.owner, repoName: FIXTURE_REPO.name, repoFullName: FIXTURE_REPO.fullName,
+    repoUrl: FIXTURE_REPO.url, defaultBranch: FIXTURE_REPO.defaultBranch, repoId: teamRepoId,
+  });
+  await db.insert(teamMembers).values({ teamId: "team_1", userId: "user_1", role: "admin" });
+  await db.insert(benchmarks).values({
+    id: BENCHMARK_ID, version: 1, contractVersion: "cogworks.submissions.v1", entryPointName: "submission",
+    title: "Vision Recognition", module: "vision", summary: "fixture", active: true,
+    primaryMetricKey: "accuracy", pluginVersion: "1", datasetVersion: "official-v1",
+    scorerVersion: "1", runtimeVersion: "python-3.11", sandboxContract: 1,
+  });
+  await db.insert(cliDevices).values({
+    id: "device_1", userId: "user_1", name: "laptop", tokenHash: await sha256Hex(DEVICE_TOKEN),
+    createdAt: NOW, expiresAt: Date.now() + 86_400_000, lastUsedAt: null, revokedAt: null,
+  });
+}
+
+function runtime(binding: unknown, vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}): Env {
+  // SAFETY: these routes use the test D1 shim and hub assigned below, not ASSETS.
+  const env = {
+    DB: binding, ENVIRONMENT: "development", DEV_AUTH: "disabled",
+    EXECUTION_PROVIDER: "fixture", PUBLIC_ORIGIN: "https://portal.example", ...vars,
+  } as Env;
+  env.RUN_SURFACES = runSurfaceHubs(env).namespace;
+  return env;
+}
+
+function app(): Hono<AppEnv> {
+  const instance = new Hono<AppEnv>();
+  registerLocalRunRoutes(instance);
+  instance.onError(handleError);
+  return instance;
+}
+
+function startBody(over: Partial<StartLocalRunRequest> = {}) {
+  return {
+    clientRunId: SESSION, benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    repositoryId: null, repositoryFullName: FIXTURE_REPO.fullName,
+    sha: SHA, branch: "main", dirty: false, ...over,
+  };
+}
+
+function start(env: Env, over: Partial<StartLocalRunRequest> = {}): Promise<Response> {
+  return app().fetch(new Request("http://localhost/v1/local-runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: JSON.stringify(startBody(over)),
+  }), env);
+}
+
+async function session(db: Database) {
+  const [row] = await db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+  return row;
+}
+
+test("a start with no claimed id records the connection its name was checked against", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  assert.equal((await start(env)).status, 201, "a new session is created");
+  assert.equal((await session(db)).repositoryId, FIXTURE_REPO.repositoryId);
+});
+
+test("the same start replays, and a matching claim is accepted too", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  const first = await start(env);
+  assert.equal(first.status, 201);
+  const body = StartLocalRunResponseSchema.parse(await first.json());
+
+  // The installed SDK sends none on every attempt, including the retry.
+  const replay = await start(env);
+  assert.equal(replay.status, 200, "the replay branch was not taken");
+  assert.equal(StartLocalRunResponseSchema.parse(await replay.json()).surfaceId, body.surfaceId);
+
+  // A later SDK that does send the id agrees with the record.
+  const claimed = await start(env, { repositoryId: FIXTURE_REPO.repositoryId });
+  assert.equal(claimed.status, 200);
+  assert.equal((await session(db)).repositoryId, FIXTURE_REPO.repositoryId);
+});
+
+for (const [name, teamRepoId] of [["a connected team", FIXTURE_REPO.repositoryId], ["a team with no recorded id", null]] as const) {
+  test(`a claimed id the connection cannot corroborate is refused, for ${name}`, async () => {
+    const { db, binding } = freshDb();
+    await seed(db, teamRepoId);
+    const env = runtime(binding);
+    const response = await start(env, { repositoryId: OTHER_REPO_ID });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json() as { error: { code: string } }).error.code, "forbidden");
+    assert.equal(await session(db), undefined, "a refused start wrote a session");
+  });
+}
+
+test("a team with no recorded id keeps recording none", async () => {
+  const { db, binding } = freshDb();
+  await seed(db, null);
+  const env = runtime(binding);
+  assert.equal((await start(env)).status, 201);
+  assert.equal((await session(db)).repositoryId, null, "an id was invented for an unconnected team");
+});
+
+test("a session written before the id was recorded replays unchanged and is never enriched", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  assert.equal((await start(env)).status, 201);
+  // Exactly what the old route stored: the name it checked, and no id.
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, SESSION));
+  const before = await session(db);
+
+  const replay = await start(env);
+  assert.equal(replay.status, 200, "the historical row did not replay");
+  assert.deepEqual(await session(db), before, "the historical row was rewritten");
+  assert.equal((await session(db)).repositoryId, null, "the historical row was enriched");
+
+  // A claim against a row that never recorded one is still refused, as before.
+  assert.equal((await start(env, { repositoryId: FIXTURE_REPO.repositoryId })).status, 409);
+  assert.deepEqual(await session(db), before);
+});
+
+test("a reconnect under the same name rejects the session bound to the old one", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  assert.equal((await start(env)).status, 201);
+  const before = await session(db);
+  // Same owner/name, a different repository object behind it.
+  await db.update(teams).set({ repoId: OTHER_REPO_ID }).where(eq(teams.id, "team_1"));
+  assert.equal((await start(env)).status, 409);
+  assert.deepEqual(await session(db), before, "a rejected replay still rewrote the row");
+});
+
+test("a changed connection name is still refused before anything else", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  const response = await start(env, { repositoryFullName: "someone-else/other-repo" });
+  assert.equal(response.status, 409);
+  assert.match((await response.json() as { error: { message: string } }).error.message, /but your team is connected to/);
+});
+
+test("moving to another team cannot replay the first team's session", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  assert.equal((await start(env)).status, 201);
+  const before = await session(db);
+
+  // A second cohort, because one cohort cannot hold two teams on the same
+  // repository (unique cohort_id, repo_full_name). Same name and same id, so
+  // every other check passes and only the team differs.
+  await db.insert(cohorts).values({ id: "cohort_2", slug: "c2", name: "Other cohort", joinCode: "JOINCODE2", active: true });
+  await db.insert(teams).values({
+    id: "team_2", cohortId: "cohort_2", name: "Other", description: null,
+    repoOwner: FIXTURE_REPO.owner, repoName: FIXTURE_REPO.name, repoFullName: FIXTURE_REPO.fullName,
+    repoUrl: FIXTURE_REPO.url, defaultBranch: FIXTURE_REPO.defaultBranch, repoId: FIXTURE_REPO.repositoryId,
+  });
+  await db.delete(teamMembers).where(eq(teamMembers.userId, "user_1"));
+  await db.insert(teamMembers).values({ teamId: "team_2", userId: "user_1", role: "admin" });
+
+  assert.equal((await start(env)).status, 409, "another team's session replayed");
+  assert.deepEqual(await session(db), before);
+});
+
+test("a successful local run offers hosted verification without becoming a hosted result", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  assert.equal((await start(env)).status, 201);
+  const surfaceId = `surface_${SESSION.slice(-20)}`;
+  await db.update(localRunSessions)
+    .set({ status: "succeeded", phase: "scoring", finishedAt: NOW + 1_000 })
+    .where(eq(localRunSessions.id, SESSION));
+
+  const snapshot = await buildRunSurfaceSnapshot(env, surfaceId);
+  assert.equal(snapshot.stage, "local");
+  assert.equal(snapshot.sourceRefusal, null);
+  assert.equal(snapshot.actions.includes("verify_hosted"), true, "a fresh local run still cannot be verified");
+  // Recording the repository authorises verification, not promotion: the local
+  // score stays self-reported until the hosted run produces its own.
+  assert.equal(snapshot.actions.includes("promote_official"), false);
+  assert.equal(snapshot.actions.includes("publish_result"), false);
+
+  // The contrast: a row with no recorded id keeps refusing, and says why.
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, SESSION));
+  const historical = await buildRunSurfaceSnapshot(env, surfaceId);
+  assert.match(historical.sourceRefusal ?? "", /predates the repository/);
+  assert.equal(historical.actions.includes("verify_hosted"), false);
+});
+
+/**
+ * Two starts racing on one client run id. The first lookup is hidden so the
+ * insert meets a row that already exists, which is the branch a real race
+ * reaches and the plain replay above never does.
+ */
+for (const [name, over, expected] of [
+  ["the recorded identity", {}, 201],
+  ["a changed commit", { sha: "c".repeat(40) }, 409],
+] as const) {
+  test(`a concurrent start returns ${name}`, async () => {
+    const race: Race = { hideSessionSelect: 0, queries: [] };
+    const { db, binding } = freshDb(race);
+    await seed(db);
+    const env = runtime(binding);
+    assert.equal((await start(env)).status, 201);
+    const before = await session(db);
+    assert.equal(before.repositoryId, FIXTURE_REPO.repositoryId);
+
+    race.hideSessionSelect = 1;
+    race.queries.length = 0;
+    const response = await start(env, over);
+    assert.equal(response.status, expected);
+
+    // The zero-change branch, not the early replay: the insert ran and changed
+    // nothing, so the route had to re-read the row it collided with.
+    const inserts = race.queries.filter((q) => /^insert into "local_run_sessions"/i.test(q));
+    assert.equal(inserts.length, 1, "the conflicting insert was never attempted");
+    assert.match(inserts[0], /on conflict do nothing/i);
+    assert.equal(race.hideSessionSelect, 0, "the first lookup was not the hidden one");
+
+    // Either way the stored row is the one already recorded, unchanged.
+    assert.deepEqual(await session(db), before);
+    assert.equal((await db.select().from(localRunSessions)).length, 1);
+  });
+}
+
+/**
+ * A started live run on the real routes and hub, with helpers to send events
+ * the way the CLI does: one at a time while running, and its final event in a
+ * batch with the history before it.
+ */
+async function liveRun(vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}) {
+  const { db, binding, sqlite } = freshDb();
+  await seed(db);
+  const env = runtime(binding, vars);
+  const hubs = runSurfaceHubs(env);
+  env.RUN_SURFACES = hubs.namespace;
+  const surfaceId = `surface_${SESSION.slice(-20)}`;
+  assert.equal((await start(env)).status, 201);
+  const post = async (path: string, body: unknown, expected = 200) => {
+    const pending: Promise<unknown>[] = [];
+    const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${SESSION}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
+      body: JSON.stringify(body),
+    }), env, { waitUntil: (promise: Promise<unknown>) => pending.push(promise), passThroughOnException() {} } as never);
+    await Promise.all(pending);
+    assert.equal(response.status, expected);
+    return (await response.json()) as { duplicate: boolean };
+  };
+  return {
+    db, env, surfaceId, sqlite, post,
+    hub: hubs.get(surfaceId),
+    send: (event: LocalRunEvent) => post("/events", event),
+    sendBatch: (events: LocalRunEvent[]) => post("/events/batch", { events }),
+    /** The run started four minutes ago and its CLI went quiet a minute in. */
+    async goSilent() {
+      const lastHeard = Date.now() - 3 * 60_000;
+      await db.update(localRunSessions)
+        .set({ createdAt: lastHeard - 60_000, updatedAt: lastHeard })
+        .where(eq(localRunSessions.id, SESSION));
+      return lastHeard;
+    },
+  };
+}
+
+function heartbeat(sequence: number): LocalRunEvent {
+  return {
+    type: "progress", phase: "evaluating", eventId: `localevent_${sequence}_heartbeat`,
+    sequence, occurredAt: Date.now(),
+  };
+}
+
+function completed(sequence: number): LocalRunEvent {
+  const report = LocalReportInputSchema.parse({
+    reportId: "report_late_result", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1", sdkVersion: "0.2.0", pluginVersion: "1",
+    repositoryId: FIXTURE_REPO.repositoryId, repositoryFullName: FIXTURE_REPO.fullName, sha: SHA,
+    dirty: false, startedAt: NOW, finishedAt: NOW + 1_000,
+    metrics: [{
+      key: "accuracy", label: "Accuracy", value: 0.82, unit: null,
+      higherIsBetter: true, primary: true, precision: 3,
+    }],
+    diagnostics: [], weightsUsed: [],
+  });
+  return { type: "completed", eventId: `localevent_${sequence}_completed`, sequence, occurredAt: Date.now(), report };
+}
+
+/**
+ * A killed `cogworks run --live` sends nothing more, so the session stays
+ * running. The portal may say it lost contact, and must not call that a
+ * failure: a laptop that slept can wake, keep going and report its result.
+ */
+test("a silent live run reads as lost contact and recovers when it reports again", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  assert.notEqual(run.hub.scheduledAlarm, null, "a live run ticks");
+
+  const lastHeard = await run.goSilent();
+  await run.hub.alarm();
+  const silent = run.hub.messages.at(-1)!;
+  assert.equal(run.hub.scheduledAlarm, null, "nothing new can appear until the CLI reports again");
+  const message = JSON.stringify(runSurfaceMessage(run.env, silent));
+  assert.doesNotMatch(message, /Watch live/);
+  assert.match(message, /Lost contact during evaluation/);
+  assert.match(message, new RegExp(`<t:${Math.floor(lastHeard / 1000)}:R>`));
+  assert.doesNotMatch(message, /Stopped/);
+  assert.equal(silent.status, "running", "silence is not a failed run");
+  assert.equal(silent.silentSince, lastHeard);
+  assert.equal(silent.elapsedMs, 60_000, "the clock stops at the last word");
+  assert.equal(silent.actions.includes("run_again"), true, "its owner has a way forward");
+
+  // The laptop wakes and the same run reports again.
+  assert.equal((await run.send(heartbeat(1))).duplicate, false);
+  const resumed = run.hub.messages.at(-1)!;
+  assert.equal(resumed.silentSince, null);
+  assert.equal(resumed.actions.includes("run_again"), false);
+  assert.notEqual(run.hub.scheduledAlarm, null, "the live tick resumes");
+
+  assert.equal((await run.send(completed(2))).duplicate, false);
+  const finished = await buildRunSurfaceSnapshot(run.env, run.surfaceId);
+  assert.equal(finished.status, "succeeded");
+  assert.equal(finished.primaryMetric?.value, 0.82);
+});
+
+/**
+ * The CLI sends its final event twice: alone, and in a batch with the history
+ * before it (cli.py `_LiveRun._finish`). Either may be the one that lands, and
+ * neither may be refused because the portal had stopped hearing from the run.
+ */
+for (const route of ["single", "batch"] as const) {
+  test(`a result sent straight from silence scores through the ${route} route`, async () => {
+    const run = await liveRun();
+    await run.send(heartbeat(0));
+    await run.goSilent();
+    await run.hub.alarm();
+    assert.notEqual(run.hub.messages.at(-1)!.silentSince, null);
+
+    const response = route === "single"
+      ? await run.send(completed(1))
+      : await run.sendBatch([heartbeat(0), completed(1)]);
+    assert.equal(response.duplicate, false);
+
+    const [session] = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+    assert.equal(session.status, "succeeded");
+    assert.equal(session.reportId, "report_late_result");
+    const published = run.hub.messages.at(-1)!;
+    assert.equal(published.status, "succeeded");
+    assert.equal(published.silentSince, null);
+    assert.equal(published.primaryMetric?.value, 0.82);
+    assert.equal(published.actions.includes("verify_hosted"), true);
+    assert.match(JSON.stringify(runSurfaceMessage(run.env, published)), /Bench clear/);
+  });
+}
+
+/**
+ * A silent run has no tick, so the publication that follows an accepted
+ * result is the only thing that would move the console and Discord off "lost
+ * contact". If the hub's database read fails then, its alarm must retry.
+ */
+test("a result accepted while publication fails still reaches the console", async (t) => {
+  const logged = t.mock.method(console, "error", () => undefined);
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  await run.goSilent();
+  await run.hub.alarm();
+  assert.equal(run.hub.scheduledAlarm, null);
+
+  // Only the hub's snapshot read touches run_metrics, so the route accepts the
+  // result and its background publication meets the outage.
+  const database = run.env.DB;
+  let outage = true;
+  // SAFETY: prepare and batch are the only D1 methods these routes and the hub call.
+  run.env.DB = {
+    prepare(query: string) {
+      if (outage && /"run_metrics"/.test(query)) throw new Error("Transient database failure");
+      return database.prepare(query);
+    },
+    batch: (statements: D1PreparedStatement[]) => database.batch(statements),
+  } as unknown as Env["DB"];
+  assert.equal((await run.send(completed(1))).duplicate, false);
+  assert.match(String(logged.mock.calls.at(-1)?.arguments[0]), /run_surface_publish_failed/);
+  assert.equal(run.hub.messages.at(-1)!.silentSince !== null, true, "nothing new was shown");
+  assert.notEqual(run.hub.scheduledAlarm, null, "the failed publication left a retry armed");
+
+  outage = false;
+  await run.hub.alarm();
+  const delivered = run.hub.messages.at(-1)!;
+  assert.equal(delivered.status, "succeeded");
+  assert.equal(delivered.silentSince, null);
+  assert.equal(run.hub.scheduledAlarm, null, "a finished run stops ticking");
+});
+
+const CHANNEL = "123456789012345678";
+const MESSAGE = "223456789012345678";
+
+/** Binds the run's surface to a team channel. Discord answers with whatever
+ *  `answer` returns at the time, and every request the hub sends is kept. */
+async function discordChannel(t: TestContext, run: Awaited<ReturnType<typeof liveRun>>) {
+  await run.db.update(runSurfaces).set({ discordChannelId: CHANNEL }).where(eq(runSurfaces.id, run.surfaceId));
+  const discord = {
+    answer: (): Response => new Response(null, { status: 403 }),
+    requests: [] as string[],
+    /** Runs once, while the next request is in flight. */
+    during: null as null | (() => Promise<unknown>),
+  };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    assert.equal(url.host, "discord.com", "only Discord is reached over the network");
+    discord.requests.push(`${init?.method} ${url.pathname}`);
+    const during = discord.during;
+    discord.during = null;
+    if (during) await during();
+    return discord.answer();
+  });
+  return discord;
+}
+
+function logged(mock: { mock: { calls: Array<{ arguments: unknown[] }> } }, event: string): number {
+  return mock.mock.calls.filter((call) => String(call.arguments[0]).includes(`"event":"${event}"`)).length;
+}
+
+/**
+ * A channel the bot may not write to answers every retry the same way, and
+ * enough refused requests get the sender's IP blocked for every team. The hub
+ * keeps ticking for the console and lost-contact detection, and asks Discord
+ * again only when something new is published.
+ */
+for (const [name, status] of [["a 401", 401], ["a 403", 403], ["no bot token", null]] as const) {
+  test(`a channel refused with ${name} is not asked again on every tick`, async (t) => {
+    const warned = t.mock.method(console, "warn", () => undefined);
+    const failed = t.mock.method(console, "error", () => undefined);
+    const run = await liveRun(status === null ? {} : { DISCORD_BOT_TOKEN: "bot-token" });
+    const discord = await discordChannel(t, run);
+    discord.answer = () => new Response(null, { status: status ?? 200 });
+    const asked = status === null ? 0 : 1;
+
+    await run.send(heartbeat(0));
+    await run.hub.alarm();
+    assert.equal(discord.requests.length, asked);
+    assert.equal(logged(warned, "run_surface_delivery_refused"), asked);
+
+    const shown = run.hub.messages.length;
+    await run.hub.alarm();
+    await run.hub.alarm();
+    assert.equal(run.hub.messages.length, shown + 2, "the console still updates on every tick");
+    assert.notEqual(run.hub.scheduledAlarm, null, "a live run keeps ticking");
+    assert.equal(discord.requests.length, asked, "the ticks did not ask Discord again");
+
+    await run.goSilent();
+    await run.hub.alarm();
+    assert.notEqual(run.hub.messages.at(-1)!.silentSince, null, "silence still reads as lost contact");
+    assert.equal(run.hub.scheduledAlarm, null);
+
+    // An accepted late result is a publication, so Discord gets one more try.
+    assert.equal((await run.send(completed(1))).duplicate, false);
+    await run.hub.alarm();
+    assert.equal(run.hub.messages.at(-1)!.status, "succeeded");
+    assert.equal(discord.requests.length, asked * 2);
+    assert.equal(logged(warned, "run_surface_delivery_refused"), asked * 2);
+    assert.equal(run.hub.scheduledAlarm, null, "a settled run with a refused channel goes quiet");
+    assert.equal(logged(failed, "run_surface_tick_failed"), 0);
+  });
+}
+
+test("heartbeats after a refusal do not ask Discord again", async (t) => {
+  // Each heartbeat is a publication, and a live run sends one about every two
+  // seconds. Lifting the refusal on every publication asked a refusing channel
+  // at that rate, which is the shared-IP block the refusal exists to avoid.
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 1);
+  for (let sequence = 1; sequence <= 5; sequence += 1) {
+    await run.send(heartbeat(sequence));
+    await run.hub.alarm();
+  }
+  assert.equal(discord.requests.length, 1, "no heartbeat lifted the refusal");
+  assert.equal(run.hub.messages.at(-1)!.status, "running", "the console kept updating");
+});
+
+test("binding the run to another channel asks that channel once", async (t) => {
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  const other = "323456789012345678";
+  await run.db.update(runSurfaces).set({ discordChannelId: other }).where(eq(runSurfaces.id, run.surfaceId));
+  await run.hub.alarm();
+  assert.deepEqual(discord.requests, [
+    `POST /api/v10/channels/${CHANNEL}/messages`,
+    `POST /api/v10/channels/${other}/messages`,
+  ]);
+  // Refused again there, so the next tick stays quiet too.
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+});
+
+test("a channel bound while a refused request is in flight still gets its try", async (t) => {
+  // The refusal belongs to the channel that was asked. Reading the binding
+  // after the request failed would record the new channel as refused and keep
+  // it quiet for the whole interval.
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  const other = "423456789012345678";
+  discord.during = () => run.db.update(runSurfaces).set({ discordChannelId: other }).where(eq(runSurfaces.id, run.surfaceId));
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  assert.deepEqual(discord.requests, [`POST /api/v10/channels/${CHANNEL}/messages`]);
+  await run.hub.alarm();
+  assert.equal(discord.requests.at(-1), `POST /api/v10/channels/${other}/messages`);
+});
+
+test("a refused channel is asked again after the retry interval and can deliver", async (t) => {
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  assert.deepEqual(discord.requests, [`POST /api/v10/channels/${CHANNEL}/messages`]);
+
+  // Staff give the permission back. Nothing is sent before the interval.
+  discord.answer = () => Response.json({ id: MESSAGE });
+  await run.send(heartbeat(1));
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 1);
+
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now + 5 * 60_000);
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+  const [surface] = await run.db.select().from(runSurfaces).where(eq(runSurfaces.id, run.surfaceId));
+  assert.equal(surface.discordMessageId, MESSAGE);
+
+  // Delivered again, so the live tick goes back to editing the message.
+  await run.hub.alarm();
+  assert.equal(discord.requests.at(-1), `PATCH /api/v10/channels/${CHANNEL}/messages/${MESSAGE}`);
+});
+
+test("a refusal recorded by an older hub gets one more try", async (t) => {
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  // The previous hub stored a publication number here.
+  run.hub.values.set("deliveryRefused", 7);
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2, "the retry was refused, and recorded in the new form");
+});
+
+test("a rate limit on a settled run waits as long as Discord asks", async (t) => {
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  discord.answer = () => Response.json({ retry_after: 30 }, { status: 429 });
+  await run.send(heartbeat(0));
+  assert.equal((await run.send(completed(1))).duplicate, false);
+  const before = Date.now();
+  await run.hub.alarm();
+  const alarm = run.hub.scheduledAlarm;
+  assert.ok(alarm !== null && alarm >= before + 30_000 && alarm <= Date.now() + 30_000, `alarm at ${alarm}`);
+
+  discord.answer = () => Response.json({ id: MESSAGE });
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+  assert.equal(run.hub.scheduledAlarm, null);
+});
+
+for (const [name, answer] of [
+  ["a 502", () => new Response(null, { status: 502 })],
+  ["a network error", () => { throw new TypeError("fetch failed"); }],
+] as const) {
+  test(`${name} from Discord on a settled run is retried on the next tick`, async (t) => {
+    const failed = t.mock.method(console, "error", () => undefined);
+    const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+    const discord = await discordChannel(t, run);
+    discord.answer = answer;
+    await run.send(heartbeat(0));
+    assert.equal((await run.send(completed(1))).duplicate, false);
+    const before = Date.now();
+    await run.hub.alarm();
+    const alarm = run.hub.scheduledAlarm;
+    assert.ok(alarm !== null && alarm >= before + 2_000 && alarm <= Date.now() + 2_000, `alarm at ${alarm}`);
+    assert.equal(logged(failed, "run_surface_tick_failed"), 1);
+
+    discord.answer = () => Response.json({ id: MESSAGE });
+    await run.hub.alarm();
+    assert.equal(discord.requests.length, 2);
+    assert.equal(run.hub.scheduledAlarm, null);
+  });
+}
+
+/* ── A start and an event each commit whole ─────────────────────────────── */
+
+const SURFACE = `surface_${SESSION.slice(-20)}`;
+
+/** Makes the next write to `table` fail inside SQLite, the way a D1 error
+ *  mid-request would, until the returned function is called. */
+function failWritesTo(sqlite: DatabaseSync, table: string, when = "1"): () => void {
+  sqlite.exec(`CREATE TRIGGER fail_${table} BEFORE INSERT ON ${table} WHEN ${when}
+    BEGIN SELECT RAISE(ABORT, 'injected ${table} failure'); END`);
+  return () => sqlite.exec(`DROP TRIGGER fail_${table}`);
+}
+
+async function consoles(db: Database) {
+  return db.select().from(runSurfaces);
+}
+
+test("a start whose session write fails leaves no console, and the retry creates both", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  const { db, binding, sqlite } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  const restore = failWritesTo(sqlite, "local_run_sessions");
+
+  assert.equal((await start(env)).status, 500);
+  assert.deepEqual(await consoles(db), [], "the console outlived its failed session");
+  assert.equal(await session(db), undefined);
+
+  restore();
+  assert.equal((await start(env)).status, 201);
+  assert.equal((await session(db))?.surfaceId, SURFACE);
+  const [created] = await consoles(db);
+  assert.equal(created?.localRunId, SESSION);
+  assert.equal((await start(env)).status, 200, "the recovered start does not replay");
+});
+
+test("a console left without its session by an older start is reused, not duplicated", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  // What a failure between the two writes used to leave behind.
+  await db.insert(runSurfaces).values({
+    id: SURFACE, teamId: "team_1", createdByUserId: "user_1", benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1, localRunId: SESSION, supersedesSurfaceId: null, discordChannelId: null,
+    discordMessageId: null, discordNonceGeneration: 0, createdAt: NOW, updatedAt: NOW,
+  });
+
+  assert.equal((await start(env)).status, 201);
+  assert.equal((await session(db))?.surfaceId, SURFACE);
+  const all = await consoles(db);
+  assert.equal(all.length, 1);
+  assert.equal(all[0]!.createdAt, NOW, "the older console was rewritten instead of reused");
+});
+
+test("a console under the same id that belongs to another run blocks the start and writes nothing", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  // Two client run ids that share their last twenty characters map to one
+  // console id. The second start must not attach itself to the first's console.
+  const other = `localrun_${"f".repeat(12)}${SESSION.slice(-20)}`;
+  await db.insert(runSurfaces).values({
+    id: SURFACE, teamId: "team_1", createdByUserId: "user_1", benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1, localRunId: other, supersedesSurfaceId: null, discordChannelId: null,
+    discordMessageId: null, discordNonceGeneration: 0, createdAt: NOW, updatedAt: NOW,
+  });
+  const before = await consoles(db);
+
+  assert.equal((await start(env)).status, 409);
+  assert.equal(await session(db), undefined);
+  assert.deepEqual(await consoles(db), before);
+});
+
+test("two identical starts at once record one session and one console", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+
+  const statuses = (await Promise.all([start(env), start(env)])).map((response) => response.status);
+
+  assert.ok(statuses.every((status) => status === 200 || status === 201), String(statuses));
+  assert.equal((await db.select().from(localRunSessions)).length, 1);
+  assert.equal((await consoles(db)).length, 1);
+});
+
+for (const kind of ["progress", "completed"] as const) {
+  test(`a ${kind} event whose stream write fails leaves the session where it was, and its retry lands`, async (t) => {
+    t.mock.method(console, "error", () => undefined);
+    const run = await liveRun();
+    const { sqlite } = run;
+    await run.send(heartbeat(0));
+    const event = kind === "progress" ? heartbeat(1) : completed(1);
+    const before = await session(run.db);
+    const restore = failWritesTo(sqlite, "run_stream_events", `NEW.event_id = '${event.eventId}'`);
+
+    const failed = await run.post(`/events`, event, 500);
+    assert.ok(failed);
+    assert.deepEqual(await session(run.db), before, "the session moved without its event");
+
+    restore();
+    assert.equal((await run.send(event)).duplicate, false, "the retry was taken for a duplicate");
+    const after = await session(run.db);
+    assert.equal(after?.lastEventSequence, 1);
+    assert.equal(after?.status, kind === "completed" ? "succeeded" : "running");
+    const stream = await run.db.select().from(runStreamEvents).where(eq(runStreamEvents.eventId, event.eventId));
+    assert.equal(stream.length, 1, "the console never received the event");
+  });
+}
+
+test("a completion that loses the race for a sequence writes no event, even into a pruned slot", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  // The completion reads the session at sequence 0. Before its batch runs, a
+  // progress event wins sequence 1, and its stream row has already been
+  // pruned, so nothing but the admission condition stops the loser.
+  const database = run.env.DB;
+  let raced = false;
+  // SAFETY: prepare and batch are the only D1 methods these routes and the hub call.
+  run.env.DB = {
+    prepare: (query: string) => database.prepare(query),
+    async batch(statements: D1PreparedStatement[]) {
+      if (!raced) {
+        raced = true;
+        assert.equal((await run.send(heartbeat(1))).duplicate, false);
+        run.sqlite.exec("DELETE FROM run_stream_events WHERE source_sequence = 1");
+      }
+      return database.batch(statements);
+    },
+  } as unknown as Env["DB"];
+
+  assert.equal((await run.send(completed(1))).duplicate, true);
+  assert.ok(raced);
+  const after = await session(run.db);
+  assert.equal(after?.status, "running", "the losing completion finished the run");
+  const completions = await run.db.select().from(runStreamEvents).where(eq(runStreamEvents.code, "run.completed"));
+  assert.deepEqual(completions, [], "the losing completion still reached the console");
+});
+
+test("an event that reuses a stored event id is refused and does not move the session", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  const before = await session(run.db);
+
+  await run.post("/events", { ...heartbeat(1), eventId: heartbeat(0).eventId }, 500);
+
+  assert.deepEqual(await session(run.db), before, "the session advanced with no event to show for it");
+});
+
+/* ── A session from before consoles existed ─────────────────────────────── */
+
+// Migration 0010 added local_run_sessions.surface_id without a backfill, and
+// every session written since records its console in the same write. A row
+// with none predates consoles. Its suffix-derived id can name another run's
+// console, so nothing may be delivered there on that guess.
+
+const LEGACY = `localrun_${"9".repeat(12)}${SESSION.slice(-20)}`;
+
+async function withLegacySession() {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  // A current run whose console id is exactly what the legacy row would derive.
+  assert.equal((await start(env)).status, 201);
+  await db.insert(localRunSessions).values({
+    id: LEGACY, teamId: "team_1", userId: "user_1", deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID, benchmarkVersion: 1, repositoryId: FIXTURE_REPO.repositoryId,
+    repositoryFullName: FIXTURE_REPO.fullName, sha: SHA, branch: "main", dirty: false,
+    status: "running", phase: "preparing", failureDetail: null, reportId: null,
+    discordChannelId: null, discordMessageId: null, lastEventSequence: -1,
+    createdAt: NOW, updatedAt: NOW, finishedAt: null, surfaceId: null,
+  });
+  return { db, env };
+}
+
+test("an event for a session with no recorded console is refused and reaches no one's console", async () => {
+  const { db, env } = await withLegacySession();
+  const legacyBefore = await db.select().from(localRunSessions).where(eq(localRunSessions.id, LEGACY));
+
+  const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${LEGACY}/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: JSON.stringify(heartbeat(0)),
+  }), env, { waitUntil() {}, passThroughOnException() {} } as never);
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await db.select().from(runStreamEvents), [], "the legacy run's event landed on another run's console");
+  assert.deepEqual(await db.select().from(localRunSessions).where(eq(localRunSessions.id, LEGACY)), legacyBefore);
+});
+
+test("replaying a session with no recorded console is refused, not handed another run's console", async () => {
+  const { env } = await withLegacySession();
+
+  const response = await start(env, { clientRunId: LEGACY, repositoryId: FIXTURE_REPO.repositoryId });
+
+  assert.equal(response.status, 409);
+  assert.match((await response.json() as { error: { message: string } }).error.message, /Start a new run/);
+});

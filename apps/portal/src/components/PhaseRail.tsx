@@ -9,9 +9,10 @@ type NodeState = "done" | "current" | "failed" | "pending";
 /**
  * The run pipeline rail (plan §8):
  * Queued → Prepare → Install → Contract check → Evaluate → Score → Complete.
- * Horizontal instrument scale on wide screens, labeled vertical list on
- * narrow ones. Movement is restrained ease-in-out fill; the current node
- * carries the detection brackets.
+ * Horizontal instrument scale on wide screens, a compact table on narrow
+ * ones. Movement is restrained ease-in-out fill; the current node carries the
+ * detection brackets. Labels are sentence case: they name stages, and the
+ * stencil look of the old uppercase labels read as machine output.
  */
 export function PhaseRail({
   status,
@@ -51,9 +52,12 @@ export function PhaseRail({
   };
 
   return (
+    // A table on a phone, one stage per line with its time at the right; a
+    // scale from 640px. The phone version used to stack each time under its
+    // label, which made the rail the tallest thing on a failed run's page.
     <ol
       aria-label="Run pipeline"
-      className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-0"
+      className="flex flex-col sm:flex-row sm:items-start"
     >
       {RUN_PHASES.map((phase, i) => {
         const state = stateFor(i);
@@ -62,40 +66,45 @@ export function PhaseRail({
           <li
             key={phase}
             aria-current={state === "current" ? "step" : undefined}
-            className="flex items-center gap-3 sm:flex-1 sm:flex-col sm:items-stretch sm:gap-0"
+            className="relative flex min-h-8 items-center gap-3 sm:min-h-0 sm:flex-1 sm:flex-col sm:items-stretch sm:gap-0"
           >
+            {/* The stem joining this stage to the next on a phone. */}
+            <span
+              aria-hidden="true"
+              className={`absolute top-[calc(50%+7px)] left-[9.5px] h-[calc(100%-14px)] w-px sm:hidden ${
+                i < current || done ? "bg-ink/70" : "bg-rule"
+              }`}
+            />
             <div className="flex items-center sm:w-full">
               <RailNode state={state} />
-              {/* connector to the next node (desktop only) */}
-              {i < RUN_PHASES.length && (
-                <span
-                  aria-hidden="true"
-                  className="mx-1.5 hidden h-px flex-1 bg-rule-soft sm:block"
-                >
-                  <span
-                    className={`rail-fill block h-px ${failed && i >= current ? "bg-rule-soft" : "bg-ink"}`}
-                    style={{ transform: `scaleX(${i < current || done ? 1 : 0})` }}
-                  />
-                </span>
-              )}
-            </div>
-            <div className="min-w-0 sm:mt-2 sm:pr-3">
+              {/* connector to the next node (from 640px) */}
               <span
-                className={`block font-mono text-[11px] tracking-[0.07em] uppercase ${
+                aria-hidden="true"
+                className="mx-1.5 hidden h-px flex-1 bg-rule sm:block"
+              >
+                <span
+                  className={`rail-fill block h-px ${failed && i >= current ? "bg-rule" : "bg-ink"}`}
+                  style={{ transform: `scaleX(${i < current || done ? 1 : 0})` }}
+                />
+              </span>
+            </div>
+            <div className="flex min-w-0 flex-1 items-baseline justify-between gap-3 sm:mt-2 sm:block sm:pr-3">
+              <span
+                className={`block text-[13.5px] leading-tight ${
                   state === "failed"
-                    ? "text-detect-deep font-medium"
+                    ? "font-semibold text-detect-deep"
                     : state === "current"
-                      ? "text-ink font-medium"
+                      ? "font-semibold text-ink"
                       : state === "done"
                         ? "text-ink-secondary"
                         : "text-ink-faint"
                 }`}
               >
                 {PHASE_LABELS[phase]}
-                <span className="sr-only"> — {srState[state]}</span>
+                <span className="sr-only">, {srState[state]}</span>
               </span>
               {timing && (
-                <span className="u-tnum mt-0.5 block font-mono text-[11px] text-ink-faint">
+                <span className="u-tnum block font-mono text-[12px] text-ink-faint sm:mt-1">
                   {timing}
                 </span>
               )}
@@ -105,11 +114,11 @@ export function PhaseRail({
       })}
 
       {/* Terminal node: Complete */}
-      <li className="flex items-center gap-3 sm:flex-none sm:flex-col sm:items-stretch sm:gap-0">
+      <li className="flex min-h-8 items-center gap-3 sm:min-h-0 sm:flex-none sm:flex-col sm:items-stretch sm:gap-0">
         <RailNode state={done ? "done" : "pending"} terminal />
         <span
-          className={`font-mono text-[11px] tracking-[0.07em] uppercase sm:mt-2 ${
-            done ? "text-verify-deep font-medium" : "text-ink-faint"
+          className={`text-[13.5px] leading-tight sm:mt-2 ${
+            done ? "font-semibold text-verify-deep" : "text-ink-faint"
           }`}
         >
           Complete
@@ -127,30 +136,30 @@ function RailNode({
   terminal?: boolean;
 }) {
   return (
-    <span className="relative inline-flex size-5 shrink-0 items-center justify-center">
+    <span className="relative z-[1] inline-flex size-5 shrink-0 items-center justify-center">
       {state === "current" && (
         <CornerBrackets size={6} thickness={1.5} inset={-3} className="text-detect" />
       )}
       {state === "failed" ? (
-        <span className="flex size-[13px] items-center justify-center bg-detect">
+        <span className="flex size-[13px] items-center justify-center rounded-[2px] bg-detect">
           <svg viewBox="0 0 8 8" className="size-2 text-paper-raised" aria-hidden="true">
             <path d="M1 1 L7 7 M7 1 L1 7" stroke="currentColor" strokeWidth="1.6" />
           </svg>
         </span>
       ) : state === "done" && terminal ? (
-        <span className="flex size-[13px] items-center justify-center bg-verify">
+        <span className="flex size-[13px] items-center justify-center rounded-[2px] bg-verify">
           <svg viewBox="0 0 8 8" className="size-2 text-paper-raised" aria-hidden="true">
             <path d="M1 4.2 L3.2 6.4 L7 1.6" stroke="currentColor" strokeWidth="1.6" fill="none" />
           </svg>
         </span>
       ) : (
         <span
-          className={`size-[13px] transition-colors duration-200 ${
+          className={`size-[11px] rounded-[2px] transition-colors duration-200 ${
             state === "done"
               ? "bg-ink"
               : state === "current"
                 ? "anim-live border-[1.5px] border-detect bg-detect/20"
-                : "border border-rule bg-transparent"
+                : "border border-rule-strong bg-paper-raised"
           }`}
         />
       )}

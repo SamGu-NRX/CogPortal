@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { CornerBrackets } from "@/components/Brackets";
 import { Button } from "@/components/Button";
+import { ConfirmButton } from "@/components/ConfirmButton";
+import { CopyBlock } from "@/components/CopyBlock";
 import { LoadingMark, QueryError } from "@/components/Feedback";
+import { PageHeader } from "@/components/Note";
 import { Panel } from "@/components/Panel";
 import { ApiRequestError } from "@/lib/api";
+import { useFocusFallback } from "@/lib/focus";
 import { formatDateTime } from "@/lib/format";
+import { deviceLinkCommand } from "@/lib/setup-progress";
 import {
   useApproveDevice,
   useConfirmDiscordLink,
@@ -13,7 +21,6 @@ import {
   useRevokeDevice,
   useUnlinkDiscord,
 } from "@/lib/queries";
-import { clearConnectionReturn } from "@/lib/pending-return";
 
 function fragmentToken(): string | null {
   const params = new URLSearchParams(window.location.hash.slice(1));
@@ -24,10 +31,16 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiRequestError ? error.message : fallback;
 }
 
+/**
+ * The accounts and machines attached to this person, and the two requests
+ * that attach them: a Discord link from Cog and a device code from
+ * `cogworks link`. A request, when one is in the address, is the page's one
+ * decision and comes first; the standing connections sit below it.
+ */
 export function ConnectionsPage() {
   const connections = useConnections();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [discordToken, setDiscordToken] = useState<string | null>(() => fragmentToken());
   const [linkedDiscord, setLinkedDiscord] = useState<string | null>(null);
   const [deviceName, setDeviceName] = useState("CogWorks CLI");
@@ -39,6 +52,12 @@ export function ConnectionsPage() {
   const revokeDevice = useRevokeDevice();
   const userCode = useMemo(() => searchParams.get("user_code")?.toUpperCase() ?? null, [searchParams]);
   const returnToSetup = searchParams.get("return_to") === "setup";
+  // Approving a device or connecting Discord replaces the request panel and
+  // its focused button with a line saying it worked; focus goes to that line.
+  const requestsRef = useRef<HTMLDivElement>(null);
+  const keepRequestFocus = useFocusFallback(
+    () => requestsRef.current?.querySelector<HTMLElement>("[data-request-outcome]"),
+  );
 
   useEffect(() => {
     const onHashChange = () => setDiscordToken(fragmentToken());
@@ -56,213 +75,315 @@ export function ConnectionsPage() {
   }
 
   const clearDiscordToken = () => {
-    clearConnectionReturn();
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     setDiscordToken(null);
   };
 
-  return (
-    <div className="anim-rise mx-auto w-full max-w-2xl py-12 sm:py-14">
-      <h1 className="text-3xl">Connections</h1>
-      <p className="mt-2 max-w-xl text-[14px] text-ink-secondary">
-        GitHub is your account identity. Discord and the CogWorks CLI connect to it without receiving
-        your GitHub token or permission to submit official results.
-      </p>
+  const { github, discord, cliDevices } = connections.data;
 
-      {discordToken && (
-        <Panel label="DISCORD REQUEST" className="mt-8 border-detect/35 bg-detect-wash">
-          {preview.isPending ? (
-            <LoadingMark label="Checking Discord request" />
-          ) : preview.isError ? (
-            <div role="alert">
-              <p className="text-[14px] text-detect-deep">
-                {errorMessage(preview.error, "This Discord request can't be used. Start a new connection from Discord.")}
-              </p>
-              <Button className="mt-4" variant="quiet" onClick={clearDiscordToken}>
-                Dismiss
-              </Button>
-            </div>
-          ) : (
-            <div>
-              <h2 className="text-xl">Connect {preview.data.username} to Cog?</h2>
-              <p className="mt-2 text-[13px] text-ink-secondary">
-                Cog can privately show this account your team’s status and synced local reports. A
-                leaderboard is shared to a channel only when you choose to share it.
-              </p>
-              <p className="mt-3 border-l-2 border-rule pl-3 text-[12px] text-ink-faint">
-                Cog receives neither source code nor your GitHub token. It can't start an official evaluation.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Button
-                  busy={confirmDiscord.isPending}
-                  onClick={() =>
-                    confirmDiscord.mutate(discordToken, {
-                      onSuccess: (summary) => {
-                        setLinkedDiscord(summary.discord?.username ?? preview.data.username);
-                        clearDiscordToken();
-                      },
-                    })
-                  }
-                >
-                  Connect Discord
-                </Button>
-                <Button variant="quiet" onClick={clearDiscordToken}>
-                  Cancel
+  return (
+    <div className="page anim-rise">
+      <PageHeader eyebrow="Your account" title="Connections" />
+
+      <div ref={requestsRef} {...keepRequestFocus}>
+        {discordToken && (
+          <Panel
+            label={preview.isSuccess ? `Connect ${preview.data.username} to Cog?` : "Discord request"}
+            className="mt-10 max-w-[42rem]"
+          >
+            {preview.isPending ? (
+              <LoadingMark label="Checking Discord request" />
+            ) : preview.isError ? (
+              <div role="alert">
+                <p className="text-[14px] text-detect-deep">
+                  {errorMessage(preview.error, "This Discord request can't be used. Start a new connection from Discord.")}
+                </p>
+                <Button className="mt-4" variant="ghost" onClick={clearDiscordToken}>
+                  Dismiss
                 </Button>
               </div>
-              {confirmDiscord.error && (
-                <p role="alert" className="mt-3 text-[13px] text-detect-deep">
-                  {errorMessage(confirmDiscord.error, "Discord couldn't be connected. Try again.")}
+            ) : (
+              <div>
+                {/* What the link grants, read off the bot's own actions
+                    (apps/discord-bot/src/commands.ts, worker/rpc.ts). No promise
+                    of a confirmation here: the Activity retries a failed run,
+                    official ones included, without asking (RunConsole). */}
+                <dl className="space-y-3 text-[14px] leading-[1.55]">
+                  <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                    <dt className="u-label text-ink">Shows you privately</dt>
+                    <dd className="mt-0.5 text-ink-secondary sm:mt-0">
+                      Your team's status and its synced local reports.
+                    </dd>
+                  </div>
+                  <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                    <dt className="u-label text-ink">Does as you</dt>
+                    <dd className="mt-0.5 text-ink-secondary sm:mt-0">
+                      Starts and retries hosted runs, spends official attempts and publishes
+                      results to the public leaderboard.
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-4 text-[13.5px] leading-[1.55] text-ink-faint">
+                  Cog never receives your source code or your GitHub token.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button
+                    busy={confirmDiscord.isPending}
+                    onClick={() =>
+                      confirmDiscord.mutate(discordToken, {
+                        onSuccess: (summary) => {
+                          setLinkedDiscord(summary.discord?.username ?? preview.data.username);
+                          clearDiscordToken();
+                        },
+                      })
+                    }
+                  >
+                    Connect Discord
+                  </Button>
+                  <Button variant="quiet" onClick={clearDiscordToken}>
+                    Cancel
+                  </Button>
+                </div>
+                {confirmDiscord.error && (
+                  <p role="alert" className="mt-3 text-[13.5px] text-detect-deep">
+                    {errorMessage(confirmDiscord.error, "Discord couldn't be connected. Try again.")}
+                  </p>
+                )}
+              </div>
+            )}
+          </Panel>
+        )}
+
+        {linkedDiscord && (
+          <Panel label="Discord connected" tone="good" className="anim-rise mt-10 max-w-[42rem]">
+            <p data-request-outcome tabIndex={-1} className="text-[14px] leading-[1.6] text-ink-secondary">
+              Cog is connected to <strong className="font-semibold text-ink">{linkedDiscord}</strong>.
+              To refresh Discord, choose <strong className="font-semibold text-ink">Check the link</strong>{" "}
+              in the Activity or run <strong className="font-semibold text-ink">/cog</strong> again.
+            </p>
+          </Panel>
+        )}
+
+        {userCode && !deviceApproved && (
+          <Panel
+            label="Approve this device"
+            description="It sends check results, synced local reports and runs you share live. It can't touch your repository, start a hosted run or publish a result."
+            className="mt-10 max-w-[42rem]"
+          >
+            <p className="text-[14px] text-ink-secondary">Approve only if your terminal shows this code.</p>
+            {/* The code is what ties this page to one terminal, so it is shown
+                big enough to compare at a glance, inside the bracket the portal
+                uses for "look here". */}
+            <p className="relative mt-3 inline-block px-4 py-3 font-mono text-[20px] leading-none tracking-[0.08em] whitespace-nowrap text-ink sm:px-5 sm:text-[26px] sm:tracking-[0.14em]">
+              <CornerBrackets size={10} thickness={1.5} className="text-detect" />
+              {userCode}
+            </p>
+            <form
+              className="mt-5 max-w-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (approveDevice.isPending) return;
+                const onApproved = () => {
+                  setDeviceApproved(true);
+                  // Drop the code from the URL so a reload does not re-offer
+                  // the approval form for a code the server already consumed.
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("user_code");
+                  setSearchParams(next, { replace: true });
+                  if (returnToSetup) {
+                    window.setTimeout(() => navigate("/setup", { replace: true }), 900);
+                  }
+                };
+                approveDevice.mutate(
+                  { userCode, deviceName },
+                  {
+                    onSuccess: onApproved,
+                  },
+                );
+              }}
+            >
+              <label htmlFor="device-name" className="u-label block">
+                Device name
+              </label>
+              <input
+                id="device-name"
+                value={deviceName}
+                onChange={(event) => setDeviceName(event.target.value)}
+                maxLength={80}
+                className="u-field mt-1.5"
+              />
+              <Button type="submit" className="mt-4" busy={approveDevice.isPending} disabled={!deviceName.trim()}>
+                Approve device
+              </Button>
+              {approveDevice.error && (
+                <p role="alert" className="mt-3 text-[13.5px] text-detect-deep">
+                  {errorMessage(approveDevice.error, "The device couldn't be approved. Try again.")}
                 </p>
               )}
-            </div>
-          )}
-        </Panel>
-      )}
+            </form>
+          </Panel>
+        )}
 
-      {linkedDiscord && (
-        <Panel
-          label="CONNECTION COMPLETE"
-          tone="good"
-          className="anim-rise mt-8"
-          aside={<span aria-hidden="true" className="font-mono text-[11px] text-verify-deep">LINKED</span>}
-        >
-          <h2 className="text-xl">You’re connected.</h2>
-          <p className="mt-2 max-w-lg text-[13px] text-ink-secondary">
-            Cog is now connected to <strong className="font-medium text-ink">{linkedDiscord}</strong>.
-            Return to Discord and choose <strong className="font-medium text-ink">I’ve connected</strong>. Your
-            team bench will appear in the same message.
-          </p>
-        </Panel>
-      )}
-
-      {userCode && !deviceApproved && (
-        <Panel label="COGWORKS DEVICE" className="mt-8 border-verify/35 bg-verify-wash">
-          <h2 className="text-xl">Approve device {userCode}</h2>
-          <p className="mt-2 text-[13px] text-ink-secondary">
-            This grants one device permission to upload explicitly selected local reports. It does not
-            grant repository access or permission to run or promote benchmarks.
-          </p>
-          <form
-            className="mt-5 max-w-sm"
-            onSubmit={(event) => {
-              event.preventDefault();
-              approveDevice.mutate(
-                { userCode, deviceName },
-                {
-                  onSuccess: () => {
-                    clearConnectionReturn();
-                    setDeviceApproved(true);
-                    if (returnToSetup) {
-                      window.setTimeout(() => navigate("/setup", { replace: true }), 900);
-                    }
-                  },
-                },
-              );
-            }}
+        {deviceApproved && (
+          <div
+            role="status"
+            data-request-outcome
+            tabIndex={-1}
+            className="anim-rise mt-10 flex max-w-[42rem] items-start gap-3 rounded-r-surface border-l-2 border-verify bg-verify-wash px-4 py-3 text-[14px] text-verify-deep"
           >
-            <label htmlFor="device-name" className="block text-[13px] font-medium text-ink">
-              Device name
-            </label>
-            <input
-              id="device-name"
-              value={deviceName}
-              onChange={(event) => setDeviceName(event.target.value)}
-              maxLength={80}
-              className="mt-1 h-11 w-full border border-rule bg-paper-raised px-3 text-[16px] text-ink"
+            <HugeiconsIcon icon={Tick02Icon} size={17} strokeWidth={2} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span>
+              Device approved. You can return to the terminal
+              {returnToSetup ? "; returning to Setup…" : "."}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-12">
+        <Connection
+          title="GitHub"
+          grants="Discord and the CogWorks tool never receive your GitHub token."
+        >
+          {github ? (
+            <Row
+              name={<span className="font-mono text-[14px]">{github.login}</span>}
+              meta={<span className="text-verify-deep">Verified by GitHub sign-in</span>}
             />
-            <Button type="submit" className="mt-4" busy={approveDevice.isPending} disabled={!deviceName.trim()}>
-              Approve device
-            </Button>
-            {approveDevice.error && (
-              <p role="alert" className="mt-3 text-[13px] text-detect-deep">
-                {errorMessage(approveDevice.error, "The device couldn't be approved. Try again.")}
-              </p>
-            )}
-          </form>
-        </Panel>
-      )}
-
-      {deviceApproved && (
-        <div role="status" className="mt-8 border-l-2 border-verify bg-verify-wash px-4 py-3 text-[14px] text-verify-deep">
-          Device approved. The terminal will finish linking
-          {returnToSetup ? "; returning to Setup…" : "."}
-        </div>
-      )}
-
-      <div className="mt-8 space-y-4">
-        <Panel label="GITHUB">
-          {connections.data.github ? (
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="font-mono text-[13px] text-ink">{connections.data.github.login}</p>
-                <p className="mt-1 text-[12px] text-ink-faint">Primary identity and sign-in</p>
-              </div>
-              <span className="font-mono text-[10.5px] text-verify-deep">VERIFIED</span>
-            </div>
           ) : (
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-[14px] text-ink-secondary">
               No GitHub identity; development sign-ins don't carry one.
             </p>
           )}
-        </Panel>
+        </Connection>
 
-        <Panel label="DISCORD">
-          {connections.data.discord ? (
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="font-mono text-[13px] text-ink">{connections.data.discord.username}</p>
-                <p className="mt-1 text-[12px] text-ink-faint">
-                  Linked {formatDateTime(connections.data.discord.linkedAt)}
+        <Connection
+          title="Discord"
+          grants="Cog can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you."
+        >
+          {discord ? (
+            <>
+              <Row
+                name={<span className="font-mono text-[14px]">{discord.username}</span>}
+                meta={`Linked ${formatDateTime(discord.linkedAt)}`}
+                action={
+                  <ConfirmButton
+                    label="Unlink"
+                    confirmLabel="Confirm, this account loses access"
+                    onConfirm={() => unlinkDiscord.mutate()}
+                    busy={unlinkDiscord.isPending}
+                    className="px-4 !text-[13.5px]"
+                  />
+                }
+              />
+              {unlinkDiscord.error && (
+                <p role="alert" className="mt-2 text-[13.5px] text-detect-deep">
+                  {errorMessage(unlinkDiscord.error, "Discord couldn't be unlinked. Try again.")}
                 </p>
-              </div>
-              <Button
-                variant="quiet"
-                busy={unlinkDiscord.isPending}
-                onClick={() => unlinkDiscord.mutate()}
-              >
-                Unlink
-              </Button>
-            </div>
+              )}
+            </>
           ) : (
-            <p className="text-[13px] text-ink-secondary">
-              Not linked. In the course server, open <code>/cog</code> and Cog will offer a private
-              connection link.
+            <p className="text-[14px] leading-[1.6] text-ink-secondary">
+              Not linked. Run <code className="font-mono text-[0.92em] text-ink">/cog</code> in the
+              course server to get a link.
             </p>
           )}
-        </Panel>
+        </Connection>
 
-        <Panel label="COGBENCH DEVICES">
-          {connections.data.cliDevices.length === 0 ? (
-            <p className="text-[13px] text-ink-secondary">
-              No linked devices. Run <code>cogworks link</code> in your project when you want to sync a
-              local report.
-            </p>
+        <Connection
+          title="CogWorks tool"
+          last
+          grants="A linked device sends check results, synced local reports and runs you share live. It can't touch your repository or start a hosted run."
+        >
+          {cliDevices.length === 0 ? (
+            <>
+              <p className="text-[14px] leading-[1.6] text-ink-secondary">
+                No devices linked. Run this in your project folder:
+              </p>
+              {/* The complete command, not the bare verb. A fresh CLI has no saved
+                  portal and refuses `cogworks link` outright, which used to send a
+                  first-time student to Setup to find the rest of it. */}
+              <CopyBlock className="mt-3" text={deviceLinkCommand(window.location.origin)} wrap />
+              <p className="mt-3 text-[14px] text-ink-secondary">
+                Don't have the tool yet? Install it from{" "}
+                <Link to="/setup" className="u-link">
+                  Setup
+                </Link>
+                .
+              </p>
+            </>
           ) : (
-            <ul className="divide-y divide-rule-soft">
-              {connections.data.cliDevices.map((device) => (
-                <li key={device.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                  <div>
-                    <p className="text-[13px] font-medium text-ink">{device.name}</p>
-                    <p className="mt-0.5 text-[11.5px] text-ink-faint">
-                      {device.lastUsedAt
+            <ul role="list" className="divide-y divide-rule-soft border-y border-rule-soft">
+              {cliDevices.map((device) => (
+                <li key={device.id} className="py-3">
+                  <Row
+                    name={<span className="font-semibold">{device.name}</span>}
+                    meta={
+                      device.lastUsedAt
                         ? `Last used ${formatDateTime(device.lastUsedAt)}`
-                        : `Linked ${formatDateTime(device.createdAt)}`}
+                        : `Linked ${formatDateTime(device.createdAt)}, not used yet`
+                    }
+                    action={
+                      <ConfirmButton
+                        label="Revoke"
+                        confirmLabel="Confirm, it stops reporting"
+                        onConfirm={() => revokeDevice.mutate(device.id)}
+                        busy={revokeDevice.isPending && revokeDevice.variables === device.id}
+                        className="px-4 !text-[13.5px]"
+                      />
+                    }
+                  />
+                  {revokeDevice.error && revokeDevice.variables === device.id && (
+                    <p role="alert" className="mt-2 text-[13.5px] text-detect-deep">
+                      {errorMessage(revokeDevice.error, "The device couldn't be revoked. Try again.")}
                     </p>
-                  </div>
-                  <Button
-                    variant="quiet"
-                    busy={revokeDevice.isPending && revokeDevice.variables === device.id}
-                    onClick={() => revokeDevice.mutate(device.id)}
-                  >
-                    Revoke
-                  </Button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
-        </Panel>
+        </Connection>
       </div>
+    </div>
+  );
+}
+
+/** One kind of connection: a title, what it can and can't do, and its
+ *  current state. Separated by rules rather than boxed, because the three are
+ *  one list of the same thing. The permission line sits under the title so
+ *  it is read before the control that grants or revokes it. */
+function Connection({
+  title,
+  grants,
+  last = false,
+  children,
+}: {
+  title: string;
+  grants: string;
+  last?: boolean;
+  children: ReactNode;
+}) {
+  // Revoking a device or unlinking Discord replaces the focused confirm with
+  // the section's new state; the heading is where reading it starts.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const keepFocus = useFocusFallback(() => headingRef.current);
+  return (
+    <section className={`max-w-[42rem] border-t border-rule pt-6 ${last ? "" : "pb-10"}`} {...keepFocus}>
+      <h2 ref={headingRef} tabIndex={-1} className="text-[21px] text-ink">{title}</h2>
+      <p className="mt-1 text-[13.5px] leading-[1.5] text-ink-faint">{grants}</p>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function Row({ name, meta, action }: { name: ReactNode; meta: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="min-w-0">
+        <p className="text-[14.5px] text-ink">{name}</p>
+        <p className="mt-0.5 text-[13px] text-ink-faint">{meta}</p>
+      </div>
+      {action}
     </div>
   );
 }

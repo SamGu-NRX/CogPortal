@@ -2,7 +2,7 @@ import type {
   RunStreamEventCode,
   RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
-import { runSurfaceCurrentEvents } from "@cogworks/contracts/schema";
+import { runSurfaceCurrentEvents, runSurfaceCurrentRunId } from "@cogworks/contracts/schema";
 import { ACCENT_DETECT, ACCENT_INK, ACCENT_VERIFY } from "@cogworks/discord-kit/accents";
 import {
   IS_COMPONENTS_V2,
@@ -33,6 +33,11 @@ interface DiscordMessage {
 }
 
 export class DiscordRequestError extends Error {
+  /** The channel the refused request went to, set by syncRunSurfaceMessage.
+   *  The surface can be rebound while the request is in flight, so a later
+   *  read of the binding may name a channel that was never asked. */
+  channelId: string | null = null;
+
   constructor(
     public readonly status: number,
     public readonly retryAfterMs: number | null,
@@ -121,11 +126,25 @@ const STAGE_WORDS: Record<RunSurfaceSnapshot["stage"], string> = {
   published: "published",
 };
 
+/** For the refusal headline, which a team's own repository writes from their
+ *  function names and returned shapes. `allowed_mentions` on the payload
+ *  already stops a mention from pinging and does nothing about a masked link,
+ *  which would post into their channel as a link they have reason to trust.
+ *
+ *  It is one line by construction, so a line break can only have come from
+ *  somewhere that should not be writing one; it becomes a space rather than a
+ *  new `-#` or `###` line of its own. `<` goes too, because the sequences
+ *  Discord reads for a timestamp or a mention all open with it. */
+function plain(text: string): string {
+  return text.replace(/[\r\n]+/g, " ").replace(/[\\*_~`|[\]<>]/g, (ch) => "\\" + ch);
+}
+
+/** The run, not the person: a result line that names who ran it reads as that
+ *  student's score, so the snapshot's actor is never posted. */
 function surfaceMeta(snapshot: RunSurfaceSnapshot, lead: string): string {
   return `-# ${metaLine([
     lead,
     chip(snapshot.shortSha),
-    `by ${snapshot.actor.name ?? snapshot.actor.login}`,
     chip(elapsed(snapshot.elapsedMs)),
     snapshot.dirty && "dirty worktree",
     snapshot.simulated && "simulated",
@@ -138,9 +157,14 @@ function bestComparison(snapshot: RunSurfaceSnapshot): string | null {
   // Self-reported local metrics never qualify as observed comparisons.
   const observed = snapshot.stage !== "local";
   if (!best) return null;
-  if (snapshot.status !== "succeeded" || !observed || !current) {
-    return `-# team best so far ${metricValue(best)}`;
-  }
+  // The team best is on the measure the board ranks. This run's headline can
+  // be another one (a partial Language run reports text MRR), and then the
+  // line names its measure instead of reading as a comparison.
+  const comparable = current?.key === best.key && current.higherIsBetter === best.higherIsBetter;
+  const soFar = current && !comparable
+    ? `-# team best ${best.label.toLowerCase()} so far ${metricValue(best)}`
+    : `-# team best so far ${metricValue(best)}`;
+  if (snapshot.status !== "succeeded" || !observed || !current || !comparable) return soFar;
   const improved = best.higherIsBetter ? current.value > best.value : current.value < best.value;
   return improved
     ? `-# a new team best, past ${metricValue(best)}`
@@ -164,8 +188,9 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
   const rail = stageRail(snapshot, fmt);
   const children: DiscordContainerChild[] = [];
   let accent = ACCENT_INK;
+  const silentSince = snapshot.status === "running" ? snapshot.silentSince : null;
 
-  if (snapshot.status === "running") {
+  if (snapshot.status === "running" && silentSince === null) {
     const bestLine = snapshot.teamBest ? `-# team best so far ${metricValue(snapshot.teamBest)}` : null;
     const head = [
       `### ${snapshot.benchmark.title}`,
@@ -184,7 +209,10 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
   } else {
     const score = snapshot.primaryMetric ? `${META_SEP}**${metricValue(snapshot.primaryMetric)}**` : "";
     const lines: string[] = [];
-    if (snapshot.status === "succeeded" && snapshot.published) {
+    if (silentSince !== null) {
+      const lastPhase = effectivePhase(snapshot, events);
+      lines.push(`### Lost contact${lastPhase ? ` during ${phaseNoun(lastPhase)}` : ""}`);
+    } else if (snapshot.status === "succeeded" && snapshot.published) {
       accent = ACCENT_VERIFY;
       lines.push(`### ${fmt("cog_star")} Published${score}`);
     } else if (snapshot.status === "succeeded") {
@@ -199,6 +227,10 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
       lines.push(`### Cancelled${stopped ? ` during ${phaseNoun(stopped)}` : ""}`);
     }
     lines.push(surfaceMeta(snapshot, snapshot.benchmark.title));
+    if (silentSince !== null) {
+      const heard = Math.floor(silentSince / 1000);
+      lines.push(`-# last heard from the terminal <t:${heard}:R>; if the run is still going, its result will appear here`);
+    }
     if (snapshot.status === "succeeded") {
       const comparison = bestComparison(snapshot);
       if (comparison) lines.push(comparison);
@@ -211,15 +243,26 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
     }
     if (snapshot.status === "failed") {
       lines.push("", ...failureTrace(snapshot, events, (code) => EVENT_COPY[code], fmt));
+      // "Contract check stopped" is true and says nothing a team can act on.
+      // When the platform could not find code to score, it already wrote one
+      // sentence explaining why, in their own function names. Discord is
+      // where several teams read a result first, so it belongs here too.
+      if (snapshot.refusalHeadline) {
+        lines.push("-# " + plain(snapshot.refusalHeadline.slice(0, 300)));
+      }
     }
     children.push(text(lines.join("\n")));
     const breakdown = snapshot.status === "succeeded" ? subscoreLines(snapshot, fmt) : [];
     if (breakdown.length) children.push(separator(false), text(breakdown.join("\n")));
     children.push(separator(), text(rail));
 
-    const buttons: DiscordButton[] = terminalButtons(snapshot).map((spec) =>
-      button(`cog:surface:${snapshot.id}:${spec.action}`.slice(0, 100), spec.label, spec.style),
-    );
+    const currentRunId = runSurfaceCurrentRunId(snapshot);
+    const buttons: DiscordButton[] = terminalButtons(snapshot)
+      .filter((spec) => spec.action !== "retry" || currentRunId !== null)
+      .map((spec) => button(
+        `cog:surface:${snapshot.id}:${spec.action}${spec.action === "retry" ? `:${currentRunId}` : ""}`,
+        spec.label, spec.style,
+      ));
     const target = surfacePortalUrl(env, snapshot.id);
     if (target) buttons.push(linkButton(target, "Cog*Portal"));
     if (buttons.length) children.push(separator(false), actionRow(...buttons));
@@ -236,10 +279,35 @@ function nonce(snapshot: RunSurfaceSnapshot, generation: number): string {
   return `${snapshot.id.slice(-18)}${generation.toString(36)}`.slice(0, 25);
 }
 
+/** The channel a surface's message goes to, or null when none is bound. The
+ *  hub compares it with the one Discord refused, so rebinding retries. */
+export async function runSurfaceDiscordChannel(env: Env, surfaceId: string): Promise<string | null> {
+  const [surface] = await getDb(env)
+    .select({ channel: runSurfaces.discordChannelId })
+    .from(runSurfaces)
+    .where(eq(runSurfaces.id, surfaceId))
+    .limit(1);
+  return surface?.channel ?? null;
+}
+
 export async function syncRunSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot): Promise<"updated" | "created" | "unbound"> {
   const db = getDb(env);
   const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, snapshot.id)).limit(1);
   if (!surface?.discordChannelId) return "unbound";
+  try {
+    return await syncBoundSurfaceMessage(env, snapshot, surface as typeof surface & { discordChannelId: string });
+  } catch (error) {
+    if (error instanceof DiscordRequestError) error.channelId = surface.discordChannelId;
+    throw error;
+  }
+}
+
+async function syncBoundSurfaceMessage(
+  env: Env,
+  snapshot: RunSurfaceSnapshot,
+  surface: typeof runSurfaces.$inferSelect & { discordChannelId: string },
+): Promise<"updated" | "created"> {
+  const db = getDb(env);
   if (surface.discordMessageId) {
     try {
       await discordRequest<DiscordMessage>(

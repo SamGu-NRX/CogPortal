@@ -5,6 +5,7 @@
 import { z } from "zod";
 import {
   AdminOverviewSchema,
+  AdminStaffRosterSchema,
   AdminTeamSummarySchema,
   ApiErrorSchema,
   BenchmarkSchema,
@@ -19,14 +20,23 @@ import {
   LeaderboardSchema,
   LocalReportListSchema,
   RunDetailSchema,
+  type RetryRunRequest,
   RunSurfaceSnapshotSchema,
   RunSummarySchema,
   SessionSchema,
   SetupStateSchema,
   StartRunResponseSchema,
   TeamDetailSchema,
+  TeamProcessSignalsSchema,
   type ApiErrorCode,
 } from "@cogworks/contracts/schema";
+
+type ExistingRunSurfaceMutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
+
+export type RunSurfaceMutationInput = { surfaceId: string } & (
+  | { action: ExistingRunSurfaceMutation; runId?: never }
+  | ({ action: "retry" } & RetryRunRequest)
+);
 
 const AdminCohortSchema = AdminOverviewSchema.shape.cohort;
 
@@ -131,6 +141,7 @@ export const api = {
     }),
 
   team: () => request("/api/team", TeamDetailSchema),
+  teamProcess: () => request("/api/v1/team/process", TeamProcessSignalsSchema),
   updateTeam: (body: { name?: string; description?: string | null }) =>
     request("/api/team", TeamDetailSchema, { method: "PATCH", body }),
   changeTeamRepo: (fullName: string) =>
@@ -139,7 +150,13 @@ export const api = {
       body: { fullName },
     }),
 
-  setupState: () => request("/api/v1/setup/state", SetupStateSchema),
+  setupState: (benchmarkId?: string) =>
+    request(
+      benchmarkId
+        ? `/api/v1/setup/state?benchmarkId=${encodeURIComponent(benchmarkId)}`
+        : "/api/v1/setup/state",
+      SetupStateSchema,
+    ),
   resetSetupState: () =>
     request("/api/v1/setup/state", z.object({ ok: z.literal(true) }), {
       method: "DELETE",
@@ -196,12 +213,23 @@ export const api = {
       { method: "DELETE" },
     ),
 
+  adminStaffRoster: () => request("/api/admin/staff", AdminStaffRosterSchema),
+  adminAddStaff: (login: string) =>
+    request("/api/admin/staff", AdminStaffRosterSchema, { method: "POST", body: { login } }),
+  adminRemoveStaff: (login: string) =>
+    request(`/api/admin/staff/${encodeURIComponent(login)}`, AdminStaffRosterSchema, {
+      method: "DELETE",
+    }),
+
   benchmarks: () => request("/api/benchmarks", z.array(BenchmarkSchema)),
   localReports: (benchmarkId: string) =>
     request(
       `/api/v1/local-reports?benchmark=${encodeURIComponent(benchmarkId)}`,
       LocalReportListSchema,
     ),
+  /** Reports for a benchmark version no track lists, newest 50 first. */
+  untrackedLocalReports: () =>
+    request("/api/v1/local-reports?untracked=1", LocalReportListSchema),
   dashboard: (benchmarkId: string) =>
     request(
       `/api/dashboard?benchmark=${encodeURIComponent(benchmarkId)}`,
@@ -230,12 +258,16 @@ export const api = {
     request(`/api/run-surfaces/${encodeURIComponent(surfaceId)}`, RunSurfaceSnapshotSchema),
   mutateRunSurface: (
     surfaceId: string,
-    action: "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted",
+    ...mutation: [action: ExistingRunSurfaceMutation] | [action: "retry", target: RetryRunRequest]
   ) =>
     request(
-      `/api/run-surfaces/${encodeURIComponent(surfaceId)}/actions/${action}`,
+      `/api/run-surfaces/${encodeURIComponent(surfaceId)}/actions/${mutation[0]}`,
       RunSurfaceSnapshotSchema,
-      { method: "POST" },
+      {
+        method: "POST",
+        // Replays must reuse the caller's failed execution, never the latest snapshot.
+        body: mutation[0] === "retry" ? mutation[1] : undefined,
+      },
     ),
 
   leaderboard: (benchmarkId?: string) =>

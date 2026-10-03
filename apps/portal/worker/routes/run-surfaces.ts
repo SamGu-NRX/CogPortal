@@ -1,17 +1,14 @@
 import type { Hono } from "hono";
-import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
+import { RetryRunRequestSchema, RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireTeam } from "../auth/session";
-import { getDb } from "../db/client";
-import { runSurfaces } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
-import { respond } from "../http/respond";
-import { buildRunSurfaceSnapshot, getRunSurfaceRow } from "../services/run-surfaces";
+import { parseBody, respond } from "../http/respond";
+import { buildRunSurfaceSnapshot, getRunSurfaceRow, listTeamRunSurfaceSnapshots } from "../services/run-surfaces";
 import { actorFromAuth, performRunSurfaceMutation } from "../services/run-actions";
 
-const MUTATIONS = ["verify_hosted", "promote_official", "publish_result", "rerun_hosted"] as const;
+const MUTATIONS = ["verify_hosted", "promote_official", "publish_result", "rerun_hosted", "retry"] as const;
 const MutationSchema = z.enum(MUTATIONS);
 
 async function requireTeamSurface(env: AppEnv["Bindings"], teamId: string, surfaceId: string) {
@@ -23,14 +20,11 @@ async function requireTeamSurface(env: AppEnv["Bindings"], teamId: string, surfa
 export function registerRunSurfaceRoutes(app: Hono<AppEnv>): void {
   app.get("/run-surfaces", async (c) => {
     const auth = await requireTeam(c);
-    const rows = await getDb(c.env)
-      .select({ id: runSurfaces.id })
-      .from(runSurfaces)
-      .where(eq(runSurfaces.teamId, auth.team.id))
-      .orderBy(desc(runSurfaces.updatedAt))
-      .limit(10);
-    const snapshots = await Promise.all(rows.map((row) => buildRunSurfaceSnapshot(c.env, row.id)));
-    return respond(c, z.array(RunSurfaceSnapshotSchema), snapshots);
+    return respond(
+      c,
+      z.array(RunSurfaceSnapshotSchema),
+      await listTeamRunSurfaceSnapshots(c.env, auth.team.id),
+    );
   });
 
   app.get("/run-surfaces/:id", async (c) => {
@@ -49,6 +43,7 @@ export function registerRunSurfaceRoutes(app: Hono<AppEnv>): void {
       actorFromAuth(auth),
       surfaceId,
       action,
+      action === "retry" ? await parseBody(c, RetryRunRequestSchema) : undefined,
     );
     return respond(c, RunSurfaceSnapshotSchema, snapshot);
   });
@@ -62,7 +57,7 @@ export function registerRunSurfaceRoutes(app: Hono<AppEnv>): void {
     }
     const stub = c.env.RUN_SURFACES.get(c.env.RUN_SURFACES.idFromName(surfaceId));
     return stub.fetch(
-      new Request("https://run-surface.internal/connect", {
+      new Request(`https://run-surface.internal/connect?surfaceId=${encodeURIComponent(surfaceId)}`, {
         headers: c.req.raw.headers,
       }),
     );

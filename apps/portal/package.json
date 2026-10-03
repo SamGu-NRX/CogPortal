@@ -7,14 +7,15 @@
   "description": "Cog*Portal — hosted benchmark control plane for the CogWorks capstones",
   "scripts": {
     "dev": "vite",
-    "predev": "wrangler d1 migrations apply cogportal-db --local",
+    "predev": "pnpm db:migrate:local && pnpm db:seed:local",
     "build": "tsc -b && vite build && node scripts/scrub-dist-secrets.mjs",
     "check": "tsc -b",
-    "test": "tsx --test test/*.test.ts",
+    "test": "TSX_TSCONFIG_PATH=tsconfig.app.json tsx --test test/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cogportal-db --local",
+    "db:seed:local": "wrangler d1 execute cogportal-db --local --file scripts/seed-local.sql",
     "deploy": "pnpm build && wrangler deploy",
-    "deploy:production": "CLOUDFLARE_ENV=production pnpm build && CLOUDFLARE_ENV=production wrangler deploy --env production"
+    "deploy:production": "CLOUDFLARE_ENV=production VITE_PORTAL_ORIGIN=https://cogportal.sillion.app VITE_ACTIVITY_HOSTNAME=cogactivity.sillion.app pnpm build && CLOUDFLARE_ENV=production wrangler deploy --env production"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.23",
@@ -22,9 +23,9 @@
     "@cogworks/discord-kit": "workspace:*",
     "@cogworks/env": "workspace:*",
     "@discord/embedded-app-sdk": "^2.5.0",
+    "@fontsource-variable/atkinson-hyperlegible-mono": "^5.3.0",
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@fontsource-variable/source-serif-4": "^5.2.9",
-    "@fontsource/ibm-plex-mono": "^5.2.7",
-    "@fontsource/ibm-plex-sans": "^5.2.8",
     "@hugeicons/core-free-icons": "^4.2.2",
     "@hugeicons/react": "^1.1.9",
     "@shikijs/langs": "^4.3.1",
@@ -49,6 +50,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "drizzle-kit": "^0.31.10",
+    "happy-dom": "20.14.3",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",

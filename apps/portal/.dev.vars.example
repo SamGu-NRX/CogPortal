@@ -10,7 +10,10 @@ DEV_AUTH="enabled"
 # the server also requires PLATFORM_OWNER_LOGINS membership.
 ONBOARDING_DEV_TOOLS="enabled"
 EXECUTION_PROVIDER="fixture"
-BETTER_AUTH_SECRET=""
+# 32+ characters. Signs sessions and the setup page's check-off commands,
+# so a portal without it cannot offer those commands. Any long random
+# string works locally; generate a real one per deployment.
+BETTER_AUTH_SECRET="local-development-only-not-a-real-secret-0000"
 BETTER_AUTH_URL="http://localhost:5173"
 GITHUB_CLIENT_ID=""
 GITHUB_CLIENT_SECRET=""
@@ -20,23 +23,142 @@ GITHUB_WEBHOOK_SECRET=""
 # Optional owner/repo allowlist for the course template.
 GITHUB_TEMPLATE_REPO=""
 GITHUB_TEMPLATE_REPO_ID=""
-# Course staff, BWSI CogWorks 2026 cohort. GitHub logins, matched
-# case-insensitively (auth/roles.ts). Owners are also staff by definition
-# (platformRole returns "staff" for either list), so an owner does not need
-# repeating in the staff list; SamGu-NRX appears in both because he is an
-# instructor and a TA. Being a TA for a specific team is a separate thing:
-# that lives in the team_tas table, not here.
-# Update this list at the start of each cohort.
-PLATFORM_STAFF_LOGINS="alihanisarr,carti4ce,r-sxnchez,jayashabarishankar,SamGu-NRX"
-PLATFORM_OWNER_LOGINS="SamGu-NRX,iReynaldo"
+# Platform owners. GitHub logins, comma-separated, matched case-insensitively
+# (auth/roles.ts). This is the only role that lives in configuration, because
+# it is the root of trust: owners manage the staff roster, so an owner list
+# that could be edited from inside the app would let anyone who reached the
+# roster make themselves an owner. It also means a fresh database is never
+# locked out, since owners are staff automatically and can add the first
+# roster row. Changing it needs a redeploy, which is the right cost for a
+# list that changes about once a year.
+PLATFORM_OWNER_LOGINS="your-github-login"
+
+# There is no PLATFORM_STAFF_LOGINS. The staff roster moved into the
+# platform_staff table in migration 0031 and is edited by an owner under
+# PLATFORM STAFF in the admin console, so a cohort change no longer needs a
+# secret edit and a redeploy. Being a TA for a specific team is still separate
+# again: that is a team_tas row, assigned per team in the same console.
 
 # Discord service-binding policy and Modal runner callback signing.
 COURSE_GUILD_ID=""
 # Required only for live team run bubbles. Keep this in .dev.vars locally and
 # set it with `wrangler secret put DISCORD_BOT_TOKEN` in deployed environments.
 DISCORD_BOT_TOKEN=""
+
+# The Discord Activity's OAuth2 secrets, from the same application as the bot
+# above. Without both, /api/activity/* answers 501 and the Activity never opens.
+# DISCORD_CLIENT_ID is deliberately absent: it is not a secret and wrangler.jsonc
+# already supplies it to local dev, so an empty line here would shadow a working
+# value and cause the 501 it looks like it prevents. DISCORD_CLIENT_SECRET is the
+# OAuth2 client secret from the Developer Portal, not the bot token. Set both
+# with `wrangler secret put` per deployed environment; secrets do not copy from
+# staging to production.
+DISCORD_CLIENT_SECRET=""
+# Signs the Activity's own state and session cookies. Any long random string of
+# your own. Changing it ends every Activity session that is currently open.
+ACTIVITY_SESSION_SECRET=""
 PUBLIC_ORIGIN="http://localhost:5173"
 RUNNER_SIGNING_KEY_ID="runner-v1"
+# SECRET. Leave empty unless you are running against real Modal locally; empty
+# is read as "not configured" (worker/env.ts sets emptyStringAsUndefined), which
+# is the correct state for fixture mode. To generate, set, or rotate the real
+# value across Modal and both Cloudflare environments, follow
+# docs/runbooks/rotate-signing-secret.md. The notes below explain what it does.
 RUNNER_SIGNING_SECRET=""
 MODAL_RUNNER_URL=""
 RUN_STALE_AFTER_SECONDS="3600"
+
+# ---------------------------------------------------------------------------
+# Running against the real Modal runner, locally
+# ---------------------------------------------------------------------------
+#
+# Everything above this line is the fixture setup, and it is the right default:
+# fixture mode advances runs from a wall clock and never sends anything
+# anywhere, so it costs nothing and needs no credentials. Turning it off means
+# every practice run you start spends real sandbox time.
+#
+# Change these values in your own .dev.vars only. apps/portal/wrangler.jsonc
+# carries its own copy for the deployed staging and production workers, and
+# editing it there is a separate decision that costs money.
+#
+# Before starting anything, run the offline check. It reports what is missing
+# and why, and it compares the two HMAC implementations by computing signatures
+# with both rather than by reading them:
+#
+#   python apps/runner-modal/tools/preflight_dispatch.py
+#
+# Then docs/runbooks/gate-1-modal.md, which is the ordered procedure.
+#
+# EXECUTION_PROVIDER
+#   "fixture" or "modal". With "fixture", dispatch() in
+#   worker/services/run-actions.ts returns immediately and no job is ever sent.
+#   With "modal", starting a run posts one signed job to MODAL_RUNNER_URL.
+#   The value is written onto each run row, so a run started under fixture
+#   keeps behaving as a fixture run after you switch back.
+#
+# MODAL_RUNNER_URL
+#   Not a secret. The https endpoint `modal deploy` prints for submit_job, of
+#   the form https://<workspace>--cogworks-runner-submit-job.modal.run. Find it
+#   again with `modal app list`. Leave empty to keep dispatch unconfigured.
+#
+# RUNNER_SIGNING_SECRET
+#   SECRET. Never commit it, never paste it into a runbook or a chat, never
+#   print it. It must be byte-identical to the value inside the Modal secret
+#   named cogworks-runner-signing (`modal secret list` shows the name; the
+#   value is only in Modal and wherever it was first generated). It signs both
+#   directions: the Worker signs jobs with it, and Modal signs the callbacks
+#   the Worker verifies. A mismatch is a bare 401 with no diagnostics on either
+#   side, which is why tools/preflight_dispatch.py, tools/verify_dispatch.py,
+#   and tools/probe_callback.py all exist. In a deployed environment set it with
+#   `wrangler secret put RUNNER_SIGNING_SECRET`, never as a plain var, and once
+#   per environment: Wrangler secrets do not copy from staging to production.
+#
+#   To supply it for one command without writing it down:
+#     RUNNER_SIGNING_SECRET=... pnpm dev
+#
+#   Generating, setting, or changing it is one ordered procedure across three
+#   systems, and doing it out of order strands runs for an hour. It is written
+#   down in docs/runbooks/rotate-signing-secret.md; do not improvise it.
+#
+# RUNNER_SIGNING_KEY_ID
+#   Not a secret. Both sides compare it before checking the signature, so it
+#   must match Modal's RUNNER_SIGNING_KEY_ID exactly. "runner-v1" unless the
+#   secret has been rotated. Incrementing it buys no overlap, because only one
+#   key is ever active; what it buys is a distinguishable 401 ("Unknown runner
+#   signing key" rather than "Runner signature is invalid") so a straggler
+#   signed under the old key is not mistaken for a mistyped secret.
+#
+# PUBLIC_ORIGIN
+#   Not a secret, and the value most likely to stop a first real run. Two
+#   independent requirements. It must start with https:// or
+#   assertModalConfigured throws 501 before anything is sent. And Modal posts
+#   every run event to <PUBLIC_ORIGIN>/api/internal/v1/runner/events from its
+#   own network, so an origin that only resolves on your laptop dispatches
+#   fine and then strands the run in `queued` until the stale reaper fails it
+#   an hour later. https://localhost:5173 satisfies the first and fails the
+#   second. Use a public tunnel to your dev server, or accept that a local
+#   dispatch is fire-and-forget and read the result from Modal's own logs.
+#
+# RUNNER_IMAGE_DIGEST
+#   Not a secret, and optional: runner.ts falls back to a constant when it is
+#   unset. It selects nothing: Modal picks a sandbox image by name. The Worker
+#   sends it on every job as runtime.imageDigest and the Modal runner does not
+#   read it; a completed run's environmentDigest is built from the
+#   prepared-environment record, the evaluation script, the controller's Python
+#   and the plugin and scorer versions. Set it from an id
+#   `python apps/runner-modal/tools/deploy.py` prints, which looks like
+#   `published cogworks-runner-week3 -> im-...`, written as <name>@<id>. One
+#   string cannot name all three images, so this names at most one track.
+#
+# RUNNER_PYTHON_VERSION
+#   Not a secret, and it does not apply to every benchmark. Weeks 1 and 3
+#   always run student code under a pinned CPython 3.8.20 venv baked into their
+#   images, so buildRunJob ignores this for them. It is the default for the
+#   rest. Leave it unset unless you know why you are changing it.
+#
+# EXECUTION_PROVIDER="modal"
+# MODAL_RUNNER_URL="https://<workspace>--cogworks-runner-submit-job.modal.run"
+# RUNNER_SIGNING_SECRET=""
+# RUNNER_SIGNING_KEY_ID="runner-v1"
+# PUBLIC_ORIGIN="https://<your-public-tunnel-host>"
+# RUNNER_IMAGE_DIGEST="cogworks-runner-week3@im-..."

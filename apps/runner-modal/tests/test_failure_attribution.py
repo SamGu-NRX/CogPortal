@@ -1,11 +1,11 @@
-"""Who gets blamed for a failed evaluation decides whether an official attempt
-is spent, so a submission must not be able to influence it.
+"""Who gets blamed for a failed evaluation, and why a submission must not be
+able to influence it.
 
 The controller used to classify a failure as a platform fault by substring
 matching the sandbox's last error line, and that line is the submission's own
 exception message. `raise ValueError("glove")` was therefore enough to have a
-failed official run refunded, as many times as a team liked. The sandbox now
-tags the owner of the failing step and the controller reads only that tag.
+failed run blamed on us. The sandbox now tags the owner of the failing step and
+the controller reads only that tag.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ STUDENT_RAISES_PLATFORM_WORDS = """
 
     def load_submission(name, group=None):
         # Exactly the exploit: the submission names a platform artifact so the
-        # old substring match would refund the attempt.
+        # old substring match would blame us.
         raise ValueError("glove cache missing, torch_home checkpoint")
 """
 
@@ -134,31 +134,26 @@ class FailureAttributionTests(unittest.TestCase):
             source,
             "attribution must not substring-match the student's error text",
         )
-        # `contract_invalid` is not in CONSUMING_FAILURES, so choosing it from
-        # the student's own message refunded the attempt.
         self.assertNotIn(
             '"contract_invalid" if "benchmark_adapter.py" in detail',
             source,
             "failure category must not be chosen from student-controlled text",
         )
-        # Every payload-shaped evaluate path must read the sandbox's owner
-        # tag. Counted against the number of such paths rather than a literal,
-        # so adding a track fails this test by omitting the check, not by
-        # existing. `_evaluate` (the v1 JSON path) is excluded: it has no
-        # payload and no platform-owned step to attribute.
-        module = ast.parse(source)
-        payload_paths = [
-            node.name
-            for node in module.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name.startswith("_evaluate_")
-            and node.name != "_evaluate_installed"
-        ]
-        self.assertGreaterEqual(len(payload_paths), 3, payload_paths)
+        # This assertion used to read the other way: every payload path MUST
+        # read the owner tag. That was the previous fix, and it was wrong for
+        # a reason no amount of reading the controller would show, because the
+        # defect was in the sandbox. `redirect_stderr` rebinds `sys.stderr`
+        # and leaves file descriptor 2 alone, so `os.write(2, ...)` from any
+        # student module put the platform marker on the pipe the controller
+        # reads.
+        #
+        # So no evaluate path may read it. The conditions it reported are
+        # verified controller-side before the sandbox starts; see
+        # `_platform_owned_evaluation_failure` in modal_app.
         self.assertEqual(
             source.count('"COG_PLATFORM_ERROR:" in stderr_text'),
-            len(payload_paths),
-            "each of {} must read the owner tag".format(payload_paths),
+            0,
+            "attribution must not read anything the student process wrote",
         )
 
 
@@ -185,47 +180,37 @@ class TimeoutAttribution(unittest.TestCase):
     def test_elapsed_at_the_budget_is_a_timeout(self):
         job = self._job(900)
         started = time.time() - 999
-        self.assertTrue(TIMED_OUT(job, started, 1, ""))
+        self.assertTrue(TIMED_OUT(job, started))
 
-    def test_sigkill_is_a_timeout_even_slightly_early(self):
-        job = self._job(900)
-        started = time.time() - 500
-        self.assertTrue(TIMED_OUT(job, started, -9, ""))
-        self.assertTrue(TIMED_OUT(job, started, 137, ""))
+    # A kill signal well before the budget is not a timeout: the submission
+    # can exit with 137 itself. test_evaluation_failure drives that per lane.
 
     def test_a_fast_crash_is_not_a_timeout(self):
         """The case this must never swallow: a real student exception."""
 
         job = self._job(900)
         started = time.time() - 12
-        self.assertFalse(
-            TIMED_OUT(job, started, 1, "ValueError: bad shape\n")
-        )
+        self.assertFalse(TIMED_OUT(job, started))
 
-    def test_a_submission_cannot_claim_a_timeout_by_printing_one(self):
-        """`killed` in stderr is checked last and only near the end.
-
-        A team that raises RuntimeError("killed") early must still be charged
-        for a crash, or the word becomes a way to relabel a bug.
-        """
-
-        job = self._job(900)
-        started = time.time() - 5
-        self.assertFalse(
-            TIMED_OUT(job, started, 1, "RuntimeError: killed\n" + "x" * 400)
-        )
+    # A submission printing "killed" can no longer claim a timeout: stderr is
+    # not an input. test_evaluation_failure drives that through every lane.
 
 
 def _last_error_line_function():
-    """Load `_last_error_line` from source; see `_timed_out_function`."""
+    """Load `_last_error_line` and the formatting it calls; see `_timed_out_function`."""
 
+    wanted = ("_receiver_units", "_take_units", "_fit", "_last_error_line")
     module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
-    for node in module.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "_last_error_line":
-            namespace = {}
-            exec(compile(ast.Module([node], []), "<modal_app>", "exec"), namespace)
-            return namespace["_last_error_line"]
-    raise AssertionError("_last_error_line not found")
+    nodes = [
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef) and node.name in wanted
+    ]
+    if len(nodes) != len(wanted):
+        raise AssertionError("expected {} in modal_app".format(", ".join(wanted)))
+    namespace = {"DETAIL_LIMIT": 240, "json": __import__("json")}
+    exec(compile(ast.Module(nodes, []), "<modal_app>", "exec"), namespace)
+    return namespace["_last_error_line"]
 
 
 LAST_ERROR_LINE = _last_error_line_function()
@@ -265,6 +250,21 @@ class ErrorLineExtraction(unittest.TestCase):
     def test_the_evaluate_marker_still_wins(self):
         stderr = "noise\nCOG_ERROR: returned 3 predictions for 5 cases\n"
         self.assertEqual(LAST_ERROR_LINE(stderr), "returned 3 predictions for 5 cases")
+
+    def test_a_traceback_message_obeys_the_same_cap_as_the_marker(self):
+        """Both branches return `detail`, so both are bounded the same way.
+
+        The marker branch was fixed first and this one was not, so a traceback
+        whose message ran long still cut mid-word, and 121 astral characters
+        measured 242 units at a receiver that caps 240.
+        """
+
+        emoji = "RuntimeError: " + "\U0001f600" * 121
+        units = sum(2 if ord(c) > 0xFFFF else 1 for c in LAST_ERROR_LINE(emoji))
+        self.assertLessEqual(units, 240)
+
+        wordy = "RuntimeError: " + ("word " * 80) + "final-token-here"
+        self.assertTrue(LAST_ERROR_LINE(wordy).endswith(" ..."))
 
     def test_empty_stderr_says_so_plainly(self):
         self.assertIn("failed", LAST_ERROR_LINE("").lower())

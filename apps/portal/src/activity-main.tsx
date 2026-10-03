@@ -4,22 +4,32 @@ import { Common, DiscordSDK, Events } from "@discord/embedded-app-sdk";
 import { z } from "zod";
 import {
   RunSurfaceSnapshotSchema,
+  shouldReplaceRunSurfaceSnapshot,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
 
-import "@fontsource-variable/source-serif-4/index.css";
-import "@fontsource/ibm-plex-sans/400.css";
-import "@fontsource/ibm-plex-sans/500.css";
-import "@fontsource/ibm-plex-sans/600.css";
-import "@fontsource/ibm-plex-mono/400.css";
-import "@fontsource/ibm-plex-mono/500.css";
+import "./fonts";
 import "./styles/app.css";
 
+import { ConnectGate } from "@/components/ConnectGate";
 import { RunConsole } from "@/components/RunConsole";
 import { useRunSurfaceStream } from "@/lib/run-surface-stream";
+import {
+  ActivityRequestError,
+  ActivitySessionSchema,
+  gateOutcome,
+  isExpiredActivitySession,
+  openedExternally,
+  phaseAfterOpen,
+  type ActivitySession,
+  type GateOutcome,
+  type GatePhase,
+  type GateVariant,
+} from "@/lib/activity-gate";
 import { clientEnv } from "./env.client";
 
 const CLIENT_ID = clientEnv.VITE_DISCORD_CLIENT_ID;
+const PORTAL_ORIGIN = clientEnv.VITE_PORTAL_ORIGIN;
 document.title = "Cog · Live bench";
 const embedded =
   window.location.hostname.endsWith(".discordsays.com") ||
@@ -27,15 +37,6 @@ const embedded =
 const API_PREFIX = embedded ? "/.proxy/api" : "/api";
 const sdk = embedded ? new DiscordSDK(CLIENT_ID) : null;
 
-const SessionSchema = z.discriminatedUnion("linked", [
-  z.object({ linked: z.literal(false), linkUrl: z.string().url() }),
-  z.object({
-    linked: z.literal(true),
-    githubLogin: z.string(),
-    team: z.object({ id: z.string(), name: z.string(), discordChannelId: z.string().nullable() }),
-  }),
-]);
-type ActivitySession = z.infer<typeof SessionSchema>;
 type ActivityLayoutMode = -1 | 0 | 1 | 2;
 
 async function jsonRequest<T>(
@@ -57,10 +58,14 @@ async function jsonRequest<T>(
     } catch {
       // Use the calm fallback above.
     }
-    throw new Error(message);
+    throw new ActivityRequestError(response.status, message);
   }
   return schema.parse(await response.json());
 }
+
+const loadSession = () => jsonRequest("/activity/session", ActivitySessionSchema);
+const loadSurfaces = () =>
+  jsonRequest("/activity/run-surfaces", z.array(RunSurfaceSnapshotSchema));
 
 function ActivityHeader({
   session,
@@ -110,8 +115,75 @@ function ActivityApp() {
   const [loading, setLoading] = useState(true);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [mutation, setMutation] = useState<"verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted" | null>(null);
+  const [mutation, setMutation] = useState<"verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted" | "retry" | null>(null);
   const [layoutMode, setLayoutMode] = useState<ActivityLayoutMode>(Common.LayoutModeTypeObject.FOCUSED);
+  const [gatePhase, setGatePhase] = useState<GatePhase>("idle");
+  const [checkResult, setCheckResult] = useState<GateOutcome | null>(null);
+  const [gateError, setGateError] = useState<string | null>(null);
+
+  /**
+   * Take a session and everything that depends on it. Surfaces load first, so a
+   * stored session never has nothing under it: both callers report that failure
+   * as a failure to open, rather than as a console with no runs in it.
+   */
+  const applySession = async (next: ActivitySession) => {
+    if (next.linked === true) {
+      const nextSurfaces = await loadSurfaces();
+      setSurfaces(nextSurfaces);
+      setSelectedId(nextSurfaces[0]?.id ?? null);
+    }
+    setSession(next);
+  };
+
+  const toEntryScreen = (caught: unknown) => {
+    setSession(null);
+    setStartupError(caught instanceof Error ? caught.message : null);
+  };
+
+  const openGate = (url: string) => {
+    if (!sdk) return;
+    setGateError(null);
+    void sdk.commands
+      .openExternalLink({ url })
+      .then((result) => {
+        if (openedExternally(result)) setGatePhase(phaseAfterOpen);
+      })
+      .catch(() => setGateError("Discord could not open that link. Try it again."));
+  };
+
+  const checkGate = async () => {
+    if (gatePhase === "checking" || !session) return;
+    const before = session.linked;
+    setGatePhase("checking");
+    setCheckResult(null);
+    setGateError(null);
+
+    let next: ActivitySession;
+    try {
+      next = await loadSession();
+    } catch (caught) {
+      // Reading the session again is the only part of this the card can offer
+      // a second time, so it is the only failure the card keeps.
+      if (isExpiredActivitySession(caught)) return toEntryScreen(caught);
+      setGatePhase("away");
+      setGateError(caught instanceof Error ? caught.message : "That check could not be completed.");
+      return;
+    }
+
+    const outcome = gateOutcome(before, next.linked);
+    try {
+      await applySession(next);
+    } catch (caught) {
+      // Only a linked session loads anything else, and by then the gate is
+      // finished. Reporting that failure on a card still saying "not linked
+      // yet" would be a lie, so it goes where the first look sends it.
+      toEntryScreen(caught);
+      return;
+    }
+    if (outcome === "linked") return;
+    setGatePhase(outcome === "advanced" ? "idle" : "away");
+    setCheckResult(outcome);
+  };
 
   useEffect(() => {
     if (!sdk) return;
@@ -163,18 +235,9 @@ function ActivityApp() {
           { method: "POST", body: { code: authorization.code, state: state.state } },
         );
         await sdk.commands.authenticate({ access_token: token.accessToken });
-        const nextSession = await jsonRequest("/activity/session", SessionSchema);
+        const nextSession = await loadSession();
         if (!active) return;
-        setSession(nextSession);
-        if (nextSession.linked) {
-          const nextSurfaces = await jsonRequest(
-            "/activity/run-surfaces",
-            z.array(RunSurfaceSnapshotSchema),
-          );
-          if (!active) return;
-          setSurfaces(nextSurfaces);
-          setSelectedId(nextSurfaces[0]?.id ?? null);
-        }
+        await applySession(nextSession);
       } catch (caught) {
         if (active) setStartupError(caught instanceof Error ? caught.message : "The Activity could not open.");
       } finally {
@@ -200,8 +263,8 @@ function ActivityApp() {
         <section className="w-full max-w-lg border border-rule bg-paper-raised p-7 shadow-[0_18px_55px_rgb(28_38_55/0.08)]">
           <div className="u-kicker">Discord Activity</div>
           <h1 className="mt-3 text-4xl">Open the live bench from Discord.</h1>
-          <p className="mt-4 text-[14px] text-ink-secondary">Use <code>/cog</code> in your team channel, then choose <strong>Open live console</strong>. Your linked Discord identity decides which team surfaces you can see.</p>
-          <a className="mt-6 inline-flex min-h-11 items-center bg-ink px-5 text-[13px] font-medium text-paper-raised" href="https://cogportal-dev.sillion.app">Open Cog*Portal</a>
+          <p className="mt-4 text-[14px] text-ink-secondary">Use <code>/cog</code> in your team channel, then choose <strong>Open live console</strong>.</p>
+          <a className="mt-6 inline-flex min-h-11 items-center bg-ink px-5 text-[13px] font-medium text-paper-raised" href={PORTAL_ORIGIN}>Open Cog*Portal</a>
         </section>
       </main>
     );
@@ -213,17 +276,20 @@ function ActivityApp() {
   if (startupError || !session) {
     return <main className="activity-safe grid min-h-dvh place-items-center p-5"><section className="max-w-md border-l-2 border-detect pl-5"><div className="u-kicker">Could not open</div><h1 className="mt-2 text-3xl">The bench is still here.</h1><p className="mt-3 text-[14px] text-ink-secondary">{startupError ?? "Close the Activity and open it again."}</p></section></main>;
   }
-  if (!session.linked) {
+  if (session.linked !== true) {
+    const variant: GateVariant = session.linked === "no_team" ? "team" : "link";
+    const url = session.linked === "no_team" ? session.portalUrl : session.linkUrl;
     return (
       <main className="activity-safe grid min-h-dvh place-items-center p-5">
-        <section className="w-full max-w-lg border border-rule bg-paper-raised p-7">
-          <div className="u-kicker">One connection</div>
-          <h1 className="mt-3 text-4xl">Link Cog*Portal to see your team's bench.</h1>
-          <p className="mt-4 text-[14px] text-ink-secondary">Discord is attached to your existing GitHub-first portal account. No repository access or Discord login is stored on your laptop.</p>
-          <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
-            if (sdk) void sdk.commands.openExternalLink({ url: session.linkUrl });
-          }}>Link Cog*Portal ↗</button>
-        </section>
+        <ConnectGate
+          variant={variant}
+          phase={gatePhase}
+          outcome={checkResult}
+          error={gateError}
+          compact={compact}
+          onOpen={() => openGate(url)}
+          onCheck={() => void checkGate()}
+        />
       </main>
     );
   }
@@ -241,20 +307,27 @@ function ActivityApp() {
             busyAction={mutation}
             error={actionError}
             onOpenPortal={() => {
-              const url = `https://cogportal-dev.sillion.app/run-surfaces/${stream.snapshot!.id}`;
+              const url = `${PORTAL_ORIGIN}/run-surfaces/${stream.snapshot!.id}`;
               if (sdk) void sdk.commands.openExternalLink({ url });
             }}
-            onAction={async (action) => {
-              setMutation(action);
+            onOpenRun={(runId) => {
+              if (sdk) void sdk.commands.openExternalLink({ url: `${PORTAL_ORIGIN}/runs/${encodeURIComponent(runId)}` });
+            }}
+            onAction={async (input) => {
+              setMutation(input.action);
               setActionError(null);
               try {
                 const next = await jsonRequest(
-                  `/activity/run-surfaces/${encodeURIComponent(stream.snapshot!.id)}/actions/${action}`,
+                  `/activity/run-surfaces/${encodeURIComponent(input.surfaceId)}/actions/${input.action}`,
                   RunSurfaceSnapshotSchema,
-                  { method: "POST" },
+                  { method: "POST", body: input.action === "retry" ? { runId: input.runId } : undefined },
                 );
-                setSurfaces((items) => [next, ...items.filter((item) => item.id !== next.id)]);
-                setSelectedId(next.id);
+                setSurfaces((items) => {
+                  const previous = items.find((item) => item.id === next.id);
+                  if (previous && !shouldReplaceRunSurfaceSnapshot(previous, next)) return items;
+                  return [next, ...items.filter((item) => item.id !== next.id)];
+                });
+                setSelectedId((current) => current === input.surfaceId ? next.id : current);
               } catch (caught) {
                 setActionError(caught instanceof Error ? caught.message : "That action could not be completed.");
               } finally {
@@ -266,7 +339,7 @@ function ActivityApp() {
           <section className="mx-auto mt-[12vh] max-w-lg border border-rule bg-paper-raised p-7 text-center">
             <div className="u-kicker">Bench ready</div>
             <h1 className="mt-3 text-4xl">No shared runs yet.</h1>
-            <p className="mt-4 text-[14px] text-ink-secondary">Start with <code>cogworks run --live</code>. Cog will keep one message and this console current for the team.</p>
+            <p className="mt-4 text-[14px] text-ink-secondary">Start one with <code>cogworks run --live</code>.</p>
           </section>
         )}
       </main>

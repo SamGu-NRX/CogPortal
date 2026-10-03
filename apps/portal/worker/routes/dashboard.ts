@@ -1,25 +1,34 @@
 import type { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
-import { DashboardSchema, OFFICIAL_LIMIT, PRACTICE_LIMIT } from "@cogworks/contracts/schema";
+import { DashboardSchema, OFFICIAL_LIMIT, PRACTICE_LIMIT, runSource } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import {
   benchmarks,
   leaderboardSelections,
-  officialAttempts,
   runMetrics,
   runs,
+  type RunRow,
 } from "../db/schema";
 import { syncTeamRuns } from "../execution/sync";
 import { ApiHttpError } from "../http/errors";
 import {
+  buildRunSummary,
+  readPrimaryMetrics,
   serializeBenchmark,
   serializeMetric,
-  serializeRunSummary,
   serializeTeam,
 } from "../http/serializers";
 import { respond } from "../http/respond";
+import { runSourceRefusal } from "../services/run-source";
+import { readRunAccounting } from "../services/run-accounting";
+import {
+  existingPromotion,
+  NO_CONSOLE_PROMOTION_REFUSAL,
+  rankingRefusal,
+  savedEnvironmentEligibility,
+} from "../services/run-eligibility";
 
 export function registerDashboardRoutes(app: Hono<AppEnv>): void {
   app.get("/dashboard", async (c) => {
@@ -50,16 +59,9 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         ),
       )
       .orderBy(desc(runs.createdAt));
-    const claims = await db
-      .select()
-      .from(officialAttempts)
-      .where(
-        and(
-          eq(officialAttempts.teamId, auth.team.id),
-          eq(officialAttempts.benchmarkId, benchmark.id),
-          eq(officialAttempts.benchmarkVersion, benchmark.version),
-        ),
-      );
+    const accounting = await readRunAccounting(db, {
+      teamId: auth.team.id, benchmarkId: benchmark.id, benchmarkVersion: benchmark.version,
+    });
     const [selectionRow] = await db
       .select()
       .from(leaderboardSelections)
@@ -72,6 +74,31 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
       )
       .limit(1);
 
+    const active = allRuns.find((run) => !["succeeded", "failed", "cancelled"].includes(run.status));
+    const candidate = allRuns.find((run) => run.mode === "practice" && run.status === "succeeded" && run.refundedAt === null);
+    // In the order promotion checks them: an attempt already promoted from
+    // this console answers first, so the saved environment is only asked
+    // about a run that has not been promoted.
+    const promoted = candidate?.surfaceId
+      ? existingPromotion(allRuns.filter((run) => run.surfaceId === candidate.surfaceId))
+      : null;
+    const promotionEligibility = candidate?.surfaceId && !promoted && c.env.EXECUTION_PROVIDER === "modal"
+      ? savedEnvironmentEligibility(candidate, benchmark, auth.team) : null;
+    const promotionRefusal = candidate && !candidate.surfaceId
+      ? NO_CONSOLE_PROMOTION_REFUSAL
+      : promoted?.refusal ?? (promotionEligibility?.eligible === false ? promotionEligibility.reason : null);
+
+    // One statement for every primary metric this response needs: the run
+    // log's rows and the two runs named above it. Read per run, this grew
+    // with a team's history.
+    const page = allRuns.slice(0, 50);
+    const primaries = await readPrimaryMetrics(db, [...new Set([
+      ...page.map((run) => run.id),
+      ...(active ? [active.id] : []),
+      ...(candidate ? [candidate.id] : []),
+    ])]);
+    const summarize = (run: RunRow) => buildRunSummary(run, primaries.get(run.id) ?? null);
+
     let selection = null;
     if (selectionRow) {
       const [selectedRun] = await db
@@ -79,39 +106,60 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         .from(runs)
         .where(eq(runs.id, selectionRow.runId))
         .limit(1);
-      const [primary] = await db
+      // The measure the board ranks, which a partial run's own primary flag
+      // may not be. A selection the board leaves out is not shown as the
+      // team's published result; the row itself stays stored.
+      const [ranked] = await db
         .select()
         .from(runMetrics)
-        .where(and(eq(runMetrics.runId, selectionRow.runId), eq(runMetrics.isPrimary, true)))
+        .where(and(eq(runMetrics.runId, selectionRow.runId), eq(runMetrics.key, benchmark.primaryMetricKey)))
         .limit(1);
-      if (selectedRun && primary) {
+      if (selectedRun && ranked && rankingRefusal(selectedRun, benchmark, [ranked]) === null) {
         selection = {
           runId: selectedRun.id,
+          source: runSource(selectedRun.repositoryFullName),
           selectedAt: selectionRow.selectedAt,
-          primaryMetric: serializeMetric(primary),
+          primaryMetric: { ...serializeMetric(ranked), primary: true },
           shortSha: selectedRun.sha.slice(0, 7),
           attemptNumber: selectedRun.attemptNumber,
         };
       }
     }
 
-    const active = allRuns.find((run) => !["succeeded", "failed", "cancelled"].includes(run.status));
-    const candidate = allRuns.find((run) => run.mode === "practice" && run.status === "succeeded");
-    const summaries = await Promise.all(allRuns.slice(0, 50).map((run) => serializeRunSummary(db, run)));
     return respond(c, DashboardSchema, {
       benchmark: serializeBenchmark(benchmark),
       team: serializeTeam(auth.team),
       quota: {
-        practiceUsed: allRuns.filter((run) => run.mode === "practice").length,
+        practiceUsed: accounting.practiceUsed,
         practiceLimit: PRACTICE_LIMIT,
-        officialUsed: claims.length,
+        officialUsed: accounting.officialUsed,
         officialLimit: OFFICIAL_LIMIT,
       },
-      lastResolvedSha: allRuns[0]?.sha ?? null,
-      activeRun: active ? await serializeRunSummary(db, active) : null,
-      latestCandidate: candidate ? await serializeRunSummary(db, candidate) : null,
+      // "last tested" sits under the connected repository's name, so it has to
+      // be a run of that repository. The newest run of any repository put the
+      // old source's commit under the new source's name after a change, which
+      // is the same misattribution the run page had.
+      //
+      // Matched on the repository id, the way `forConnectedRepository` in
+      // routes/team.ts already decides which runs are evidence for the
+      // connected repository. A run with no id cannot be shown to belong here,
+      // so it does not fill this in, and the panel says none is recorded rather
+      // than claiming none was ever run.
+      lastResolvedSha:
+        (auth.team.repoId === null
+          ? undefined
+          : allRuns.find((run) => run.repositoryId === auth.team.repoId)?.sha) ?? null,
+      activeRun: active ? summarize(active) : null,
+      latestCandidate: candidate
+        ? {
+            ...summarize(candidate),
+            sourceRefusal: runSourceRefusal(auth.team, candidate, "promote it"),
+            promotedTo: promoted?.promotedTo ?? null,
+          }
+        : null,
+      promotionRefusal,
       selection,
-      runs: summaries,
+      runs: page.map(summarize),
     });
   });
 }

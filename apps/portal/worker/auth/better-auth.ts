@@ -2,8 +2,7 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import type { D1Database, IncomingRequestCfProperties } from "@cloudflare/workers-types";
 import { betterAuth } from "better-auth";
 import { withCloudflare } from "better-auth-cloudflare";
-import { drizzle } from "drizzle-orm/d1";
-import { schema } from "../db/schema";
+import { getDb } from "../db/client";
 import type { Env } from "../env";
 import { devAuthAvailable, githubConfigured } from "../env";
 
@@ -44,7 +43,9 @@ export function createAuth(
   baseURL?: string,
 ) {
   if (env) assertAuthConfiguration(env);
-  const db = env ? drizzle(env.DB as unknown as D1Database, { schema }) : ({} as never);
+  // The same client every other caller gets, so an authenticated request does
+  // not rebuild the schema a second time. See ../db/client.ts.
+  const db = env ? getDb(env) : ({} as never);
   const socialProviders =
     env && githubConfigured(env)
       ? {
@@ -118,13 +119,27 @@ export async function getGithubToken(
   headers?: Headers,
 ): Promise<string | null> {
   try {
-    const body = { providerId: "github", userId };
-    // Passing headers switches Better Auth from trusted server mode to session auth.
-    const result = headers
-      ? await authInstance.api.getAccessToken({ body, headers })
-      : await authInstance.api.getAccessToken({ body });
-    return result?.accessToken ?? null;
+    return await getGithubTokenOrThrow(authInstance, userId, headers);
   } catch {
     return null;
   }
+}
+
+/**
+ * The throwing variant exists for the one route where "the lookup failed" and
+ * "the user has no GitHub token" must not collapse into the same null: the
+ * repository listing renders null as "fork the template first", which is a
+ * lie during a transient auth failure.
+ */
+export async function getGithubTokenOrThrow(
+  authInstance: Auth,
+  userId: string,
+  headers?: Headers,
+): Promise<string | null> {
+  const body = { providerId: "github", userId };
+  // Passing headers switches Better Auth from trusted server mode to session auth.
+  const result = headers
+    ? await authInstance.api.getAccessToken({ body, headers })
+    : await authInstance.api.getAccessToken({ body });
+  return result?.accessToken ?? null;
 }

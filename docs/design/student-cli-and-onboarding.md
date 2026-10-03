@@ -33,7 +33,7 @@ different names:
 The pilot install is:
 
 ```sh
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0
+python -m pip install --upgrade "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@fix/product-description-triage#subdirectory=python/cogbench"
 ```
 
 TestPyPI is a release proof, not the permanent course channel. After the
@@ -104,7 +104,7 @@ the instructor-provided course environment, the sequence is:
 ```sh
 git clone https://github.com/TEAM/REPOSITORY.git
 cd REPOSITORY
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0
+python -m pip install --upgrade "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@fix/product-description-triage#subdirectory=python/cogbench"
 python -m pip install -r requirements-cogbench-pilot.txt
 python -m pip install -e .
 cogworks link --portal https://PORTAL-ORIGIN
@@ -162,6 +162,7 @@ author's package without explicit authority.
 | `cogworks test` | Only explicit public cache acquisition when needed | Public benchmark assets requested by the benchmark package |
 | `cogworks run` | Only explicit public cache acquisition when needed | Public benchmark assets requested by the benchmark package |
 | `cogworks report` | No | Nothing |
+| `python -m language_search_benchmark.fetch` | Yes, for files not already cached | The three pinned public Language course files, checked by size and sha256 |
 | Any of the first three with `--update-setup` | One setup POST after local success | Coarse evidence listed above |
 | `cogworks link` | Yes | Device authorization request and token polling |
 | `cogworks status` | Yes | Device authentication/status request |

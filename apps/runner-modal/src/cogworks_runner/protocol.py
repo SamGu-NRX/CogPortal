@@ -6,9 +6,15 @@ import json
 import time
 from typing import Any, Dict
 
+from .prepared_environment import PreparedEnvironmentError, validate_record_shape
+
 
 PROTOCOL_VERSION = "1"
 MAX_CLOCK_SKEW_SECONDS = 300
+# Workers caps request bodies at 100 MB on Free and Pro plans, and this
+# account's plan is not established. The largest trained weight in the 2026
+# corpus is 411 KB. Week 3's separate 200 MiB discovery probe is unchanged.
+MAX_WEIGHT_BYTES = 100 * 1024 * 1024
 
 
 class ProtocolError(ValueError):
@@ -29,7 +35,8 @@ def validate_job(value: Any) -> Dict[str, Any]:
         "runtime",
         "callback",
     }
-    if set(value) != required:
+    allowed = required | {"weights", "preparedEnvironment"}
+    if not required.issubset(value) or not set(value).issubset(allowed):
         raise ProtocolError("Run job fields do not match protocol v1.")
     if value["protocolVersion"] != PROTOCOL_VERSION:
         raise ProtocolError("Unsupported runner protocol version.")
@@ -37,6 +44,20 @@ def validate_job(value: Any) -> Dict[str, Any]:
         raise ProtocolError("Invalid run mode.")
     if value["mode"] == "official" and not value["preparedArtifactId"]:
         raise ProtocolError("Official runs require a prepared artifact.")
+    evidence = value.get("preparedEnvironment")
+    if evidence is not None:
+        try:
+            validate_record_shape(evidence)
+        except PreparedEnvironmentError as error:
+            raise ProtocolError(str(error)) from error
+    benchmark = value.get("benchmark")
+    if not isinstance(benchmark, dict):
+        raise ProtocolError("Run benchmark is invalid.")
+    sandbox_contract = benchmark.get("sandboxContract")
+    if sandbox_contract is not None and (
+        type(sandbox_contract) is not int or sandbox_contract < 1
+    ):
+        raise ProtocolError("Sandbox contract is invalid.")
     source = value["source"]
     if not isinstance(source, dict) or len(str(source.get("sha", ""))) != 40:
         raise ProtocolError("Run source is invalid.")
@@ -46,6 +67,41 @@ def validate_job(value: Any) -> Dict[str, Any]:
     callback_url = str(value["callback"].get("url", ""))
     if not callback_url.startswith("https://"):
         raise ProtocolError("Runner callback must use HTTPS.")
+    weights = value.get("weights")
+    if weights is None:
+        if not value["preparedArtifactId"]:
+            raise ProtocolError("A run without a prepared artifact requires weights.")
+        weights = []
+    if not isinstance(weights, list):
+        raise ProtocolError("Run weights must be a JSON array.")
+    if len(weights) > 8:
+        raise ProtocolError("Run weights may contain at most 8 entries.")
+    for weight in weights:
+        if not isinstance(weight, dict) or set(weight) != {"path", "size", "sha256"}:
+            raise ProtocolError("Run weight entry is invalid.")
+        path = weight["path"]
+        size = weight["size"]
+        sha256 = weight["sha256"]
+        if (
+            not isinstance(path, str)
+            or not path
+            or path.startswith("/")
+            or ".." in path.split("/")
+        ):
+            raise ProtocolError("Run weight path is unsafe.")
+        if (
+            not isinstance(size, int)
+            or isinstance(size, bool)
+            or size < 0
+            or size > MAX_WEIGHT_BYTES
+        ):
+            raise ProtocolError("Run weight size is invalid.")
+        if (
+            not isinstance(sha256, str)
+            or len(sha256) != 64
+            or any(character not in "0123456789abcdef" for character in sha256)
+        ):
+            raise ProtocolError("Run weight digest is invalid.")
     return value
 
 

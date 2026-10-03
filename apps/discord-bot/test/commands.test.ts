@@ -68,6 +68,13 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     sha: "b".repeat(40),
     shortSha: "bbbbbbb",
     branch: "main",
+    source: {
+      owner: "analytical-engines",
+      name: "vision",
+      fullName: "analytical-engines/vision",
+      url: "https://github.com/analytical-engines/vision",
+    },
+    sourceRefusal: null,
     dirty: false,
     stage: "local",
     status: "succeeded",
@@ -75,6 +82,7 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     createdAt: 1_750_000_000_000,
     updatedAt: 1_750_000_010_000,
     finishedAt: 1_750_000_010_000,
+    silentSince: null,
     elapsedMs: 10_000,
     progress: null,
     primaryMetric: null,
@@ -84,8 +92,15 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     practiceRunId: null,
     officialRunId: null,
     published: false,
+    refusalHeadline: null,
+    promotionRefusal: null,
+    publicationRefusal: null,
+    retryRefusal: null,
     nextOfficialAttempt: 2,
     events: [],
+    executionHistory: [],
+    executionGeneration: 0,
+    snapshotRevision: 1,
     actions: ["open_console", "open_portal", "verify_hosted", "run_again"],
     simulated: true,
   };
@@ -130,6 +145,9 @@ const basePortal: PortalRpcContract = {
     throw new Error("not configured");
   },
   async rerunHosted() {
+    throw new Error("not configured");
+  },
+  async retryRun() {
     throw new Error("not configured");
   },
   async getRerunCommand() {
@@ -187,6 +205,7 @@ test("linked students land on a warm, private team snapshot", async () => {
           id: "team-1",
           name: "Analytical Engines",
           description: null,
+          provenance: "live",
           repo: {
             owner: "cogworks",
             name: "engines",
@@ -225,6 +244,7 @@ test("/cog shows the one useful next run action instead of a bulky menu", async 
           id: "team-1",
           name: "Analytical Engines",
           description: null,
+          provenance: "live",
           repo: {
             owner: "cogworks",
             name: "engines",
@@ -249,6 +269,21 @@ test("/cog shows the one useful next run action instead of a bulky menu", async 
   assert.deepEqual(buttons(response).map((item) => item.label), ["Verify hosted", "Open Cog*Portal"]);
   assert.match(responseText(response), /Face Recognition.*local/);
   assert.doesNotMatch(responseText(response), /bbbbbbb/);
+
+  latest.stage = "hosted";
+  latest.status = "failed";
+  latest.practiceRunId = "run_0123456789";
+  assert.ok(!buttons(await executeCommand(command(), portal, guildId, portalOrigin))
+    .some((item) => item.label === "Retry"), "failure alone must not expose Retry");
+  latest.actions = ["retry", "open_console", "open_portal"];
+  const retry = buttons(await executeCommand(command(), portal, guildId, portalOrigin))
+    .find((item) => item.label === "Retry");
+  assert.equal(retry?.custom_id, `cog:surface:${latest.id}:retry:${latest.practiceRunId}`);
+  assert.ok(retry!.custom_id!.length <= 100);
+
+  latest.practiceRunId = null;
+  assert.ok(!buttons(await executeCommand(command(), portal, guildId, portalOrigin))
+    .some((item) => item.label === "Retry"), "Retry needs an execution target");
 });
 
 test("surface mutations require a private confirmation before invoking Portal", async () => {
@@ -285,6 +320,67 @@ test("surface mutations require a private confirmation before invoking Portal", 
   assert.match(responseText(confirmed), /Bench updated/);
 });
 
+test("Retry binds confirmation and replay to the original failed execution", async () => {
+  const failedRunId = "run_0123456789";
+  let latest: RunSurfaceSnapshot = {
+    ...surfaceSnapshot(), stage: "hosted", status: "failed",
+    practiceRunId: failedRunId, actions: ["retry", "open_portal"],
+  };
+  const calls: string[][] = [];
+  const portal = portalWith({
+    async getRunSurface() { return latest; },
+    async retryRun(...args) {
+      calls.push(args);
+      return { ...latest, status: "running", phase: "queued" };
+    },
+  });
+  const initialId = `cog:surface:${latest.id}:retry:${failedRunId}`;
+  const preview = await executeCommand(component(initialId), portal, guildId, portalOrigin);
+  assert.equal(calls.length, 0);
+  assert.equal(preview.data?.flags, EPHEMERAL | IS_COMPONENTS_V2);
+  assert.match(responseText(preview), /same source/);
+  assert.doesNotMatch(responseText(preview), /quota|free|charge|spend|attempt/i);
+  const confirmation = buttons(preview).find((item) => item.label === "Retry");
+  assert.equal(confirmation?.custom_id, `${initialId}:confirm`);
+  assert.ok(confirmation!.custom_id!.length <= 100);
+  assert.ok(buttons(preview).some((item) => item.label === "Not now"));
+
+  for (const status of ["running", "failed"] as const) {
+    latest = { ...latest, practiceRunId: "run_abcdef0123", status,
+      actions: status === "failed" ? ["retry"] : ["open_console"] };
+    const replay = await executeCommand(component(confirmation!.custom_id!), portal, guildId, portalOrigin);
+    assert.equal(replay.type, RESPONSE_UPDATE_MESSAGE);
+    assert.ok(buttons(replay).some((item) => item.url === `${portalOrigin}/run-surfaces/${latest.id}`));
+  }
+  assert.deepEqual(calls, Array.from({ length: 2 }, () => [guildId, "discord-1", latest.id, failedRunId]));
+
+  const stale = await executeCommand(component(initialId), portal, guildId, portalOrigin);
+  assert.match(responseText(stale), /out of date/);
+  assert.equal(calls.length, 2);
+});
+
+test("Retry rejects missing targets and unavailable actions without invoking Portal mutations", async () => {
+  const latest: RunSurfaceSnapshot = {
+    ...surfaceSnapshot(), stage: "hosted", status: "failed",
+    practiceRunId: "run_0123456789", actions: ["open_portal"],
+  };
+  let calls = 0;
+  const portal = portalWith({
+    async getRunSurface() { return latest; },
+    async retryRun() { calls += 1; return latest; },
+  });
+  for (const suffix of ["retry", "retry:confirm", "retry::confirm", "retry:run_0123456789:confirm:extra"]) {
+    const response = await executeCommand(component(`cog:surface:${latest.id}:${suffix}`), portal, guildId, portalOrigin);
+    assert.match(responseText(response), /no valid execution ID/);
+    assert.ok(!buttons(response).some((item) => item.label === "Retry"));
+  }
+  const unavailable = await executeCommand(
+    component(`cog:surface:${latest.id}:retry:${latest.practiceRunId}`), portal, guildId, portalOrigin,
+  );
+  assert.match(responseText(unavailable), /out of date/);
+  assert.equal(calls, 0);
+});
+
 test("quota-spending confirmations carry the consequence in the button and a receipt", async () => {
   const latest = surfaceSnapshot();
   const portal = portalWith({
@@ -300,6 +396,15 @@ test("quota-spending confirmations carry the consequence in the button and a rec
     portalOrigin,
   );
   assert.match(responseText(promote), /Use an official attempt\?/);
+  // The three facts, not one sentence's wording. Promotion inserts a new run
+  // and dispatches it (portal services/run-actions.ts), and the runner reuses
+  // only `preparedArtifactId` as its snapshot (modal_app.py), so the scoring
+  // does run again. "Nothing reruns" was the claim that made a student think
+  // confirming was free of risk as well as of time.
+  assert.match(responseText(promote), /reuses the environment this run already built/);
+  assert.match(responseText(promote), /scores the same commit on the hidden set/);
+  assert.match(responseText(promote), /one official attempt/);
+  assert.doesNotMatch(responseText(promote), /nothing reruns/);
   assert.match(responseText(promote), /attempt 2 of 3/);
   assert.match(responseText(promote), /> .*\*\*Face Recognition\*\*/);
   const promoteConfirm = buttons(promote).find((item) => item.custom_id?.endsWith(":promote_official:confirm"));
@@ -324,6 +429,23 @@ test("quota-spending confirmations carry the consequence in the button and a rec
     portalOrigin,
   );
   const verifyConfirm = buttons(verify).find((item) => item.custom_id?.endsWith(":verify_hosted:confirm"));
+  // Hosted practice is capped per benchmark and version and enforced against
+  // PRACTICE_LIMIT before dispatch, so "spends nothing" was false in the one
+  // place a student reads before spending.
+  assert.match(responseText(verify), /hosted practice runs/);
+  assert.doesNotMatch(responseText(verify), /spends nothing/);
+
+  // A rerun goes through startPracticeRun too, so it is capped the same way
+  // and has to say so in the same place. It used to describe only what happens
+  // to the old run.
+  const rerun = await executeCommand(
+    component(`cog:surface:${latest.id}:rerun_hosted`),
+    portal,
+    guildId,
+    portalOrigin,
+  );
+  assert.match(responseText(rerun), /Start a new hosted run\?/);
+  assert.match(responseText(rerun), /another of this benchmark's hosted practice runs/);
   assert.equal(verifyConfirm?.label, "Verify bbbbbbb hosted");
   assert.equal(verifyConfirm?.style, 1);
   assert.ok(buttons(verify).every((item) => item.label !== "Not now" || item.style === 2));
@@ -347,6 +469,7 @@ test("team channel setup is explicit and binds only after confirmation", async (
       id: "team-1",
       name: "Analytical Engines",
       description: null,
+      provenance: "live" as const,
       repo: {
         owner: "cogworks",
         name: "engines",
@@ -372,8 +495,23 @@ test("team channel setup is explicit and binds only after confirmation", async (
   });
 
   const preview = await executeCommand(component("cog:bind-channel"), portal, guildId, portalOrigin);
-  assert.match(responseText(preview), /Everyone who can read this channel/);
-  assert.equal(bound, null);
+  // The exact consent: binding posts every hosted run, practice and official,
+  // and only shared local runs, so the prompt has to say both before anyone agrees.
+  assert.equal(
+    responseText(preview),
+    [
+      "### Make this the team bench?",
+      "Cog will post your team's hosted run progress and results here, including official attempts and publication. A local run shows up only when someone shares it.",
+      "",
+      "Everyone who can read this channel sees each run's commit, progress and score (self-reported for a shared local run). No one's name is attached, and source code and raw outputs are never posted.",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    buttons(preview).map((item) => [item.custom_id, item.label]),
+    [["cog:bind-channel:confirm", "Yes, use this channel"], ["cog:home", "Not now"]],
+  );
+  assert.doesNotMatch(responseText(preview), /explicitly shared|stay on the student's device/);
+  assert.equal(bound, null, "the preview binds nothing");
 
   const confirmed = await executeCommand(
     component("cog:bind-channel:confirm"),
@@ -436,6 +574,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             rank: 1,
             teamName: "Analytical Engines",
             teamDescription: null,
+            provenance: "live",
             repoUrl: null,
             sha: "b".repeat(40),
             shortSha: "bbbbbbb",
@@ -448,6 +587,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             rank: 2,
             teamName: "Face Finder",
             teamDescription: null,
+            provenance: "live",
             repoUrl: null,
             sha: "c".repeat(40),
             shortSha: "ccccccc",
@@ -506,4 +646,65 @@ test("signature verifier rejects missing and malformed signatures", async () => 
   const body = new TextEncoder().encode("{}").buffer as ArrayBuffer;
   assert.equal(await verifyDiscordRequest("00".repeat(32), null, "1", body), false);
   assert.equal(await verifyDiscordRequest("bad", "00".repeat(64), "1", body), false);
+});
+
+test("each local report line names the command that produced its number", async () => {
+  const report = (reportId: string, value: number, command?: "test" | "run") => ({
+    reportId, benchmarkId: "vision-recognition", benchmarkVersion: 2,
+    contractVersion: "cogworks.submissions.v2", sdkVersion: "0.2.0", pluginVersion: "0.2.0",
+    repositoryId: null, repositoryFullName: "course/team", sha: "a".repeat(40), dirty: false,
+    startedAt: 1, finishedAt: 2,
+    metrics: [{ key: "top1", label: "Top-1", value, unit: null, higherIsBetter: true, primary: true, precision: 1 }],
+    diagnostics: [], weightsUsed: [], weightsUploaded: [],
+    ...(command ? { command } : {}),
+    author: { login: "ada", name: "Ada" }, syncedAt: 3, trust: "local_self_reported" as const,
+  });
+  const portal: PortalRpcContract = {
+    ...basePortal,
+    async getLocalReports() {
+      return { linked: true, reports: [report("r1", 1, "test"), report("r2", 0.6, "run"), report("r3", 0.7)] };
+    },
+  };
+  const body = responseText(await executeCommand(command("local"), portal, guildId, portalOrigin));
+  assert.match(body, /`test`.*\*\*1\.0\*\*/);
+  assert.match(body, /`run`.*\*\*0\.6\*\*/);
+  // A report from before the CLI recorded the command is not given either label.
+  assert.match(body, /command not recorded.*\*\*0\.7\*\*/);
+  assert.match(body, /a `test` line scored only the small smoke-test cases/);
+
+  const runsOnly: PortalRpcContract = {
+    ...basePortal,
+    async getLocalReports() {
+      return { linked: true, reports: [report("r2", 0.6, "run")] };
+    },
+  };
+  assert.doesNotMatch(
+    responseText(await executeCommand(command("local"), runsOnly, guildId, portalOrigin)),
+    /smoke-test/,
+  );
+});
+
+test("local report lines lead with the commit, never the person who ran them", async () => {
+  const portal: PortalRpcContract = {
+    ...basePortal,
+    async getLocalReports() {
+      return {
+        linked: true,
+        reports: [{
+          reportId: "r1", benchmarkId: "vision-recognition", benchmarkVersion: 2,
+          contractVersion: "cogworks.submissions.v2", sdkVersion: "0.2.0", pluginVersion: "0.2.0",
+          repositoryId: null, repositoryFullName: "course/team", sha: "e".repeat(40), dirty: false,
+          startedAt: 1, finishedAt: 2, command: "run" as const,
+          metrics: [{ key: "top1", label: "Top-1", value: 0.8, unit: null, higherIsBetter: true, primary: true, precision: 1 }],
+          diagnostics: [], weightsUsed: [], weightsUploaded: [],
+          author: { login: "zq-synthetic-runner", name: "Quillon Synthetic" },
+          syncedAt: 3, trust: "local_self_reported" as const,
+        }],
+      };
+    },
+  };
+  const body = responseText(await executeCommand(command("local"), portal, guildId, portalOrigin));
+  // A login beside a score reads as that student's grade.
+  assert.doesNotMatch(body, /zq-synthetic-runner|Quillon Synthetic/);
+  assert.match(body, /`eeeeeee`.*`run`.*\*\*0\.8\*\*/);
 });

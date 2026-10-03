@@ -1,8 +1,22 @@
-import { Finding } from "@/components/Finding";
+import { CopyBlock } from "@/components/CopyBlock";
+import { FailureCard } from "@/components/FailureCard";
+import { Step, StepRail } from "@/components/StepRail";
+import { Finding, FINDING_KICKER } from "@/components/Finding";
+import { ConnectGate } from "@/components/ConnectGate";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
-import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
+import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
+import { RunList } from "@/components/RunList";
+import { RunConsole } from "@/components/RunConsole";
+import { setupCommandLines, stepState } from "@/lib/setup-progress";
+import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
+import {
+  RunSurfaceSnapshotSchema,
+  RunSummarySchema,
+  type Metric,
+  type RunDetail as RunDetailType,
+} from "@cogworks/contracts/schema";
 
 /**
  * Every state of the surfaces that are hard to reach, on one page.
@@ -163,6 +177,280 @@ const SWEEPS: { title: string; note: string; sweep: NonNullable<RunDetailType["s
   },
 ];
 
+
+/**
+ * A wiring trace at the length the contract allows.
+ *
+ * The identifier field is capped at 200 characters, and this component used to
+ * put `truncate` on it, so the end of a long one was elided with no way to see
+ * it. Identifiers are the entire payload here: a team reads this to check we
+ * ran the function they think we ran, and the half that gets cut is the
+ * function name. There is no run in any fixture database with a name this long,
+ * so this is the only way to look at it.
+ */
+const LONG_WIRING: WiredStep[] = [
+  {
+    stage: "spectrogram",
+    function: "audio.processing.spectrogram_utilities.make_spectrogram_with_hann_window_and_overlap",
+    received: "an array of shape (132300,), 44100",
+    returned: "a tuple of 3, starting with an array of shape (2049, 63)",
+  },
+  {
+    stage: "peaks",
+    // 200 characters, at or near the 200 cap in
+    // packages/contracts/src/protocol.ts. Long, and a real shape: this is what
+    // a deeply namespaced repository looks like.
+    function:
+      "fingerprinting.peak_detection.local_maxima.find_peaks_by_iterative_neighbourho" +
+      "od_comparison_over_the_log_spectrogram_with_an_amplitude_floor_and_a_minimum_time_frequency_separation_between_accepted_in",
+    received: "an array of shape (2049, 63)",
+    returned: "an array of shape (355, 2)",
+  },
+  {
+    stage: "fanout",
+    function: "fingerprinting.make_fgp",
+    received: "an array of shape (355, 2)",
+    returned: "a list of 5158, starting ((221, 468, 1), 0)",
+  },
+];
+
+/** A floor whose parent is not in the list beside it. Week 3 publishes this
+ *  shape whenever the image side is unmeasured, and the run page also lifts
+ *  the primary metric out before rendering the rest, so a floor attached to
+ *  the primary arrives here with nothing to attach to. */
+const ORPHAN_FLOOR: Metric[] = [
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on this pool.",
+  }),
+];
+
+const PAIRED_FLOOR: Metric[] = [
+  metric({
+    key: "retrieval_mrr",
+    label: "Retrieval MRR",
+    value: 0.2586,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  ...ORPHAN_FLOOR,
+];
+
+/** What week 3 publishes when the image side is unmeasured: a scored text
+ *  metric, its floor, and a floor whose parent is not here at all. */
+const WITHHELD: Metric[] = [
+  metric({
+    key: "text_mrr",
+    label: "Text MRR",
+    value: 0.7888,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  metric({
+    key: "text_chance",
+    label: "Text chance MRR",
+    value: 0.04,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "text_mrr",
+    help: "What ranking at random scores on the caption pool.",
+  }),
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on the image pool.",
+  }),
+];
+
+const SETUP_BENCHMARK_ID = "audio-identification";
+
+const SETUP_LINES = setupCommandLines({
+  cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
+  repoName: "face-finder",
+  benchmarkId: SETUP_BENCHMARK_ID,
+  benchmarkTitle: "Audio",
+  portalOrigin: "https://cogportal.example",
+  verified: () => true,
+  deviceLinked: true,
+});
+
+/** The same rail with nothing observed and everything checked off by hand,
+ *  which needs a signing secret and a terminal to reach for real. */
+const SETUP_LINES_SELF_CHECKED = setupCommandLines({
+  cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
+  repoName: "face-finder",
+  benchmarkId: SETUP_BENCHMARK_ID,
+  benchmarkTitle: "Audio",
+  portalOrigin: "https://cogportal.example",
+  verified: () => false,
+  selfChecked: () => true,
+  deviceLinked: false,
+});
+
+/** The page's own rail, so a layout bug here is a layout bug there. */
+function SetupRailFixture({
+  unreadable = false,
+  lines = SETUP_LINES,
+}: {
+  unreadable?: boolean;
+  lines?: typeof SETUP_LINES;
+}) {
+  const outage = unreadable ? { "setup-state": true, devices: true } : {};
+  return (
+    <StepRail>
+      {lines.map((line, index) => (
+        <Step
+          key={line.id}
+          index={String(index + 1).padStart(2, "0")}
+          state={stepState(line, outage)}
+          title={line.id}
+          last={index === lines.length - 1}
+        >
+          <CopyBlock text={line.command} wrap />
+        </Step>
+      ))}
+    </StepRail>
+  );
+}
+
+const GATES: {
+  title: string;
+  caption: string;
+  variant: GateVariant;
+  phase: GatePhase;
+  outcome: GateOutcome | null;
+  error: string | null;
+  compact: boolean;
+}[] = [
+  {
+    title: "Link · first look",
+    caption: "The first launch, before the student has gone anywhere.",
+    variant: "link",
+    phase: "idle",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · back from the browser",
+    caption: "After Discord reports it opened the link. The primary swaps rather than gaining a neighbour.",
+    variant: "link",
+    phase: "away",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · checked, nothing moved",
+    caption: "The one outcome that owes a sentence, because the card is otherwise identical.",
+    variant: "link",
+    phase: "away",
+    outcome: "unchanged",
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · the check itself failed",
+    caption: "Same slot, different sentence. It must not read as \u201cnot linked yet\u201d, which the portal did not observe.",
+    variant: "link",
+    phase: "away",
+    outcome: null,
+    error: "The live bench could not be reached.",
+    compact: false,
+  },
+  {
+    title: "Team · first look",
+    caption: "Second step, same mechanism. The destination stays /connect.",
+    variant: "team",
+    phase: "idle",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Team · picture-in-picture, waiting",
+    caption: "Discord shrinks the Activity to a tile. Kicker and the reopen link go; the sentence and the action stay. The tile size here is a guess, so treat it as a floor rather than a measurement.",
+    variant: "team",
+    phase: "away",
+    outcome: null,
+    error: null,
+    compact: true,
+  },
+];
+
+// The first two rungs are the Week 3 reference submission's measured search MRR on
+// the test tier (verbatim, keywords); the last two are illustrative.
+const LANGUAGE_SWEEP: NonNullable<RunDetailType["sweep"]> = {
+  axis: "how far the query is from the caption",
+  metric: "search_mrr",
+  points: [
+    { x: 0, y: 0.6337 },
+    { x: 1, y: 0.558 },
+    { x: 2, y: 0.49 },
+    { x: 3, y: 0.46 },
+  ],
+};
+
+/* A Language history where one run had no overall. Its producer flags text
+ * MRR as primary instead, so the log and the console must name the measure
+ * rather than borrow another run's. */
+const PARTIAL_MRR: Metric = metric({ key: "text_mrr", label: "Text MRR", value: 0.951, precision: 3, help: null });
+const OVERALL: Metric = metric({ key: "overall", label: "Overall", value: 0.443, precision: 3, help: null });
+const GALLERY_NOW = 1_790_000_000_000;
+
+const MIXED_HISTORY = [
+  { id: "run_00000000a3", mode: "official", attemptNumber: 2, primaryMetric: PARTIAL_MRR, failure: null },
+  { id: "run_00000000a2", mode: "official", attemptNumber: 1, primaryMetric: OVERALL, failure: null },
+  { id: "run_00000000a1", mode: "practice", attemptNumber: null, primaryMetric: { ...OVERALL, value: 0.391 }, failure: null },
+].map((run, index) => RunSummarySchema.parse({
+  ...run,
+  repo: { owner: "demo", name: "repo", fullName: "demo/repo", url: "https://github.com/demo/repo" },
+  status: "succeeded", benchmarkId: "language-search", benchmarkVersion: 1, branch: "main",
+  sha: String(index).repeat(40), shortSha: String(index).repeat(7),
+  createdAt: GALLERY_NOW - (index + 1) * 3_600_000, finishedAt: GALLERY_NOW - index * 3_600_000,
+}));
+
+const UNRANKED_OFFICIAL = RunSurfaceSnapshotSchema.parse({
+  id: `surface_${"c".repeat(20)}`,
+  team: { id: "team_gallery", name: "Analytical Engines" },
+  benchmark: { id: "language-search", version: 1, title: "Semantic Image Search" },
+  actor: { login: "ada", name: "Ada" },
+  sha: "c".repeat(40), shortSha: "ccccccc", branch: "main",
+  source: { owner: "demo", name: "repo", fullName: "demo/repo", url: "https://github.com/demo/repo" },
+  sourceRefusal: null, dirty: false, stage: "official", status: "succeeded", phase: "succeeded",
+  createdAt: GALLERY_NOW - 600_000, updatedAt: GALLERY_NOW, finishedAt: GALLERY_NOW, silentSince: null,
+  elapsedMs: 600_000, progress: null, primaryMetric: PARTIAL_MRR, metrics: [PARTIAL_MRR],
+  teamBest: OVERALL, localRunId: null, practiceRunId: "run_00000000b1", officialRunId: "run_00000000b2",
+  executionGeneration: 2, executionHistory: [], published: false, nextOfficialAttempt: 3,
+  publicationRefusal: 'The leaderboard ranks teams by "overall", and this run didn\'t report it, so it can\'t be published. What it did report stays readable here.',
+  events: [], actions: ["open_console", "open_portal"], simulated: true, snapshotRevision: 1,
+});
+
+/* The same official result once it reports the ranked measure, so its
+ * confirmable actions are drawn. Confirming here sends nothing. */
+const PUBLISHABLE_OFFICIAL = RunSurfaceSnapshotSchema.parse({
+  ...UNRANKED_OFFICIAL,
+  id: `surface_${"d".repeat(20)}`,
+  primaryMetric: OVERALL, metrics: [OVERALL], publicationRefusal: null,
+  actions: ["open_console", "open_portal", "publish_result", "rerun_hosted"],
+});
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -171,7 +459,95 @@ export function GalleryPage() {
         States that need a specific run to reach. Development only.
       </p>
 
-      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Finding</h2>
+      <section className="mt-10 space-y-3">
+        <h2 className="font-serif text-xl font-semibold text-ink">Failed execution with recorded findings</h2>
+        <p className="text-[13px] text-ink-faint">Saved failure details. Retry needs the run's console to accept one, so none is drawn here.</p>
+        <FailureCard
+          failure={{ category: "provider", phase: "evaluating", detail: "Runner stopped reporting before completion.", consumedAttempt: false }}
+          mode="official"
+          benchmarkId="audio-identification"
+          module="audio"
+        >
+          <p className="text-[13px] text-ink-secondary">Saved results</p>
+          <Finding sentence="The fingerprints were measured before execution stopped." />
+          <SupportingMetrics metrics={[metric()]} rolesRecorded={false} />
+        </FailureCard>
+
+        {/* The card above is a provider failure, which has no reproduction
+            command, so it never draws that block. This is the shape that
+            does: open "Show details" to read the highlighted command. */}
+        <h3 className="pt-4 font-serif text-lg font-semibold text-ink">…with a command to reproduce it</h3>
+        <FailureCard
+          failure={{ category: "output_invalid", phase: "evaluating", detail: "predictions[3].score was 1.4; expected a value in [0, 1].", consumedAttempt: false }}
+          mode="practice"
+          benchmarkId="audio-identification"
+          module="audio"
+        />
+
+        {/* B-44's shape: the line that raised was the benchmark's replay, and
+            the team's own function is the caller. The runner can't say whose
+            fault that is, so the card says where and offers both remedies. */}
+        <h3 className="pt-4 font-serif text-lg font-semibold text-ink">…an exception the runner can't attribute</h3>
+        <FailureCard
+          failure={{
+            category: "student_runtime",
+            phase: "evaluating",
+            detail: "TypeError: 'NoneType' object is not subscriptable\nat cogbench/pipeline.py:834, in replay\ncalled from face_rec/describe.py:41, in describe",
+            consumedAttempt: false,
+          }}
+          mode="practice"
+          benchmarkId="vision-recognition"
+          module="vision"
+        />
+      </section>
+
+      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">A result without the ranked measure</h2>
+      <p className="mb-4 max-w-prose text-[13px] text-ink-faint">
+        The newest attempt reported text MRR and no overall. Each row names its
+        measure; the console says why Publish is missing.
+      </p>
+      <Panel label="RUN LOG">
+        <RunList runs={MIXED_HISTORY} connectedFullName="demo/repo" publishedRunId="run_00000000a2" />
+      </Panel>
+      <div className="mt-4">
+        <RunConsole snapshot={UNRANKED_OFFICIAL} streamState="live" onAction={() => undefined} />
+      </div>
+
+      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">A result that can be published</h2>
+      <p className="mb-4 max-w-prose text-[13px] text-ink-faint">
+        Publish and Rerun hosted ask first. Closing the question returns focus to the button that asked it.
+      </p>
+      <RunConsole snapshot={PUBLISHABLE_OFFICIAL} streamState="live" onAction={() => undefined} />
+
+      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Activity connect gate</h2>
+      <p className="mb-2 max-w-prose text-[13px] text-ink-faint">
+        Needs a Discord launch and an unlinked account for real. Buttons are inert.
+      </p>
+      <div className="grid gap-6 sm:grid-cols-2">
+        {GATES.map((example) => (
+          <section key={example.title}>
+            <div className="u-kicker">{example.title}</div>
+            <p className="mb-2 text-[13px] text-ink-faint">{example.caption}</p>
+            <div
+              className={`grid place-items-center overflow-hidden border border-rule bg-paper p-5 ${
+                example.compact ? "h-[220px] w-[300px]" : "h-[460px]"
+              }`}
+            >
+              <ConnectGate
+                variant={example.variant}
+                phase={example.phase}
+                outcome={example.outcome}
+                error={example.error}
+                compact={example.compact}
+                onOpen={() => undefined}
+                onCheck={() => undefined}
+              />
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Finding</h2>
       {CASES.map((example) => (
         <section key={example.title} className="mt-6">
           <div className="u-kicker">{example.title}</div>
@@ -194,6 +570,84 @@ export function GalleryPage() {
       ))}
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Supporting metrics, floors
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Left: a floor inside its metric's row. Right: the same floor with its
+        parent withheld. Neither draws a direction arrow.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="FLOOR WITH ITS PARENT">
+          <SupportingMetrics metrics={PAIRED_FLOOR} />
+        </Panel>
+        <Panel label="FLOOR WHOSE PARENT IS WITHHELD">
+          <SupportingMetrics metrics={ORPHAN_FLOOR} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Results with no overall score
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Left: a run that withheld its primary. Right: the same metrics with no
+        roles recorded (results stored before the portal kept them), so no
+        direction claims.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="NO OVERALL SCORE">
+          <p className="max-w-prose text-[14px] leading-[1.6] text-ink">
+            This run has no overall score.
+          </p>
+          <div className="mt-4">
+            <SupportingMetrics metrics={WITHHELD} rolesRecorded />
+          </div>
+        </Panel>
+        <Panel label="NO ROLES RECORDED">
+          <SupportingMetrics metrics={WITHHELD} rolesRecorded={false} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Setup rail, when the progress read fails
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Identical finished commands. Left: evidence read. Right: the read
+        failed, so each step shows a dash and claims nothing.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="EVIDENCE READ">
+          <SetupRailFixture />
+        </Panel>
+        <Panel label="EVIDENCE UNREADABLE">
+          <SetupRailFixture unreadable />
+        </Panel>
+        <Panel label="CHECKED OFF, NOT OBSERVED">
+          <SetupRailFixture lines={SETUP_LINES_SELF_CHECKED} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Wiring trace</h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        The second identifier is 200 characters, the contract's maximum. It
+        must wrap, not clip.
+      </p>
+      <Panel className="mt-4">
+        <WiringTrace steps={LONG_WIRING} />
+      </Panel>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        A clean run, whose chart is the whole finding
+      </h2>
+      <p className="mt-1 max-w-prose text-[13px] text-ink-faint">
+        A clean weighted Language run arrives with no diagnostics, so the curve
+        is the whole panel and keeps the finding's label.
+      </p>
+      <Panel className="mt-4">
+        <div className="u-kicker mb-2">{FINDING_KICKER}</div>
+        <SweepTrace sweep={LANGUAGE_SWEEP} />
+      </Panel>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
         Finding above results, as the run page composes them
       </h2>
       <Panel className="mt-4">
@@ -201,7 +655,33 @@ export function GalleryPage() {
       </Panel>
       <Panel label="RESULTS" className="mt-4">
         <div className="grid items-start gap-6 sm:grid-cols-2">
-          <PrimaryMetric metric={metric()} />
+          {/* With its floors, which is the shape Week 1 publishes: two of
+              them, both of the primary, each carrying its own explanation. */}
+          <PrimaryMetric
+            metric={metric()}
+            floors={[
+              metric({
+                key: "chance_top1",
+                label: "Chance",
+                value: 0.0333,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+              }),
+              metric({
+                key: "trivial_baseline_top1",
+                label: "Trivial baseline",
+                value: 0.0812,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone.",
+              }),
+            ]}
+          />
           <SupportingMetrics metrics={SUPPORTING} />
         </div>
         <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">

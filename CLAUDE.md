@@ -53,14 +53,20 @@ Two rules that fall out of it and hold everywhere:
 
 ## The theme
 
-A scientific field notebook crossed with an evaluation instrument: warm
-paper (`--color-paper #f7f3ea`), deep ink, detector red for attention and
-consequence, verification green for observed trust, thin rules, near-sharp
-corners, Source Serif 4 headings, IBM Plex Sans body, IBM Plex Mono for
-anything that is data. The recurring geometric motif is the detection-box
-corner bracket. Tokens and conventions live in
-`apps/portal/src/styles/app.css`; compose with them, and new ideas are fine
-when they fit the same notebook.
+A course notebook with the instructor's notes in the margin. The page holds
+the work (commands, runs, findings); the margin holds the reason for it, in
+italic serif, the way a TA pencils a note beside a line (`Annotated` and
+`Note` in `components/Note.tsx`). Neutral bond paper (`--color-paper
+#f5f3ee`) with a faint dot grid, graphite ink, detector red for attention and
+consequence, verification green for observed trust, and the three track
+colors (ochre audio, red vision, cobalt language) as index tabs. Source Serif 4
+for headings and notes, Atkinson Hyperlegible Next for text, Atkinson
+Hyperlegible Mono only for data (commands, SHAs, versions, codes), chosen
+because it keeps l/I/1 and 0/O apart. Labels are sentence case (`u-label`);
+the uppercase mono `u-kicker` is for data column heads only. The recurring
+geometric motif is the detection-box corner bracket. Tokens, contrast notes
+and utilities live in `apps/portal/src/styles/app.css`; compose with them,
+and new ideas are fine when they fit the same notebook.
 
 Two rules that outrank any color:
 
@@ -173,8 +179,12 @@ beats scattered micro-animations. Constants live in
 Check `apps/portal/src/components/` first; most primitives exist and carry
 the conventions: `Panel` (labeled instrument box), `Button`/`ConfirmButton`
 (arm-then-confirm, consequence in the label), `Code` (Shiki, ink-on-paper
-theme; use for any multi-line command), `CopyBlock` (single command),
-`Veil` (collapsible progressive disclosure), `CornerBrackets`,
+theme; use for a command a student is meant to read, whatever its line
+count, and pass `wrap` when the tail matters), `CopyBlock` (a one-line
+command to copy without reading, like a signed token),
+`Veil` (collapsible progressive disclosure), `PageHeader`/`Annotated`/`Note`
+(page title, margin notes), `buttonClass` (a link styled as a `Button`),
+`CornerBrackets`,
 `MemberPalette` (anchored search palette; copy its popover/keyboard
 patterns), `UserMenu` (canonical dropdown motion and focus behavior),
 `QuotaCells`, `EmptyState`, `Feedback`. Accidentally duplicating one of
@@ -248,8 +258,10 @@ in-place edit of a version teams have already published against.
 - **All three benchmarks are git submodules** pointing at their own GitHub
   repositories, so a change under `benchmarks/week{1,2,3}/` is committed
   there first, then the parent's pointer is bumped in a second commit. The
-  Modal images bake the submodule contents, so `git submodule update --init`
-  before deploying or the images carry whatever your tree happens to hold.
+  Modal images bake the submodule contents, so `git submodule sync --recursive
+  && git submodule update --init` before deploying, or the images carry
+  whatever your tree happens to hold. The sync is what picks up a submodule
+  whose URL moved, which Week 2's did.
 - Development-only `/__gallery` route holds the states that need a specific
   run to reach. Add a fixture there when a component has a state you cannot
   otherwise look at; it has already caught two layout bugs that typechecked.
@@ -282,21 +294,26 @@ in-place edit of a version teams have already published against.
 
 - **TODO(design):** Complete the visual pass for the connect wizard, member
   palette, and admin assignment rows.
-- **TODO(release):** `SetupPage` shows the TestPyPI install command for
-  `cogworks-benchmark`; it fails for students until the package is actually
-  published there (workflow `publish-testpypi.yml`, never dispatched). After
-  a real PyPI release, swap that one command to the plain install.
-- **TODO(media):** The GitHub org/fork walkthrough player is wired
-  (`WalkthroughVideo`, gated by `GITHUB_TEAM_VIDEO` in `ConnectPage.tsx`);
-  record the clip per `docs/runbooks/onboarding-media.md`, drop the four
-  exports into `apps/portal/public/media/onboarding/`, and flip the constant.
-- **TODO(design):** Give Landing, Leaderboard, and Connections a fresh
-  design pass. Dashboard has been decluttered, but not reconsidered. Run
-  Detail now leads with `Finding` and the sweep trace; the rest of it has
-  not been reconsidered around them.
-- **TODO(product):** The four process signals compute and test but reach no
-  page. `docs/design/the-instrument-not-the-judge.md` names the TA triage
-  console as the design for that page.
+- **TODO(release):** `cogworks-benchmark` 0.1.0 IS on TestPyPI and installs
+  and runs (checked 2026-08-20 against the JSON API, then installed into a
+  clean 3.11 venv). The stale claim here said it was never published, which
+  would have sent someone to publish a published package.
+  What is actually wrong is that 0.1.0 predates automatic discovery. Running
+  `cogworks check` from it against a real repository prints nine lines of
+  True and False and no next step; the same command in this tree reports
+  which of the team's own functions it wired up. `pyproject.toml` is now
+  0.2.0 and `publish-testpypi.yml` has to be dispatched by hand to close the
+  gap. The install command in `SetupPage` is deliberately unpinned so a
+  student picks up that release without a code change here.
+- **TODO(media):** There is no walkthrough player. The unused
+  `WalkthroughVideo` component was deleted in the September 30 redesign
+  because its clip was never recorded. Record it per
+  `docs/runbooks/onboarding-media.md` before adding a player to the Connect
+  page's "start a team" step.
+- **TODO(product):** The four process signals reach only the team's own Team
+  page ("Where the work went", `ProcessPanel`). No staff or TA view reads them;
+  `docs/design/the-instrument-not-the-judge.md` names the TA triage console as
+  the design for that page.
 - **TODO(release):** Fork enforcement is off. Setting
   `GITHUB_TEMPLATE_REPO_ID` to `1339633157` turns it on, and doing so before
   every team has forked locks out the 2026 repositories, none of which

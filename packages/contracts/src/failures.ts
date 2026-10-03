@@ -1,14 +1,5 @@
-/**
- * Failure catalog (handoff-plan §8, "Run detail behavior").
- *
- * Every known failure renders: the failed phase, a stable code, a
- * plain-language explanation, the exact corrective action, an optional
- * copyable local reproduction command, and whether an official attempt was
- * consumed. Never "Something went wrong".
- *
- * `consumedAttempt` on the run itself is authoritative (set server-side when
- * hidden evaluation has begun); `defaultConsumesAttempt` here only documents
- * the policy for copy.
+/** Diagnostic copy and corrective actions for each failure category.
+ * Failed executions do not consume practice or official quota.
  */
 import type { FailureCategory, Module } from "./schema";
 
@@ -19,13 +10,22 @@ export interface FailureCopy {
   explanation: string;
   action: string;
   reproCommand: string | null;
-  /** Is re-running the same commit meaningful? (plan: retry only when so) */
-  retryable: boolean;
-  defaultConsumesAttempt: boolean;
+  /**
+   * What can change the outcome, which decides the run page's next step.
+   *
+   * - "fix": only a new commit can. The runner observed the cause in what the
+   *   submission did (its install, contract, output, time or memory), so the
+   *   card leads with the local reproduction and offers no Retry.
+   * - "retry": the cause was on our side, so the same commit can pass.
+   * - "either": the evaluation raised, and the runner cannot say whose line
+   *   raised it, because team code and benchmark code share one process and
+   *   team code can forge anything that process reports. The card shows where
+   *   it was raised and offers both.
+   */
+  remedy: "fix" | "retry" | "either";
 }
 
-/** The parts of a failure that can differ per module. Codes, retryability,
- *  and attempt policy are platform facts and never vary. */
+/** Copy can differ per module; codes and remedies are platform facts. */
 type FailureOverride = Partial<Pick<FailureCopy, "title" | "explanation" | "action">>;
 
 export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
@@ -35,10 +35,9 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "We could not clone your repository at the resolved commit. The repository may have been made private, or the branch may have been deleted.",
     action:
-      "Confirm the repository is public and the branch still exists, then start a new run.",
+      "Confirm the repository is public and the recorded commit is still available.",
     reproCommand: "git clone <your repository url>",
-    retryable: true,
-    defaultConsumesAttempt: false,
+    remedy: "retry",
   },
   dependency_install: {
     code: "E-INSTALL",
@@ -48,8 +47,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Reproduce locally with the command below, then pin versions that install cleanly under the course constraints and push a new commit.",
     reproCommand: "python -m pip install --constraint constraints.txt .",
-    retryable: false,
-    defaultConsumesAttempt: false,
+    remedy: "fix",
   },
   data_download: {
     code: "E-DATA",
@@ -59,8 +57,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "For a local run, reconnect and run the check below so CogBench can rebuild its cache. For an official run, staff repair the private evaluation volume.",
     reproCommand: "cogworks check --benchmark {benchmark}",
-    retryable: true,
-    defaultConsumesAttempt: false,
+    remedy: "retry",
   },
   model_cache: {
     code: "E-MODEL",
@@ -70,19 +67,23 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Run the check below once you're back online so CogBench can refetch it. Official-image failures are repaired by staff.",
     reproCommand: "cogworks check --benchmark {benchmark}",
-    retryable: true,
-    defaultConsumesAttempt: false,
+    remedy: "retry",
   },
   adapter_missing: {
     code: "E-ADAPTER",
-    title: "Benchmark adapter not found",
+    title: "Nothing here could be scored",
+    // Says nothing about pyproject.toml entry points: that is packaging
+    // metadata none of the thirteen 2026 capstones has, and the platform no
+    // longer needs it now that it finds a team's code by running it.
+    // This code also covers a search that stopped partway, after the team's
+    // own installation ran, when nobody can say whose code stopped it. The
+    // explanation therefore claims only that scoring was not reached.
     explanation:
-      "Your package installed, but no entry point for this track was registered under the active submission contract group.",
+      "This run did not reach scoring. The available details are below.",
     action:
-      'Add the v2 entry point to pyproject.toml and push:\n[project.entry-points."cogworks.submissions.v2"]\n{benchmark} = "benchmark_adapter:<your factory>"',
+      "Run the check below. It says how far your code was followed and what the next step was given, in your own function names.",
     reproCommand: "cogworks check --benchmark {benchmark}",
-    retryable: false,
-    defaultConsumesAttempt: false,
+    remedy: "fix",
   },
   contract_invalid: {
     code: "E-CONTRACT",
@@ -92,19 +93,23 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Run the local contract check to see exactly which method failed, fix it, and push a new commit.",
     reproCommand: "cogworks test --benchmark {benchmark}",
-    retryable: false,
-    defaultConsumesAttempt: false,
+    remedy: "fix",
   },
+  // The category is named for the old claim. It now means only that the
+  // evaluation raised. Team and benchmark code share the sandbox process, and
+  // team code can forge any frame, so the runner can't say whose line it was:
+  // the platform's own replay raised in B-44, and this title once told that
+  // team the crash was theirs. The copy stays neutral and lets the detail's
+  // file and line speak; it never promises a repeat fixes a benchmark bug.
   student_runtime: {
     code: "E-RUNTIME",
-    title: "Your code raised an exception",
+    title: "The evaluation stopped on an exception",
     explanation:
-      "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs.",
+      "The error below shows what was raised and where.",
     action:
-      "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting.",
+      "If it points to a file in your repository, reproduce it with the command below. If it points elsewhere, share the run with course staff and retry once they've fixed it.",
     reproCommand: "cogworks run --benchmark {benchmark}",
-    retryable: false,
-    defaultConsumesAttempt: true,
+    remedy: "either",
   },
   timeout: {
     code: "E-TIMEOUT",
@@ -114,8 +119,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Profile a single case locally, then batch the work your adapter repeats and stop re-loading model weights on every call.",
     reproCommand: "cogworks run --benchmark {benchmark}",
-    retryable: false,
-    defaultConsumesAttempt: true,
+    remedy: "fix",
   },
   memory_limit: {
     code: "E-MEMORY",
@@ -125,8 +129,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Work through the inputs in batches instead of holding them all at once, and release large intermediate arrays.",
     reproCommand: null,
-    retryable: false,
-    defaultConsumesAttempt: true,
+    remedy: "fix",
   },
   output_invalid: {
     code: "E-OUTPUT",
@@ -134,10 +137,9 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your adapter returned output that failed schema validation. Extra fields, wrong types, and values outside the allowed range are all rejected.",
     action:
-      "Validate your output locally with the schema check, correct the prediction shape, and run practice again before promoting.",
+      "Validate your output locally with the schema check and correct the prediction shape.",
     reproCommand: "cogworks test --benchmark {benchmark}",
-    retryable: false,
-    defaultConsumesAttempt: true,
+    remedy: "fix",
   },
   scorer: {
     code: "E-SCORER",
@@ -145,21 +147,19 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your predictions were produced and retrieved, but the trusted scorer failed. This is a platform problem, not a problem with your code.",
     action:
-      "Staff have been notified with this run's ID. Your attempt was not consumed; you may retry once the issue is resolved.",
+      "If scoring keeps failing, share the run's details with course staff.",
     reproCommand: null,
-    retryable: true,
-    defaultConsumesAttempt: false,
+    remedy: "retry",
   },
   provider: {
     code: "E-PROVIDER",
-    title: "Execution provider failed",
+    title: "The run couldn't finish",
     explanation:
-      "The isolated execution environment failed before your code ran. This is a platform problem, not a problem with your code.",
+      "The hosted execution could not finish. The recorded details may identify where it stopped.",
     action:
-      "Retry the run. If this recurs, report the run ID to course staff.",
+      "If the run keeps failing, share its details with course staff.",
     reproCommand: null,
-    retryable: true,
-    defaultConsumesAttempt: false,
+    remedy: "retry",
   },
 };
 

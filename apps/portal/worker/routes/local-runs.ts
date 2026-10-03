@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, exists, lt, notExists } from "drizzle-orm";
 import {
   LocalRunEventResponseSchema,
   LocalRunEventBatchResponseSchema,
@@ -10,25 +10,29 @@ import {
   type LocalRunPhase,
   type LocalRunEvent,
   type RunStreamEventCode,
+  type StartLocalRunRequest,
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireDevice } from "../auth/device";
 import { getDb } from "../db/client";
+import { insertWhere } from "../db/insert-where";
 import {
   benchmarks,
   localRunSessions,
   runSurfaces,
   teamMembers,
   teams,
+  type TeamRow,
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { upsertLocalReport } from "../services/local-reports";
 import { syncRunSurfaceMessage } from "../services/discord-messages";
 import {
-  appendRunStreamEvent,
   defaultLocalEventCode,
+  guardedRunStreamEventInsert,
   publishRunSurface,
+  settleRunStreamEvents,
 } from "../services/run-surfaces";
 
 function sharedFailureCode(code: RunStreamEventCode | undefined): RunStreamEventCode {
@@ -63,6 +67,21 @@ async function discordState(env: AppEnv["Bindings"], surfaceId: string) {
   return surface.messageId ? ("updated" as const) : ("unavailable" as const);
 }
 
+/**
+ * The console a session was recorded with. Every session written since
+ * migration 0010 records one in the same write. A session with none predates
+ * consoles and never had one: the id its own suffix would derive can belong to
+ * another run's console, so it is refused rather than guessed.
+ */
+function recordedSurfaceId(session: typeof localRunSessions.$inferSelect): string {
+  if (session.surfaceId) return session.surfaceId;
+  throw new ApiHttpError(
+    409,
+    "invalid_request",
+    "This local run started before CogPortal kept live consoles, so it can't take updates. Start a new run.",
+  );
+}
+
 async function acceptLocalRunEvent(
   env: AppEnv["Bindings"],
   device: { deviceId: string; userId: string },
@@ -82,7 +101,7 @@ async function acceptLocalRunEvent(
     )
     .limit(1);
   if (!current) throw new ApiHttpError(404, "not_found", "Local run session not found.");
-  const surfaceId = current.surfaceId ?? `surface_${current.id.slice(-20)}`;
+  const surfaceId = recordedSurfaceId(current);
   if (current.status !== "running" || event.sequence <= current.lastEventSequence) {
     return { duplicate: true, surfaceId };
   }
@@ -113,6 +132,9 @@ async function acceptLocalRunEvent(
     ) {
       throw new ApiHttpError(409, "invalid_request", "The completed report does not match this live run.");
     }
+    // Saved before the batch below, not inside it. The save is idempotent for
+    // its owner, so if the batch fails the report stays saved and the CLI's
+    // retry saves it again; the session is what records the run as finished.
     await upsertLocalReport(env, device.userId, report);
     phase = "scoring";
     code = "run.completed";
@@ -136,20 +158,20 @@ async function acceptLocalRunEvent(
       finishedAt: receivedAt,
     };
   }
-  const updated = await db
-    .update(localRunSessions)
-    .set(nextValues)
-    .where(
-      and(
-        eq(localRunSessions.id, current.id),
-        eq(localRunSessions.status, "running"),
-        lt(localRunSessions.lastEventSequence, event.sequence),
-      ),
-    );
-  const duplicate = (updated.meta.changes ?? 0) === 0;
-  if (!duplicate) {
-    await appendRunStreamEvent(
-      env,
+  // The session's new state and the stream event that reports it commit
+  // together. Written apart, a failure between them left the session advanced,
+  // so the CLI's retry of that event read as a duplicate and the console never
+  // showed it. Both statements carry the same admission condition, and nothing
+  // runs between them inside the batch, so the event is written exactly when
+  // this request's update applies. A request that lost the race writes neither.
+  const admitted = and(
+    eq(localRunSessions.id, current.id),
+    eq(localRunSessions.status, "running"),
+    lt(localRunSessions.lastEventSequence, event.sequence),
+  );
+  const [, updated] = await db.batch([
+    guardedRunStreamEventInsert(
+      db,
       surfaceId,
       {
         eventId: event.eventId,
@@ -162,9 +184,12 @@ async function acceptLocalRunEvent(
         elapsedMs,
         progress: event.type === "progress" ? (event.progress ?? null) : null,
       },
-      { publish: false },
-    );
-  }
+      exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(admitted)),
+    ),
+    db.update(localRunSessions).set(nextValues).where(admitted),
+  ]);
+  const duplicate = (updated.meta.changes ?? 0) === 0;
+  if (!duplicate) await settleRunStreamEvents(db, surfaceId);
   return { duplicate, surfaceId };
 }
 
@@ -184,6 +209,39 @@ function publishSurfaceInBackground(
       );
     }),
   );
+}
+
+/**
+ * The record governs, not the claim: a legacy row with no recorded id keeps
+ * none, and a bound row must still name the team's current connection. Runs
+ * after the admission gate, so any non-null claim already equals that id.
+ */
+function replayRepositoryMatches(
+  recorded: number | null,
+  claimed: number | null,
+  teamRepoId: number | null,
+): boolean {
+  return recorded === null ? claimed === null : recorded === teamRepoId;
+}
+
+/** Whether a recorded session is this start request, from this device, for
+ *  this team. Anything else under the same client run id is a different run. */
+function isSameStart(
+  session: typeof localRunSessions.$inferSelect,
+  body: StartLocalRunRequest,
+  device: { deviceId: string; userId: string },
+  team: TeamRow,
+): boolean {
+  return session.teamId === team.id &&
+    session.deviceId === device.deviceId &&
+    session.userId === device.userId &&
+    session.benchmarkId === body.benchmarkId &&
+    session.benchmarkVersion === body.benchmarkVersion &&
+    replayRepositoryMatches(session.repositoryId, body.repositoryId, team.repoId) &&
+    session.repositoryFullName.toLowerCase() === body.repositoryFullName.toLowerCase() &&
+    session.sha === body.sha &&
+    session.branch === (body.branch ?? null) &&
+    session.dirty === body.dirty;
 }
 
 export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
@@ -227,6 +285,14 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         `This device is running ${body.repositoryFullName}, but your team is connected to ${membership.team.repoFullName}.`,
       );
     }
+    // A claim the connection cannot corroborate is refused, not dropped.
+    if (body.repositoryId !== null && body.repositoryId !== membership.team.repoId) {
+      throw new ApiHttpError(
+        409,
+        "forbidden",
+        `This device reports a different repository than your team's connection to ${membership.team.repoFullName}.`,
+      );
+    }
 
     const now = Date.now();
     const sessionId = body.clientRunId;
@@ -237,69 +303,53 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
       .where(eq(localRunSessions.id, sessionId))
       .limit(1);
     if (existing) {
-      if (
-        existing.deviceId !== device.deviceId ||
-        existing.userId !== device.userId ||
-        existing.benchmarkId !== body.benchmarkId ||
-        existing.benchmarkVersion !== body.benchmarkVersion ||
-        existing.repositoryId !== body.repositoryId ||
-        existing.repositoryFullName.toLowerCase() !== body.repositoryFullName.toLowerCase() ||
-        existing.sha !== body.sha ||
-        existing.branch !== (body.branch ?? null) ||
-        existing.dirty !== body.dirty
-      ) {
+      if (!isSameStart(existing, body, device, membership.team)) {
         throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
       }
+      const existingSurfaceId = recordedSurfaceId(existing);
       return respond(c, StartLocalRunResponseSchema, {
         sessionId,
-        surfaceId: existing.surfaceId ?? surfaceId,
+        surfaceId: existingSurfaceId,
         discord:
-          (await discordState(c.env, existing.surfaceId ?? surfaceId)) === "updated"
+          (await discordState(c.env, existingSurfaceId)) === "updated"
             ? "published"
             : existing.discordChannelId
               ? "unavailable"
               : "channel_unbound",
       });
     }
-    await db.insert(runSurfaces).values({
-      id: surfaceId,
-      teamId: membership.team.id,
-      createdByUserId: device.userId,
-      benchmarkId: body.benchmarkId,
-      benchmarkVersion: body.benchmarkVersion,
-      localRunId: sessionId,
-      supersedesSurfaceId: null,
-      discordChannelId: membership.team.discordChannelId,
-      discordMessageId: null,
-      discordNonceGeneration: 0,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoNothing();
-    const [surface] = await db
-      .select()
-      .from(runSurfaces)
-      .where(eq(runSurfaces.id, surfaceId))
-      .limit(1);
-    if (
-      !surface
-      || surface.teamId !== membership.team.id
-      || surface.createdByUserId !== device.userId
-      || surface.benchmarkId !== body.benchmarkId
-      || surface.benchmarkVersion !== body.benchmarkVersion
-      || surface.localRunId !== sessionId
-    ) {
-      throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
-    }
-    const inserted = await db
-      .insert(localRunSessions)
-      .values({
+    // The console and its session commit together, in one D1 batch. Written
+    // apart, a failure between them left a console naming a session that did
+    // not exist. The console is written only while no session holds this id,
+    // and the session only beside a console that is this run's; a console left
+    // by an older attempt is reused when it matches. A concurrent identical
+    // start finds both rows already there and changes nothing.
+    await db.batch([
+      insertWhere(db, runSurfaces, {
+        id: surfaceId,
+        teamId: membership.team.id,
+        createdByUserId: device.userId,
+        benchmarkId: body.benchmarkId,
+        benchmarkVersion: body.benchmarkVersion,
+        localRunId: sessionId,
+        supersedesSurfaceId: null,
+        discordChannelId: membership.team.discordChannelId,
+        discordMessageId: null,
+        discordNonceGeneration: 0,
+        createdAt: now,
+        updatedAt: now,
+      }, notExists(db.select({ id: localRunSessions.id }).from(localRunSessions)
+        .where(eq(localRunSessions.id, sessionId)))).onConflictDoNothing(),
+      insertWhere(db, localRunSessions, {
         id: sessionId,
         teamId: membership.team.id,
         userId: device.userId,
         deviceId: device.deviceId,
         benchmarkId: body.benchmarkId,
         benchmarkVersion: body.benchmarkVersion,
-        repositoryId: body.repositoryId,
+        // The verified connection, not the SDK's nullable claim: a row with no
+        // recorded id reads as predating the record and cannot be verified.
+        repositoryId: membership.team.repoId,
         repositoryFullName: body.repositoryFullName,
         sha: body.sha,
         branch: body.branch ?? null,
@@ -315,28 +365,22 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         updatedAt: now,
         finishedAt: null,
         surfaceId,
-      })
-      .onConflictDoNothing();
-    if ((inserted.meta.changes ?? 0) === 0) {
-      const [conflict] = await db
-        .select()
-        .from(localRunSessions)
-        .where(eq(localRunSessions.id, sessionId))
-        .limit(1);
-      if (
-        !conflict ||
-        conflict.deviceId !== device.deviceId ||
-        conflict.userId !== device.userId ||
-        conflict.benchmarkId !== body.benchmarkId ||
-        conflict.benchmarkVersion !== body.benchmarkVersion ||
-        conflict.repositoryId !== body.repositoryId ||
-        conflict.repositoryFullName.toLowerCase() !== body.repositoryFullName.toLowerCase() ||
-        conflict.sha !== body.sha ||
-        conflict.branch !== (body.branch ?? null) ||
-        conflict.dirty !== body.dirty
-      ) {
-        throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
-      }
+      }, exists(db.select({ id: runSurfaces.id }).from(runSurfaces).where(and(
+        eq(runSurfaces.id, surfaceId),
+        eq(runSurfaces.teamId, membership.team.id),
+        eq(runSurfaces.createdByUserId, device.userId),
+        eq(runSurfaces.benchmarkId, body.benchmarkId),
+        eq(runSurfaces.benchmarkVersion, body.benchmarkVersion),
+        eq(runSurfaces.localRunId, sessionId),
+      )))).onConflictDoNothing(),
+    ]);
+    const [recorded] = await db
+      .select()
+      .from(localRunSessions)
+      .where(eq(localRunSessions.id, sessionId))
+      .limit(1);
+    if (!recorded || !isSameStart(recorded, body, device, membership.team)) {
+      throw new ApiHttpError(409, "invalid_request", "That local run ID is already in use.");
     }
 
     let discord: "published" | "channel_unbound" | "unavailable" = membership.team.discordChannelId

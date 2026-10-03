@@ -1,16 +1,16 @@
 import type { Context, Hono } from "hono";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
+import { RetryRunRequestSchema, RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
-import { discordAccounts, runSurfaces, teamMembers, teams, users } from "../db/schema";
+import { discordAccounts, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { createDiscordLink } from "../services/identity";
-import { buildRunSurfaceSnapshot, getRunSurfaceRow } from "../services/run-surfaces";
+import { getRunSurfaceRow, listTeamRunSurfaceSnapshots } from "../services/run-surfaces";
 import { discordRunActor, performRunSurfaceMutation } from "../services/run-actions";
 import { randomHex } from "../util/id";
 
@@ -26,6 +26,9 @@ const TokenResponseSchema = z.object({
 });
 const ActivitySessionSchema = z.discriminatedUnion("linked", [
   z.object({ linked: z.literal(false), linkUrl: z.string().url() }),
+  // Linked but teamless was reported as unlinked, so the card told a student
+  // who had already linked to link again. Different state, different sentence.
+  z.object({ linked: z.literal("no_team"), portalUrl: z.string().url() }),
   z.object({
     linked: z.literal(true),
     githubLogin: z.string(),
@@ -37,7 +40,53 @@ const ActivityMutationSchema = z.enum([
   "promote_official",
   "publish_result",
   "rerun_hosted",
+  "retry",
 ]);
+
+/**
+ * Only `error` is read, and only to a bounded length: the rest of a refused
+ * exchange can echo the request, and that request carries the client secret and
+ * the code. Not a closed enum, because Discord's rate-limit body has no `error`
+ * key, an edge failure returns HTML, and an identifier we have not seen is
+ * exactly the response worth keeping.
+ */
+const DiscordOAuthErrorSchema = z.object({ error: z.string().min(1).max(64) });
+
+/** Refusals that say our own credentials or our own request are wrong. */
+const PORTAL_SIDE_OAUTH_ERRORS = new Set([
+  "invalid_client",
+  "unauthorized_client",
+  "invalid_request",
+  "unsupported_grant_type",
+  "invalid_scope",
+]);
+
+/**
+ * Three sentences, because the student's next move differs and the portal
+ * should not claim more than the response shows. A refused grant is usually
+ * fixed by a fresh one, but `invalid_grant` also covers a redirect or client
+ * mismatch (RFC 6749 section 5.2) that refuses every time, so the student is
+ * told when to stop reopening. A refusal naming our credentials will refuse
+ * again, so sending the student back costs them time. Anything else, a rate
+ * limit or an edge failure included, is a refusal we cannot explain, and
+ * calling it ours would be a guess.
+ */
+export function activityTokenRejection(
+  status: number,
+  body: unknown,
+): { logged: { evt: string; status: number; error: string }; message: string } {
+  const parsed = DiscordOAuthErrorSchema.safeParse(body);
+  const error = parsed.success ? parsed.data.error : "none";
+  return {
+    logged: { evt: "activity_token_exchange_rejected", status, error },
+    message:
+      error === "invalid_grant"
+        ? "Discord would not accept that authorization. Close the Activity and open it again, and tell an instructor if it keeps happening."
+        : PORTAL_SIDE_OAUTH_ERRORS.has(error)
+          ? "Discord turned down this Activity's sign-in, and reopening won't change that. Tell an instructor; the fix is on our side."
+          : "Discord did not answer this sign-in. Open the Activity again, and tell an instructor if it keeps happening.",
+  };
+}
 
 function configured(c: Context<AppEnv>): { clientId: string; clientSecret: string; sessionSecret: string } {
   if (!c.env.DISCORD_CLIENT_ID || !c.env.DISCORD_CLIENT_SECRET || !c.env.ACTIVITY_SESSION_SECRET) {
@@ -136,13 +185,23 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       }),
     });
     if (!tokenResponse.ok) {
-      throw new ApiHttpError(401, "unauthorized", "Discord could not authorize the Activity.");
+      const rejection = activityTokenRejection(
+        tokenResponse.status,
+        await tokenResponse.json().catch(() => null),
+      );
+      console.warn(JSON.stringify(rejection.logged));
+      throw new ApiHttpError(401, "unauthorized", rejection.message);
     }
     const token = z.object({ access_token: z.string().min(1) }).parse(await tokenResponse.json());
     const userResponse = await fetch("https://discord.com/api/v10/users/@me", {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
-    if (!userResponse.ok) throw new ApiHttpError(401, "unauthorized", "Discord identity could not be loaded.");
+    if (!userResponse.ok) {
+      // Discord rate-limits /users/@me, so this is reachable with a token that
+      // is perfectly good.
+      console.warn(JSON.stringify({ evt: "activity_identity_fetch_failed", status: userResponse.status }));
+      throw new ApiHttpError(401, "unauthorized", "Discord identity could not be loaded.");
+    }
     const user = z
       .object({ id: z.string(), username: z.string(), global_name: z.string().nullable().optional() })
       .parse(await userResponse.json());
@@ -164,10 +223,14 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   app.get("/activity/session", async (c) => {
     const discordUserId = await activityDiscordId(c);
     const identity = await activityIdentity(c.env, discordUserId);
-    if (!identity?.team) {
-      const start = await createDiscordLink(c.env, discordUserId, identity?.githubLogin ?? "Discord user");
+    if (!identity) {
+      const start = await createDiscordLink(c.env, discordUserId, "Discord user");
       const linkUrl = start.url ?? new URL("/connections", c.env.PUBLIC_ORIGIN ?? c.req.url).toString();
       return respond(c, ActivitySessionSchema, { linked: false, linkUrl });
+    }
+    if (!identity.team) {
+      const portalUrl = new URL("/connect", c.env.PUBLIC_ORIGIN ?? c.req.url).toString();
+      return respond(c, ActivitySessionSchema, { linked: "no_team", portalUrl });
     }
     return respond(c, ActivitySessionSchema, {
       linked: true,
@@ -182,16 +245,10 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
 
   app.get("/activity/run-surfaces", async (c) => {
     const identity = await requireActivityTeam(c);
-    const rows = await getDb(c.env)
-      .select({ id: runSurfaces.id })
-      .from(runSurfaces)
-      .where(eq(runSurfaces.teamId, identity.team.id))
-      .orderBy(desc(runSurfaces.updatedAt))
-      .limit(10);
     return respond(
       c,
       z.array(RunSurfaceSnapshotSchema),
-      await Promise.all(rows.map((row) => buildRunSurfaceSnapshot(c.env, row.id))),
+      await listTeamRunSurfaceSnapshots(c.env, identity.team.id),
     );
   });
 
@@ -203,11 +260,13 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     if (surface.teamId !== identity.team.id) {
       throw new ApiHttpError(404, "not_found", "Run surface not found.");
     }
+    const action = ActivityMutationSchema.parse(c.req.param("action"));
     const snapshot = await performRunSurfaceMutation(
       c.env,
       await discordRunActor(c.env, discordUserId),
       surfaceId,
-      ActivityMutationSchema.parse(c.req.param("action")),
+      action,
+      action === "retry" ? await parseBody(c, RetryRunRequestSchema) : undefined,
     );
     return respond(c, RunSurfaceSnapshotSchema, snapshot);
   });
@@ -221,6 +280,6 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: { code: "invalid_request", message: "Expected a WebSocket upgrade." } }, 426);
     }
     const stub = c.env.RUN_SURFACES.get(c.env.RUN_SURFACES.idFromName(surfaceId));
-    return stub.fetch(new Request("https://run-surface.internal/connect", { headers: c.req.raw.headers }));
+    return stub.fetch(new Request(`https://run-surface.internal/connect?surfaceId=${encodeURIComponent(surfaceId)}`, { headers: c.req.raw.headers }));
   });
 }
