@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Runs the student CLI (`cogworks`) from this repository's source, the way a
 // student's terminal would, in a HOME made fresh for each test so the
@@ -11,7 +12,11 @@ import { join } from 'node:path';
 //
 // Set by whoever runs the tests:
 //   PILOT_CLI_PYTHON  a Python 3.8 interpreter (the course version)
-//   PILOT_CLI_SRC     this repository's python/cogbench/src
+//   PILOT_CLI_SRC     optional; the CLI source to run, by default this
+//                     checkout's python/cogbench/src
+
+/** This checkout's CLI source, three directories up from support/. */
+const CHECKOUT_CLI_SRC = fileURLToPath(new URL('../../../python/cogbench/src', import.meta.url));
 
 export function setting(name: string): string {
   const value = process.env[name];
@@ -188,7 +193,15 @@ export class CliHome {
 
   static async create(options: { benchmark?: BenchmarkSetup } = {}): Promise<CliHome> {
     const python = setting('PILOT_CLI_PYTHON');
-    const source = setting('PILOT_CLI_SRC');
+    const source = process.env.PILOT_CLI_SRC || CHECKOUT_CLI_SRC;
+    // A source without the CLI would not fail loudly: Python would import
+    // whatever cogbench the interpreter has installed, and the tests would
+    // run that instead.
+    const cli = await stat(join(source, 'cogbench', 'cli.py')).then(
+      (info) => info.isFile(),
+      () => false,
+    );
+    if (!cli) throw new Error(`${source} has no cogbench/cli.py; set PILOT_CLI_SRC to a cogbench source tree, or unset it to use this checkout's.`);
     const home = await mkdtemp(join(tmpdir(), 'cog-pilot-home-'));
     return new CliHome(home, python, source, options.benchmark);
   }

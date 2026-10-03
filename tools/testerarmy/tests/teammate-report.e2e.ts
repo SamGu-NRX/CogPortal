@@ -23,9 +23,11 @@ import {
 // teammate should be able to read it in that run's row. After the oracle, the
 // first three notes must also be visible and uncovered where they render.
 //
-// Tagged open-finding: on 3670e55 the local-report list drops diagnostics,
-// so this test is red until the list shows them. `npm test` leaves it out;
-// `npm run test:open-findings` runs it.
+// Tagged week3-report and left out of `npm test`, because it needs the Week 3
+// benchmark checkout, its cached data and a course Python environment
+// (support/week3.ts). `npm run test:week3-report` runs it. It was written
+// red against 3670e55, whose local-report rows dropped the diagnostic; the
+// rows show it since fix/local-report-notes-20261003 (PR89).
 
 /** The agent's reading of the page. */
 type Reading = { explanation: string | null; where: string | null };
@@ -58,7 +60,7 @@ const readingSchema = {
 
 test(
   'a teammate finds the run a student synced and can read why it scored low',
-  { timeout: 300_000, tags: ['open-finding'] },
+  { timeout: 300_000, tags: ['week3-report'] },
   async ({ app, agent, browser, screen }) => {
     const home = await CliHome.create({ benchmark: await week3Setup() });
     const portal = browserPortal(browser);

@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test, type TestContext } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { CliHome } from './cli.ts';
 
 // Stub executables stand in for Python: CliHome passes them `-c <code> <args>`,
@@ -12,6 +13,9 @@ let scratch: string;
 
 before(async () => {
   scratch = await mkdtemp(join(tmpdir(), 'cog-pilot-clitest-'));
+  // CliHome refuses a source without the CLI module; the stubs never import it.
+  await mkdir(join(scratch, 'cogbench'));
+  await writeFile(join(scratch, 'cogbench', 'cli.py'), '');
   process.env.PILOT_CLI_SRC = scratch;
 });
 
@@ -177,5 +181,35 @@ test('when the CLI ignores SIGINT, close reports the worker it may have left ins
     await rm(run.workerScratch, { recursive: true, force: true });
     await rm(run.home.path, { recursive: true, force: true });
     delete process.env.PILOT_TEST_IGNORE_INT;
+  }
+});
+
+test("without PILOT_CLI_SRC the CLI runs from this checkout's own source", async () => {
+  const top = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: fileURLToPath(new URL('.', import.meta.url)),
+    encoding: 'utf8',
+  }).trim();
+  delete process.env.PILOT_CLI_SRC;
+  try {
+    process.env.PILOT_CLI_PYTHON = await stub('print-pythonpath', 'echo "$PYTHONPATH"');
+    const home = await CliHome.create();
+    const cli = home.start(['status']);
+    assert.equal(await cli.exited(2_000), 0);
+    assert.equal(cli.output().trim(), join(top, 'python', 'cogbench', 'src'));
+    await home.close();
+  } finally {
+    process.env.PILOT_CLI_SRC = scratch;
+  }
+});
+
+test('a source without the CLI is refused before anything runs', async () => {
+  const empty = join(scratch, 'not-cogbench');
+  await mkdir(empty);
+  process.env.PILOT_CLI_SRC = empty;
+  try {
+    process.env.PILOT_CLI_PYTHON = await stub('never-runs', 'touch "$HOME/ran"');
+    await assert.rejects(CliHome.create(), /not-cogbench has no cogbench\/cli\.py; set PILOT_CLI_SRC/);
+  } finally {
+    process.env.PILOT_CLI_SRC = scratch;
   }
 });

@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "E2E_TELEMETRY_DISABLED=1 e2e run --exclude-tag open-finding",
-    "test:open-findings": "E2E_TELEMETRY_DISABLED=1 e2e run --tag open-finding",
+    "test": "E2E_TELEMETRY_DISABLED=1 e2e run --exclude-tag week3-report",
+    "test:week3-report": "E2E_TELEMETRY_DISABLED=1 e2e run --tag week3-report",
     "test:unit": "node --test support/*.test.ts",
     "typecheck": "../../apps/portal/node_modules/.bin/tsc -p .",
     "models": "E2E_TELEMETRY_DISABLED=1 e2e models openai"

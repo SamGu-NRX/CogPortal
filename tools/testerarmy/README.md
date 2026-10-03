@@ -1,43 +1,48 @@
-# TesterArmy pilot
+# TesterArmy browser tests
 
-A local trial of TesterArmy's `e2e` runner against a CogPortal dev server. It asks two things. Can one agent step plus deterministic checks cover a student path end to end? What does the replay cache do across runs? The config refuses any `APP_URL` that isn't a loopback origin, so these tests never reach a deployed portal.
+Browser tests of the student path, run locally with TesterArmy's `e2e` runner against this checkout's own dev server. Each test takes at most one model step, and every claim it makes comes from a deterministic check after that step. The config refuses any `APP_URL` that isn't a loopback origin, so these tests never reach a deployed portal.
+
+This directory is outside the pnpm workspace (`pnpm-workspace.yaml` lists `apps/portal`, `apps/discord-bot` and `packages/*`), has its own `package-lock.json`, and isn't run by CI. Nothing here changes the product build.
+
+There are two sets. `npm test` runs the smoke set, which needs only this checkout, a local server and a Python for the CLI. `npm run test:week3-report` runs the Week 3 report journey, which also needs the Week 3 benchmark, its cached data and a course Python environment.
 
 ## What each test proves
 
-| Test | Model | What passing shows |
-| --- | --- | --- |
-| `tests/public-results.e2e.ts` | one agent step | A signed-out visitor gets from the landing page to `/leaderboard`, which opens on Vision under "Published results". |
-| `tests/cli-link.e2e.ts` | one agent step | The URL and code `cogworks link` prints lead to a working approval. The agent approves; the checks after it prove this run's approval. The CLI exits linked, `~/.cogbench` is 0700 and `config.json` 0600, and exactly one new device exists. `cogworks status` answers with the saved token. The teammate can't see the device, and once it's revoked `status` fails. |
-| `tests/cli-link-keyboard.e2e.ts` | none | The same approval in the page's tab order. One Tab from "Device name" reaches "Approve device" and Enter approves. The test prints the focus sequence it saw. |
-| `tests/teammate-report.e2e.ts` | one agent step, one reading | A student checks, runs and syncs the Week 3 benchmark from a team repository, once with the reference submission and once after a commit where `embed_text` averages over the wrong axis. The team API gives the teammate both reports, with this run's commit and the benchmark's diagnostic. The agent finds the run on the teammate's page, and that run's row shows the diagnostic. **Red on 3670e55**, see below. |
-| `tests/teamless-link.e2e.ts` | one agent step | A cohort member with no team opens the printed link and lands on Connect with a note that the link is on hold, while the code stays open. The agent joins the team. Reopening the printed link then approves the original code: the CLI exits linked and `status` answers. |
-| `tests/teamless-offer.e2e.ts` | one agent step in the first test, none in the second | The same start, but after joining, Setup offers the held code as a link to the printed path. Following that link, not reopening the printed one, approves the original code; the CLI links, and the offer and the tab's held link are gone. The used code, held again, is checked and dropped. The second test holds an open code and shows that `/` and `/signin` settle without going to it, that another account signing in on the same tab never sees it, and that it stays forgotten when the first account returns. |
-| `support/*.test.ts` | none | The loopback guard; that the CLI helper interrupts and awaits every process it started before removing its HOME, and reports instead of removing when one won't stop; and that inherited `GIT_*` variables can't steer the fixture repository or the CLI to another checkout. |
+| Test | Set | Model | What passing shows |
+| --- | --- | --- | --- |
+| `tests/public-results.e2e.ts` | smoke | one agent step | A signed-out visitor gets from the landing page to `/leaderboard`, which opens on Vision under "Published results". |
+| `tests/cli-link.e2e.ts` | smoke | one agent step | The URL and code `cogworks link` prints lead to a working approval. The agent approves; the checks after it prove this run's approval. The CLI exits linked, `~/.cogbench` is 0700 and `config.json` 0600, and exactly one new device exists. `cogworks status` answers with the saved token. The teammate can't see the device, and once it's revoked `status` fails. |
+| `tests/cli-link-keyboard.e2e.ts` | smoke | none | The same approval in the page's tab order. One Tab from "Device name" reaches "Approve device" and Enter approves. The test prints the focus sequence it saw. |
+| `tests/teamless-link.e2e.ts` | smoke | one agent step | A cohort member with no team opens the printed link and lands on Connect with a note that the link is on hold, while the code stays open. The agent joins the team. Reopening the printed link then approves the original code: the CLI exits linked and `status` answers. |
+| `tests/teamless-offer.e2e.ts` | smoke | one agent step in the first test, none in the second | The same start, but after joining, Setup offers the held code as a link to the printed path. Following that link, not reopening the printed one, approves the original code; the CLI links, and the offer and the tab's held link are gone. The used code, held again, is checked and dropped. The second test holds an open code and shows that `/` and `/signin` settle without going to it, that another account signing in on the same tab never sees it, and that it stays forgotten when the first account returns. |
+| `tests/teammate-report.e2e.ts` | week3-report | one agent step, one reading | A student checks, runs and syncs the Week 3 benchmark from a team repository, once with the reference submission and once after a commit where `embed_text` averages over the wrong axis. The team API gives the teammate both reports, with this run's commit and the benchmark's diagnostic. The agent finds the run on the teammate's page; that run's row shows the diagnostic, and its first three notes are visible and not covered where they render. |
+| `support/*.test.ts` | `npm run test:unit` | none | The loopback guard; that the CLI runs from this checkout's source unless told otherwise, and refuses a source without the CLI; that the CLI helper interrupts and awaits every process it started before removing its HOME, and reports instead of removing when one won't stop; and that inherited `GIT_*` variables can't steer the fixture repository or the CLI to another checkout. |
 
-`teamless-offer.e2e.ts` needs a portal with Setup's offer (branch `fix/pending-device-link-20261003`); against an earlier portal it fails where the offer should appear.
-
-An agent step's own summary is never evidence. Every claim above comes from a deterministic check. The teammate test also prints the agent's reading of where the page explains the low score, as a record only.
+An agent step's own summary is never evidence. The teammate test also prints the agent's reading of where the page explains the low score, as a record only.
 
 The agent in `cli-link.e2e.ts` presses Enter on the approve button directly. That shows keyboard activation, not tab order, which is why the keyboard test exists.
 
-## Open finding: the teammate can't read why a run scored low
-
-`teammate-report.e2e.ts` is tagged `open-finding` and stays red until the product changes. On 3670e55 the benchmark's diagnostic reaches the student's terminal, `cogworks sync` posts it, and `GET /api/v1/local-reports` returns it to the teammate. The Runs page's local-report table then shows only commit, command, result and sync time, so the teammate sees a score of 0.171 with no reason. `npm test` leaves the test out; `npm run test:open-findings` runs it.
+`teammate-report.e2e.ts` was written red against 3670e55, whose local-report rows dropped the benchmark's diagnostic so the teammate saw a score of 0.171 with no reason. The rows show it since `fix/local-report-notes-20261003` (PR89), which this branch includes.
 
 ## Versions
 
-`e2e` 0.16.0, `@e2e-dev/web` 0.11.2, `ai` 7.0.107, `@ai-sdk/openai` 4.0.71 and `playwright` 1.63.0, whose Chromium build is 1243. The model is `chatgpt('gpt-6-luna')` through a ChatGPT subscription login, at the default reasoning level, with no API key and no fallback. The runner needs Node 22.12 or later; the pilot ran on 26.5.0. The link tests run the student CLI from this repository's `python/cogbench/src` on Python 3.8, the course version.
+`e2e` 0.16.0, `@e2e-dev/web` 0.11.2, `ai` 7.0.107, `@ai-sdk/openai` 4.0.71 and `playwright` 1.63.0, whose Chromium build is 1243, all pinned in `package.json` and `package-lock.json`. The model is `chatgpt('gpt-6-luna')` through a ChatGPT subscription login, at the default reasoning level, with no API key and no fallback.
 
-The teammate test runs the Week 3 benchmark at the commit this repository pins as `benchmarks/week3` (4b17554), on an existing course environment. It is a check of the flow, not of a clean install. The environment used here lacks four packages the graded run installs (`llvmlite`, `noggin`, `numba`, `sklearn`), and `cogworks check` says so.
+Every run recorded here used Node 26.5.0. The repository's CI uses Node 24, which is the safer choice for the portal. `e2e` declares Node 22.12 or later, but the helper tests rely on Node running TypeScript directly, and nothing here was run on 22.12.
+
+The CLI runs from this checkout's `python/cogbench/src`. Every run here used the course's Python 3.8 (3.8.20, a conda environment). `cogbench.cli` also imports on a plain Python 3.9 with no packages installed, but the smoke set wasn't run that way.
+
+The Week 3 report test runs the benchmark at the commit this repository pins as `benchmarks/week3` (4b17554) on an existing course environment. It checks the flow, not a clean install. The environment used here lacks four packages the graded run installs (`llvmlite`, `noggin`, `numba`, `sklearn`), and `cogworks check` says so.
 
 ## One-time login
 
 ```sh
+cd tools/testerarmy
 E2E_TELEMETRY_DISABLED=1 npx e2e login openai --device
 npm run models   # should list gpt-6-luna
 ```
 
-The framework stores the login in `~/.config/e2e/oauth.json` and refreshes it itself. Nothing here reads or copies that file. If a run fails with `LOGIN_REQUIRED` on a setup that worked before, find out why before signing in again.
+The framework stores the login in `~/.config/e2e/oauth.json` and refreshes it itself. Nothing here reads or copies that file, and there is no API-key path. If a run fails with `LOGIN_REQUIRED` on a setup that worked before, find out why before signing in again.
 
 ## Setup
 
@@ -56,7 +61,7 @@ pnpm db:migrate:local && pnpm db:seed:local
 pnpm exec vite --port 5195 --strictPort --host 127.0.0.1
 ```
 
-`--ignore-scripts` also skips Playwright's browser download. The runner needs Chromium build 1243 in the Playwright cache; `npx playwright install chromium` fetches it if it's missing.
+`--ignore-scripts` also skips Playwright's browser download. The runner needs Chromium build 1243 in the Playwright cache; `npx playwright install chromium` in `tools/testerarmy` fetches it if it's missing.
 
 The server, `PUBLIC_ORIGIN` and the test target all use `127.0.0.1`. That keeps the approval URL the CLI prints on the same host as the browser's session cookie.
 
@@ -71,12 +76,7 @@ sqlite3 "$(ls apps/portal/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sql
   < tools/testerarmy/fixtures/link-team.sql   # prints 2
 ```
 
-The teammate test also needs the Week 3 benchmark and its data:
-
-- `PILOT_WEEK3_SRC` is a git checkout of the Week 3 benchmark at the pinned commit with no local changes; `git submodule update --init benchmarks/week3` in the test checkout gives one. The test refuses any other commit.
-- `PILOT_LANGUAGE_DATA` is a directory holding the five Week 3 data files: `captions_train2014.json`, `resnet18_features.pkl`, `glove.6B.200d.txt.w2v`, `glove.6B.200d.kv` and `glove.6B.200d.kv.vectors.npy`. Links to an existing cache are fine; the benchmark writes only its own `cache-state.json` beside them. The CLI runs with a fresh HOME, so without this directory the benchmark would download about 935 MB.
-
-## Run
+## Smoke set
 
 From `tools/testerarmy`:
 
@@ -85,18 +85,47 @@ npm run typecheck && npm run test:unit
 
 APP_URL=http://127.0.0.1:5195 \
 PILOT_CLI_PYTHON=/path/to/python3.8 \
-PILOT_CLI_SRC="$PWD/../../python/cogbench/src" \
 PILOT_CACHE_DIR=.e2e/cache-mine \
-npm test -- tests/cli-link.e2e.ts --reporter list,junit,markdown --output .e2e/runs/first
+npm test -- --reporter list,junit,markdown --output .e2e/runs/smoke
 ```
 
-`npm test` turns telemetry off and leaves out the open finding; the config fixes one worker and no retries. For the teammate test, add `PILOT_WEEK3_SRC` and `PILOT_LANGUAGE_DATA` and use `npm run test:open-findings`. A new `PILOT_CACHE_DIR` gives a cold run; reusing it gives a warm one. Each run writes `report.json` under its `--output` directory. For every agent step it records the cache mode, model calls, tokens and the actions taken.
+`npm test` turns telemetry off and leaves out the `week3-report` tag; the config fixes one worker and no retries. `APP_URL` defaults to `http://127.0.0.1:5195`. `PILOT_CLI_SRC` defaults to this checkout's `python/cogbench/src`; set it only to run another source tree, which must contain `cogbench/cli.py`. A single file runs with `npm test -- tests/cli-link.e2e.ts`.
 
 `public-results.e2e.ts` has two switches for cache experiments. `PILOT_EXPECT_HEADING=Audio` makes the run fail on purpose. `PILOT_RENAME_LINK="<link text>"` renames that link in the tab before the step. Run a rename against a copy of the cache, because its live run overwrites the recording with the renamed link, which exists only in the test.
 
-Everything under `.e2e/`, including reports, traces and recordings, is gitignored. So are `.dev.vars` and the local database.
-
 `npm run test:unit` includes a regression that runs real Python against a stand-in for the CLI's isolated worker. It uses `python3` from `PATH`, or `PILOT_CLI_PYTHON_REAL` if set, and skips with a message when neither runs.
+
+## Week 3 report journey (optional)
+
+This needs three more things:
+
+- `PILOT_WEEK3_SRC`, a git checkout of the Week 3 benchmark at the pinned commit with no local changes. `git submodule update --init benchmarks/week3` in the test checkout gives one. The test refuses any other commit.
+- `PILOT_LANGUAGE_DATA`, a directory holding the five Week 3 data files: `captions_train2014.json`, `resnet18_features.pkl`, `glove.6B.200d.txt.w2v`, `glove.6B.200d.kv` and `glove.6B.200d.kv.vectors.npy`. The benchmark writes its own `cache-state.json` into this directory, so make one of your own that links to an existing cache rather than pointing at the cache itself. The CLI runs with a fresh HOME, so without this directory the benchmark would download about 935 MB.
+- `PILOT_CLI_PYTHON` set to a course environment that has the Week 3 benchmark's packages, since the same interpreter runs `cogworks run`.
+
+```sh
+mkdir -p .e2e/week3-data
+for f in captions_train2014.json resnet18_features.pkl glove.6B.200d.txt.w2v glove.6B.200d.kv glove.6B.200d.kv.vectors.npy; do
+  ln -s "/path/to/existing/cache/$f" ".e2e/week3-data/$f"
+done
+
+APP_URL=http://127.0.0.1:5195 \
+PILOT_CLI_PYTHON=/path/to/course-env/bin/python \
+PILOT_WEEK3_SRC="$PWD/../../benchmarks/week3" \
+PILOT_LANGUAGE_DATA="$PWD/.e2e/week3-data" \
+PILOT_CACHE_DIR=.e2e/cache-mine \
+npm run test:week3-report -- --reporter list,junit,markdown --output .e2e/runs/report
+```
+
+On macOS an earlier run of the benchmark leaves its cache in `~/Library/Caches/cogworks-language-search/v1`. The CLI part takes about 45 s and peaks near 1.1 GB.
+
+## Replay cache
+
+A new `PILOT_CACHE_DIR` gives a cold run, where every agent step calls the model; reusing it gives a warm one, which replays recorded steps with no model calls. Each run's `report.json` records, for every agent step, the cache mode, model calls, tokens and the actions taken.
+
+## Before sharing a report
+
+Everything under `.e2e/` (reports, traces, recordings, fixtures, caches) is gitignored, as are `.dev.vars` and the local database. Read a report, log or trace before passing it on. They can hold this machine's network hostname (the CLI prints `Linked <hostname>`), temporary paths, synthetic logins, device codes and approval URLs, and traces keep screenshots of failed attempts. The codes expire in ten minutes and the accounts exist only in the local database, but the hostname doesn't.
 
 ## What the tests leave behind, and how they stop
 
@@ -106,7 +135,9 @@ When a test ends, the CLI helper sends each `cogworks` process SIGINT, the signa
 
 Fixture Git and the spawned CLI drop every inherited `GIT_*` variable, and fixture Git ignores global and system config, so a shell inside a git hook can't point the fixture's commits at another checkout.
 
-## Measured on 3 October 2026 at 3670e55
+## Measured
+
+On 3 October 2026 at 3670e55, before the product fixes this branch includes:
 
 | Step | Cold | Warm |
 | --- | --- | --- |
@@ -114,15 +145,14 @@ Fixture Git and the spawned CLI drop every inherited `GIT_*` variable, and fixtu
 | Link approval | 6 model calls, 28,400 tokens, 22.8 s | replayed 5 of 5 actions, 0 calls, 15.0 s |
 | Teammate finds the synced run | 2 model calls, 8.3 s, plus 1 call for the reading | replayed 1 of 1 action, 0 calls, 0.9 s, plus 1 call for the reading |
 
-The teammate test's CLI part takes about 45 s per attempt: `check` 2 s, the reference run 20 s at a 0.96 GB peak, the broken run 6 s at 1.13 GB, each sync under a second. Every attempt makes new commits, so the cold and warm runs assert on different reports.
-
-The warm approval is slow because each look at `/connections` after a key press took about 2.1 s to settle. The cause isn't known.
+The teammate test's CLI part took about 45 s per attempt: `check` 2 s, the reference run 20 s at a 0.96 GB peak, the broken run 6 s at 1.13 GB, each sync under a second. Every attempt makes new commits, so a cold and a warm run assert on different reports. The warm approval was slow because each look at `/connections` after a key press took about 2.1 s to settle; the cause isn't known.
 
 ## Limits seen in e2e 0.16.0
 
 These are observations of the installed version, not documented guarantees.
 
 - The replay's starting-screen check compares the path and drops the query and fragment (`node_modules/e2e/dist/cache/route.js`). A replay is never evidence that a particular URL or code was handled; assert that directly.
+- A recording is keyed to the app's origin, port included, because the default app identity is the base URL (`node_modules/e2e/dist/config/app.js`). A cache recorded against `127.0.0.1:5196` missed against `127.0.0.1:5197` and ran live.
 - A replayed step's summary repeats the recorded run's verdict, per-run data included. The warm approval's summary named the cold run's device code.
 - Redundant agent actions become part of the recording. The approval recording replays four Tab presses that did nothing.
 - A changed control costs a fixed 15 s wait, then a live step from the start. The passing live run then overwrites the recording with what it saw.
