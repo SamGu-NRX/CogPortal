@@ -1052,6 +1052,10 @@ export type TeamDetail = z.infer<typeof TeamDetailSchema>;
 /** PATCH /api/team — team admin only; at least one field. */
 export const UpdateTeamRequestSchema = z
   .object({
+    /** The team the page showed. Optional here only so a page older than
+     *  this field gets "reload" rather than a validation error; the server
+     *  refuses a change without it (requireAdminOfShownTeam). */
+    teamId: z.string().min(1).optional(),
     name: z.string().trim().min(1).max(60).optional(),
     /** "" and null both clear the description; cap matches cogportal.toml. */
     description: z
@@ -1068,6 +1072,10 @@ export const UpdateTeamRequestSchema = z
 
 /** POST /api/team/repository — team admin only. */
 export const ChangeTeamRepoRequestSchema = z.object({
+  /** The team the page showed. Optional here only so a page older than
+   *  this field gets "reload" rather than a validation error; the server
+   *  refuses a change without it (requireAdminOfShownTeam). */
+  teamId: z.string().min(1).optional(),
   fullName: z.string().trim().regex(/^[^/\s]+\/[^/\s]+$/, "owner/name"),
 });
 
@@ -1336,6 +1344,10 @@ export const InvitableUserListSchema = z.array(InvitableUserSchema);
  *  Portal membership only; pushing still needs GitHub collaborator access.
  *  Responds with the updated TeamDetail. */
 export const AddTeamMemberRequestSchema = z.object({
+  /** The team the page showed. Optional here only so a page older than
+   *  this field gets "reload" rather than a validation error; the server
+   *  refuses a change without it (requireAdminOfShownTeam). */
+  teamId: z.string().min(1).optional(),
   login: z
     .string()
     .trim()
@@ -1344,8 +1356,10 @@ export const AddTeamMemberRequestSchema = z.object({
     .regex(/^[a-zA-Z0-9-]+$/),
 });
 
-/** DELETE /api/team/members/:login — remove a member (never the creator).
- *  Responds with the updated TeamDetail. */
+/** DELETE /api/team/members/:login?teamId={shown team}: remove a member
+ *  (never an admin). The teamId query is the team the page showed, refused
+ *  when missing or not the caller's team. Responds with the updated
+ *  TeamDetail. */
 
 /* ── Requests ─────────────────────────────────────────────────────────── */
 

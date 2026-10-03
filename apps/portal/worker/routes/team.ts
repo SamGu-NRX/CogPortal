@@ -203,7 +203,43 @@ export async function reconcileTeamRole(
 export async function requireTeamAdmin(
   c: Context<AppEnv>,
 ): Promise<AuthState & { team: TeamRow }> {
+  return adminOrRefuse(c, await requireTeam(c));
+}
+
+/**
+ * The gate for a change to team settings or people: the caller is an admin
+ * of the team the page showed, which is still their team.
+ *
+ * None of these requests named a team; the server applied them to whoever the
+ * cookie said was signed in. A window left visible while another signed in as
+ * someone else (RestoreGate rechecks only on hide, return and focus) renamed
+ * the second account's team from a page showing the first's. The id is
+ * compared before the GitHub role check, which can rewrite the stored role,
+ * so a mismatch has no side effect. A request without it comes from a page
+ * older than this field and is refused rather than guessed at.
+ */
+export async function requireAdminOfShownTeam(
+  c: Context<AppEnv>,
+  shownTeamId: string | undefined,
+): Promise<AuthState & { team: TeamRow }> {
   const auth = await requireTeam(c);
+  if (!shownTeamId) {
+    throw new ApiHttpError(409, "invalid_request", "This page is out of date. Reload it and try again.");
+  }
+  if (shownTeamId !== auth.team.id) {
+    throw new ApiHttpError(
+      409,
+      "already_on_team",
+      `You're on ${auth.team.name} now, not the team this page showed. Reload to see it.`,
+    );
+  }
+  return adminOrRefuse(c, auth);
+}
+
+async function adminOrRefuse(
+  c: Context<AppEnv>,
+  auth: AuthState & { team: TeamRow },
+): Promise<AuthState & { team: TeamRow }> {
   const { role, checked } = await reconcileTeamRole(c, auth);
   if (role === "admin") return auth;
   const repository = auth.team.repoFullName;
@@ -496,9 +532,9 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/team", async (c) => {
-    const auth = await requireTeamAdmin(c);
-    const db = getDb(c.env);
     const body = await parseBody(c, UpdateTeamRequestSchema);
+    const auth = await requireAdminOfShownTeam(c, body.teamId);
+    const db = getDb(c.env);
     const updates: { name?: string; description?: string | null } = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
@@ -511,8 +547,8 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/team/repository", async (c) => {
-    const auth = await requireTeamAdmin(c);
     const body = await parseBody(c, ChangeTeamRepoRequestSchema);
+    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     if (body.fullName === auth.team.repoFullName) {
       return respond(

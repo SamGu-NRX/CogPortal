@@ -242,7 +242,8 @@ export function useTeamProcess() {
 export function useUpdateTeam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.updateTeam,
+    mutationFn: ({ teamId, ...body }: { teamId: string; name?: string; description?: string | null }) =>
+      api.updateTeam(teamId, body),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["session"] });
@@ -254,7 +255,7 @@ export function useUpdateTeam() {
 export function useChangeTeamRepo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.changeTeamRepo,
+    mutationFn: ({ teamId, fullName }: { teamId: string; fullName: string }) => api.changeTeamRepo(teamId, fullName),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["session"] });
@@ -357,7 +358,7 @@ export function useInvitableUsers(enabled = true) {
 export function useAddTeamMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.addTeamMember,
+    mutationFn: ({ teamId, login }: { teamId: string; login: string }) => api.addTeamMember(teamId, login),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["invitable"] });
@@ -394,7 +395,7 @@ export function useLeaveTeam() {
 export function useRemoveTeamMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.removeTeamMember,
+    mutationFn: ({ teamId, login }: { teamId: string; login: string }) => api.removeTeamMember(teamId, login),
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["invitable"] });
