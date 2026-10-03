@@ -22,7 +22,7 @@ There are two sets. `npm test` runs the smoke set, which needs only this checkou
 
 An agent step's own summary is never evidence. The teammate test also prints the agent's reading of where the page explains the low score, as a record only.
 
-The agent in `cli-link.e2e.ts` presses Enter on the approve button directly. That shows keyboard activation, not tab order, which is why the keyboard test exists.
+`cli-link.e2e.ts` asserts the approval, not how the agent made it; the agent may click or press keys. `cli-link-keyboard.e2e.ts` is the keyboard check. Before the PR91 review, the agent step asked for keyboard-only approval, and the runs measured below at 3670e55 and 6b32aa8 used that instruction; at 3670e55 the agent pressed Enter on the approve button directly.
 
 `teammate-report.e2e.ts` was written red against 3670e55, whose local-report rows dropped the benchmark's diagnostic so the teammate saw a score of 0.171 with no reason. The rows show it since `fix/local-report-notes-20261003` (PR89), which this branch includes.
 
@@ -155,7 +155,7 @@ On 3 October 2026 at 3670e55, before the product fixes this branch includes:
 | Step | Cold | Warm |
 | --- | --- | --- |
 | Landing to results | 2 model calls, 9,231 tokens, 5.1 s | replayed, 0 calls, 0.4 s |
-| Link approval | 6 model calls, 28,400 tokens, 22.8 s | replayed 5 of 5 actions, 0 calls, 15.0 s |
+| Link approval (keyboard-only instruction) | 6 model calls, 28,400 tokens, 22.8 s | replayed 5 of 5 actions, 0 calls, 15.0 s |
 | Teammate finds the synced run | 2 model calls, 8.3 s, plus 1 call for the reading | replayed 1 of 1 action, 0 calls, 0.9 s, plus 1 call for the reading |
 
 The teammate test's CLI part took about 45 s per attempt: `check` 2 s, the reference run 20 s at a 0.96 GB peak, the broken run 6 s at 1.13 GB, each sync under a second. Every attempt makes new commits, so a cold and a warm run assert on different reports. The warm approval was slow because each look at `/connections` after a key press took about 2.1 s to settle; the cause isn't known.
@@ -167,7 +167,7 @@ These are observations of the installed version, not documented guarantees.
 - The replay's starting-screen check compares the path and drops the query and fragment (`node_modules/e2e/dist/cache/route.js`). A replay is never evidence that a particular URL or code was handled; assert that directly.
 - A recording is keyed to the app's origin, port included, because the default app identity is the base URL (`node_modules/e2e/dist/config/app.js`). A cache recorded against `127.0.0.1:5196` missed against `127.0.0.1:5197` and ran live.
 - A replayed step's summary repeats the recorded run's verdict, per-run data included. The warm approval's summary named the cold run's device code.
-- Redundant agent actions become part of the recording. The approval recording replays four Tab presses that did nothing.
+- Redundant agent actions become part of the recording. The 3670e55 approval recording, made under the keyboard-only instruction, replays four Tab presses that did nothing.
 - A changed control costs a fixed 15 s wait, then a live step from the start. The passing live run then overwrites the recording with what it saw.
 - A failed attempt kept a recording that an earlier check in the same attempt had verified.
 - `report.json` sets `vcs.dirty` without looking at untracked files, so its commit doesn't pin a test that isn't committed.

@@ -10,10 +10,10 @@ import { STUDENT, cliDevices, devLogin, expectCurrentApproval, startLink } from 
 // nothing here trusts it: expectCurrentApproval checks the terminal and the
 // server for this run's approval.
 //
-// The agent tends to approve with targeted key presses (Enter on the button
-// itself), which shows keyboard activation but not tab order;
-// cli-link-keyboard.e2e.ts covers tab order without a model.
-test('a student links the CLI by approving the printed code with the keyboard', async ({
+// How the agent approves, by click or by key, is not asserted; this test is
+// about the approval itself. cli-link-keyboard.e2e.ts checks the keyboard
+// path, tab order included, without a model.
+test('a student links the CLI by approving the printed code', async ({
   app,
   agent,
   browser,
@@ -30,7 +30,7 @@ test('a student links the CLI by approving the printed code with the keyboard', 
     await app.open(link.path);
     await expect(screen.getByText(link.code)).toBeVisible();
 
-    await agent.act('check that the page asks to approve code {code}, then approve this device using only the keyboard', {
+    await agent.act('check that the page asks to approve code {code}, then approve this device', {
       params: { code: unique(link.code) },
       maxSteps: 8,
       maxModelCalls: 10,
