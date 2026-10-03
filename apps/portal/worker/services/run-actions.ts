@@ -40,10 +40,10 @@ import {
   failureAllowsRetry,
   fixtureRetryRefusal,
   NO_CONSOLE_PROMOTION_REFUSAL,
+  officialPromotionRefusal,
   type ExistingPromotion,
   rankingRefusal,
   runStateRefusal,
-  savedEnvironmentEligibility,
 } from "./run-eligibility";
 import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
 
@@ -430,8 +430,8 @@ export async function promotePracticeRun(
   if (existing) return repeatPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
   if (env.EXECUTION_PROVIDER === "modal") {
-    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team);
-    if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
+    const refusal = officialPromotionRefusal(parent, benchmark, actor.team);
+    if (refusal) throw new ApiHttpError(409, "not_promotable", refusal);
   }
   await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
   const scope = { teamId: actor.team.id, benchmarkId: parent.benchmarkId, benchmarkVersion: parent.benchmarkVersion };
@@ -462,6 +462,8 @@ export async function promotePracticeRun(
       createdAt: now,
       finishedAt: null,
       datasetVersion: benchmark.datasetVersion,
+      // The job builder reads the same row, so the run and its job agree.
+      datasetDigest: env.EXECUTION_PROVIDER === "modal" ? benchmark.datasetDigest : null,
       scorerVersion: benchmark.scorerVersion,
       runtimeVersion: benchmark.runtimeVersion,
       dispatchAttempts: 0,
@@ -659,6 +661,7 @@ export async function retryRun(
     preparedEnvironmentJson: job?.preparedEnvironment ? JSON.stringify(job.preparedEnvironment) : null,
     ...(sameArtifact ? { weightsSuppliedJson: failed.weightsSuppliedJson } : {}),
     datasetVersion: failed.datasetVersion,
+    datasetDigest: failed.datasetDigest,
     scorerVersion: failed.scorerVersion,
     runtimeVersion: failed.runtimeVersion,
     ...NEW_EXECUTION_ACTIVITY,

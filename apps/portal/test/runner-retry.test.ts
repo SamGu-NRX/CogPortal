@@ -24,6 +24,8 @@ const benchmark: BenchmarkRow = {
   pluginVersion: "1", datasetVersion: "official-v1", scorerVersion: "1", runtimeVersion: "python-3.11",
   entryPointName: "submission", title: "Vision", module: "vision", summary: "Retry test",
   active: true, primaryMetricKey: "accuracy", sandboxContract: 1,
+  // Synthetic: an approved digest's shape, not any real bundle's.
+  datasetDigest: "d".repeat(64),
 };
 function environment(overrides: Partial<Env> = {}): Env {
   // Retry preparation needs no database; enqueue tests supply the SQLite binding.
@@ -50,6 +52,7 @@ function original(mode: "practice" | "official" = "practice", withWeights = fals
     sha: "a".repeat(40), repositoryId: team.repoId, repositoryFullName: null,
     provider: "modal", protocolVersion: "1",
     datasetVersion: mode === "practice" ? "practice-v1" : benchmark.datasetVersion,
+    datasetDigest: mode === "practice" ? null : benchmark.datasetDigest,
     scorerVersion: benchmark.scorerVersion, runtimeVersion: benchmark.runtimeVersion,
     preparedArtifactId: mode === "official" ? "im-prepared" : null,
     preparedEnvironmentJson: null,
@@ -200,6 +203,62 @@ test("retry refuses current source, benchmark, runtime, and provider drift", asy
   const official = original("official");
   await assert.rejects(prepareRetryJob(official.env, official.run, team,
     { ...benchmark, datasetVersion: "changed" }, "run_retry"), conflict);
+});
+
+test("an official job carries the approved dataset digest and a practice job carries none", () => {
+  assert.equal(original("official").job.benchmark.datasetDigest, benchmark.datasetDigest);
+  assert.equal("datasetDigest" in original("practice").job.benchmark, false);
+  // Unapproved: the builder refuses an official job instead of sending one
+  // the runner would refuse.
+  const { env, run } = original("official");
+  assert.throws(() => buildRunJob(env, run, team, { ...benchmark, datasetDigest: null }), (error) => {
+    conflict(error);
+    assert.equal((error as ApiHttpError).message,
+      "Official attempts for this benchmark are paused until course staff approve its dataset.");
+    return true;
+  });
+});
+
+test("official Retry keeps its frozen digest and never rebinds to a changed approval", async () => {
+  const official = original("official");
+  const retried = await prepareRetryJob(official.env, official.run, team, benchmark, "run_retry");
+  assert.equal(retried.benchmark.datasetDigest, benchmark.datasetDigest);
+  await assert.rejects(prepareRetryJob(official.env, official.run, team,
+    { ...benchmark, datasetDigest: "e".repeat(64) }, "run_retry"), (error) => {
+    conflict(error);
+    assert.equal((error as ApiHttpError).message, "Repository or benchmark/runtime configuration changed since this run.");
+    return true;
+  });
+  await assert.rejects(prepareRetryJob(official.env, official.run, team,
+    { ...benchmark, datasetDigest: null }, "run_retry"), (error) => {
+    conflict(error);
+    assert.equal((error as ApiHttpError).message,
+      "Official attempts for this benchmark are paused until course staff approve its dataset.");
+    return true;
+  });
+});
+
+test("an official run sent before digests existed refuses Retry instead of guessing", () => {
+  const official = original("official");
+  const legacy = JSON.parse(official.run.dispatchJobJson!) as RunJobV1;
+  delete legacy.benchmark.datasetDigest;
+  const run = { ...official.run, dispatchJobJson: JSON.stringify(legacy), datasetDigest: null };
+  assert.throws(() => validateRetryInputs(official.env, run, team, benchmark), (error) => {
+    conflict(error);
+    assert.equal((error as ApiHttpError).message,
+      "This official run was sent before its dataset was approved, so it can't be retried. Start a new candidate.");
+    return true;
+  });
+});
+
+test("a recorded job whose digest disagrees with its run row is refused", () => {
+  const official = original("official");
+  assert.throws(() => validateRetryInputs(official.env,
+    { ...official.run, datasetDigest: "e".repeat(64) }, team, benchmark), (error) => {
+    conflict(error);
+    assert.equal((error as ApiHttpError).message, "Recorded dispatch inputs do not match this run.");
+    return true;
+  });
 });
 
 const RENAMED: TeamRow = {

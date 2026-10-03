@@ -29,9 +29,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cogworks_runner import official_bundle  # noqa: E402
 from cogworks_runner.official_bundle import (  # noqa: E402
     PUBLISHED,
+    SCORED_FILES,
     UNCHANGED,
     BundleRefused,
+    DatasetNotApproved,
+    dataset_digest,
     publish_bundle,
+    read_approved_bundle,
+    read_bundle,
     require_usable_destination,
 )
 from test_prepared_environment import require_benchmark  # noqa: E402
@@ -332,6 +337,75 @@ class PublishBundle(unittest.TestCase):
         self.assertFalse(self.target.parent.exists())
 
 
+class DatasetDigest(unittest.TestCase):
+    """One correct answer, so pinned to a vector built independently here."""
+
+    def test_known_answer(self):
+        import hashlib
+
+        canonical = (
+            '{"files":[{"path":"gold.json","sha256":"%s"},{"path":"payload.zip","sha256":"%s"}],'
+            '"schema":"cogworks.dataset-digest.v1"}'
+            % (hashlib.sha256(b"{}").hexdigest(), hashlib.sha256(b"x").hexdigest())
+        )
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        self.assertEqual(dataset_digest({"payload.zip": b"x", "gold.json": b"{}"}), expected)
+        self.assertEqual(dataset_digest({"gold.json": b"{}", "payload.zip": b"x"}), expected)
+
+    def test_any_byte_or_name_change_changes_it(self):
+        base = dataset_digest({"payload.zip": b"x", "gold.json": b"{}"})
+        for files in (
+            {"payload.zip": b"y", "gold.json": b"{}"},
+            {"payload.zip": b"x", "gold.json": b"{ }"},
+            {"payload.zip": b"x", "expected.json": b"{}"},
+            {"payload.zip": b"x"},
+        ):
+            with self.subTest(files=files):
+                self.assertNotEqual(dataset_digest(files), base)
+
+    def test_the_layouts_are_the_files_the_controller_reads(self):
+        self.assertEqual(
+            SCORED_FILES,
+            {
+                "audio-identification": ("manifest.json",),
+                "vision-recognition": ("payload.zip", "expected.json"),
+                "vision-clustering": ("payload.zip", "expected.json"),
+                "language-search": ("payload.zip", "gold.json"),
+            },
+        )
+
+
+class ReadApprovedBundle(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        publish_bundle(self.root / "v1", bundle())
+        self.approved = dataset_digest(read_bundle(self.root / "v1", "language-search"))
+
+    def test_returns_the_bytes_it_checked(self):
+        files = read_approved_bundle(self.root / "v1", "language-search", self.approved)
+        self.assertEqual(files, bundle())
+
+    def test_ignores_files_outside_the_layout(self):
+        os.chmod(str(self.root / "v1"), 0o755)
+        (self.root / "v1" / "README.md").write_text("notes")
+        read_approved_bundle(self.root / "v1", "language-search", self.approved)
+
+    def test_refuses_without_approval_or_with_other_bytes(self):
+        for benchmark_id, approved, words in (
+            ("language-search", None, "carries no approved dataset digest"),
+            ("language-search", "", "carries no approved dataset digest"),
+            ("language-search", "0" * 64, "do not match the approved digest"),
+            ("vision-clustering", self.approved, "expected.json could not be read"),
+            ("audio-recognition", self.approved, "has no official dataset layout"),
+        ):
+            with self.subTest(benchmark_id=benchmark_id, approved=approved):
+                with self.assertRaises(DatasetNotApproved) as caught:
+                    read_approved_bundle(self.root / "v1", benchmark_id, approved)
+                self.assertIn(words, str(caught.exception))
+
+
 def run_main(module, argv):
     with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()) as output:
         module.main()
@@ -352,14 +426,23 @@ class Week2Materializer(unittest.TestCase):
         self.target = self.root / "volume/vision-clustering/synthetic-test"
 
     def test_same_manifest_again_writes_nothing_even_with_a_new_clock(self):
-        self.materialize(self.root, 42)
+        _cases, _payload, _gold, first = self.materialize(self.root, 42)
+        on_disk = dataset_digest(read_bundle(self.target, "vision-clustering"))
+        self.assertEqual(
+            first.splitlines()[-1],
+            "Dataset digest for vision-clustering synthetic-test: {}".format(on_disk),
+        )
         before = snapshot(self.root / "volume")
         # A later clock gives the new archive different bytes and the same
-        # members; that must still count as the same bundle.
+        # members; that must still count as the same bundle, and the digest
+        # printed is still the one of the bytes kept.
         later = time.struct_time((2031, 3, 4, 5, 6, 7, 0, 63, -1))
         with mock.patch("time.localtime", return_value=later):
             _cases, payload, _gold, announced = self.materialize(self.root, 42)
-        self.assertEqual(announced, "synthetic-test already holds this exact bundle; nothing was written.")
+        self.assertEqual(announced.splitlines(), [
+            "synthetic-test already holds this exact bundle; nothing was written.",
+            "Dataset digest for vision-clustering synthetic-test: {}".format(on_disk),
+        ])
         self.assertEqual(snapshot(self.root / "volume"), before)
 
     def test_a_different_manifest_under_the_same_version_is_refused(self):
@@ -443,11 +526,17 @@ class Week3Materializer(unittest.TestCase):
 
     def test_rerun_is_a_no_op_and_changed_gold_is_refused(self):
         gold = list(range(100))
-        self.assertEqual(
-            self.materialize(gold), "Materialized official bundle: 100 queries over a 400-image pool."
+        first = self.materialize(gold).splitlines()
+        digest_line = "Dataset digest for language-search official-v1: {}".format(
+            dataset_digest(read_bundle(self.target, "language-search"))
         )
+        self.assertEqual(first, [
+            "Materialized official bundle: 100 queries over a 400-image pool.", digest_line,
+        ])
         before = snapshot(self.root / "volume")
-        self.assertEqual(self.materialize(gold), "official-v1 already holds this exact bundle; nothing was written.")
+        self.assertEqual(self.materialize(gold).splitlines(), [
+            "official-v1 already holds this exact bundle; nothing was written.", digest_line,
+        ])
         self.assertEqual(snapshot(self.root / "volume"), before)
 
         # Same payload, two answers swapped: the audit's 1.0 to 0.61 case.

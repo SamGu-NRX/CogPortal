@@ -94,16 +94,79 @@ manifests, mount the volume read-only operationally, and run one
 network-blocked canary. A missing or invalid bundle must surface as `E-DATA`
 and must not consume an attempt.
 
-A dataset version names one bundle for good, because a run records the version
-and nothing else about the data it was scored against. Both materializers
-enforce that locally: the same manifest again prints `already holds this exact
-bundle` and writes nothing, while different contents, a partial directory or
-anything other than a plain directory at that version is refused and left as it
-was. Choose a new `--dataset-version`, and add its catalog migration, whenever
-the contents change. The volume does not enforce this, so upload only a version
-that `modal volume ls cogworks-hidden-datasets <track>` does not already list,
-and never pass `--force` to `modal volume put`: without it Modal refuses to
+A dataset version names one bundle for good. Both materializers enforce that
+locally: the same manifest again prints `already holds this exact bundle` and
+writes nothing, while different contents, a partial directory or anything other
+than a plain directory at that version is refused and left as it was. Choose a
+new `--dataset-version`, and add its catalog migration, whenever the contents
+change. The volume does not enforce this, so upload only a version that
+`modal volume ls cogworks-hidden-datasets <track>` does not already list, and
+never pass `--force` to `modal volume put`: without it Modal refuses to
 overwrite a file, though it would still add a missing one beside the old ones.
+
+#### Approving an official dataset
+
+Official runs score only bytes the catalog approved. `benchmarks.dataset_digest`
+(migration 0046) holds the SHA-256 of a version's scored files: `manifest.json`
+for Week 1, `payload.zip` and `expected.json` for Week 2, `payload.zip` and
+`gold.json` for Week 3. Other files in the directory are not part of it. The
+official job carries that digest, and the controller reads the scored files
+once, hashes them and refuses before evaluation when they differ or when the
+job carries none, as `data_download`, an infrastructure failure that does not
+spend an attempt. While a row's digest is NULL, Promote is refused and the
+console says official attempts are paused. This detects bytes that differ from
+the approved ones. It does not stop an operator approving the wrong bundle, so
+the digest is reviewed like any other migration.
+
+Approve from the published copy, not from a rebuild, because a rebuilt
+`payload.zip` has new zip timestamps and so a different digest:
+
+```sh
+modal volume get cogworks-hidden-datasets language-search/language-search-official-v1 /secure/check
+python apps/runner-modal/tools/dataset_digest.py --benchmark language-search \
+  --dataset-version language-search-official-v1 /secure/check/language-search-official-v1
+```
+
+It prints the digest (which a materializer also prints after publishing) and an
+`UPDATE ... AND dataset_digest IS NULL` statement. Put that statement in its
+own numbered migration for review. A later `INSERT OR REPLACE` of the same
+catalog row clears the approval, which pauses official attempts until it is
+registered again; that is the safe direction.
+
+**Release blocker.** No real digest is registered anywhere yet, and none may
+be invented. Do not start the sequence below until Sam or an authorized
+operator approves it, and do not register any digest until step 3 is verified.
+The publish-once materializers, receipt manifests and validator checks can
+ship without any of it.
+
+The order matters because the runner deployed today ignores `datasetDigest`:
+an approved digest in a job it runs is a label, not a check, and it would
+score replaced bytes exactly as before. So approvals stay NULL until the
+runner that enforces them is live:
+
+1. Deploy the portal with migration 0046 and no registration migration. Every
+   approval is NULL, so official admission is paused: Promote is refused, the
+   console says why, and no new official job is built. Practice is unaffected.
+2. Let official runs admitted before step 1 settle. They were sent without a
+   digest and run on the old runner under the old provenance, which their row
+   records as `dataset_digest IS NULL`. Wait until
+   `SELECT count(*) FROM runs WHERE mode = 'official' AND status IN
+   ('queued','preparing','installing','contract_check','evaluating','scoring')`
+   returns 0. Their Retry is refused ("sent before its dataset was
+   approved"), so none re-enters.
+3. Deploy the runner that checks digests, with approvals still NULL, and
+   verify it: the deployed runner commit includes the check, and one practice
+   canary completes. From now on an official job without a matching digest
+   fails before evaluation as `data_download` instead of scoring unchecked.
+4. Only then register the reviewed digests, one migration each, taken from
+   exact copies of the live volume as above. Registration reopens official
+   admission for that benchmark; run one non-credit official canary on it.
+
+Never register an approval before step 3 is verified. A Retry never picks up a
+later or changed approval, because the job it resends is the one it was
+frozen with. Practice runs are unchanged by every step: their digest is null
+and their packaged data is covered by the release probe receipts and the
+submodule validators, not by this check.
 
 The `cogworks-week2-cpu-v1` image bakes the pinned VGGFace2 checkpoint and
 verifies SHA-256
@@ -765,7 +828,9 @@ request to a deployed origin, so run it deliberately. Do not reach for
 - [ ] immutable template repository IDs and revisions reviewed
 - [ ] Python packages tested from a clean, non-editable install
 - [ ] Modal M0 evidence recorded
-- [ ] hidden dataset/scorer versions immutable and approved
+- [ ] hidden dataset/scorer versions immutable and approved, with every
+      active official dataset's digest reviewed from the live volume and
+      registered by its own migration (section 3, release blocker)
 - [ ] queue retry and dead-letter alarms configured
 - [ ] GitHub and Discord least-privilege settings reviewed
 - [ ] fixture rollback tested

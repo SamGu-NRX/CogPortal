@@ -26,6 +26,7 @@ from cogworks_runner.prepared_environment import (
     validate_observation, validate_prepared_environment,
 )
 from cogworks_runner.failure import RunnerFailure
+from cogworks_runner.official_bundle import DatasetNotApproved, read_approved_bundle
 from cogworks_runner.prediction_validation import (
     check_predictions, load_predictions, restore_v2_predictions,
 )
@@ -55,6 +56,8 @@ def job():
 def functions(*names, **globals_):
     if set(names) & {"_prepare", "_evaluate", "_evaluate_v2", "_evaluate_week1", "_evaluate_week3"}:
         names = tuple(dict.fromkeys((*names, "_terminate_sandbox")))
+    if set(names) & {"_v2_cases", "_week3_cases", "_week1_manifest"}:
+        names = tuple(dict.fromkeys((*names, "_approved_bundle")))
     nodes = []
     for node in ast.parse(SOURCE.read_text()).body:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names:
@@ -71,6 +74,8 @@ def functions(*names, **globals_):
                  "RunnerFailure": RunnerFailure, "check_predictions": check_predictions,
                  "load_predictions": load_predictions,
                  "restore_v2_predictions": restore_v2_predictions,
+                 "read_approved_bundle": read_approved_bundle,
+                 "DatasetNotApproved": DatasetNotApproved,
                  "DETAIL_LIMIT": 240, "DIAGNOSTIC_LIMIT": 600, "LOG_LIMIT": 8 * 1024,
                  **globals_}
     exec(compile(ast.Module(nodes, []), str(SOURCE), "exec"), namespace)
@@ -288,6 +293,8 @@ class PreparedRestore(unittest.TestCase):
         value = job()
         value.update(mode="official", preparedArtifactId="im-saved", preparedEnvironment=evidence)
         value["benchmark"]["scorerVersion"] = "recognition-v2"
+        # Synthetic approval; `_v2_cases` is stubbed, so no bytes are checked.
+        value["benchmark"]["datasetDigest"] = "d" * 64
         benchmark = types.SimpleNamespace(contract_version="cogworks.submissions.v2", plugin_version="1", scorer_version="recognition-v2")
         evaluated = []
         space.update(

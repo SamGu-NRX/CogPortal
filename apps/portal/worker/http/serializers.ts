@@ -15,8 +15,8 @@ import {
   canPublishOfficialRun,
   existingPromotion,
   NO_CONSOLE_PROMOTION_REFUSAL,
+  officialPromotionRefusal,
   rankingRefusal,
-  savedEnvironmentEligibility,
 } from "../services/run-eligibility";
 import {
   benchmarks,
@@ -196,9 +196,8 @@ export async function serializeRunDetail(
     promotionRefusal = promoted.refusal;
     promotedTo = promoted.promotedTo;
   } else if (promotable && row.provider === "modal") {
-    const eligibility = savedEnvironmentEligibility(row,
-      benchmark ?? { id: row.benchmarkId, sandboxContract: null }, team);
-    if (!eligibility.eligible) promotionRefusal = eligibility.reason;
+    promotionRefusal = officialPromotionRefusal(row,
+      benchmark ?? { id: row.benchmarkId, sandboxContract: null, datasetDigest: null }, team);
   }
 
   return {

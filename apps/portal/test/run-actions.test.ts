@@ -77,6 +77,7 @@ import {
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 const NOW = 1_780_000_000_000;
 const BENCHMARK_ID = "vision-recognition";
+const APPROVED_DIGEST = "d".repeat(64);
 const PRACTICE_RUN_ID = "run_practice";
 // Shaped like a real one: publishRunSurface validates this id, and the
 // dispatch tests below now reach that publish, because a run the provider
@@ -225,6 +226,8 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     active: true,
     primaryMetricKey: "accuracy",
     sandboxContract: 1,
+    // Synthetic: an approved digest's shape, not any real bundle's.
+    datasetDigest: APPROVED_DIGEST,
     pluginVersion: "1",
     datasetVersion: "official-v1",
     scorerVersion: "1",
@@ -835,6 +838,7 @@ test("authenticated completion, promotion and signed dispatch preserve provision
     const job = RunJobV1Schema.parse(JSON.parse(payload));
     assert.deepEqual(job.preparedEnvironment, PREPARED);
     assert.equal(job.benchmark.sandboxContract, 1);
+    assert.equal(job.benchmark.datasetDigest, APPROVED_DIGEST);
     assert.equal(job.benchmark.scorerVersion, "new-scorer");
     assert.equal(job.preparedArtifactId, PREPARED.artifactId);
     assert.equal(job.weights, undefined);
@@ -849,6 +853,36 @@ test("authenticated completion, promotion and signed dispatch preserve provision
   const [official] = await db.select().from(runs).where(eq(runs.mode, "official"));
   assert.deepEqual(JSON.parse(official.preparedEnvironmentJson!), PREPARED);
   assert.equal(official.scorerVersion, "new-scorer");
+  assert.equal(official.datasetDigest, APPROVED_DIGEST);
+});
+
+test("an unapproved official dataset refuses promotion before admission, and every page says so", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ datasetDigest: null }).where(eq(benchmarks.id, BENCHMARK_ID));
+  const runtime = env(binding, "modal");
+  const refusal = "Official attempts for this benchmark are paused until course staff approve its dataset.";
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(snapshot.actions.includes("promote_official"), false);
+  assert.equal(snapshot.promotionRefusal, refusal);
+  const [practice] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  const detail = await serializeRunDetail(db, practice, actor.team);
+  assert.equal(detail.promotionRefusal, refusal);
+  const before = await db.select().from(runs);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => assert.fail("an unapproved dataset must not reach the runner");
+  try {
+    await assert.rejects(promotePracticeRun(runtime, actor, PRACTICE_RUN_ID), (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "not_promotable");
+      assert.equal(error.message, refusal);
+      return true;
+    });
+  } finally { globalThis.fetch = originalFetch; }
+  assert.deepEqual(await db.select().from(runs), before);
+  const accounting = await readRunAccounting(db, { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 });
+  assert.equal(accounting.officialReserved, 0);
 });
 
 for (const [name, patch] of Object.entries({
@@ -2737,6 +2771,56 @@ for (const seeded of [SEEDED_WEIGHTS, "[]"] as const) {
     assert.equal(completed?.weightsSuppliedJson, seeded);
   });
 }
+
+test("an official Modal Retry keeps both the remedy gate and its frozen dataset digest", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await assert.rejects(promotePracticeRun(env(binding, "modal", {
+    async send() { throw new Error("dispatch unavailable"); },
+  }), actor, PRACTICE_RUN_ID));
+  const [failed] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.ok(failed?.dispatchJobJson);
+  assert.equal(RunJobV1Schema.parse(JSON.parse(failed.dispatchJobJson)).benchmark.datasetDigest, APPROVED_DIGEST);
+  assert.equal(failed.datasetDigest, APPROVED_DIGEST);
+  const runtime = env(binding, "modal", { async send() {} });
+  const successors = async () => db.select().from(runs).where(eq(runs.retryOfRunId, failed.id));
+  const refusedWith = async (message: string | RegExp) => {
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    assert.equal(snapshot.actions.includes("retry"), false);
+    await assert.rejects(retryRun(runtime, actor, SURFACE_ID, failed.id), (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      if (typeof message === "string") assert.equal(error.message, message);
+      else assert.match(error.message, message);
+      return true;
+    });
+    assert.equal((await successors()).length, 0);
+  };
+
+  // The remedy gate: a failure the submission caused is not resent.
+  await db.update(runs).set({ failureCategory: "timeout" }).where(eq(runs.id, failed.id));
+  await refusedWith(/Retry isn't available for this failure/);
+  await db.update(runs).set({ failureCategory: failed.failureCategory }).where(eq(runs.id, failed.id));
+
+  // The digest binding: a changed approval is refused, never rebound, and a
+  // missing one gives the pause sentence.
+  await db.update(benchmarks).set({ datasetDigest: "e".repeat(64) }).where(eq(benchmarks.id, BENCHMARK_ID));
+  await refusedWith("Repository or benchmark/runtime configuration changed since this run.");
+  await db.update(benchmarks).set({ datasetDigest: null }).where(eq(benchmarks.id, BENCHMARK_ID));
+  await refusedWith("Official attempts for this benchmark are paused until course staff approve its dataset.");
+
+  // Unchanged approval and a retryable failure: the frozen job goes out again.
+  await db.update(benchmarks).set({ datasetDigest: APPROVED_DIGEST }).where(eq(benchmarks.id, BENCHMARK_ID));
+  await retryRun(runtime, actor, SURFACE_ID, failed.id);
+  const [successor] = await successors();
+  assert.ok(successor?.dispatchJobJson);
+  assert.equal(successor.datasetDigest, APPROVED_DIGEST);
+  assert.equal(RunJobV1Schema.parse(JSON.parse(successor.dispatchJobJson)).benchmark.datasetDigest, APPROVED_DIGEST);
+  // 0049's accepted-callback clock starts fresh for the new execution,
+  // whatever digest it carries.
+  assert.equal(successor.acceptedActivityAt, null);
+  assert.equal(successor.legacyGraceUntil, 0);
+});
 
 test("a practice Retry that prepares afresh does not inherit the failed run's weights record", async () => {
   const { db, binding } = freshDb();

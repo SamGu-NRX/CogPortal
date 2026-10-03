@@ -271,10 +271,14 @@ export const benchmarks = sqliteTable(
     scorerVersion: text("scorer_version").notNull().default("1"),
     runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
     sandboxContract: integer("sandbox_contract"),
+    /** Approved digest of this official dataset version's scored files
+     * (migration 0046). Null means not approved: official admission refuses. */
+    datasetDigest: text("dataset_digest"),
   },
   (table) => [
     primaryKey({ columns: [table.id, table.version] }),
     check("benchmarks_sandbox_contract_positive", sql`${table.sandboxContract} IS NULL OR (typeof(${table.sandboxContract}) = 'integer' AND ${table.sandboxContract} > 0)`),
+    check("benchmarks_dataset_digest_sha256", sql`${table.datasetDigest} IS NULL OR (length(${table.datasetDigest}) = 64 AND ${table.datasetDigest} NOT GLOB '*[^0-9a-f]*')`),
   ],
 );
 
@@ -404,6 +408,9 @@ export const runs = sqliteTable("runs", {
   preparedEnvironmentJson: text("prepared_environment_json"),
   environmentDigest: text("environment_digest"),
   datasetVersion: text("dataset_version").notNull().default("practice-v1"),
+  /** The approved dataset digest frozen into this run's official job. Null
+   * for practice runs and for every run admitted before migration 0046. */
+  datasetDigest: text("dataset_digest"),
   scorerVersion: text("scorer_version").notNull().default("1"),
   runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
   dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
@@ -418,6 +425,7 @@ export const runs = sqliteTable("runs", {
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
   surfaceId: text("surface_id"),
 }, (table) => [
+  check("runs_dataset_digest_sha256", sql`${table.datasetDigest} IS NULL OR (length(${table.datasetDigest}) = 64 AND ${table.datasetDigest} NOT GLOB '*[^0-9a-f]*')`),
   uniqueIndex("runs_retry_of_unique").on(table.retryOfRunId),
   // Each mode starts one chain; failed executions can each have one successor.
   uniqueIndex("runs_surface_mode_unique")
