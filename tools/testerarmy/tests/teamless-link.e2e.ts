@@ -76,8 +76,15 @@ test(
       await expect(browser).toHaveURL('/setup');
       expect(await sessionState(browser)).toEqual({ cohort: COHORT, team: { id: TEAM_ID, name: TEAM } });
       observed.afterJoining = await browser.url();
-      observed.setupMentionsTheLink = await browser.evaluate(() =>
-        /cogworks link|device link|approve/i.test(document.querySelector('main')?.textContent ?? ''),
+      // Whether the page shows the held code or links back to its approval.
+      // Setup's own `cogworks link` step and its terminal indicator are
+      // generic, so they don't count.
+      observed.afterJoiningShowsHeldCode = await browser.evaluate(
+        (code: string) => (document.querySelector('main')?.textContent ?? '').includes(code),
+        link.code,
+      );
+      observed.afterJoiningLinksToApproval = await browser.evaluate(() =>
+        Boolean(document.querySelector('main a[href*="user_code="]')),
       );
       await app.screenshot('after-joining');
       expect(await pendingCode(browser, link.code)).toEqual({ valid: true, approved: false });
