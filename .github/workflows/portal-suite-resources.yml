@@ -1,0 +1,42 @@
+name: Portal suite resource experiment
+
+# This diagnostic stays off main. A new dispatch-only workflow cannot be
+# invoked before it exists on the default branch, so this one exact scratch
+# branch is the only trigger. It does not change the product CI workflow.
+on:
+  push:
+    branches:
+      - diagnostics/portal-suite-resources-20261003
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portal-resource-experiment-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: pnpm/action-setup@f68f5791346aaeb8b9d7ea636c1bcf61c15511ed # v6.0.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Compare default and serial test-file execution
+        run: python3 scripts/diagnostics/portal_suite_resources.py --output "$RUNNER_TEMP/portal-suite-resources" --timeout 240
+      - name: Preserve completed and interrupted measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-suite-resources-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/portal-suite-resources
+          retention-days: 1
+          if-no-files-found: warn
