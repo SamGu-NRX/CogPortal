@@ -412,10 +412,10 @@ test("an empty board keeps its empty state and states no scope for rows it does 
 });
 
 const CURVE_TICKS = [
-  { x: 0, label: "verbatim" },
-  { x: 1, label: "keywords" },
-  { x: 2, label: "truncated" },
-  { x: 3, label: "typo" },
+  { x: 0, label: "caption unchanged" },
+  { x: 1, label: "keywords only" },
+  { x: 2, label: "first three words" },
+  { x: 3, label: "one typo" },
 ];
 const CURVED_BOARD = {
   ...LANGUAGE_BOARD,
@@ -432,6 +432,7 @@ const CURVED_BOARD = {
           publicSweep: {
             axis: "query variant", metric: "Search MRR", ticks: CURVE_TICKS,
             points: [{ x: 0, y: 0.6412 }, { x: 1, y: 0.5733 }, { x: 3, y: 0.5104 }],
+            note: "Caption unchanged is reported, not scored; the scored Search MRR averages the other three variants.",
           },
         }
       : entry,
@@ -449,8 +450,10 @@ test("a published curve leads its entry, before the score, with every reading in
   const reading = lantern.querySelector("[data-public-curve] p");
   assert.equal(
     reading?.textContent,
-    "Search MRR by query variant: lowest 0.51 (typo), highest 0.64 (verbatim). No curve point for truncated.",
+    "Search MRR by query variant: lowest 0.51 (one typo), highest 0.64 (caption unchanged). No curve point for first three words.",
   );
+  // The one fact the drawing can't show: its first point is not in the score.
+  assert.equal(reading?.nextElementSibling?.textContent, "Caption unchanged is reported, not scored; the scored Search MRR averages the other three variants.");
   const score = [...lantern.querySelectorAll("span")].find((node) => node.textContent?.startsWith("Overall"));
   assert.ok(score && reading && reading.compareDocumentPosition(score as never) & 4, "the reading comes before the score");
   // Categorical variants: points, no joining line.
@@ -463,7 +466,7 @@ test("a published curve leads its entry, before the score, with every reading in
   assert.equal(curveTable?.querySelector("h4")?.textContent, "Search MRR by query variant");
   assert.deepEqual(
     [...(curveTable?.querySelectorAll("dl > div") ?? [])].map((node) => [node.querySelector("dt")?.textContent, node.querySelector("dd")?.textContent]),
-    [["verbatim", "0.641"], ["keywords", "0.573"], ["truncated", "no curve point"], ["typo", "0.510"]],
+    [["caption unchanged", "0.641"], ["keywords only", "0.573"], ["first three words", "no curve point"], ["one typo", "0.510"]],
   );
   // A published plotted measurement stays listed beside the curve; a gap in
   // the curve must never hide a number the run published.
@@ -474,13 +477,23 @@ test("a published curve leads its entry, before the score, with every reading in
 
   // Neighbours without a curve say so plainly, and accuse nobody.
   assert.equal(row("Tidepool").querySelector('[data-public-curve="none"]')?.textContent, "No curve shown for this run.");
-  assert.match(page.container.textContent ?? "", /Each curve is drawn on the same scale/);
+  assert.match(
+    page.container.textContent ?? "",
+    /One selected official result per team\. Every curve here puts each query variant in the same position on a 0 to 1 Search MRR scale\./,
+  );
+  // Long names wrap to two lines in the drawing rather than colliding.
+  assert.deepEqual(
+    [...lantern.querySelectorAll("[data-public-curve] svg text")]
+      .filter((node) => node.querySelector("tspan"))
+      .map((node) => [...node.querySelectorAll("tspan")].map((line) => line.textContent)),
+    [["caption", "unchanged"], ["keywords", "only"], ["first three", "words"], ["one typo"]],
+  );
 });
 
 test("a board with no curves at all shows no curve placeholders", async (t) => {
   const page = await openLanguage(t);
   assert.equal(page.container.querySelector("[data-public-curve]"), null);
-  assert.doesNotMatch(page.container.textContent ?? "", /No curve shown|same scale/);
+  assert.doesNotMatch(page.container.textContent ?? "", /No curve shown|0 to 1/);
 });
 
 test("a board that fails to load says so and offers a retry, not an empty board", async (t) => {
@@ -490,4 +503,18 @@ test("a board that fails to load says so and offers a retry, not an empty board"
   await page.answerCatalog();
   await settle(() => /Try again|Retry/i.test(page.container.textContent ?? ""), "the board error");
   assert.doesNotMatch(page.container.textContent ?? "", /No results published yet/);
+});
+
+test("details open without a fade from the keyboard, and fade only for a pointer", async (t) => {
+  const page = await openLanguage(t);
+  const row = [...page.container.querySelectorAll("ol li")].find((node) => node.querySelector("h3")?.textContent === "Lantern Lab")!;
+  const button = () => [...row.querySelectorAll("button")].find((node) => /details/i.test(node.textContent ?? ""))! as unknown as HTMLElement;
+  const panel = () => row.querySelector('[data-metric-group="source"]')?.closest("[id]")?.firstElementChild;
+  // Enter or Space on a button dispatches a click whose detail is 0.
+  await act(async () => button().dispatchEvent(new page.window.MouseEvent("click", { bubbles: true, detail: 0 }) as never));
+  assert.equal(panel()?.className ?? "", "", "a keyboard press shows the details at once");
+  await act(async () => button().dispatchEvent(new page.window.MouseEvent("click", { bubbles: true, detail: 0 }) as never));
+  assert.equal(row.querySelector('[data-metric-group="source"]'), null);
+  await act(async () => button().dispatchEvent(new page.window.MouseEvent("click", { bubbles: true, detail: 1 }) as never));
+  assert.equal(panel()?.className, "anim-reveal");
 });

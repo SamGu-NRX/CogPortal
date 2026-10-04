@@ -60,16 +60,17 @@ function metric(over: Partial<Metric> = {}): Metric {
  * team with no line, and a long name and line that must wrap at 390px. */
 const GALLERY_BOARD_NOW = 1_791_000_000_000;
 const BOARD_TICKS = [
-  { x: 0, label: "verbatim" },
-  { x: 1, label: "keywords" },
-  { x: 2, label: "truncated" },
-  { x: 3, label: "typo" },
+  { x: 0, label: "caption unchanged" },
+  { x: 1, label: "keywords only" },
+  { x: 2, label: "first three words" },
+  { x: 3, label: "one typo" },
 ];
 const boardCurve = (...ys: Array<number | null>): LeaderboardEntry["publicSweep"] => ({
   axis: "query variant",
   metric: "Search MRR",
   ticks: BOARD_TICKS,
   points: ys.flatMap((y, x) => (y === null ? [] : [{ x, y }])),
+  note: "Caption unchanged is reported, not scored; the scored Search MRR averages the other three variants.",
 });
 const BOARD_METRIC = (key: string, label: string, value: number, role: Metric["role"]) =>
   metric({ key, label, value, role, primary: false, precision: key === "median_rank" ? 0 : 3, help: null });

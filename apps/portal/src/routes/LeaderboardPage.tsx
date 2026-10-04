@@ -381,7 +381,8 @@ export function PublishedGallery({
 }) {
   const hasArchiveRows = entries.some((entry) => entry.provenance === "archive");
   // A missing curve is only worth a word where its neighbours have one.
-  const curvesOnBoard = entries.some((entry) => entry.publicSweep !== null);
+  const firstCurve = entries.find((entry) => entry.publicSweep !== null)?.publicSweep ?? null;
+  const curvesOnBoard = firstCurve !== null;
 
   if (entries.length === 0) return <Empty message={empty}>{emptyActions}</Empty>;
 
@@ -401,8 +402,14 @@ export function PublishedGallery({
       </ol>
 
       <p className="mt-5 max-w-[58ch] text-[13.5px] leading-[1.55] text-ink-secondary">
-        Each team chooses which of its official results appears here.
-        {curvesOnBoard && " Each curve is drawn on the same scale, so their shapes compare directly."}
+        {/* Not "each team chooses": archive selections were seeded by staff
+            (scripts/seed-staging-archive.sql), so choice isn't always true. */}
+        One selected official result per team.
+        {/* One board is one benchmark, version and scorer, so its curves come
+            from one Worker spec and share positions and scale. That is all
+            this claims; it says nothing about which shape is better. */}
+        {firstCurve &&
+          ` Every curve here puts each ${firstCurve.axis} in the same position on a 0 to 1 ${firstCurve.metric} scale.`}
         {hasArchiveRows &&
           " Archive entries are 2026 teams, scored after the course from their repositories as they left them."}
       </p>
@@ -428,6 +435,10 @@ function EntryRow({
   curvesOnBoard: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  // Only a pointer press fades the details in. A keyboard press, and any
+  // press under reduced motion, shows them at once (house motion rules: no
+  // animation on keyboard actions, nothing at all under reduced motion).
+  const [fade, setFade] = useState(false);
   const reduce = useReducedMotion();
   const detailsId = useId();
   // The board is public, but "you" names the account on screen, which a
@@ -464,6 +475,11 @@ function EntryRow({
           <p className="max-w-[60ch] text-[15px] leading-[1.55] text-ink">
             {readPublicSweep(entry.publicSweep)}
           </p>
+          {entry.publicSweep.note && (
+            <p className="mt-1 max-w-[60ch] text-[13.5px] leading-[1.5] text-ink-secondary">
+              {entry.publicSweep.note}
+            </p>
+          )}
           <div className="mt-2 max-w-[420px]">
             <SweepTrace sweep={entry.publicSweep} ticks={entry.publicSweep.ticks} categorical compact />
           </div>
@@ -484,7 +500,11 @@ function EntryRow({
           type="button"
           aria-expanded={open}
           aria-controls={detailsId}
-          onClick={() => setOpen((v) => !v)}
+          onClick={(event) => {
+            // detail is 0 for a click synthesized from Enter or Space.
+            setFade(!reduce && event.detail > 0);
+            setOpen((v) => !v);
+          }}
           className="u-pressable -ml-2 inline-flex min-h-11 items-center gap-1 rounded-control px-2 text-[13.5px] font-semibold text-ink-secondary transition-colors duration-150 hover:bg-ink/[0.045] hover:text-ink"
         >
           {open ? "Hide details" : "Details"}
@@ -492,7 +512,7 @@ function EntryRow({
           <motion.span
             aria-hidden="true"
             animate={{ rotate: open ? 180 : 0 }}
-            transition={reduce ? { duration: 0 } : { duration: 0.15, ease: EASE_OUT }}
+            transition={fade ? { duration: 0.15, ease: EASE_OUT } : { duration: 0 }}
             className="inline-flex"
           >
             <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} />
@@ -502,7 +522,7 @@ function EntryRow({
 
       <div id={detailsId}>
         {open && (
-          <div className="anim-reveal">
+          <div className={fade ? "anim-reveal" : undefined}>
             <EntryDetails entry={entry} />
           </div>
         )}

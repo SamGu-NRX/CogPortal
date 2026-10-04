@@ -1001,6 +1001,8 @@ export const PublicSweepSchema = z
       .array(z.object({ x: z.number(), y: z.number().min(0).max(1) }).strict())
       .min(2)
       .max(24),
+    /** One sentence on how the curve relates to the score, from the spec. */
+    note: z.string().min(1).max(160).nullable(),
   })
   .strict();
 export type PublicSweep = z.infer<typeof PublicSweepSchema>;

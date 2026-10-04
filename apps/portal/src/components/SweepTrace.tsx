@@ -46,6 +46,23 @@ function pointName(point: Point): string {
   return point.label ?? String(point.x);
 }
 
+/** Line height of a second tick line, in SVG units. */
+const TICK_LINE = 11;
+
+/**
+ * A fixed tick's name over at most two lines. Four names share a 330-unit
+ * phone drawing, about 75 units each, and "first three words" in 9.5px mono
+ * runs near 100; split at the space closest to the middle, each half fits.
+ */
+function tickLines(label: string): string[] {
+  if (label.length <= 10 || !label.includes(" ")) return [label];
+  let best = -1;
+  for (let i = label.indexOf(" "); i !== -1; i = label.indexOf(" ", i + 1)) {
+    if (best === -1 || Math.abs(i - label.length / 2) < Math.abs(best - label.length / 2)) best = i;
+  }
+  return [label.slice(0, best), label.slice(best + 1)];
+}
+
 /**
  * The step the reader should look at: where the curve falls furthest between
  * two neighbouring points, marked on the point before the fall.
@@ -121,7 +138,10 @@ export function SweepTrace({
   compact?: boolean;
 }) {
   const WIDTH = useTraceWidth(compact ? 420 : 560);
-  const HEIGHT = compact ? COMPACT_HEIGHT : FULL_HEIGHT;
+  // Only fixed ticks wrap; a run page's own point labels draw as before.
+  const wraps = Boolean(ticks?.some((value) => tickLines(value.label).length > 1));
+  const HEIGHT = (compact ? COMPACT_HEIGHT : FULL_HEIGHT) + (wraps ? TICK_LINE : 0);
+  const bottom = PAD.bottom + (wraps ? TICK_LINE : 0);
   const points = sweep.points;
   if (points.length < 2) return null;
   const named = ticks ? new Map(ticks.map((value) => [value.x, value.label])) : null;
@@ -154,7 +174,7 @@ export function SweepTrace({
   // the y axis's "1.0" and the last one clears the right edge.
   const INSET = 16;
   const plotW = WIDTH - PAD.left - PAD.right - INSET * 2;
-  const plotH = HEIGHT - PAD.top - PAD.bottom;
+  const plotH = HEIGHT - PAD.top - bottom;
   const px = (x: number) => PAD.left + INSET + ((along(x) - along(minX)) / spanX) * plotW;
   const py = (y: number) => PAD.top + (1 - Math.max(0, Math.min(1, y))) * plotH;
   const path = (list: Point[]) =>
@@ -202,11 +222,11 @@ export function SweepTrace({
           {/* Two rules, no grid. The eye reads the shape, and the points are
               labeled, so gridlines would only add ink. */}
           <line
-            x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={HEIGHT - PAD.bottom}
+            x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={HEIGHT - bottom}
             className="stroke-rule-strong" strokeWidth="1"
           />
           <line
-            x1={PAD.left} y1={HEIGHT - PAD.bottom} x2={WIDTH - PAD.right} y2={HEIGHT - PAD.bottom}
+            x1={PAD.left} y1={HEIGHT - bottom} x2={WIDTH - PAD.right} y2={HEIGHT - bottom}
             className="stroke-rule-strong" strokeWidth="1"
           />
           {[0, 0.5, 1].map((value) => (
@@ -224,14 +244,20 @@ export function SweepTrace({
             <text
               key={`x${point.x}`}
               x={px(point.x)}
-              y={HEIGHT - PAD.bottom + 15}
+              y={HEIGHT - bottom + 15}
               // The ends hug the plot when only they are labelled, so a long
               // name does not run off the drawing.
               textAnchor={tickRoomy ? "middle" : index === 0 ? "start" : "end"}
               className="fill-ink-faint font-mono"
               fontSize="9.5"
             >
-              {tick(point)}
+              {ticks
+                ? tickLines(tick(point)).map((line, lineIndex) => (
+                    <tspan key={line} x={px(point.x)} dy={lineIndex === 0 ? 0 : TICK_LINE}>
+                      {line}
+                    </tspan>
+                  ))
+                : tick(point)}
             </text>
           ))}
 

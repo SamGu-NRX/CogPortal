@@ -30,8 +30,14 @@ type PublicSweepSpec = {
   publishedMetricKey: string;
   axis: string;
   metric: string;
-  /** Every x the benchmark can produce, in order, with its public name. */
-  ticks: ReadonlyArray<{ x: number; label: string }>;
+  /**
+   * Every x the benchmark can produce, in order. `label` is the public name;
+   * `stored` is the producer's identifier for that x, checked against a
+   * stored point's label and never emitted.
+   */
+  ticks: ReadonlyArray<{ x: number; label: string; stored: string }>;
+  /** How the curve relates to the scored number, when a reader can't guess. */
+  note: string | null;
 };
 
 const PUBLIC_SWEEP_SPECS: readonly PublicSweepSpec[] = [
@@ -50,12 +56,20 @@ const PUBLIC_SWEEP_SPECS: readonly PublicSweepSpec[] = [
     // so the axis names the variant rather than a distance.
     axis: "query variant",
     metric: "Search MRR",
+    // Public names follow the plugin's own metric labels for these rungs
+    // ("Search MRR, keywords only" and so on, plugins.py metric_labels);
+    // `stored` is perturb.RUNGS.
     ticks: [
-      { x: 0, label: "verbatim" },
-      { x: 1, label: "keywords" },
-      { x: 2, label: "truncated" },
-      { x: 3, label: "typo" },
+      { x: 0, label: "caption unchanged", stored: "verbatim" },
+      { x: 1, label: "keywords only", stored: "keywords" },
+      { x: 2, label: "first three words", stored: "truncated" },
+      { x: 3, label: "one typo", stored: "typo" },
     ],
+    // The curve's first point is not in the score, and the drawing can't
+    // say so. plugins.py metric_help["search_mrr"] (lines 270-281): an
+    // average over the three rewrites; "the caption unchanged is run and
+    // reported beside them, not scored". metric_roles (394-411) agrees.
+    note: "Caption unchanged is reported, not scored; the scored Search MRR averages the other three variants.",
   },
 ];
 
@@ -98,15 +112,15 @@ export function projectPublicSweep(
   if (!Array.isArray(stored.points)) return null;
   if (stored.points.length < MIN_POINTS || stored.points.length > MAX_POINTS) return null;
 
-  const names = new Map(spec.ticks.map((tick) => [tick.x, tick.label]));
+  const storedNames = new Map(spec.ticks.map((tick) => [tick.x, tick.stored]));
   const points: PublicSweep["points"] = [];
   for (const point of stored.points) {
     if (!isRecord(point)) return null;
     const { x, y, label } = point;
     if (typeof x !== "number" || typeof y !== "number") return null;
     if (!Number.isFinite(x) || !Number.isFinite(y) || y < 0 || y > 1) return null;
-    if (!names.has(x)) return null;
-    if (label !== undefined && label !== names.get(x)) return null;
+    if (!storedNames.has(x)) return null;
+    if (label !== undefined && label !== storedNames.get(x)) return null;
     const previous = points[points.length - 1];
     if (previous && x <= previous.x) return null;
     points.push({ x, y });
@@ -117,6 +131,7 @@ export function projectPublicSweep(
     metric: spec.metric,
     ticks: spec.ticks.map((tick) => ({ x: tick.x, label: tick.label })),
     points,
+    note: spec.note,
   };
 }
 

@@ -33,7 +33,7 @@ const RUNGS = [
   { x: 3, y: 0.5104, label: "typo" },
 ];
 
-test("a valid Language curve is re-labelled from the spec and carries numbers only", () => {
+test("a valid Language curve is renamed from the spec and carries numbers only", () => {
   const sweep = projectPublicSweep(
     { ...LANGUAGE, sweepJson: storedCurve(RUNGS.map((point) => ({ ...point, note: "C:\\Users\\student\\notes.txt" })), { finding: "private" }) },
     PUBLISHED,
@@ -42,12 +42,13 @@ test("a valid Language curve is re-labelled from the spec and carries numbers on
     axis: "query variant",
     metric: "Search MRR",
     ticks: [
-      { x: 0, label: "verbatim" },
-      { x: 1, label: "keywords" },
-      { x: 2, label: "truncated" },
-      { x: 3, label: "typo" },
+      { x: 0, label: "caption unchanged" },
+      { x: 1, label: "keywords only" },
+      { x: 2, label: "first three words" },
+      { x: 3, label: "one typo" },
     ],
     points: RUNGS.map(({ x, y }) => ({ x, y })),
+    note: "Caption unchanged is reported, not scored; the scored Search MRR averages the other three variants.",
   });
 });
 

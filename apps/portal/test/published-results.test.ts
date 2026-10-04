@@ -124,27 +124,28 @@ test("the family sentence follows the catalog's weights rather than assuming the
 });
 
 const TICKS = [
-  { x: 0, label: "verbatim" },
-  { x: 1, label: "keywords" },
-  { x: 2, label: "truncated" },
-  { x: 3, label: "typo" },
+  { x: 0, label: "caption unchanged" },
+  { x: 1, label: "keywords only" },
+  { x: 2, label: "first three words" },
+  { x: 3, label: "one typo" },
 ];
 const curve = (...ys: Array<number | null>) => ({
   axis: "query variant", metric: "Search MRR", ticks: TICKS,
   points: ys.flatMap((y, x) => (y === null ? [] : [{ x, y }])),
+  note: null,
 });
 
 test("a curve is read as its lowest and highest values, named by variant", () => {
   assert.equal(
     readPublicSweep(curve(0.6412, 0.5733, 0.4021, 0.5104)),
-    "Search MRR by query variant: lowest 0.40 (truncated), highest 0.64 (verbatim).",
+    "Search MRR by query variant: lowest 0.40 (first three words), highest 0.64 (caption unchanged).",
   );
 });
 
 test("the reading names a variant with no curve point rather than skipping it", () => {
   assert.equal(
     readPublicSweep(curve(0.55, 0.52, null, null)),
-    "Search MRR by query variant: lowest 0.52 (keywords), highest 0.55 (verbatim). No curve point for truncated, typo.",
+    "Search MRR by query variant: lowest 0.52 (keywords only), highest 0.55 (caption unchanged). No curve point for first three words, one typo.",
   );
 });
 
