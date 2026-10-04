@@ -313,7 +313,10 @@ test("an approval left unanswered no longer pulls `/` and /signin back to it", a
   }
 });
 
-test("an expired device code shows the server's reason and leaves home reachable", async () => {
+test("an expired device code shows the server's reason with a way forward, and leaves home reachable", async () => {
+  // A 410 ends the code: its form goes, and the page says why in the
+  // server's terms and gives the full command for a fresh code
+  // (connections-device-recovery.test.ts covers the rest of that panel).
   const reason = "The device code is invalid, expired, or already used.";
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async () =>
@@ -322,7 +325,9 @@ test("an expired device code shows the server's reason and leaves home reachable
       headers: { "content-type": "application/json" },
     });
   try {
-    let alert = "";
+    let outcome = "";
+    let announced = "";
+    let page = "";
     const { settled, keptReturn } = await navigate(session("student", { team: true }), "/signin", {
       saved: "/connections?user_code=ABCD-EFGH-IJKL",
       during: async (window) => {
@@ -330,13 +335,22 @@ test("an expired device code shows the server's reason and leaves home reachable
         assert.ok(form, "the approval form is on the page");
         await act(async () => {
           form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
-          await new Promise((resolve) => setTimeout(resolve, 20));
         });
-        alert = window.document.querySelector('[role="alert"]')?.textContent ?? "";
+        // Until the refusal has replaced the form, a tick at a time, bounded.
+        for (let tick = 0; tick < 200 && window.document.querySelector("form"); tick += 1) {
+          await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+        }
+        outcome = window.document.querySelector("[data-request-outcome]")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+        announced = window.document.querySelector("[data-device-announcement]")?.textContent ?? "";
+        page = window.document.body.textContent ?? "";
+        assert.equal(window.document.querySelector("form"), null, "the refused code's form is gone");
+        assert.equal(window.document.querySelector('[role="alert"]'), null);
       },
       then: ["/"],
     });
-    assert.equal(alert, reason);
+    assert.equal(outcome, "The code ABCD-EFGH-IJKL is invalid, expired, or already used, so it can't be approved.");
+    assert.match(announced, /is invalid, expired, or already used/);
+    assert.match(page, /cogworks link --portal https:\/\/portal\.example/);
     assert.equal(settled, "front /");
     assert.equal(keptReturn, null);
   } finally {
