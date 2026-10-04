@@ -5,7 +5,9 @@ import { CornerBrackets } from "./Brackets";
 type Sweep = NonNullable<RunDetail["sweep"]>;
 type Point = Sweep["points"][number];
 
-const HEIGHT = 190;
+const FULL_HEIGHT = 190;
+/** A row of the public board carries one of these per team, so it is shorter. */
+const COMPACT_HEIGHT = 132;
 const PAD = { top: 26, right: 16, bottom: 28, left: 32 };
 
 /**
@@ -17,17 +19,17 @@ const PAD = { top: 26, right: 16, bottom: 28, left: 32 };
  * the label survives the downscale at roughly its intended size. The drawing
  * is unchanged; only how much room it is given is.
  */
-function useTraceWidth(): number {
+function useTraceWidth(wide: number): number {
   const [width, setWidth] = useState(() =>
-    typeof window === "undefined" || window.innerWidth >= 640 ? 560 : 330,
+    typeof window === "undefined" || window.innerWidth >= 640 ? wide : 330,
   );
   useEffect(() => {
     const query = window.matchMedia("(min-width: 640px)");
-    const sync = () => setWidth(query.matches ? 560 : 330);
+    const sync = () => setWidth(query.matches ? wide : 330);
     sync();
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
-  }, []);
+  }, [wide]);
   return width;
 }
 
@@ -40,8 +42,25 @@ function useTraceWidth(): number {
  * say nothing. Those points carry a name, and it is the name a reader needs,
  * in the drawing and in the sentence read aloud.
  */
-function tick(point: Point): string {
+function pointName(point: Point): string {
   return point.label ?? String(point.x);
+}
+
+/** Line height of a second tick line, in SVG units. */
+const TICK_LINE = 11;
+
+/**
+ * A fixed tick's name over at most two lines. Four names share a 330-unit
+ * phone drawing, about 75 units each, and "first three words" in 9.5px mono
+ * runs near 100; split at the space closest to the middle, each half fits.
+ */
+function tickLines(label: string): string[] {
+  if (label.length <= 10 || !label.includes(" ")) return [label];
+  let best = -1;
+  for (let i = label.indexOf(" "); i !== -1; i = label.indexOf(" ", i + 1)) {
+    if (best === -1 || Math.abs(i - label.length / 2) < Math.abs(best - label.length / 2)) best = i;
+  }
+  return [label.slice(0, best), label.slice(best + 1)];
 }
 
 /**
@@ -95,17 +114,41 @@ export function SweepTrace({
   sweep,
   previous = null,
   previousLabel,
+  ticks,
+  categorical = false,
+  compact = false,
 }: {
   sweep: Sweep;
   previous?: Sweep | null;
   /** How the previous run is named in the key, e.g. "Run #D8DF". */
   previousLabel?: string;
+  /**
+   * Every x the benchmark can produce, with its name. Fixes the x domain to
+   * them, so curves of one benchmark drawn side by side share a scale and a
+   * run that is missing a point is not stretched to fill the width. Names
+   * the points from here instead of from the points' own labels.
+   */
+  ticks?: ReadonlyArray<{ x: number; label: string }>;
+  /**
+   * The x values are kinds rather than amounts (Week 3's four query
+   * variants), so no line joins the points and no fall is marked: a line
+   * between two kinds would claim a measured in-between that does not exist.
+   */
+  categorical?: boolean;
+  compact?: boolean;
 }) {
-  const WIDTH = useTraceWidth();
+  const WIDTH = useTraceWidth(compact ? 420 : 560);
+  // Only fixed ticks wrap; a run page's own point labels draw as before.
+  const wraps = Boolean(ticks?.some((value) => tickLines(value.label).length > 1));
+  const HEIGHT = (compact ? COMPACT_HEIGHT : FULL_HEIGHT) + (wraps ? TICK_LINE : 0);
+  const bottom = PAD.bottom + (wraps ? TICK_LINE : 0);
   const points = sweep.points;
   if (points.length < 2) return null;
+  const named = ticks ? new Map(ticks.map((value) => [value.x, value.label])) : null;
+  const tick = (point: Point): string => named?.get(point.x) ?? pointName(point);
   // Only a curve over the same knob and the same measure can share the axes.
   const ghost =
+    !categorical &&
     previous &&
     previous.points.length >= 2 &&
     previous.axis === sweep.axis &&
@@ -113,7 +156,7 @@ export function SweepTrace({
       ? previous.points
       : null;
 
-  const xs = [...points, ...(ghost ?? [])].map((point) => point.x);
+  const xs = ticks ? ticks.map((value) => value.x) : [...points, ...(ghost ?? [])].map((point) => point.x);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   // A library that doubles (5, 10, 20, 40, 80) crowds its first points into
@@ -131,19 +174,26 @@ export function SweepTrace({
   // the y axis's "1.0" and the last one clears the right edge.
   const INSET = 16;
   const plotW = WIDTH - PAD.left - PAD.right - INSET * 2;
-  const plotH = HEIGHT - PAD.top - PAD.bottom;
+  const plotH = HEIGHT - PAD.top - bottom;
   const px = (x: number) => PAD.left + INSET + ((along(x) - along(minX)) / spanX) * plotW;
   const py = (y: number) => PAD.top + (1 - Math.max(0, Math.min(1, y))) * plotH;
   const path = (list: Point[]) =>
     list.map((p, i) => `${i === 0 ? "M" : "L"}${px(p.x).toFixed(1)},${py(p.y).toFixed(1)}`).join(" ");
 
   const last = points[points.length - 1];
-  const marked = largestDrop(points);
+  const marked = categorical ? null : largestDrop(points);
   const markedPoint = marked === null ? null : points[marked];
   // Every point is labelled when the curve has room, the way the course
   // labels a short sweep; past six the labels collide, so the ends carry it.
   const roomy = points.length <= 6;
-  const xTicks = roomy ? points : [points[0], last];
+  // With a fixed domain every position is named, measured or not, so a gap
+  // reads as a gap rather than as the end of the axis.
+  const xTicks: Point[] = ticks
+    ? ticks.length <= 6
+      ? ticks.map((value) => ({ x: value.x, y: 0, label: value.label }))
+      : [ticks[0]!, ticks[ticks.length - 1]!].map((value) => ({ x: value.x, y: 0, label: value.label }))
+    : roomy ? points : [points[0], last];
+  const tickRoomy = ticks ? ticks.length <= 6 : roomy;
 
   // The label is the drawing for a screen reader, so it carries both curves.
   // With a previous run each series is named the way the key names it.
@@ -172,11 +222,11 @@ export function SweepTrace({
           {/* Two rules, no grid. The eye reads the shape, and the points are
               labeled, so gridlines would only add ink. */}
           <line
-            x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={HEIGHT - PAD.bottom}
+            x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={HEIGHT - bottom}
             className="stroke-rule-strong" strokeWidth="1"
           />
           <line
-            x1={PAD.left} y1={HEIGHT - PAD.bottom} x2={WIDTH - PAD.right} y2={HEIGHT - PAD.bottom}
+            x1={PAD.left} y1={HEIGHT - bottom} x2={WIDTH - PAD.right} y2={HEIGHT - bottom}
             className="stroke-rule-strong" strokeWidth="1"
           />
           {[0, 0.5, 1].map((value) => (
@@ -194,14 +244,20 @@ export function SweepTrace({
             <text
               key={`x${point.x}`}
               x={px(point.x)}
-              y={HEIGHT - PAD.bottom + 15}
+              y={HEIGHT - bottom + 15}
               // The ends hug the plot when only they are labelled, so a long
               // name does not run off the drawing.
-              textAnchor={roomy ? "middle" : index === 0 ? "start" : "end"}
+              textAnchor={tickRoomy ? "middle" : index === 0 ? "start" : "end"}
               className="fill-ink-faint font-mono"
               fontSize="9.5"
             >
-              {tick(point)}
+              {ticks
+                ? tickLines(tick(point)).map((line, lineIndex) => (
+                    <tspan key={line} x={px(point.x)} dy={lineIndex === 0 ? 0 : TICK_LINE}>
+                      {line}
+                    </tspan>
+                  ))
+                : tick(point)}
             </text>
           ))}
 
@@ -217,19 +273,22 @@ export function SweepTrace({
               opacity={0.7}
             />
           )}
-          <path
-            d={path(points)}
-            fill="none"
-            className="stroke-ink"
-            strokeWidth="2"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
+          {!categorical && (
+            <path
+              d={path(points)}
+              fill="none"
+              className="stroke-ink"
+              strokeWidth="2"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          )}
           {points.map((point) => (
             <circle
               key={point.x}
-              cx={px(point.x)} cy={py(point.y)} r="3"
-              className="fill-paper-raised stroke-ink"
+              cx={px(point.x)} cy={py(point.y)} r={categorical ? 4 : 3}
+              // Without a line, the points are the whole drawing and are filled.
+              className={categorical ? "fill-ink stroke-paper-raised" : "fill-paper-raised stroke-ink"}
               strokeWidth="1.5"
             />
           ))}

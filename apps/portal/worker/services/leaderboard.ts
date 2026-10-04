@@ -23,6 +23,7 @@ import {
   hasSharedBenchmarkSource,
   weightedComponentScore,
 } from "./benchmark-family";
+import { projectPublicSweep } from "./public-sweep";
 
 export async function getLeaderboardReadModel(
   env: Env,
@@ -105,6 +106,9 @@ export async function getLeaderboardReadModel(
         .map((metric) => ({ ...serializeMetric(metric), primary: false })),
       completedAt: row.run.finishedAt,
       isYou: teamId === row.team.id,
+      // Per entry and never throwing: a malformed stored curve costs this
+      // run its curve and leaves every other entry as it was.
+      publicSweep: projectPublicSweep(row.run, new Map(runMetricsForRow.map((metric) => [metric.key, metric.value]))),
     });
   }
   // One key under one scorer should carry one direction. Two means the
@@ -150,6 +154,16 @@ export async function getFamilyLeaderboardReadModel(
       ),
     )
     .orderBy(asc(benchmarkFamilyComponents.sortOrder));
+  // The same catalog rows the selection query below joins on, so the scorer
+  // this response names is the one that decided which runs count.
+  const catalog = components.length
+    ? await db
+        .select({ id: benchmarks.id, version: benchmarks.version, scorerVersion: benchmarks.scorerVersion })
+        .from(benchmarks)
+        .where(inArray(benchmarks.id, [...new Set(components.map((component) => component.benchmarkId))]))
+    : [];
+  const scorerFor = (benchmarkId: string, benchmarkVersion: number) =>
+    catalog.find((row) => row.id === benchmarkId && row.version === benchmarkVersion)?.scorerVersion ?? null;
   const selected = await db
     .select({ selection: leaderboardSelections, run: runs, team: teams, benchmark: benchmarks })
     .from(leaderboardSelections)
@@ -266,6 +280,9 @@ export async function getFamilyLeaderboardReadModel(
       })),
       completedAt: Math.max(...selectedRows.map((value) => value.run.finishedAt ?? 0)),
       isYou: teamId === row.team.id,
+      // Overall is a weighted sum of three runs' numbers; no run measured a
+      // curve for it, so none is drawn.
+      publicSweep: null,
     });
   }
   entries.sort(
@@ -290,6 +307,7 @@ export async function getFamilyLeaderboardReadModel(
         benchmarkVersion: component.benchmarkVersion,
         metricKey: component.metricKey,
         weight: component.weight,
+        scorerVersion: scorerFor(component.benchmarkId, component.benchmarkVersion),
       })),
     },
     entries,

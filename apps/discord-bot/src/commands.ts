@@ -573,7 +573,10 @@ async function surfaceActionView(
       },
       publish_result: {
         title: "Publish this result?",
-        detail: "This becomes the team's public leaderboard entry. You can replace it later with another official result.",
+        // Says what leaves the team, as the run page's publish panel does
+        // (RunDetailPage): measurements and, for some benchmarks, the curve
+        // (portal worker/services/public-sweep.ts); notes and log stay private.
+        detail: "This becomes the team's public leaderboard entry, with its measurements and, for some benchmarks, its curve; the notes and the log stay with your team. You can replace it later with another official result.",
         label: "Publish to leaderboard",
         style: 4,
       },

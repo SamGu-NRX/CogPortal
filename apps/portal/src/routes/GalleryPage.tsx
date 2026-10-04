@@ -17,10 +17,13 @@ import {
   LocalReportSchema,
   RunSurfaceSnapshotSchema,
   RunSummarySchema,
+  type LeaderboardEntry,
   type LocalReport,
   type Metric,
   type RunDetail as RunDetailType,
 } from "@cogworks/contracts/schema";
+import { BoardContext, PublishedGallery } from "./LeaderboardPage";
+import { benchmarkScopeLine } from "@/lib/published-results";
 
 /**
  * Every state of the surfaces that are hard to reach, on one page.
@@ -50,6 +53,78 @@ function metric(over: Partial<Metric> = {}): Metric {
     ...over,
   } as Metric;
 }
+
+/* Public board entries, sent in the read model's score order on purpose: the
+ * gallery should show them newest first anyway. Invented teams and numbers.
+ * Covers every metric role, a run with no recorded roles, an archive row, a
+ * team with no line, and a long name and line that must wrap at 390px. */
+const GALLERY_BOARD_NOW = 1_791_000_000_000;
+const BOARD_TICKS = [
+  { x: 0, label: "caption unchanged" },
+  { x: 1, label: "keywords only" },
+  { x: 2, label: "first three words" },
+  { x: 3, label: "one typo" },
+];
+const boardCurve = (...ys: Array<number | null>): LeaderboardEntry["publicSweep"] => ({
+  axis: "query variant",
+  metric: "Search MRR",
+  ticks: BOARD_TICKS,
+  points: ys.flatMap((y, x) => (y === null ? [] : [{ x, y }])),
+  note: "Caption unchanged is reported, not scored; the scored Search MRR averages the other three variants.",
+});
+const BOARD_METRIC = (key: string, label: string, value: number, role: Metric["role"]) =>
+  metric({ key, label, value, role, primary: false, precision: key === "median_rank" ? 0 : 3, help: null });
+const BOARD_ENTRIES: LeaderboardEntry[] = [
+  {
+    rank: 1, teamName: "Lantern Lab", provenance: "live", isYou: false,
+    teamDescription: "Caption embeddings averaged over GloVe, with stopwords dropped before weighting.",
+    repoUrl: "https://github.com/cogworks-fixture/lantern-lab", sha: "a1".repeat(20), shortSha: "a1a1a1a",
+    primaryMetric: metric({ key: "overall", label: "Overall", value: 0.512, precision: 4, role: "scored", help: null }),
+    supportingMetrics: [
+      BOARD_METRIC("chance_mrr", "Chance MRR", 0.013, "floor"),
+      BOARD_METRIC("text_mrr", "Text MRR", 0.881, "scored"),
+      BOARD_METRIC("retrieval_mrr", "Retrieval MRR", 0.394, "scored"),
+      BOARD_METRIC("search_mrr_verbatim", "Search MRR, caption unchanged (not scored)", 0.641, "reported"),
+      BOARD_METRIC("search_mrr_keywords", "Search MRR, keywords only", 0.573, "plotted"),
+      BOARD_METRIC("search_mrr_typo", "Search MRR, one typo", 0.51, "plotted"),
+      BOARD_METRIC("median_rank", "Median rank", 4, "diagnostic"),
+    ],
+    completedAt: GALLERY_BOARD_NOW - 2 * 86_400_000,
+    publicSweep: boardCurve(0.6412, 0.5733, 0.4021, 0.5104),
+  },
+  {
+    rank: 2, teamName: "Team Heron", provenance: "archive", isYou: false,
+    teamDescription: "Learned a linear map from captions to image features.",
+    repoUrl: null, sha: "", shortSha: "",
+    primaryMetric: metric({ key: "overall", label: "Overall", value: 0.48, precision: 4, role: "scored", help: null }),
+    supportingMetrics: [BOARD_METRIC("text_mrr", "Text MRR", 0.86, "scored")],
+    completedAt: GALLERY_BOARD_NOW - 58 * 86_400_000,
+    // A text-matching submission: near the top verbatim, near the floor after.
+    publicSweep: boardCurve(0.952, 0.0279, 0.031, 0.044),
+  },
+  {
+    rank: 3, teamName: "The Extremely Thorough Retrieval Reading Group of Section B", provenance: "live", isYou: false,
+    teamDescription:
+      "We tried three ways of pooling word vectors and kept the plainest one, because it was the only one whose failures we could explain to each other on Thursday.",
+    repoUrl: null, sha: "c3".repeat(20), shortSha: "c3c3c3c",
+    primaryMetric: metric({ key: "overall", label: "Overall", value: 0.447, precision: 4, role: null, help: null }),
+    supportingMetrics: [
+      BOARD_METRIC("text_mrr", "Text MRR", 0.802, null),
+      BOARD_METRIC("retrieval_mrr", "Retrieval MRR", 0.331, null),
+    ],
+    completedAt: GALLERY_BOARD_NOW - 3 * 3_600_000,
+    // The typo variant was never measured; the axis still has room for it.
+    publicSweep: boardCurve(0.55, 0.52, 0.47, null),
+  },
+  {
+    rank: 4, teamName: "Quiet Hours", provenance: "live", isYou: false, teamDescription: null,
+    repoUrl: "https://github.com/cogworks-fixture/quiet-hours", sha: "e5".repeat(20), shortSha: "e5e5e5e",
+    primaryMetric: metric({ key: "overall", label: "Overall", value: 0.402, precision: 4, role: "scored", help: null }),
+    supportingMetrics: [],
+    completedAt: GALLERY_BOARD_NOW - 5 * 86_400_000,
+    publicSweep: null,
+  },
+];
 
 const SUPPORTING: Metric[] = [
   metric({ key: "clean_top1", label: "Clean top-1", value: 1.0, primary: false, help: null }),
@@ -870,6 +945,20 @@ export function GalleryPage() {
           catalog={[]}
           caption="Gallery: a self-reported result for a benchmark version without a track"
         />
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Published results, as a visitor reads them</h2>
+      <p className="mt-2 max-w-prose text-[13px] text-ink-faint">
+        At the leaderboard&apos;s width. Sent in score order; the board shows them newest first. Open each
+        Details: every role, a run with no recorded roles, an archive row, a team with no line, a curve
+        missing a point, and a run with no curve among runs that have one.
+      </p>
+      <div className="mt-6 max-w-[42rem]">
+        <BoardContext
+          lead="Caption-to-image retrieval with your trained encoder in the caption-embedding space."
+          scope={benchmarkScopeLine({ id: "language-search", version: 1, scorerVersion: "retrieval-v4" })}
+        />
+        <PublishedGallery entries={BOARD_ENTRIES} />
       </div>
     </div>
   );

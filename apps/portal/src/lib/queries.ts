@@ -112,11 +112,12 @@ export function useLeaderboard(benchmarkId?: string) {
   });
 }
 
-export function useFamilyLeaderboard(familyId: string) {
+export function useFamilyLeaderboard(familyId: string, enabled = true) {
   return useQuery({
     queryKey: ["leaderboard-family", familyId],
     queryFn: () => api.familyLeaderboard(familyId),
     staleTime: 30_000,
+    enabled,
   });
 }
 

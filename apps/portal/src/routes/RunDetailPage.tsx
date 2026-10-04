@@ -827,9 +827,14 @@ function PublishSection({ run }: { run: RunDetail }) {
         </p>
       ) : (
         <>
+          {/* What leaves the team's page, stated before the confirm: the board
+              shows the result's measurements and, where the benchmark has a
+              public curve (worker/services/public-sweep.ts), that curve. The
+              benchmark's notes and the log are never in its response. */}
           <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            The leaderboard shows one result per team. You can switch to another successful
-            official run at any time, at no cost.
+            The leaderboard shows one result per team, with its measurements and, for some
+            benchmarks, its curve; the notes and the log stay with your team. You can switch to
+            another successful official run at any time, at no cost.
           </p>
           <ConfirmButton
             variant="primary"

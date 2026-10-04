@@ -421,6 +421,9 @@ test("quota-spending confirmations carry the consequence in the button and a rec
   assert.equal(publishConfirm?.label, "Publish to leaderboard");
   assert.equal(publishConfirm?.style, 4);
   assert.match(responseText(publish), /public leaderboard entry/);
+  // The confirmation states what becomes public and what doesn't.
+  assert.match(responseText(publish), /with its measurements and, for some benchmarks, its curve/);
+  assert.match(responseText(publish), /the notes and the log stay with your team/);
 
   const verify = await executeCommand(
     component(`cog:surface:${latest.id}:verify_hosted`),
@@ -582,6 +585,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: true,
+            publicSweep: null,
           },
           {
             rank: 2,
@@ -595,6 +599,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: false,
+            publicSweep: null,
           },
         ],
       };
