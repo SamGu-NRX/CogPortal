@@ -26,6 +26,17 @@ PLUGIN_EXPECTATIONS = {
     # catalog says something it no longer says.
     'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
+    # The public board's curve spec (apps/portal/worker/services/public-sweep.ts)
+    # restates these and the rung order below. A plugin that renames its axis,
+    # metric or keys would otherwise lose every public curve without a word.
+    'sweep_axis_label = "how far the query is from the caption"': "sweep axis",
+    'sweep_x_key = "rung_index"': "sweep x key",
+    'sweep_label_key = "rung"': "sweep label key",
+    'sweep_metric = "search_mrr"': "sweep metric",
+}
+
+PERTURB_EXPECTATIONS = {
+    'RUNGS: Tuple[str, ...] = ("verbatim", "keywords", "truncated", "typo")': "rung order",
 }
 
 # Every superseded version stays listed. The check is that some migration
@@ -92,6 +103,14 @@ def main() -> None:
         if needle not in plugin_source:
             raise SystemExit(
                 "Plugin {} does not match the reviewed catalog row.".format(label)
+            )
+    perturb_source = (BENCHMARK / "language_search_benchmark" / "perturb.py").read_text(
+        encoding="utf-8"
+    )
+    for needle, label in PERTURB_EXPECTATIONS.items():
+        if needle not in perturb_source:
+            raise SystemExit(
+                "Perturb {} does not match the public curve spec.".format(label)
             )
 
     pyproject = (BENCHMARK / "pyproject.toml").read_text(encoding="utf-8")

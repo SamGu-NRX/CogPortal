@@ -23,6 +23,7 @@ import {
   hasSharedBenchmarkSource,
   weightedComponentScore,
 } from "./benchmark-family";
+import { projectPublicSweep } from "./public-sweep";
 
 export async function getLeaderboardReadModel(
   env: Env,
@@ -105,6 +106,9 @@ export async function getLeaderboardReadModel(
         .map((metric) => ({ ...serializeMetric(metric), primary: false })),
       completedAt: row.run.finishedAt,
       isYou: teamId === row.team.id,
+      // Per entry and never throwing: a malformed stored curve costs this
+      // run its curve and leaves every other entry as it was.
+      publicSweep: projectPublicSweep(row.run, new Set(runMetricsForRow.map((metric) => metric.key))),
     });
   }
   // One key under one scorer should carry one direction. Two means the
@@ -266,6 +270,9 @@ export async function getFamilyLeaderboardReadModel(
       })),
       completedAt: Math.max(...selectedRows.map((value) => value.run.finishedAt ?? 0)),
       isYou: teamId === row.team.id,
+      // Overall is a weighted sum of three runs' numbers; no run measured a
+      // curve for it, so none is drawn.
+      publicSweep: null,
     });
   }
   entries.sort(

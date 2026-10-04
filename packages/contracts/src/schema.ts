@@ -980,6 +980,31 @@ export const DashboardSchema = z.object({
 });
 export type Dashboard = z.infer<typeof DashboardSchema>;
 
+/**
+ * A published result's curve, as the public board draws it.
+ *
+ * Narrower than `RunDetail.sweep` on purpose. Every string here is written by
+ * the Worker's spec for the benchmark (worker/services/public-sweep.ts), never
+ * copied from what the run stored, and the points carry numbers only. `ticks`
+ * is every x the benchmark can produce, so curves on one board share an x
+ * domain even when a run is missing a point.
+ */
+export const PublicSweepSchema = z
+  .object({
+    axis: z.string().min(1).max(60),
+    metric: z.string().min(1).max(60),
+    ticks: z
+      .array(z.object({ x: z.number(), label: z.string().min(1).max(40) }).strict())
+      .min(2)
+      .max(24),
+    points: z
+      .array(z.object({ x: z.number(), y: z.number().min(0).max(1) }).strict())
+      .min(2)
+      .max(24),
+  })
+  .strict();
+export type PublicSweep = z.infer<typeof PublicSweepSchema>;
+
 export const LeaderboardEntrySchema = z.object({
   rank: z.number().int(),
   teamName: z.string(),
@@ -992,6 +1017,13 @@ export const LeaderboardEntrySchema = z.object({
   supportingMetrics: z.array(MetricSchema),
   completedAt: z.number(),
   isYou: z.boolean(),
+  /**
+   * Null when the benchmark has no public curve, the run has none, or the
+   * stored one failed a check. Absent from older responses, hence the
+   * default; `catch` keeps one malformed curve from failing the whole board
+   * in the browser, the same containment the Worker applies per entry.
+   */
+  publicSweep: PublicSweepSchema.nullable().default(null).catch(null),
 });
 export type LeaderboardEntry = z.infer<typeof LeaderboardEntrySchema>;
 

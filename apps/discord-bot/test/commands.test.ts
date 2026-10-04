@@ -582,6 +582,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: true,
+            publicSweep: null,
           },
           {
             rank: 2,
@@ -595,6 +596,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: false,
+            publicSweep: null,
           },
         ],
       };
