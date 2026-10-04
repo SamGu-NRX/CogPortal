@@ -208,6 +208,20 @@ export function useApproveDevice() {
       await qc.cancelQueries({ queryKey: statusKey });
       qc.setQueryData(statusKey, { valid: true, approved: true, expiresAt: null });
     },
+    // A code the server refuses for good (410 link_expired) is no use to Setup
+    // either, so its held link goes, here for the same reason as above. Its
+    // status is asked again rather than written: the same 410 answers a code
+    // another account approved and nobody has used, and the status endpoint
+    // calls that one valid. The cancel comes first because an invalidate
+    // alone can join a check already out, whose answer predates the refusal.
+    // Any other failure (network, 5xx) says nothing about the code.
+    onError: async (error, { userCode }) => {
+      if (!(error instanceof ApiRequestError && error.code === "link_expired")) return;
+      releaseHeldDeviceLink(userCode);
+      const statusKey = ["device-link-status", userCode];
+      await qc.cancelQueries({ queryKey: statusKey });
+      await qc.invalidateQueries({ queryKey: statusKey });
+    },
   });
 }
 

@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
-import type { ConnectionSummary } from "@cogworks/contracts/schema";
+import type { ConnectionSummary, Session } from "@cogworks/contracts/schema";
 
 /**
  * Connections replaces the control that made a change with the change's
@@ -17,7 +17,18 @@ import type { ConnectionSummary } from "@cogworks/contracts/schema";
 
 const DEVICE = { id: "device_1", name: "Lab laptop", createdAt: 1_750_000_000_000, lastUsedAt: null };
 
-async function mount(t: TestContext, entry: string, initial: ConnectionSummary) {
+/** A signed-in student on a team, in the shape /api/session returns. */
+const session = (login: string): Session => ({
+  user: { login, name: login, avatarUrl: null, platformRole: "student", isOwner: false, isTa: false },
+  cohort: { slug: "bwsi", name: "BWSI" },
+  team: { id: "team_1", name: "Team One", description: null, repo: null },
+  auth: {
+    githubConfigured: true, devAuthEnabled: false, onboardingDevToolsEnabled: false,
+    appSlug: null, templateRepo: null, executionProvider: "fixture",
+  },
+});
+
+async function mount(t: TestContext, entry: string, initial: ConnectionSummary, signedIn: Session = session("ada")) {
   const window = new Window({ url: `https://portal.example${entry}` });
   let summary = initial;
   const requests: string[] = [];
@@ -50,6 +61,9 @@ async function mount(t: TestContext, entry: string, initial: ConnectionSummary) 
     },
   });
   client.setQueryData(["connections"], summary);
+  // The page settles an approval only for the account on screen, so a test
+  // that approves needs one.
+  client.setQueryData(["session"], signedIn);
   const container = window.document.createElement("div");
   window.document.body.append(container);
   // SAFETY: Happy DOM implements the Element operations React uses.
