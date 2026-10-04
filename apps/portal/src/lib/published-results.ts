@@ -76,8 +76,13 @@ export function benchmarkScopeLine(benchmark: Pick<Benchmark, "id" | "version" |
 }
 
 export function familyScopeLine(family: FamilyLeaderboard["family"]): string {
+  // A missing scorer is said to be unknown rather than left out, so the line
+  // never reads as if the identity were checked.
   const parts = family.components
-    .map((component) => `${component.benchmarkId} v${component.benchmarkVersion}`)
+    .map(
+      (component) =>
+        `${component.benchmarkId} v${component.benchmarkVersion} (scorer ${component.scorerVersion ?? "unknown"})`,
+    )
     .filter((part, index, all) => all.indexOf(part) === index);
   return `${family.id} v${family.version} · from ${parts.join(" + ")} · newest first`;
 }

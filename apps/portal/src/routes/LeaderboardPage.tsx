@@ -348,6 +348,9 @@ function OverallStandings({ onShow }: { onShow: (view: "recognition" | "clusteri
       />
       <PublishedGallery
         entries={entries}
+        // Each Overall entry combines several selected runs, so "one selected
+        // official result" would undercount what stands behind it.
+        selection="One entry per team, combined from its published Recognition and Clustering results."
         // "No results published yet" was true of Overall and told the reader
         // nothing, because Clustering had standings the whole time.
         empty="Overall needs a Recognition and a Clustering result from the same commit. No team has published both yet."
@@ -374,10 +377,13 @@ export function PublishedGallery({
   entries,
   empty = "No results published yet.",
   emptyActions,
+  selection = "One selected official result per team.",
 }: {
   entries: LeaderboardEntry[];
   empty?: string;
   emptyActions?: ReactNode;
+  /** What one entry stands for on this board. */
+  selection?: string;
 }) {
   const hasArchiveRows = entries.some((entry) => entry.provenance === "archive");
   // A missing curve is only worth a word where its neighbours have one.
@@ -404,7 +410,7 @@ export function PublishedGallery({
       <p className="mt-5 max-w-[58ch] text-[13.5px] leading-[1.55] text-ink-secondary">
         {/* Not "each team chooses": archive selections were seeded by staff
             (scripts/seed-staging-archive.sql), so choice isn't always true. */}
-        One selected official result per team.
+        {selection}
         {/* One board is one benchmark, version and scorer, so its curves come
             from one Worker spec and share positions and scale. That is all
             this claims; it says nothing about which shape is better. */}

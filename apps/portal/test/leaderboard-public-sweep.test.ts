@@ -4,10 +4,10 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { LeaderboardSchema } from "@cogworks/contracts/schema";
-import { cohorts, leaderboardSelections, runMetrics, runs, teams } from "../worker/db/schema.ts";
+import { benchmarks, cohorts, leaderboardSelections, runMetrics, runs, teams } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
 import { getFamilyLeaderboardReadModel, getLeaderboardReadModel } from "../worker/services/leaderboard.ts";
 import { projectPublicSweep } from "../worker/services/public-sweep.ts";
@@ -272,4 +272,21 @@ test("the Vision Overall family never carries a curve, even over runs that store
   // The components' own boards have no spec either, so no curve there.
   const recognition = await getLeaderboardReadModel(env, "vision-recognition");
   assert.deepEqual(recognition.entries.map((entry) => entry.publicSweep), [null]);
+});
+
+test("the family names each component's scorer from the catalog that filters it, even with no entries", async () => {
+  const env = await seeded();
+  const scorers = async () =>
+    (await getFamilyLeaderboardReadModel(env, "vision-overall")).family.components.map((component) => [component.benchmarkId, component.scorerVersion]);
+  const empty = await getFamilyLeaderboardReadModel(env, "vision-overall");
+  assert.equal(empty.entries.length, 0);
+  assert.deepEqual(await scorers(), [
+    ["vision-recognition", "recognition-v2"],
+    ["vision-recognition", "recognition-v2"],
+    ["vision-clustering", "clustering-v2"],
+  ]);
+  // Read from the catalog, not written into the read model: a catalog edit moves it.
+  await drizzle(env.DB).update(benchmarks).set({ scorerVersion: "clustering-v9" })
+    .where(and(eq(benchmarks.id, "vision-clustering"), eq(benchmarks.version, 2)));
+  assert.deepEqual((await scorers())[2], ["vision-clustering", "clustering-v9"]);
 });

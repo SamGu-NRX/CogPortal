@@ -372,6 +372,13 @@ export const BenchmarkFamilyComponentSchema = z.object({
   benchmarkVersion: z.number().int(),
   metricKey: z.string(),
   weight: z.number().positive(),
+  /**
+   * The scorer the catalog row for this benchmark version names, which is the
+   * scorer a run must match to count toward the family. Null when the payload
+   * predates this field or the catalog has no row; null is "unknown", never
+   * "any scorer".
+   */
+  scorerVersion: z.string().nullable().default(null),
 });
 
 export const BenchmarkFamilySchema = z.object({

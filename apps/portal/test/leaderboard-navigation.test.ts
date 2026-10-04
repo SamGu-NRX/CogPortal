@@ -380,8 +380,9 @@ test("Overall is titled and scoped by its own family, from its components", asyn
     family: {
       id: "vision-overall", version: 1, title: "Vision Overall", module: "vision", active: true,
       components: [
-        { key: "known", label: "Known identification", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "known", weight: 1 / 3 },
-        { key: "lifecycle", label: "Unknown lifecycle", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "lifecycle", weight: 1 / 3 },
+        { key: "known", label: "Known identification", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "known", weight: 1 / 3, scorerVersion: "recognition-v2" },
+        { key: "lifecycle", label: "Unknown lifecycle", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "lifecycle", weight: 1 / 3, scorerVersion: "recognition-v2" },
+        // An older payload without the field reads as unknown, not as verified.
         { key: "f1", label: "Clustering pairwise F1", benchmarkId: "vision-clustering", benchmarkVersion: 2, metricKey: "f1", weight: 1 / 3 },
       ],
     },
@@ -393,8 +394,11 @@ test("Overall is titled and scoped by its own family, from its components", asyn
   assert.equal(page.container.querySelector("h1")?.textContent, "Vision Overall");
   assert.equal(
     page.container.querySelector("[data-board-scope]")?.textContent,
-    "vision-overall v1 · from vision-recognition v2 + vision-clustering v2 · newest first",
+    "vision-overall v1 · from vision-recognition v2 (scorer recognition-v2) + vision-clustering v2 (scorer unknown) · newest first",
   );
+  // One Overall entry stands for several runs, so its footer doesn't say one result.
+  assert.match(page.container.textContent ?? "", /One entry per team, combined from its published Recognition and Clustering results\./);
+  assert.doesNotMatch(page.container.textContent ?? "", /One selected official result per team/);
   assert.match(
     page.container.textContent ?? "",
     /Vision Overall weights Known identification, Unknown lifecycle and Clustering pairwise F1 equally\. All three components must come from selected official runs at the same repository and commit\./,

@@ -100,14 +100,25 @@ test("the scope line names the exact benchmark version and scorer", () => {
 const OVERALL: FamilyLeaderboard["family"] = {
   id: "vision-overall", version: 1, title: "Vision Overall", module: "vision", active: true,
   components: [
-    { key: "known_identification", label: "Known identification", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "known_identification", weight: 1 / 3 },
-    { key: "unknown_lifecycle", label: "Unknown lifecycle", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "unknown_lifecycle", weight: 1 / 3 },
-    { key: "clustering_pairwise_f1", label: "Clustering pairwise F1", benchmarkId: "vision-clustering", benchmarkVersion: 2, metricKey: "clustering_pairwise_f1", weight: 1 / 3 },
+    { key: "known_identification", label: "Known identification", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "known_identification", weight: 1 / 3, scorerVersion: "recognition-v2" },
+    { key: "unknown_lifecycle", label: "Unknown lifecycle", benchmarkId: "vision-recognition", benchmarkVersion: 2, metricKey: "unknown_lifecycle", weight: 1 / 3, scorerVersion: "recognition-v2" },
+    { key: "clustering_pairwise_f1", label: "Clustering pairwise F1", benchmarkId: "vision-clustering", benchmarkVersion: 2, metricKey: "clustering_pairwise_f1", weight: 1 / 3, scorerVersion: "clustering-v2" },
   ],
 };
 
-test("a family names each component benchmark once, at its version", () => {
-  assert.equal(familyScopeLine(OVERALL), "vision-overall v1 · from vision-recognition v2 + vision-clustering v2 · newest first");
+test("a family names each component benchmark once, at its version and scorer", () => {
+  assert.equal(
+    familyScopeLine(OVERALL),
+    "vision-overall v1 · from vision-recognition v2 (scorer recognition-v2) + vision-clustering v2 (scorer clustering-v2) · newest first",
+  );
+});
+
+test("a component whose scorer is not known says so instead of leaving it out", () => {
+  const legacy = { ...OVERALL, components: OVERALL.components.map((component) => ({ ...component, scorerVersion: null })) };
+  assert.equal(
+    familyScopeLine(legacy),
+    "vision-overall v1 · from vision-recognition v2 (scorer unknown) + vision-clustering v2 (scorer unknown) · newest first",
+  );
 });
 
 test("the family sentence follows the catalog's weights rather than assuming them", () => {

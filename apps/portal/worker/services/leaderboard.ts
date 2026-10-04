@@ -154,6 +154,16 @@ export async function getFamilyLeaderboardReadModel(
       ),
     )
     .orderBy(asc(benchmarkFamilyComponents.sortOrder));
+  // The same catalog rows the selection query below joins on, so the scorer
+  // this response names is the one that decided which runs count.
+  const catalog = components.length
+    ? await db
+        .select({ id: benchmarks.id, version: benchmarks.version, scorerVersion: benchmarks.scorerVersion })
+        .from(benchmarks)
+        .where(inArray(benchmarks.id, [...new Set(components.map((component) => component.benchmarkId))]))
+    : [];
+  const scorerFor = (benchmarkId: string, benchmarkVersion: number) =>
+    catalog.find((row) => row.id === benchmarkId && row.version === benchmarkVersion)?.scorerVersion ?? null;
   const selected = await db
     .select({ selection: leaderboardSelections, run: runs, team: teams, benchmark: benchmarks })
     .from(leaderboardSelections)
@@ -297,6 +307,7 @@ export async function getFamilyLeaderboardReadModel(
         benchmarkVersion: component.benchmarkVersion,
         metricKey: component.metricKey,
         weight: component.weight,
+        scorerVersion: scorerFor(component.benchmarkId, component.benchmarkVersion),
       })),
     },
     entries,
