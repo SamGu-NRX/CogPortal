@@ -33,9 +33,11 @@ type PublicSweepSpec = {
   /**
    * Every x the benchmark can produce, in order. `label` is the public name;
    * `stored` is the producer's identifier for that x, checked against a
-   * stored point's label and never emitted.
+   * stored point's label and never emitted. `metricKey` is the published
+   * metric that carries the same reading: a point is drawn only when the run
+   * published that metric with exactly the point's value.
    */
-  ticks: ReadonlyArray<{ x: number; label: string; stored: string }>;
+  ticks: ReadonlyArray<{ x: number; label: string; stored: string; metricKey: string }>;
   /** How the curve relates to the scored number, when a reader can't guess. */
   note: string | null;
 };
@@ -58,12 +60,16 @@ const PUBLIC_SWEEP_SPECS: readonly PublicSweepSpec[] = [
     metric: "Search MRR",
     // Public names follow the plugin's own metric labels for these rungs
     // ("Search MRR, keywords only" and so on, plugins.py metric_labels);
-    // `stored` is perturb.RUNGS.
+    // `stored` is perturb.RUNGS. `metricKey` is the metric `_rung_curve`
+    // reads each point from (plugins.py 680, "search_mrr_{rung}"), so a
+    // genuine point equals it exactly: both are the same Python float, sent
+    // as float(value) (modal_app.py 2184, 2236) and stored without rounding
+    // (runner-events.ts 191-216). No tolerance is needed or allowed.
     ticks: [
-      { x: 0, label: "caption unchanged", stored: "verbatim" },
-      { x: 1, label: "keywords only", stored: "keywords" },
-      { x: 2, label: "first three words", stored: "truncated" },
-      { x: 3, label: "one typo", stored: "typo" },
+      { x: 0, label: "caption unchanged", stored: "verbatim", metricKey: "search_mrr_verbatim" },
+      { x: 1, label: "keywords only", stored: "keywords", metricKey: "search_mrr_keywords" },
+      { x: 2, label: "first three words", stored: "truncated", metricKey: "search_mrr_truncated" },
+      { x: 3, label: "one typo", stored: "typo", metricKey: "search_mrr_typo" },
     ],
     // The curve's first point is not in the score, and the drawing can't
     // say so. plugins.py metric_help["search_mrr"] (lines 270-281): an
@@ -84,13 +90,16 @@ const MAX_POINTS = 24;
  * benchmark and scorer, unparseable JSON, a different axis or metric than the
  * spec expects, too few or too many points, a value that is not a finite
  * number, y outside 0..1, x out of order, an x the benchmark cannot produce,
- * a stored label that disagrees with the spec's name for that x, or a run
- * that never published the curve's metric. It never throws, so one team's
+ * a stored label that disagrees with the spec's name for that x, a run that
+ * never published the curve's metric, or a point whose own published metric
+ * is missing, not finite, or not exactly the point's value. A well-formed
+ * point that contradicts a number already on the board would put two
+ * readings of one measurement side by side. It never throws, so one team's
  * malformed run costs that run its curve and nothing else on the board.
  */
 export function projectPublicSweep(
   run: { benchmarkId: string; benchmarkVersion: number; scorerVersion: string; sweepJson: string | null },
-  publishedMetricKeys: ReadonlySet<string>,
+  publishedMetrics: ReadonlyMap<string, number>,
 ): PublicSweep | null {
   const spec = PUBLIC_SWEEP_SPECS.find(
     (candidate) =>
@@ -99,7 +108,7 @@ export function projectPublicSweep(
       candidate.scorerVersion === run.scorerVersion,
   );
   if (!spec || !run.sweepJson) return null;
-  if (!publishedMetricKeys.has(spec.publishedMetricKey)) return null;
+  if (!publishedMetrics.has(spec.publishedMetricKey)) return null;
 
   let stored: unknown;
   try {
@@ -112,15 +121,18 @@ export function projectPublicSweep(
   if (!Array.isArray(stored.points)) return null;
   if (stored.points.length < MIN_POINTS || stored.points.length > MAX_POINTS) return null;
 
-  const storedNames = new Map(spec.ticks.map((tick) => [tick.x, tick.stored]));
+  const ticksByX = new Map(spec.ticks.map((tick) => [tick.x, tick]));
   const points: PublicSweep["points"] = [];
   for (const point of stored.points) {
     if (!isRecord(point)) return null;
     const { x, y, label } = point;
     if (typeof x !== "number" || typeof y !== "number") return null;
     if (!Number.isFinite(x) || !Number.isFinite(y) || y < 0 || y > 1) return null;
-    if (!storedNames.has(x)) return null;
-    if (label !== undefined && label !== storedNames.get(x)) return null;
+    const tick = ticksByX.get(x);
+    if (!tick) return null;
+    if (label !== undefined && label !== tick.stored) return null;
+    const published = publishedMetrics.get(tick.metricKey);
+    if (published === undefined || !Number.isFinite(published) || published !== y) return null;
     const previous = points[points.length - 1];
     if (previous && x <= previous.x) return null;
     points.push({ x, y });

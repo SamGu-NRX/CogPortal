@@ -108,7 +108,7 @@ export async function getLeaderboardReadModel(
       isYou: teamId === row.team.id,
       // Per entry and never throwing: a malformed stored curve costs this
       // run its curve and leaves every other entry as it was.
-      publicSweep: projectPublicSweep(row.run, new Set(runMetricsForRow.map((metric) => metric.key))),
+      publicSweep: projectPublicSweep(row.run, new Map(runMetricsForRow.map((metric) => [metric.key, metric.value]))),
     });
   }
   // One key under one scorer should carry one direction. Two means the
