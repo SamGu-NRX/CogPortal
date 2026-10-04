@@ -22,8 +22,6 @@ import { projectPublicSweep } from "../worker/services/public-sweep.ts";
 
 const STORED_AXIS = "how far the query is from the caption";
 const LANGUAGE = { benchmarkId: "language-search", benchmarkVersion: 1, scorerVersion: "retrieval-v4" };
-const PUBLISHED = new Set(["overall", "search_mrr"]);
-
 const storedCurve = (points: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ axis: STORED_AXIS, metric: "search_mrr", points, ...extra });
 const RUNGS = [
@@ -32,6 +30,17 @@ const RUNGS = [
   { x: 2, y: 0.4021, label: "truncated" },
   { x: 3, y: 0.5104, label: "typo" },
 ];
+/** The run's published metric for each rung, as the plugin computes both from one value. */
+const RUNG_METRICS = RUNGS.map((point) => [`search_mrr_${point.label}`, point.y] as const);
+const PUBLISHED: ReadonlyMap<string, number> = new Map([["overall", 0.512], ["search_mrr", 0.4953], ...RUNG_METRICS]);
+const publishedWith = (changes: Record<string, number | undefined>) => {
+  const next = new Map(PUBLISHED);
+  for (const [key, value] of Object.entries(changes)) {
+    if (value === undefined) next.delete(key);
+    else next.set(key, value);
+  }
+  return next;
+};
 
 test("a valid Language curve is renamed from the spec and carries numbers only", () => {
   const sweep = projectPublicSweep(
@@ -64,7 +73,7 @@ for (const [name, run, published] of [
   ["another benchmark", { ...LANGUAGE, benchmarkId: "audio-identification", scorerVersion: "identification-v1" }, PUBLISHED],
   ["another version", { ...LANGUAGE, benchmarkVersion: 2 }, PUBLISHED],
   ["another scorer", { ...LANGUAGE, scorerVersion: "retrieval-v3" }, PUBLISHED],
-  ["a run that never published search_mrr", LANGUAGE, new Set(["overall"])],
+  ["a run that never published search_mrr", LANGUAGE, publishedWith({ search_mrr: undefined })],
 ] as const) {
   test(`no spec match means no curve: ${name}`, () => {
     assert.equal(projectPublicSweep({ ...run, sweepJson: storedCurve(RUNGS) }, published), null);
@@ -117,6 +126,46 @@ test("the browser schema drops one malformed curve without failing the board", (
   });
   assert.deepEqual(board.entries.map((value) => value.publicSweep === null), [false, true, true, true]);
   assert.deepEqual(board.entries[0]?.publicSweep, good);
+});
+
+/* ── Each point against the metric already published for it ─────────────── */
+
+for (const point of RUNGS) {
+  test(`a ${point.label} point that disagrees with its published metric withholds the curve`, () => {
+    const key = `search_mrr_${point.label}`;
+    // A small nonzero difference from the published value still contradicts it.
+    const nudged = publishedWith({ [key]: point.y + Number.EPSILON * 8 });
+    assert.notEqual(nudged.get(key), point.y);
+    assert.equal(projectPublicSweep({ ...LANGUAGE, sweepJson: storedCurve(RUNGS) }, nudged), null);
+  });
+  test(`a ${point.label} point with no published metric withholds the curve`, () => {
+    const missing = publishedWith({ [`search_mrr_${point.label}`]: undefined });
+    assert.equal(projectPublicSweep({ ...LANGUAGE, sweepJson: storedCurve(RUNGS) }, missing), null);
+  });
+}
+
+test("a published rung metric that is not a finite number corroborates nothing", () => {
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(projectPublicSweep({ ...LANGUAGE, sweepJson: storedCurve(RUNGS) }, publishedWith({ search_mrr_typo: value })), null);
+  }
+});
+
+test("a partial curve is drawn when every point it has matches its published metric", () => {
+  // No truncated point and no truncated metric: nothing to contradict.
+  const partial = projectPublicSweep(
+    { ...LANGUAGE, sweepJson: storedCurve([RUNGS[0], RUNGS[1], RUNGS[3]]) },
+    publishedWith({ search_mrr_truncated: undefined }),
+  );
+  assert.deepEqual(partial?.points, [RUNGS[0], RUNGS[1], RUNGS[3]].map(({ x, y }) => ({ x, y })));
+  // A metric with no point is not a contradiction either.
+  assert.ok(projectPublicSweep({ ...LANGUAGE, sweepJson: storedCurve([RUNGS[0], RUNGS[1]]) }, PUBLISHED));
+});
+
+test("a curve whose points all match their published metrics is drawn as stored", () => {
+  assert.deepEqual(
+    projectPublicSweep({ ...LANGUAGE, sweepJson: storedCurve(RUNGS) }, PUBLISHED)?.points,
+    RUNGS.map(({ x, y }) => ({ x, y })),
+  );
 });
 
 /* ── Through the read model ─────────────────────────────────────────────── */
@@ -185,7 +234,7 @@ async function seeded() {
       createdAt: 10, finishedAt: row.finishedAt, sweepJson: row.sweep, diagnosticsJson: JSON.stringify([PRIVATE_NOTE]),
       log: PRIVATE_NOTE,
     });
-    for (const [key, value] of [["overall", row.score], ["search_mrr", 0.5]] as const) {
+    for (const [key, value] of [["overall", row.score], ["search_mrr", 0.5], ...RUNG_METRICS] as const) {
       await db.insert(runMetrics).values({
         runId, key, label: key, value, higherIsBetter: true, isPrimary: key === "overall", precision: 4, role: "scored",
       });
@@ -289,4 +338,19 @@ test("the family names each component's scorer from the catalog that filters it,
   await drizzle(env.DB).update(benchmarks).set({ scorerVersion: "clustering-v9" })
     .where(and(eq(benchmarks.id, "vision-clustering"), eq(benchmarks.version, 2)));
   assert.deepEqual((await scorers())[2], ["vision-clustering", "clustering-v9"]);
+});
+
+test("a curve that contradicts its run's published metric is withheld for that entry alone", async () => {
+  const env = await seeded();
+  await drizzle(env.DB).update(runMetrics).set({ value: 0.9 })
+    .where(and(eq(runMetrics.runId, "run_team_good"), eq(runMetrics.key, "search_mrr_keywords")));
+  const board = await getLeaderboardReadModel(env, "language-search");
+  const good = board.entries.find((entry) => entry.teamName === "team_good");
+  assert.equal(good?.publicSweep, null);
+  // The published numbers themselves stay, including the one that disagreed.
+  assert.equal(good?.supportingMetrics.find((metric) => metric.key === "search_mrr_keywords")?.value, 0.9);
+  assert.equal(good?.primaryMetric.value, 0.6);
+  // A neighbour's coherent curve is untouched, and so is every entry's place.
+  assert.deepEqual(board.entries.find((entry) => entry.teamName === "team_archive")?.publicSweep?.points, RUNGS.map(({ x, y }) => ({ x, y })));
+  assert.deepEqual(board.entries.map((entry) => [entry.rank, entry.teamName]), [[1, "team_good"], [2, "team_bad"], [3, "team_none"], [4, "team_archive"]]);
 });
