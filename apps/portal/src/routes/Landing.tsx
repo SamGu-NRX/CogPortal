@@ -33,7 +33,7 @@ export function Landing() {
   if (pendingReturn) return <Navigate to={pendingReturn} replace />;
 
   return (
-    <div className="anim-rise mx-auto w-full max-w-2xl py-14">
+    <div data-kgu-intro className="anim-rise mx-auto w-full max-w-2xl py-14">
       <h1 className="mt-3 text-4xl">
         The Cog<span className="text-detect">*</span>Works benchmark.
       </h1>
