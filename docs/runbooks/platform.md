@@ -44,10 +44,23 @@ pnpm deploy:portal
 ```
 
 Confirm `/api/v1/benchmarks`, GitHub sign-in, repository connection, a fixture
-practice run, promotion/refund behavior, and the Connections page before
+practice run, promotion behavior, and the Connections page before
 continuing.
 
 ## 3. Pass the Modal M0 gate
+
+`docs/runbooks/gate-1-modal.md` is the ordered, executable version of this
+section: what to run, in what order, what each command proves, and what each
+failure means. It also says, for each of the eight M0 behaviours below, which
+are already covered by a test and which still need an operator to look. Use it
+for the work; this section stays as the provisioning reference.
+
+Start with the offline check, which costs nothing and catches most of what goes
+wrong on a first dispatch:
+
+```sh
+python apps/runner-modal/tools/preflight_dispatch.py
+```
 
 Use Python 3.11 in an isolated operator environment:
 
@@ -61,9 +74,16 @@ modal run apps/runner-modal/src/cogworks_runner/m0_probe.py
 
 Before enabling Week 2, materialize each official track under the private
 `cogworks-hidden-datasets` volume as
-`/<track>/<dataset-version>/payload.zip`. The clustering directory also contains
+`/<track>/<dataset-version>/payload.zip`. Both track directories also contain
 `expected.json`; that file is read only by the controller and is never copied to
-the sandbox. Build bundles from the upstream manifest tooling, verify that
+the sandbox. Clustering's holds the cluster labels. Recognition's holds the
+query grouping: which query photos belong to which enrolled person, and which
+belong to the stranger before and after that stranger is enrolled. That grouping
+used to travel inside `payload.zip`, where a submission could read it and
+reconstruct every expected label without opening a single image, so a
+recognition bundle built by an older copy of
+`tools/materialize_week2_official.py` has no `expected.json` and must be
+rebuilt. Build bundles from the upstream manifest tooling, verify that
 official identities and rows are disjoint from both public manifests, mount the
 volume read-only operationally, and run one network-blocked canary. A missing or
 invalid bundle must surface as `E-DATA` and must not consume an attempt.
@@ -82,8 +102,7 @@ M0 is not complete until operators also verify:
 - CPU, memory, wall-clock, log, and prediction limits terminate cleanly;
 - a snapshot can be restored into a fresh network-blocked sandbox;
 - duplicate jobs/events do not duplicate metrics or consume quota twice;
-- queue/provider/callback failures become infrastructure failures and refund an
-  official attempt;
+- queue/provider/callback failures become infrastructure failures;
 - hidden labels never appear in the sandbox, practice logs, callbacks, or D1.
 
 Create the external resources only after that review:
@@ -91,8 +110,13 @@ Create the external resources only after that review:
 ```sh
 modal volume create cogworks-hidden-datasets --version=2
 modal secret create cogworks-runner-signing RUNNER_SIGNING_SECRET="$RUNNER_SIGNING_SECRET" RUNNER_SIGNING_KEY_ID=runner-v1
-modal deploy -m cogworks_runner.modal_app
 ```
+
+Then deploy with `python apps/runner-modal/tools/deploy.py`, not `modal deploy`.
+`_prepare` builds its sandbox from inside a Modal container, where the
+repository the image definitions read does not exist, so `modal deploy` cannot
+build the runner images. `docs/runbooks/gate-1-modal.md` has the full reason and
+the stale-`build/` tree it refuses to run against.
 
 Upload reviewed hidden JSON through an approved operator path to
 `/hidden/<benchmark-id>/<dataset-version>.json`. Never put hidden data in this
@@ -141,13 +165,21 @@ the real controller path, and writes signed runner events to a local sink.
 3. Set `MODAL_RUNNER_URL` to the deployed HTTPS endpoint and add the same
    high-entropy `RUNNER_SIGNING_SECRET` to CogPortal with Wrangler secrets.
 4. Set a content-addressed `RUNNER_IMAGE_DIGEST`; do not ship the
-   `unpublished` placeholder.
+   `unpublished` placeholder. The value comes from
+   `apps/runner-modal/tools/deploy.py`, which prints
+   `published <name> -> im-...` for each sandbox image; write it as
+   `<name>@<id>`. The digest selects no image (`_sandbox_image` picks by name),
+   so a placeholder cannot fail a dispatch. What it does is make the
+   `environmentDigest` on every completed run a hash of the same constant, so
+   two runs on genuinely different images carry an identical reproducibility
+   record.
 5. Deploy with `EXECUTION_PROVIDER=modal`, then run one designated non-credit
    canary repository before allowing students to submit.
 
 The one-hour stale threshold must exceed the queue delay plus both sandbox
 timeouts. Lower values are rejected below 15 minutes. The scheduled handler
-runs every five minutes and refunds stale official attempts idempotently.
+runs every five minutes, failing stale runs and releasing the capacity they
+reserved, idempotently.
 
 ## 5. Deploy CogBot
 
@@ -168,7 +200,7 @@ pnpm deploy:discord
    `DISCORD_BOT_TOKEN`, and `COURSE_GUILD_ID`, then run
    `pnpm --filter @cogworks/discord-bot commands:register`. The bot token is
    used for registration and for CogPortal's live message delivery. Keep it in
-   a temporary operator environment and the CogPortal Worker secret—never in
+   a temporary operator environment and the CogPortal Worker secret, never in
    source-controlled variables.
 5. Upload `apps/discord-bot/assets/cog-avatar.png` as the application avatar and use the profile
    copy in `apps/discord-bot/README.md`.
@@ -181,14 +213,18 @@ pnpm deploy:discord
 
 - Runner incident: switch `EXECUTION_PROVIDER` to `fixture` and deploy the
   portal. Do not delete queue messages or attempts manually. Let callbacks and
-  the stale reconciler settle, then inspect run events and refund state.
+  the stale reconciler settle, then inspect run events and run state.
 - Discord incident: deploy or route-disable CogBot. Portal and CogBench local
   operation remain independent. Revoke account links only if identity mapping
   is affected.
-- Signing secret exposure: pause Modal dispatch, wait for active jobs to become
-  terminal or stale, rotate the secret in both systems and increment the key
-  ID, redeploy Modal and Portal, then send a canary. The current v1 boundary
-  intentionally favors one active key over a complex pre-production key ring.
+- Signing secret exposure: follow `docs/runbooks/rotate-signing-secret.md`, which
+  is the ordered procedure with the exact commands for Modal and for each
+  Cloudflare environment, the verification step, and what breaks in the window
+  between the two systems. In short: pause Modal dispatch, wait for active jobs
+  to become terminal or stale, rotate the secret in both systems and increment
+  the key ID, redeploy Modal and Portal, then send a canary. The current v1
+  boundary intentionally favors one active key over a complex pre-production key
+  ring, so the rotation is necessarily a brief outage rather than a swap.
 - GitHub credential exposure: rotate the GitHub App secret, invalidate sessions
   if OAuth tokens may be affected, and revalidate connected repositories.
 - Hidden dataset exposure: disable official runs, rotate the dataset version,

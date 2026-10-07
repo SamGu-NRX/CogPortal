@@ -18,6 +18,13 @@ except ImportError:
 # (which sorts first) to have done it as an import side effect.
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
+# And the benchmark whose payload these tests check. test_week2_payload.py
+# already did this for its own week; leaving it out here meant four tests
+# reported as ordinary failures on any interpreter without the Week 3 package
+# installed, which reads as broken code rather than a missing install. Week 3
+# is a flat-layout package (benchmarks/week3/language_search_benchmark), not
+# the src layout Week 2 uses.
+sys.path.insert(0, str(ROOT / "benchmarks" / "week3"))
 
 
 def _cases():
@@ -198,6 +205,69 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
         for case in rebuilt:
             if case.kind == "search":
                 self.assertIsNone(case.gold_image_ids, "gold must not cross the boundary")
+
+    def test_every_rung_shares_one_pool_object_so_the_index_is_built_once(self):
+        """The sandbox must call prepare_database as often as the local run does.
+
+        `drivers.run_with_adapter` decides whether to rebuild the submission's
+        index by comparing `case.image_ids` and `case.descriptors` against the
+        previous case's by object identity, because a student index need not be
+        idempotent. `decode_payload` used to build a fresh id list inside the
+        rung loop, so the sandbox rebuilt four times where the local run built
+        once. On an append-style prepare (legal: nothing in the contract asks
+        for idempotence) that changed the reported score, measured
+        search_mrr_truncated 0.406667 locally against 0.250000 hosted, with
+        duplicate ids in the hosted rankings that validate_rankings does not
+        reject. Silent local/hosted disagreement is the one failure this
+        platform must never produce, so identity is asserted directly rather
+        than inferred from equal scores.
+        """
+
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
+
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", self._cases(), showcase=False)
+        )
+        searches = [c for c in rebuilt if c.kind == "search"]
+        self.assertEqual(len(searches), 4)
+        verbatim = next(c for c in searches if c.rung == "verbatim")
+        for case in searches:
+            self.assertIs(case.image_ids, verbatim.image_ids, case.rung)
+            self.assertIs(case.descriptors, verbatim.descriptors, case.rung)
+
+    def test_the_search_pool_is_the_retrieval_pool_after_decoding(self):
+        """One descriptor array across both components, as materialize_cases
+        builds it. np.asarray returns its argument unchanged when the dtype
+        already matches, which is what keeps this true."""
+
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
+
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", self._cases(), showcase=False)
+        )
+        retrieval = next(c for c in rebuilt if c.kind == "retrieval")
+        search = next(c for c in rebuilt if c.kind == "search" and c.rung == "verbatim")
+        self.assertIs(retrieval.descriptors, search.descriptors)
+
+    def test_attach_gold_preserves_the_shared_pool_objects(self):
+        """Gold is re-attached with dataclasses.replace, which copies the
+        fields it is not changing by reference. If that ever stopped holding,
+        the index guard would break after scoring re-attached cases."""
+
+        from cogworks_runner.week3_payload import (
+            attach_gold, decode_payload, encode_payload, extract_gold,
+        )
+
+        cases = self._cases()
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", cases, showcase=False)
+        )
+        restored = attach_gold(rebuilt, extract_gold(cases))
+        searches = [c for c in restored if c.kind == "search"]
+        verbatim = next(c for c in searches if c.rung == "verbatim")
+        for case in searches:
+            self.assertIs(case.image_ids, verbatim.image_ids, case.rung)
+            self.assertIs(case.descriptors, verbatim.descriptors, case.rung)
 
     def test_attach_gold_gives_every_rung_the_same_answers(self):
         """The rewrites change the query text, never which image is correct."""

@@ -48,6 +48,7 @@ function snapshot(overrides: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapsh
     practiceRunId: null,
     officialRunId: null,
     published: false,
+    refusalHeadline: null,
     nextOfficialAttempt: 2,
     events: [],
     actions: ["open_console", "open_portal"],

@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from cogworks_runner.week2_payload import encode_cases
+from cogworks_runner.week2_payload import encode_cases, recognition_gold
 from facial_recognition_benchmark.datasets import (
     assert_disjoint,
     clustering_scenarios,
@@ -50,6 +50,12 @@ def main() -> None:
         )
         if not 120 <= count <= 180:
             raise SystemExit("Official recognition manifest is outside the reviewed size bound.")
+        # Recognition has an expected.json now, same as clustering. It holds
+        # the query grouping the payload no longer carries: which query photos
+        # belong to which enrolled person, and which belong to the stranger
+        # before and after that stranger is enrolled. Without this file the
+        # controller cannot score the track, and with it inside payload.zip the
+        # sandbox could score itself.
         expected = None
     else:
         cases = clustering_scenarios(official)
@@ -62,7 +68,10 @@ def main() -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".week2-official-", dir=str(target.parent)))
     try:
-        (temporary / "payload.zip").write_bytes(encode_cases(args.track, cases))
+        payload, plans = encode_cases(args.track, cases)
+        if args.track == "vision-recognition":
+            expected = recognition_gold(plans)
+        (temporary / "payload.zip").write_bytes(payload)
         if expected is not None:
             (temporary / "expected.json").write_text(
                 json.dumps(expected, separators=(",", ":")), encoding="utf-8"
