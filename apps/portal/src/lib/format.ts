@@ -6,6 +6,13 @@ export function formatMetricValue(metric: Metric): string {
 }
 
 export function formatDurationMs(ms: number): string {
+  // NaN and infinities fall through every numeric branch and would render
+  // as "NaN ms"; a non-finite duration is a programming error, so fail loud.
+  if (!Number.isFinite(ms)) {
+    throw new Error(
+      `formatDurationMs expected a finite duration in milliseconds, received ${ms}`,
+    );
+  }
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const s = ms / 1000;
   if (s < 90) return `${s.toFixed(1)} s`;
@@ -15,6 +22,13 @@ export function formatDurationMs(ms: number): string {
 }
 
 export function formatTimeAgo(epochMs: number): string {
+  // NaN survives every comparison below and would render as "NaN d ago";
+  // Date.now() is always finite, so checking the input is enough.
+  if (!Number.isFinite(epochMs)) {
+    throw new Error(
+      `formatTimeAgo expected a finite epoch time in milliseconds, received ${epochMs}`,
+    );
+  }
   const delta = Date.now() - epochMs;
   const s = Math.round(delta / 1000);
   if (s < 45) return "just now";
@@ -27,6 +41,13 @@ export function formatTimeAgo(epochMs: number): string {
 }
 
 export function formatDateTime(epochMs: number): string {
+  // Same contract as formatTimeAgo: non-finite input is a programming error,
+  // not a date worth rendering as "Invalid Date".
+  if (!Number.isFinite(epochMs)) {
+    throw new Error(
+      `formatDateTime expected a finite epoch time in milliseconds, received ${epochMs}`,
+    );
+  }
   return new Date(epochMs).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
