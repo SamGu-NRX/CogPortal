@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { Button } from "@/components/Button";
-import { ApiRequestError } from "@/lib/api";
+import { isApiRequestError, validateJoinCode } from "@/lib/access-validators";
 import { useJoinCohort, useSession } from "@/lib/queries";
 
 export function JoinPage() {
@@ -14,16 +14,18 @@ export function JoinPage() {
     return <Navigate to={session.team ? "/dashboard" : "/connect"} replace />;
   }
 
+  const codeCheck = validateJoinCode(code);
+  const codeHint = code.trim().length > 0 && !codeCheck.valid ? codeCheck.message : null;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.trim().length < 4 || join.isPending) return;
-    join.mutate(code.trim().toUpperCase(), {
+    if (!codeCheck.valid || join.isPending) return;
+    join.mutate(codeCheck.value, {
       onSuccess: () => navigate("/connect", { replace: true }),
     });
   };
 
-  const errorMessage =
-    join.error instanceof ApiRequestError
+  const errorMessage = isApiRequestError(join.error)
       ? join.error.code === "cohort_code_invalid"
         ? "That code doesn't match. Check the code your instructor shared."
         : join.error.message
@@ -50,21 +52,21 @@ export function JoinPage() {
             autoFocus
             autoComplete="off"
             spellCheck={false}
-            aria-invalid={errorMessage ? true : undefined}
-            aria-describedby={errorMessage ? "join-error" : undefined}
+            aria-invalid={errorMessage || codeHint ? true : undefined}
+            aria-describedby={errorMessage || codeHint ? "join-error" : undefined}
             className="h-13 w-full border border-rule bg-paper-sunken px-4 text-center font-mono text-xl tracking-[0.35em] text-ink uppercase placeholder:tracking-[0.2em] placeholder:text-ink-faint"
             placeholder="········"
           />
-          {errorMessage && (
+          {(codeHint || errorMessage) && (
             <p id="join-error" role="alert" className="mt-3 text-[13px] text-detect-deep">
-              {errorMessage}
+              {codeHint ?? errorMessage}
             </p>
           )}
           <Button
             type="submit"
             className="mt-4 w-full"
             busy={join.isPending}
-            disabled={code.trim().length < 4}
+            disabled={!codeCheck.valid}
           >
             Join
           </Button>

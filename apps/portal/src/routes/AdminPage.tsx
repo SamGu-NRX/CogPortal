@@ -14,7 +14,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Panel } from "@/components/Panel";
-import { ApiRequestError } from "@/lib/api";
+import { isApiRequestError, validateGithubLogin } from "@/lib/access-validators";
 import { formatTimeAgo } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
 import {
@@ -133,7 +133,7 @@ function UnassignedRow({
       <span className="flex items-center gap-2">
         {add.error && (
           <span role="alert" className="text-[11px] text-detect-deep">
-            {add.error instanceof ApiRequestError ? add.error.message : "Assigning failed."}
+            {isApiRequestError(add.error) ? add.error.message : "Assigning failed."}
           </span>
         )}
         <select
@@ -233,7 +233,7 @@ function CohortPanel({
       </div>
       {patch.error && (
         <p role="alert" className="mt-3 text-[13px] text-detect-deep">
-          {patch.error instanceof ApiRequestError ? patch.error.message : "Update failed."}
+          {isApiRequestError(patch.error) ? patch.error.message : "Update failed."}
         </p>
       )}
     </Panel>
@@ -252,20 +252,22 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
   const assignTa = useAdminAssignTa();
   const removeTa = useAdminRemoveTa();
 
+  const memberCheck = validateGithubLogin(newLogin);
+  const taCheck = validateGithubLogin(newTaLogin);
   const add = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLogin.trim() || addMember.isPending) return;
+    if (!memberCheck.valid || addMember.isPending) return;
     addMember.mutate(
-      { teamId: team.id, login: newLogin.trim() },
+      { teamId: team.id, login: memberCheck.value },
       { onSuccess: () => setNewLogin("") },
     );
   };
 
   const addTa = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaLogin.trim() || assignTa.isPending) return;
+    if (!taCheck.valid || assignTa.isPending) return;
     assignTa.mutate(
-      { teamId: team.id, login: newTaLogin.trim() },
+      { teamId: team.id, login: taCheck.value },
       { onSuccess: () => setNewTaLogin("") },
     );
   };
@@ -362,7 +364,7 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
                     />
                     <button
                       type="submit"
-                      disabled={!newTaLogin.trim() || assignTa.isPending}
+                      disabled={!taCheck.valid || assignTa.isPending}
                       className="u-pressable flex min-h-9 items-center gap-1.5 border border-rule px-3 font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase hover:border-ink-secondary hover:text-ink disabled:opacity-40"
                     >
                       <HugeiconsIcon icon={TeacherIcon} size={13} strokeWidth={1.8} aria-hidden="true" />
@@ -370,6 +372,11 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
                     </button>
                   </form>
                 ) : null}
+                {canAssignTas && newTaLogin.trim().length > 0 && !taCheck.valid && (
+                  <p role="alert" className="mt-1 text-[11.5px] text-detect-deep">
+                    {taCheck.message}
+                  </p>
+                )}
               </div>
               <ul className="divide-y divide-rule-soft">
                 {team.members.map((m) => (
@@ -413,17 +420,22 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
                 />
                 <button
                   type="submit"
-                  disabled={!newLogin.trim() || addMember.isPending}
+                  disabled={!memberCheck.valid || addMember.isPending}
                   className="u-pressable flex min-h-9 items-center gap-1.5 border border-rule px-3 font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase hover:border-ink-secondary hover:text-ink disabled:opacity-40"
                 >
                   <HugeiconsIcon icon={UserAdd01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
                   Add
                 </button>
               </form>
+              {newLogin.trim().length > 0 && !memberCheck.valid && (
+                <p role="alert" className="mt-1 text-[11.5px] text-detect-deep">
+                  {memberCheck.message}
+                </p>
+              )}
               {(addMember.error || removeMember.error || assignTa.error || removeTa.error) && (
                 <p role="alert" className="mt-2 text-[12.5px] text-detect-deep">
                   {[addMember.error, removeMember.error, assignTa.error, removeTa.error]
-                    .filter((e): e is ApiRequestError => e instanceof ApiRequestError)
+                    .filter(isApiRequestError)
                     .map((e) => e.message)
                     .join(" ") || "Member update failed."}
                 </p>

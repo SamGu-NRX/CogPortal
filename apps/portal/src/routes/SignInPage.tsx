@@ -5,7 +5,7 @@ import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { nextStagePath } from "@/App";
 import { Button } from "@/components/Button";
 import { GitHubIcon } from "@/components/GitHubIcon";
-import { ApiRequestError } from "@/lib/api";
+import { isApiRequestError, validateGithubLogin } from "@/lib/access-validators";
 import { useDevLogin, useSession } from "@/lib/queries";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
@@ -23,11 +23,14 @@ export function SignInPage() {
   const auth = session?.auth;
   const oauthError = params.get("error");
 
+  const loginCheck = validateGithubLogin(login);
+  const loginHint = login.trim().length > 0 && !loginCheck.valid ? loginCheck.message : null;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!login.trim() || devLogin.isPending) return;
+    if (!loginCheck.valid || devLogin.isPending) return;
     devLogin.mutate(
-      { login: login.trim() },
+      { login: loginCheck.value },
       { onSuccess: (s) => navigate(pendingConnectionReturn() ?? nextStagePath(s), { replace: true }) },
     );
   };
@@ -90,14 +93,19 @@ export function SignInPage() {
                 type="submit"
                 variant="ghost"
                 busy={devLogin.isPending}
-                disabled={!login.trim()}
+                disabled={!loginCheck.valid}
               >
                 Sign in
               </Button>
             </div>
+            {loginHint && (
+              <p role="alert" className="mt-2 text-[13px] text-detect-deep">
+                {loginHint}
+              </p>
+            )}
             {devLogin.error && (
               <p role="alert" className="mt-2 text-[13px] text-detect-deep">
-                {devLogin.error instanceof ApiRequestError
+                {isApiRequestError(devLogin.error)
                   ? devLogin.error.message
                   : "Sign-in failed. Try again."}
               </p>

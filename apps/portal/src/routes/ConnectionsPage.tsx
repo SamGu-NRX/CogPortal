@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/Button";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Panel } from "@/components/Panel";
-import { ApiRequestError } from "@/lib/api";
+import { isApiRequestError, validateDeviceName } from "@/lib/access-validators";
 import { formatDateTime } from "@/lib/format";
 import {
   useApproveDevice,
@@ -21,7 +21,7 @@ function fragmentToken(): string | null {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiRequestError ? error.message : fallback;
+  return isApiRequestError(error) ? error.message : fallback;
 }
 
 export function ConnectionsPage() {
@@ -39,6 +39,10 @@ export function ConnectionsPage() {
   const revokeDevice = useRevokeDevice();
   const userCode = useMemo(() => searchParams.get("user_code")?.toUpperCase() ?? null, [searchParams]);
   const returnToSetup = searchParams.get("return_to") === "setup";
+
+  const deviceNameCheck = validateDeviceName(deviceName);
+  const deviceNameHint =
+    deviceName.length > 0 && !deviceNameCheck.valid ? deviceNameCheck.message : null;
 
   useEffect(() => {
     const onHashChange = () => setDiscordToken(fragmentToken());
@@ -147,8 +151,9 @@ export function ConnectionsPage() {
             className="mt-5 max-w-sm"
             onSubmit={(event) => {
               event.preventDefault();
+              if (!deviceNameCheck.valid) return;
               approveDevice.mutate(
-                { userCode, deviceName },
+                { userCode, deviceName: deviceNameCheck.value },
                 {
                   onSuccess: () => {
                     clearConnectionReturn();
@@ -171,9 +176,14 @@ export function ConnectionsPage() {
               maxLength={80}
               className="mt-1 h-11 w-full border border-rule bg-paper-raised px-3 text-[16px] text-ink"
             />
-            <Button type="submit" className="mt-4" busy={approveDevice.isPending} disabled={!deviceName.trim()}>
+            <Button type="submit" className="mt-4" busy={approveDevice.isPending} disabled={!deviceNameCheck.valid}>
               Approve device
             </Button>
+            {deviceNameHint && (
+              <p role="alert" className="mt-2 text-[13px] text-detect-deep">
+                {deviceNameHint}
+              </p>
+            )}
             {approveDevice.error && (
               <p role="alert" className="mt-3 text-[13px] text-detect-deep">
                 {errorMessage(approveDevice.error, "The device couldn't be approved. Try again.")}

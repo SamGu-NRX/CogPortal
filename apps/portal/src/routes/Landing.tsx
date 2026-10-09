@@ -42,9 +42,9 @@ export function Landing() {
       </p>
 
       <div className="mt-7 flex flex-wrap items-center gap-4">
-        {authed ? (
+        {session?.user ? (
           <Link
-            to={nextStagePath(session!)}
+            to={nextStagePath(session)}
             className="u-pressable inline-flex h-11 items-center bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
           >
             Open Dashboard
