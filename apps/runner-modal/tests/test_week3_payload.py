@@ -126,6 +126,10 @@ if __name__ == "__main__":
     unittest.main()
 
 
+@unittest.skipIf(
+    np is None or find_spec("language_search_benchmark") is None,
+    "Week 3 dependency lane only",
+)
 class RungCasesSurviveTheBoundary(unittest.TestCase):
     """The query rewrites are regenerated in the sandbox rather than shipped.
 
