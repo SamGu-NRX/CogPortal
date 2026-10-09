@@ -30,6 +30,7 @@ import {
   useStartPractice,
 } from "@/lib/queries";
 import { STATUS_LABELS } from "@/lib/run-meta";
+import { parseRunIdParam } from "@/lib/run-page-params";
 
 /**
  * Run detail (plan §8): the phase rail, then exactly one of — live progress,
@@ -38,7 +39,32 @@ import { STATUS_LABELS } from "@/lib/run-meta";
  * show aggregate metrics and safe diagnostics only.
  */
 export function RunDetailPage() {
-  const { runId = "" } = useParams();
+  const params = useParams();
+  const runId = parseRunIdParam(params.runId);
+
+  if (!runId.ok) {
+    return (
+      <div className="anim-rise mx-auto w-full max-w-4xl py-12">
+        <Panel tone="alert" label="BAD LINK">
+          <p className="max-w-prose text-[14px] text-ink">{runId.reason}</p>
+          <div className="mt-4 flex items-center gap-3">
+            <Link
+              to="/dashboard"
+              className="text-[13px] text-ink underline underline-offset-4"
+            >
+              Back to dashboard
+            </Link>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  // Mounted only for a valid id, so no query ever fires with a missing param.
+  return <RunDetailView runId={runId.id} />;
+}
+
+function RunDetailView({ runId }: { runId: string }) {
   const runQuery = useRun(runId);
   const { data: sessionData } = useSession();
   // Quota, retry, and failure copy all belong to *this run's* benchmark, not
@@ -167,7 +193,13 @@ export function RunDetailPage() {
                 <ConfirmButton
                   label="Promote the candidate again"
                   confirmLabel={`Confirm — uses attempt ${(quota?.officialUsed ?? 0) + 1} of ${OFFICIAL_LIMIT}`}
-                  onConfirm={() => promote.mutate(run.parentRunId!)}
+                  onConfirm={() => {
+                    // Guarded in JSX; kept as a runtime check so the
+                    // narrowing survives into this callback without an
+                    // unchecked assertion.
+                    const parentRunId = run.parentRunId;
+                    if (parentRunId) promote.mutate(parentRunId);
+                  }}
                   busy={promote.isPending}
                   disabled={!!quota && quota.officialUsed >= quota.officialLimit}
                 />

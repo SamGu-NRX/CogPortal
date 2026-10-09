@@ -17,20 +17,21 @@ import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/sch
  * generated, because the point is to look at the wording.
  */
 
+const BASE_METRIC: Metric = {
+  key: "identification_score",
+  label: "Identification score",
+  value: 0.5312,
+  precision: 4,
+  unit: null,
+  primary: true,
+  higherIsBetter: true,
+  help:
+    "Top-1 accuracy over clips cut from songs you enrolled, after " +
+    "perturbation. This is the leaderboard number.",
+};
+
 function metric(over: Partial<Metric> = {}): Metric {
-  return {
-    key: "identification_score",
-    label: "Identification score",
-    value: 0.5312,
-    precision: 4,
-    unit: null,
-    primary: true,
-    higherIsBetter: true,
-    help:
-      "Top-1 accuracy over clips cut from songs you enrolled, after " +
-      "perturbation. This is the leaderboard number.",
-    ...over,
-  } as Metric;
+  return { ...BASE_METRIC, ...over };
 }
 
 const SUPPORTING: Metric[] = [
