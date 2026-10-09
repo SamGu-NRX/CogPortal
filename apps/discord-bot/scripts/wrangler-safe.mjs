@@ -1,3 +1,24 @@
+// Runs Wrangler for this app from a checkout whose path contains a glob
+// metacharacter. The repository is named Cog*Portal, and Wrangler builds with
+// esbuild, which treats a * in an entry path as a glob pattern, so running
+// Wrangler directly from such a checkout breaks. The wrapper exposes the live
+// source tree through a temporary staging directory with a metacharacter-free
+// path: wrangler.jsonc is copied in, src/ is symlinked so dev mode still
+// observes edits, and .dev.vars, .env, or .env.local are symlinked when
+// present. The staging directory is deleted on exit.
+//
+// build runs `wrangler deploy --dry-run --outdir dist` as a bundling smoke
+// test; its dist output lands in the staging directory and is discarded on
+// exit. deploy and dev pass through unchanged.
+//
+// The child receives the full environment, with WRANGLER_LOG_PATH defaulted to
+// a log file inside the staging directory. SIGINT and SIGTERM are forwarded to
+// the child, and the script exits 130 or 143 when killed by a signal,
+// otherwise with the child's exit code. Staging cleanup is guarded so it runs
+// exactly once.
+//
+// Usage: pnpm --filter @cogworks/discord-bot dev|build|deploy, or
+// node scripts/wrangler-safe.mjs <build|deploy|dev>.
 import { spawn } from "node:child_process";
 import {
   copyFileSync,
