@@ -127,3 +127,67 @@ test("button policy: nothing while running, primary-first at terminal", () => {
     "Run again",
   ]);
 });
+
+test("every known phase drives its loader step through snapshot.phase alone", () => {
+  // One entry per phase KNOWN_PHASES recognizes in src/steps.ts; effectivePhase
+  // trusts the snapshot column before scanning events, so the active step moves
+  // with the phase and no events are needed.
+  const phaseToStates: Record<string, string[]> = {
+    queued: ["active", "pending", "pending", "pending"],
+    preparing: ["active", "pending", "pending", "pending"],
+    installing: ["active", "pending", "pending", "pending"],
+    contract_check: ["done", "active", "pending", "pending"],
+    evaluating: ["done", "done", "active", "pending"],
+    scoring: ["done", "done", "done", "active"],
+  };
+  const phaseToActiveLabel: Record<string, string> = {
+    queued: "Preparing the bench",
+    preparing: "Preparing the bench",
+    installing: "Preparing the bench",
+    contract_check: "Checking the contract",
+    evaluating: "Evaluating",
+    scoring: "Reading the gauges",
+  };
+  for (const [phase, states] of Object.entries(phaseToStates)) {
+    const steps = loaderSteps(snapshot({ phase }), []);
+    assert.deepEqual(steps.map((step) => step.state), states, phase);
+    const active = steps.find((step) => step.state === "active");
+    assert.equal(active?.label, phaseToActiveLabel[phase], phase);
+  }
+});
+
+test("stage rail marks local and official as the active stage", () => {
+  assert.equal(
+    stageRail(snapshot({ stage: "local" }), fmt),
+    "● local\u2002\u2002○ hosted\u2002\u2002○ official\u2002\u2002○ published",
+  );
+  assert.equal(
+    stageRail(snapshot({ stage: "official" }), fmt),
+    "✓ local\u2002\u2002✓ hosted\u2002\u2002● official\u2002\u2002○ published",
+  );
+});
+
+test("terminal buttons render a single primary when only publish_result exists", () => {
+  assert.deepEqual(
+    terminalButtons(snapshot({ status: "succeeded", actions: ["publish_result"] })),
+    [{ action: "publish_result", label: "Publish result", style: 1 }],
+  );
+});
+
+test("failure trace renders one line when no step finished", () => {
+  const terminal = snapshot({ status: "failed", phase: "failed" });
+  // Without events nothing is done, so there is no last-good line to cite and
+  // the trace is the failure line alone, labelled from the failed step.
+  const bare = failureTrace(terminal, [], () => undefined, fmt);
+  assert.equal(bare.length, 1);
+  assert.equal(bare[0], "× Preparing the bench");
+  // A run.failed event still supplies the safe copy and its elapsed chip.
+  const withEvent = failureTrace(
+    terminal,
+    [event({ code: "run.failed.timeout", phase: "preparing", elapsedMs: 5_000 })],
+    (code) => (code === "run.failed.timeout" ? "Preparation failed" : undefined),
+    fmt,
+  );
+  assert.equal(withEvent.length, 1);
+  assert.equal(withEvent[0], "× Preparation failed  `0:05`");
+});

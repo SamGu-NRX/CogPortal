@@ -100,3 +100,71 @@ test("quota cells mark spent and remaining attempts", () => {
   assert.equal(quotaCells(3, 3, fmt), "▮▮▮");
   assert.equal(quotaCells(0, 3, fmt), "▯▯▯");
 });
+
+test("elapsed renders the minute boundary and unpadded minutes past the hour", () => {
+  assert.equal(elapsed(59_999), "0:59");
+  assert.equal(elapsed(60_000), "1:00");
+  // Minutes print unpadded once the hour overflows, so a full hour is "60:00",
+  // not "1:00:00"; seconds stay zero-padded.
+  assert.equal(elapsed(3_600_000), "60:00");
+});
+
+test("fitTextBudget handles empty regions and exact-fit lines", () => {
+  // With nothing fixed the whole budget is flexible.
+  assert.deepEqual(fitTextBudget([], ["a", "b"]), ["a", "b"]);
+  // Nothing flexible gives an empty result rather than an error.
+  assert.deepEqual(fitTextBudget(["head"], []), []);
+  // The limit counts the newline after every line, so a 3,999-char line plus
+  // its newline fits a 4,000 budget exactly and one more character does not.
+  assert.deepEqual(fitTextBudget([], ["x".repeat(3_999)]), ["x".repeat(3_999)]);
+  assert.deepEqual(fitTextBudget([], ["x".repeat(4_000)]), []);
+  // A fixed line consumes budget with its own newline before flexible ones.
+  assert.deepEqual(fitTextBudget(["abcd"], ["y".repeat(3_994)]), ["y".repeat(3_994)]);
+  assert.deepEqual(fitTextBudget(["abcd"], ["y".repeat(3_995)]), []);
+});
+
+test("text keeps exactly 4,000 characters unchanged", () => {
+  const exact = text("y".repeat(4_000));
+  assert.equal(exact.content.length, 4_000);
+  assert.equal(exact.content, "y".repeat(4_000));
+});
+
+test("metaLine with no present parts renders an empty string", () => {
+  assert.equal(metaLine([]), "");
+  assert.equal(metaLine([null, undefined, false]), "");
+});
+
+test("actionRow keeps exactly five buttons", () => {
+  const five = Array.from({ length: 5 }, (_, index) => button(`cog:five:${index}`, "b"));
+  assert.deepEqual(actionRow(...five).components, five);
+});
+
+test("progress bar sweeps monotonically over the whole run", () => {
+  const fmt = emojiFormatter(undefined, {});
+  let previous = -1;
+  for (let current = 0; current <= 40; current += 1) {
+    const bar = progressBar(current, 40, fmt);
+    const filled = [...bar].filter((glyph) => glyph === "▰").length;
+    assert.ok(filled >= previous, `progress bar lost fill at current=${current}`);
+    assert.equal(bar.length, 8);
+    previous = filled;
+  }
+  assert.equal(progressBar(0, 40, fmt), "▱▱▱▱▱▱▱▱");
+  assert.equal(progressBar(10, 40, fmt), "▰▰▱▱▱▱▱▱");
+  assert.equal(progressBar(20, 40, fmt), "▰▰▰▰▱▱▱▱");
+  assert.equal(progressBar(40, 40, fmt), "▰▰▰▰▰▰▰▰");
+});
+
+test("emojiObject returns the id/name/animated object form for manifest entries", async () => {
+  // emojiObject is not imported at the top of this file and this part may only
+  // add test blocks, so the import lives inside the test.
+  const { emojiObject } = await import("../src/emoji.ts");
+  const manifest: EmojiManifest = {
+    app1: {
+      cog_done: { id: "123", animated: false },
+      cog_spin: { id: "456", animated: true },
+    },
+  };
+  assert.deepEqual(emojiObject("cog_done", "app1", manifest), { id: "123", name: "cog_done", animated: false });
+  assert.deepEqual(emojiObject("cog_spin", "app1", manifest), { id: "456", name: "cog_spin", animated: true });
+});
