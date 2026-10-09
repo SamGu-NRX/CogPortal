@@ -30,6 +30,27 @@ import {
 
 const AdminCohortSchema = AdminOverviewSchema.shape.cohort;
 
+/** Mirrors the worker's local OkSchema (worker/routes/leaderboard.ts): a
+ *  success acknowledgement is exactly `{ ok: true }`. */
+const OkSchema = z.object({ ok: z.literal(true) });
+
+/** Names the endpoint, status, and first zod issue so a drifting Worker
+ *  surfaces as an ApiRequestError the UI already knows how to show. */
+function describeUnexpectedResponse(
+  method: string,
+  path: string,
+  status: number,
+  error: z.ZodError,
+): string {
+  const issue = error.issues[0];
+  const detail = issue
+    ? issue.path.length > 0
+      ? `${issue.message} at ${issue.path.map((part) => JSON.stringify(String(part))).join(".")}`
+      : issue.message
+    : "the schema reported no details";
+  return `The portal returned an unexpected response (${method} ${path}, status ${status}): ${detail}.`;
+}
+
 export class ApiRequestError extends Error {
   constructor(
     public readonly code: ApiErrorCode | "network" | "unknown",
@@ -46,10 +67,11 @@ async function request<T>(
   schema: z.ZodType<T>,
   init?: { method?: string; body?: unknown },
 ): Promise<T> {
+  const method = init?.method ?? "GET";
   let res: Response;
   try {
     res = await fetch(path, {
-      method: init?.method ?? "GET",
+      method,
       credentials: "same-origin",
       headers:
         init?.body !== undefined
@@ -78,7 +100,27 @@ async function request<T>(
     throw new ApiRequestError(code, message, res.status);
   }
 
-  return schema.parse(await res.json());
+  // A 200 whose body does not match the contract is a drifting Worker, not a
+  // component bug: wrap it so callers see ApiRequestError, never a raw ZodError.
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new ApiRequestError(
+      "unknown",
+      `The portal returned an unexpected response (${method} ${path}, status ${res.status}): the body was not valid JSON.`,
+      res.status,
+    );
+  }
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new ApiRequestError(
+      "unknown",
+      describeUnexpectedResponse(method, path, res.status, parsed.error),
+      res.status,
+    );
+  }
+  return parsed.data;
 }
 
 export const api = {
@@ -86,7 +128,7 @@ export const api = {
   devLogin: (body: { login: string; demo?: boolean }) =>
     request("/api/dev/login", SessionSchema, { method: "POST", body }),
   logout: () =>
-    request("/api/session/logout", z.unknown(), { method: "POST" }),
+    request("/api/session/logout", SessionSchema, { method: "POST" }),
 
   joinCohort: (code: string) =>
     request("/api/cohorts/join", SessionSchema, {
@@ -141,7 +183,7 @@ export const api = {
 
   setupState: () => request("/api/v1/setup/state", SetupStateSchema),
   resetSetupState: () =>
-    request("/api/v1/setup/state", z.object({ ok: z.literal(true) }), {
+    request("/api/v1/setup/state", OkSchema, {
       method: "DELETE",
     }),
 
@@ -251,7 +293,7 @@ export const api = {
       FamilyLeaderboardSchema,
     ),
   selectResult: (runId: string) =>
-    request("/api/leaderboard-selection", z.unknown(), {
+    request("/api/leaderboard-selection", OkSchema, {
       method: "PUT",
       body: { runId },
     }),
