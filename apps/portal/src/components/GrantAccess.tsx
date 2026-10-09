@@ -12,10 +12,13 @@ import { useInstallations, useSession } from "@/lib/queries";
  */
 export function GrantAccess({ hasRepos }: { hasRepos: boolean }) {
   const { data: session } = useSession();
-  const configured = Boolean(session?.auth.githubConfigured && session.auth.appSlug);
+  const appSlug = session?.auth.appSlug ?? null;
+  const configured = Boolean(session?.auth.githubConfigured && appSlug);
   const installations = useInstallations(configured);
 
-  if (!configured) return null;
+  // Both the configured check and a non-empty slug are needed before the
+  // install link below can name the app.
+  if (!appSlug || !configured) return null;
 
   const installationAccounts = installations.data ?? [];
   const installed = installationAccounts.length > 0;
@@ -30,7 +33,7 @@ export function GrantAccess({ hasRepos }: { hasRepos: boolean }) {
   return (
     <div className="mt-3 space-y-1">
       <a
-        href={`https://github.com/apps/${session!.auth.appSlug}/installations/new`}
+        href={`https://github.com/apps/${appSlug}/installations/new`}
         target="_blank"
         rel="noreferrer"
         className="inline-flex min-h-9 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.07em] text-ink-secondary uppercase underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"

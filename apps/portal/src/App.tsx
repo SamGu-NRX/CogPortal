@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
-import type { Session } from "@cogworks/contracts/schema";
 import { LoadingMark } from "@/components/Feedback";
 import { Shell } from "@/components/Shell";
 import { useSession } from "@/lib/queries";
@@ -21,6 +20,11 @@ import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
 import { TeamPage } from "@/routes/TeamPage";
 import { rememberConnectionReturn } from "@/lib/pending-return";
+import {
+  staffGuardDecision,
+  stageGuardDecision,
+  type StageRequirement,
+} from "@/lib/stage-routing";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,47 +32,41 @@ const queryClient = new QueryClient({
   },
 });
 
-/** Where the student's onboarding actually stands (plan §1 success path):
- *  sign in → join cohort → connect repository → dashboard. */
-export function nextStagePath(session: Session): string {
-  if (!session.user) return "/signin";
-  if (!session.cohort) return "/join";
-  if (!session.team) return "/connect";
-  return "/dashboard";
-}
+// Landing and SignInPage still import this from "@/App"; the decision lives
+// in lib/stage-routing.ts next to the route guards.
+export { nextStagePath } from "@/lib/stage-routing";
 
 function RequireStage({
   stage,
   children,
 }: {
-  stage: "user" | "cohort" | "team";
+  stage: StageRequirement;
   children: ReactNode;
 }) {
   const { data: session, isPending } = useSession();
   const location = useLocation();
-  if (isPending) return <LoadingMark />;
-  if (!session) return <LoadingMark />;
+  if (isPending || !session) return <LoadingMark />;
 
-  if (!session.user) {
-    if (location.pathname === "/connections") {
-      rememberConnectionReturn(`${location.pathname}${location.search}${location.hash}`);
-    }
-    return <Navigate to="/signin" replace />;
+  const decision = stageGuardDecision(
+    stage,
+    `${location.pathname}${location.search}${location.hash}`,
+    session,
+  );
+  if (decision.action === "remember-and-redirect") {
+    rememberConnectionReturn(decision.returnTo);
   }
-  if (stage !== "user" && !session.cohort) return <Navigate to="/join" replace />;
-  if (stage === "team" && !session.team) return <Navigate to="/connect" replace />;
-  return <>{children}</>;
+  if (decision.action === "render") return <>{children}</>;
+  return <Navigate to={decision.to} replace />;
 }
 
 /** Staff-only gate — students never see the admin console. */
 function RequireStaff({ children }: { children: ReactNode }) {
   const { data: session, isPending } = useSession();
   if (isPending || !session) return <LoadingMark />;
-  if (!session.user) return <Navigate to="/signin" replace />;
-  if (session.user.platformRole !== "staff" && !session.user.isTa) {
-    return <Navigate to="/" replace />;
-  }
-  return <>{children}</>;
+
+  const decision = staffGuardDecision(session);
+  if (decision.action === "render") return <>{children}</>;
+  return <Navigate to={decision.to} replace />;
 }
 
 export function App() {

@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet } from "react-router";
-import { nextStagePath } from "@/App";
+import { nextStagePath } from "@/lib/stage-routing";
 import { UserMenu } from "@/components/UserMenu";
 import { useSession } from "@/lib/queries";
 

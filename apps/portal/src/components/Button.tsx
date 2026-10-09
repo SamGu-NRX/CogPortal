@@ -6,6 +6,11 @@ type Variant = "primary" | "official" | "ghost" | "quiet";
  * 44px-minimum targets (plan §8). Press feedback: scale(.97) at 120ms — the
  * interface listens. "official" is detector red: reserved for actions with
  * real consequence (spending an official attempt, publishing a result).
+ *
+ * Handler contract: event handlers are fire-and-forget. React discards a
+ * handler's return value, so a caller with async work owns the promise —
+ * chain callbacks on the mutation (as the routes do) or pass it through an
+ * explicit `void`. A rejected promise here is never the button's to handle.
  */
 export function Button({
   variant = "primary",

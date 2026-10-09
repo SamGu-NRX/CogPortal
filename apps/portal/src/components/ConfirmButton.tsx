@@ -5,6 +5,10 @@ import { Button } from "./Button";
  * Two-step arm/confirm for consequential actions (spending an official
  * attempt, publishing a result) — inline, no modal (plan §8). Arming decays
  * after 4s so an abandoned first click can't fire later.
+ *
+ * Handler contract: onConfirm is fire-and-forget, like every Button handler.
+ * Callers with async work chain callbacks on the mutation, so a rejection is
+ * reported by the caller's own error UI, not here.
  */
 export function ConfirmButton({
   label,
