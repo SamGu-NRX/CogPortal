@@ -270,6 +270,13 @@ class FirstLight:
 
 
 def first_light(runs: List[Run]) -> FirstLight:
+    """Find the earliest scored run and the count of scored runs.
+
+    `first_scored_at` is `None` and `scored_run_count` is `0` when no run
+    has scored. Unlike the commit-derived signals, history quality is
+    deliberately not checked here; the `FirstLight` docstring explains why.
+    """
+
     scored = [run for run in runs if run.scored]
     if not scored:
         return FirstLight(first_scored_at=None, scored_run_count=0)
