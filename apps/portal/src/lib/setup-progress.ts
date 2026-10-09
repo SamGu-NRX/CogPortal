@@ -23,42 +23,90 @@ export function clearSetupProgress(teamId: string, login: string): void {
   }
 }
 
-function readChecks(teamId: string, login: string): ReadonlySet<string> {
+/**
+ * Parse a stored check-off payload. The portal wrote this value itself, but a
+ * shared computer can hold anything: an older format, a manual edit, truncated
+ * text. Anything that is not a JSON array of strings reads as no checks, so a
+ * broken payload costs a student their ticks, never the setup guide.
+ */
+export function parseChecks(raw: string | null): ReadonlySet<string> {
+  if (raw === null) return new Set();
+  let parsed: unknown;
   try {
-    const raw = localStorage.getItem(checksKey(teamId, login));
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return new Set(
-      Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [],
-    );
+    parsed = JSON.parse(raw);
   } catch {
     return new Set();
   }
+  if (!Array.isArray(parsed)) return new Set();
+  const values: unknown[] = parsed;
+  return new Set(values.filter((v): v is string => typeof v === "string"));
+}
+
+function readChecksByKey(key: string): ReadonlySet<string> {
+  try {
+    return parseChecks(localStorage.getItem(key));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Check-off state tagged with the storage key it came from, so the hook can
+ * notice when that key moved on.
+ */
+export type ChecksCache = {
+  readonly key: string;
+  readonly checks: ReadonlySet<string>;
+};
+
+/**
+ * Keep the cached checks only while they belong to the current storage key.
+ * When the key changes (the setup guide can stay mounted while the student
+ * switches teams in another tab), read the new slot instead of showing the
+ * previous team's ticks. `read` is injected so this stays testable without a
+ * DOM.
+ */
+export function reconcileChecks(
+  cache: ChecksCache,
+  key: string,
+  read: (storageKey: string) => ReadonlySet<string>,
+): ChecksCache {
+  return cache.key === key ? cache : { key, checks: read(key) };
 }
 
 export function useSetupChecks(
   teamId: string,
   login: string,
 ): [ReadonlySet<string>, (stepId: string) => void] {
-  const [checks, setChecks] = useState<ReadonlySet<string>>(() =>
-    readChecks(teamId, login),
-  );
+  const key = checksKey(teamId, login);
+  const [cache, setCache] = useState<ChecksCache>(() => ({
+    key,
+    checks: readChecksByKey(key),
+  }));
+  // Adjust state during render (not in an effect) so the first paint after a
+  // team or login change already reads the right storage slot.
+  const current = reconcileChecks(cache, key, readChecksByKey);
+  if (current !== cache) {
+    setCache(current);
+  }
   const toggle = useCallback(
     (stepId: string) => {
-      setChecks((prev) => {
-        const next = new Set(prev);
+      setCache((prev) => {
+        const base = reconcileChecks(prev, key, readChecksByKey);
+        const next = new Set(base.checks);
         if (next.has(stepId)) next.delete(stepId);
         else next.add(stepId);
         try {
-          localStorage.setItem(checksKey(teamId, login), JSON.stringify([...next]));
+          localStorage.setItem(key, JSON.stringify([...next]));
         } catch {
           /* private mode — session-only progress is fine */
         }
-        return next;
+        return { key, checks: next };
       });
     },
-    [teamId, login],
+    [key],
   );
-  return [checks, toggle];
+  return [current.checks, toggle];
 }
 
 export function isSetupDismissed(teamId: string, login: string): boolean {
@@ -116,5 +164,5 @@ export function setupProgress(
   entry: SetupEntry,
   verified: { teammates: boolean; terminal?: readonly string[] },
 ): { done: number; total: number } {
-  return setupSteps(entry, readChecks(teamId, login), verified);
+  return setupSteps(entry, readChecksByKey(checksKey(teamId, login)), verified);
 }
