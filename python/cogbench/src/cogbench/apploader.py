@@ -86,15 +86,28 @@ class SubmissionSource:
     """What resolved, and how, so ``cogworks check`` can say it out loud."""
 
     def __init__(self, path: Path, attribute: str, factory: Any) -> None:
+        #: The adapter file that resolved, as an absolute path.
         self.path = path
+        #: Just the file's name (``submission.py``), for compact messages.
         self.filename = path.name
+        #: The module attribute that held the factory, or ``"Submission"``
+        #: when the file exports a class of that name instead.
         self.attribute = attribute
+        #: The factory itself. Never called here; the caller decides when
+        #: student code runs.
         self.factory = factory
 
     def describe(self) -> str:
+        """``"<filename>:<attribute>"``, the detail ``cogworks check`` prints.
+
+        It names the file too, because ``submission.py`` and
+        ``benchmark_adapter.py`` can both exist and the student should know
+        which one resolved.
+        """
         return "{}:{}".format(self.filename, self.attribute)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        """Debugging form of ``describe()``."""
         return "SubmissionSource({!r})".format(self.describe())
 
 
