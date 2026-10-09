@@ -20,10 +20,15 @@ const STORAGE_KEY = "cogportal.track";
 /** CogWeb runs audio, then vision, then language. A team opening the portal
  *  is almost always working on the most recent module that's open, so the
  *  default is the last active one; the switcher is how they go back. */
-const COURSE_ORDER: Module[] = ["audio", "vision", "language"];
+export const COURSE_ORDER: readonly Module[] = ["audio", "vision", "language"];
 
-function courseIndex(module: Module): number {
-  const index = COURSE_ORDER.indexOf(module);
+/**
+ * Position of a module in the course sequence. Takes a plain string because
+ * benchmark rows come from the Worker; a module this build does not know
+ * sorts after the known ones instead of breaking the comparator.
+ */
+export function courseIndex(module: string): number {
+  const index = COURSE_ORDER.findIndex((known) => known === module);
   return index === -1 ? COURSE_ORDER.length : index;
 }
 
@@ -37,6 +42,47 @@ export const MODULE_ACCENT: Record<
   language: { label: "Language", tick: "bg-cobalt", text: "text-cobalt" },
   audio: { label: "Audio", tick: "bg-ochre", text: "text-ochre" },
 };
+
+/**
+ * Active benchmarks in the order the switcher shows them: course order
+ * first, then id so ties inside one module are stable. Returns a new
+ * array and leaves the caller's list alone.
+ */
+export function sortTracks(benchmarks: readonly Benchmark[]): Benchmark[] {
+  return [...benchmarks].sort(
+    (a, b) =>
+      courseIndex(a.module) - courseIndex(b.module) ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+/**
+ * The track a team with no stored choice lands on. The last module in
+ * course order is the newest open one, and within it the first benchmark
+ * in sorted order wins. Expects sortTracks output.
+ *
+ * An empty list returns undefined instead of throwing: while the benchmark
+ * query is loading that is the honest answer, and the dashboard renders
+ * around it.
+ */
+export function pickDefaultTrack(tracks: readonly Benchmark[]): Benchmark | undefined {
+  const newest = tracks.at(-1);
+  if (newest === undefined) return undefined;
+  return tracks.find((b) => b.module === newest.module);
+}
+
+/**
+ * The track matching the stored selection, or the default when nothing is
+ * stored or the stored id is stale (a benchmark that is no longer active).
+ * The stored value is browser state, so it is only ever compared against
+ * known ids, never trusted as one.
+ */
+export function resolveTrack(
+  tracks: readonly Benchmark[],
+  storedId: string | null,
+): Benchmark | undefined {
+  return tracks.find((b) => b.id === storedId) ?? pickDefaultTrack(tracks);
+}
 
 function readStored(): string | null {
   try {
@@ -64,26 +110,11 @@ export function useTrack(): TrackSelection {
   const [stored, setStored] = useState<string | null>(readStored);
 
   const tracks = useMemo(
-    () =>
-      (benchmarks.data ?? [])
-        .filter((b) => b.active)
-        .sort(
-          (a, b) =>
-            courseIndex(a.module) - courseIndex(b.module) ||
-            a.id.localeCompare(b.id),
-        ),
+    () => sortTracks((benchmarks.data ?? []).filter((b) => b.active)),
     [benchmarks.data],
   );
 
-  // Last in course order is the newest open module. Within a module the
-  // first benchmark wins, which keeps recognition ahead of clustering.
-  const fallback = useMemo(() => {
-    if (tracks.length === 0) return undefined;
-    const newest = tracks[tracks.length - 1]!.module;
-    return tracks.find((b) => b.module === newest);
-  }, [tracks]);
-
-  const benchmark = tracks.find((b) => b.id === stored) ?? fallback;
+  const benchmark = useMemo(() => resolveTrack(tracks, stored), [tracks, stored]);
 
   const select = useCallback((benchmarkId: string) => {
     setStored(benchmarkId);

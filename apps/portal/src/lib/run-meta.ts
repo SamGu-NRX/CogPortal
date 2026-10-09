@@ -40,11 +40,22 @@ export function phaseIndex(phase: RunPhase): number {
   return RUN_PHASES.indexOf(phase);
 }
 
-/** Index of the phase a run is currently in, or has reached terminally. */
+/** Index of the phase a run is currently in, or has reached terminally.
+ *  Succeeded, cancelled, and failed runs without a known phase sit past the
+ *  last phase on the rail. */
 export function currentPhaseIndex(status: RunStatus, failedPhase?: RunPhase | null): number {
-  if (!isTerminal(status)) return phaseIndex(status as RunPhase);
-  if (status === "failed" && failedPhase) return phaseIndex(failedPhase);
-  return RUN_PHASES.length; // succeeded / cancelled → past the last phase
+  switch (status) {
+    case "failed":
+      return failedPhase ? phaseIndex(failedPhase) : RUN_PHASES.length;
+    case "succeeded":
+    case "cancelled":
+      return RUN_PHASES.length;
+    default:
+      // No cast needed: RUN_STATUSES is RUN_PHASES plus succeeded, failed,
+      // and cancelled, so once the three terminal statuses are matched the
+      // compiler narrows every remaining status to RunPhase.
+      return phaseIndex(status);
+  }
 }
 
 export { isTerminal };
