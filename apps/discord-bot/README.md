@@ -37,7 +37,8 @@ components: [application commands](https://docs.discord.com/developers/interacti
   app-emoji vocabulary, and formatting rules live in the shared `@cogworks/discord-kit` package
   (`packages/discord-kit`), which the Cog*Portal worker also uses for the public live run message.
 - `src/verify.ts` owns Ed25519 verification.
-- `scripts/register-commands.mjs` replaces the guild command set with the one `/cog` entry point.
+- `scripts/register-commands.mjs` registers the Activity Entry Point globally and replaces the
+  guild command set with the single `/cog` command.
 
 The interaction Worker remains stateless and has no D1 binding. CogPortal is the sole owner of
 identity, teams, channel mappings, live-run delivery state, runs, and leaderboard data. CogPortal
@@ -75,6 +76,12 @@ pnpm --filter @cogworks/discord-bot build
 
 Set `PORTAL_ORIGIN` to enable CogPortal buttons. Local `.dev.vars` values are documented in
 `.dev.vars.example`.
+
+Registering `/cog` and the Entry Point is a separate operator step against Discord's API, not
+part of local dev: in an operator shell with `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`, and
+the `COURSE_GUILD_ID` matching `wrangler.jsonc`, run
+`pnpm --filter @cogworks/discord-bot commands:register`. The deployment runbook
+(`docs/runbooks/platform.md`) places this step after the first deploy.
 
 ## Local interaction testing (tunnel)
 
