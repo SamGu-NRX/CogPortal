@@ -37,7 +37,18 @@ components: [application commands](https://docs.discord.com/developers/interacti
   app-emoji vocabulary, and formatting rules live in the shared `@cogworks/discord-kit` package
   (`packages/discord-kit`), which the Cog*Portal worker also uses for the public live run message.
 - `src/verify.ts` owns Ed25519 verification.
-- `scripts/register-commands.mjs` replaces the guild command set with the one `/cog` entry point.
+- `scripts/validate-payloads.mjs` validates the command payloads with zod against Discord's API
+  limits, so a payload Discord would reject fails at the script instead of during registration.
+- `scripts/register-env.mjs` checks that the registration environment variables are present and
+  well-formed, so a bad value stops the script with a message naming the variable.
+- `scripts/discord-api.mjs` wraps Discord calls with a timeout, error text that carries the HTTP
+  status, and response parsing, so registration has one failure path instead of repeated fetch
+  handling.
+- `scripts/register-commands-lib.mjs` replaces the guild command set with the one `/cog` entry
+  point, written as a function so the flow can be tested without the CLI. `register-commands.mjs`
+  stays as the thin entry point that calls it.
+- `scripts/wrangler-safe-lib.mjs` holds the argument check, staging setup, and exit-code mapping
+  extracted from `wrangler-safe.mjs`, so those rules can be tested without spawning Wrangler.
 
 The interaction Worker remains stateless and has no D1 binding. CogPortal is the sole owner of
 identity, teams, channel mappings, live-run delivery state, runs, and leaderboard data. CogPortal
