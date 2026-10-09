@@ -27,3 +27,11 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 cogbench = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.8"
+mypy_path = "src"
+files = ["src/cogbench"]
+strict = true
+disallow_any_explicit = true
+warn_unreachable = true
