@@ -1,10 +1,6 @@
-const parameters = new URLSearchParams(window.location.search);
-const isActivity =
-  window.location.hostname === "cogactivity-dev.sillion.app" ||
-  window.location.hostname.endsWith(".discordsays.com") ||
-  parameters.has("frame_id");
+import { pickEntryModule } from "./lib/activity-runtime";
 
-if (isActivity) {
+if (pickEntryModule(window.location.hostname, window.location.search) === "activity") {
   void import("./activity-main");
 } else {
   void import("./main");

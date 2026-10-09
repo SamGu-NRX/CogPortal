@@ -17,25 +17,22 @@ import "./styles/app.css";
 
 import { RunConsole } from "@/components/RunConsole";
 import { useRunSurfaceStream } from "@/lib/run-surface-stream";
+import {
+  SessionSchema,
+  activityApiPrefix,
+  describeActivityFailure,
+  describeActivityParseFailure,
+  isEmbeddedActivity,
+  type ActivitySession,
+} from "./lib/activity-runtime";
 import { clientEnv } from "./env.client";
 
 const CLIENT_ID = clientEnv.VITE_DISCORD_CLIENT_ID;
 document.title = "Cog · Live bench";
-const embedded =
-  window.location.hostname.endsWith(".discordsays.com") ||
-  new URLSearchParams(window.location.search).has("frame_id");
-const API_PREFIX = embedded ? "/.proxy/api" : "/api";
+const embedded = isEmbeddedActivity(window.location.hostname, window.location.search);
+const API_PREFIX = activityApiPrefix(embedded);
 const sdk = embedded ? new DiscordSDK(CLIENT_ID) : null;
 
-const SessionSchema = z.discriminatedUnion("linked", [
-  z.object({ linked: z.literal(false), linkUrl: z.string().url() }),
-  z.object({
-    linked: z.literal(true),
-    githubLogin: z.string(),
-    team: z.object({ id: z.string(), name: z.string(), discordChannelId: z.string().nullable() }),
-  }),
-]);
-type ActivitySession = z.infer<typeof SessionSchema>;
 type ActivityLayoutMode = -1 | 0 | 1 | 2;
 
 async function jsonRequest<T>(
@@ -43,12 +40,17 @@ async function jsonRequest<T>(
   schema: z.ZodType<T>,
   init?: { method?: string; body?: unknown },
 ): Promise<T> {
-  const response = await fetch(`${API_PREFIX}${path}`, {
-    method: init?.method ?? "GET",
-    credentials: "same-origin",
-    headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_PREFIX}${path}`, {
+      method: init?.method ?? "GET",
+      credentials: "same-origin",
+      headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+    });
+  } catch {
+    throw new Error("The live bench could not be reached. Check your connection and try again.");
+  }
   if (!response.ok) {
     let message = "The live bench could not be reached.";
     try {
@@ -59,7 +61,20 @@ async function jsonRequest<T>(
     }
     throw new Error(message);
   }
-  return schema.parse(await response.json());
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`The live bench response for ${path} was not valid JSON.`);
+  }
+  try {
+    return schema.parse(data);
+  } catch (caught) {
+    if (caught instanceof z.ZodError) {
+      throw new Error(describeActivityParseFailure(path, caught));
+    }
+    throw caught;
+  }
 }
 
 function ActivityHeader({
@@ -176,7 +191,7 @@ function ActivityApp() {
           setSelectedId(nextSurfaces[0]?.id ?? null);
         }
       } catch (caught) {
-        if (active) setStartupError(caught instanceof Error ? caught.message : "The Activity could not open.");
+        if (active) setStartupError(describeActivityFailure(caught, "The Activity could not open."));
       } finally {
         if (active) setLoading(false);
       }
@@ -241,22 +256,29 @@ function ActivityApp() {
             busyAction={mutation}
             error={actionError}
             onOpenPortal={() => {
-              const url = `https://cogportal-dev.sillion.app/run-surfaces/${stream.snapshot!.id}`;
+              const snapshot = stream.snapshot;
+              if (!snapshot) return;
+              const url = `https://cogportal-dev.sillion.app/run-surfaces/${encodeURIComponent(snapshot.id)}`;
               if (sdk) void sdk.commands.openExternalLink({ url });
             }}
             onAction={async (action) => {
+              const snapshot = stream.snapshot;
+              if (!snapshot) {
+                setActionError("No run is open right now. Pick a run and try again.");
+                return;
+              }
               setMutation(action);
               setActionError(null);
               try {
                 const next = await jsonRequest(
-                  `/activity/run-surfaces/${encodeURIComponent(stream.snapshot!.id)}/actions/${action}`,
+                  `/activity/run-surfaces/${encodeURIComponent(snapshot.id)}/actions/${action}`,
                   RunSurfaceSnapshotSchema,
                   { method: "POST" },
                 );
                 setSurfaces((items) => [next, ...items.filter((item) => item.id !== next.id)]);
                 setSelectedId(next.id);
               } catch (caught) {
-                setActionError(caught instanceof Error ? caught.message : "That action could not be completed.");
+                setActionError(describeActivityFailure(caught, "That action could not be completed."));
               } finally {
                 setMutation(null);
               }
@@ -274,7 +296,11 @@ function ActivityApp() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root");
+if (!rootElement) {
+  throw new Error('Could not start the Activity: the page has no element with id "root".');
+}
+createRoot(rootElement).render(
   <StrictMode>
     <ActivityApp />
   </StrictMode>,
