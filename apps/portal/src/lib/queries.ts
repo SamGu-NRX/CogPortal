@@ -8,6 +8,10 @@ import {
   SETUP_STEPS,
   isTerminal,
   type AdminOverview,
+  type ConnectionSummary,
+  type Dashboard,
+  type RunStatus,
+  type SetupStep,
 } from "@cogworks/contracts/schema";
 import { api } from "./api";
 
@@ -32,13 +36,19 @@ export function useBenchmarks() {
   });
 }
 
+/** Keep the dashboard at the active-run rate while a run is active. */
+export function dashboardPollInterval(
+  data: Dashboard | undefined,
+): number | false {
+  return data?.activeRun ? ACTIVE_RUN_POLL_MS : false;
+}
+
 export function useDashboard(benchmarkId: string, enabled = true) {
   return useQuery({
     queryKey: ["dashboard", benchmarkId],
     queryFn: () => api.dashboard(benchmarkId),
     enabled,
-    refetchInterval: (query) =>
-      query.state.data?.activeRun ? ACTIVE_RUN_POLL_MS : false,
+    refetchInterval: (query) => dashboardPollInterval(query.state.data),
   });
 }
 
@@ -50,14 +60,20 @@ export function useLocalReports(benchmarkId: string) {
   });
 }
 
+/** Poll a run at the active rate until it reaches a terminal status. */
+export function runPollInterval(
+  status: RunStatus | undefined,
+): number | false {
+  return status !== undefined && !isTerminal(status)
+    ? ACTIVE_RUN_POLL_MS
+    : false;
+}
+
 export function useRun(runId: string) {
   return useQuery({
     queryKey: ["run", runId],
     queryFn: () => api.run(runId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status && !isTerminal(status) ? ACTIVE_RUN_POLL_MS : false;
-    },
+    refetchInterval: (query) => runPollInterval(query.state.data?.status),
   });
 }
 
@@ -111,20 +127,38 @@ export function useRepositories(enabled = true) {
   });
 }
 
+/** Poll for CLI devices until one appears, then stop. */
+export function connectionsPollInterval(
+  data: ConnectionSummary | undefined,
+): number | false {
+  return data !== undefined && data.cliDevices.length > 0 ? false : 4_000;
+}
+
 export function useConnections() {
   return useQuery({
     queryKey: ["connections"],
     queryFn: api.connections,
     staleTime: 30_000,
-    refetchInterval: (query) =>
-      query.state.data && query.state.data.cliDevices.length > 0 ? false : 4_000,
+    refetchInterval: (query) => connectionsPollInterval(query.state.data),
   });
+}
+
+/** Misuse guard: the query stays disabled while there is no token, so a
+ *  fetch attempt here means an enabled-flag mistake. Fail loudly instead of
+ *  sending a request that cannot succeed. */
+export function requireDiscordLinkToken(token: string | null): string {
+  if (token === null || token.length === 0) {
+    throw new Error(
+      "useDiscordLinkPreview has no Discord link token to preview. The query must stay disabled until the caller has a token.",
+    );
+  }
+  return token;
 }
 
 export function useDiscordLinkPreview(token: string | null) {
   return useQuery({
     queryKey: ["discord-link-preview", token],
-    queryFn: () => api.previewDiscordLink(token!),
+    queryFn: () => api.previewDiscordLink(requireDiscordLinkToken(token)),
     enabled: Boolean(token),
     retry: false,
   });
@@ -238,19 +272,24 @@ export function useChangeTeamRepo() {
   });
 }
 
-/** TanStack Query pauses this polling when the page is unmounted or backgrounded. */
+/** Poll setup state until every step is verified. TanStack Query pauses
+ *  this polling when the page is unmounted or backgrounded. */
+export function setupPollInterval(
+  verified: SetupStep[] | undefined,
+): number | false {
+  return verified !== undefined &&
+    SETUP_STEPS.every((step) => verified.includes(step))
+    ? false
+    : 2_500;
+}
+
 export function useSetupState(enabled = true) {
   return useQuery({
     queryKey: ["setup-state"],
     queryFn: api.setupState,
     enabled,
     staleTime: 3_000,
-    refetchInterval: (query) => {
-      const verified = query.state.data?.verified;
-      return verified && SETUP_STEPS.every((step) => verified.includes(step))
-        ? false
-        : 2_500;
-    },
+    refetchInterval: (query) => setupPollInterval(query.state.data?.verified),
   });
 }
 
