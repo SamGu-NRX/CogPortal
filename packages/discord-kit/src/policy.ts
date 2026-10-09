@@ -7,6 +7,10 @@ import type { RunSurfaceAction, RunSurfaceSnapshot } from "@cogworks/contracts/s
  * link: the stage's primary action first, then one quiet secondary.
  */
 
+/** Snapshot statuses where action buttons exist: "succeeded", "failed"
+ *  and "cancelled", the terminal statuses of RunSurfaceSnapshot. */
+export type TerminalStatus = Exclude<RunSurfaceSnapshot["status"], "running">;
+
 export interface SurfaceButtonSpec {
   action: Exclude<RunSurfaceAction, "open_console" | "open_portal">;
   label: string;
@@ -25,7 +29,15 @@ const LABELS: Record<SurfaceButtonSpec["action"], string> = {
   run_again: "Run again",
 };
 
-export function terminalButtons(snapshot: RunSurfaceSnapshot): SurfaceButtonSpec[] {
+export function terminalButtons(snapshot: RunSurfaceSnapshot): readonly SurfaceButtonSpec[] {
+  // The module doc promises no buttons while a run is still going.
+  // "running" is the only non-terminal status a snapshot can carry; the
+  // contract tests pin that set, so a new status fails them first.
+  if (snapshot.status === "running") {
+    throw new TypeError(
+      `terminalButtons: snapshot is not terminal (status "${snapshot.status}"); render buttons only for terminal snapshots.`,
+    );
+  }
   const available = new Set(snapshot.actions);
   const buttons: SurfaceButtonSpec[] = [];
   const primary = PRIMARY_ORDER.find((action) => available.has(action));
