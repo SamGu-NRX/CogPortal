@@ -1,0 +1,13 @@
+{
+  "name": "cogportal-entry-evidence",
+  "private": true,
+  "type": "module",
+  "description": "Standalone (non-workspace) evidence harness for the CogPortal public entry. Deliberately outside the pnpm workspace globs so its test-only dependencies never touch the root lockfile.",
+  "scripts": {
+    "test": "playwright test --config playwright.config.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.0"
+  }
+}

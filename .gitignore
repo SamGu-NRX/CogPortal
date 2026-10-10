@@ -14,6 +14,9 @@ __pycache__/
 # Cloudflare local state
 .wrangler/
 
+# Playwright transient output (screenshots/traces of failed runs)
+test-results/
+
 # Local environment and secret files
 .dev.vars
 .dev.vars.*

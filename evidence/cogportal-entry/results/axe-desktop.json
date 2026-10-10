@@ -1,0 +1,20 @@
+{
+  "landing-desktop": {
+    "url": "http://localhost:5173/",
+    "violations": [],
+    "passes": 23,
+    "incomplete": 1
+  },
+  "signin-desktop": {
+    "url": "http://localhost:5173/signin",
+    "violations": [],
+    "passes": 27,
+    "incomplete": 1
+  },
+  "leaderboard-desktop": {
+    "url": "http://localhost:5173/leaderboard",
+    "violations": [],
+    "passes": 23,
+    "incomplete": 1
+  }
+}
