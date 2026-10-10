@@ -1,5 +1,6 @@
 import type { Context, Hono } from "hono";
 import { and, eq, exists, lt, notExists, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import {
   LocalRunEventResponseSchema,
   LocalRunEventBatchResponseSchema,
@@ -145,12 +146,36 @@ export const REPORT_ID_FROZEN =
 export const LEFT_RUN_TEAM =
   "You're no longer on this run's team, so the portal stopped recording it. The run still finishes here and saves its report on this machine.";
 
-async function acceptLocalRunEvent(
+/**
+ * Apply one or more live-run events, in order, under one D1 transaction.
+ *
+ * Every event's writes carry the same admission condition the single-event
+ * path always used -- the session still running, its last sequence behind
+ * this event, the author still on the team, and for a completed event the
+ * report saved under the same condition -- so each statement re-checks the
+ * live row as it runs. What the transaction adds is that the batch stands
+ * or falls together: the CLI sends a batch once and never retries it, so a
+ * batch that was refused after half of itself landed would leave a console
+ * holding events the CLI was told never arrived. Deterministic refusals (a
+ * session that isn't there, an author who left, a completed report that
+ * does not match, a report id that belongs to someone else) are decided
+ * from reads before anything is written; a refusal that can only come from
+ * another writer landing mid-request still stops the batch, with whatever
+ * prefix the guards had already accepted, and says so truthfully.
+ *
+ * Each event is admitted or skipped from a mirror of the session row this
+ * request itself is advancing -- the same reads the single-event path makes,
+ * updated by each planned write -- so a retransmitted event inside a batch
+ * is skipped exactly as it would be on its own. A racing writer that makes
+ * the mirror stale turns the planned statements into empty ones (the guards
+ * refuse), which reads as a duplicate, never as a wrong write.
+ */
+async function acceptLocalRunEvents(
   env: AppEnv["Bindings"],
   device: { deviceId: string; userId: string },
   sessionId: string,
-  event: LocalRunEvent,
-): Promise<{ duplicate: boolean; surfaceId: string }> {
+  events: LocalRunEvent[],
+): Promise<Array<{ duplicate: boolean; surfaceId: string }>> {
   const db = getDb(env);
   const [current] = await db
     .select()
@@ -172,140 +197,179 @@ async function acceptLocalRunEvent(
     throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
   }
   const surfaceId = recordedSurfaceId(current);
-  if (current.status !== "running" || event.sequence <= current.lastEventSequence) {
-    return { duplicate: true, surfaceId };
+
+  const phaseOrder: LocalRunPhase[] = ["preparing", "contract_check", "evaluating", "scoring"];
+  type Plan = {
+    event: LocalRunEvent;
+    /** Where this plan's statements begin in the flattened batch. */
+    start: number;
+    /** Where they end (exclusive); the session update is always last. */
+    end: number;
+  };
+  const plans: Plan[] = [];
+  const statements: BatchItem<"sqlite">[] = [];
+
+  let mirrorStatus = current.status;
+  let mirrorPhase = current.phase as LocalRunPhase;
+  let mirrorSequence = current.lastEventSequence;
+
+  for (const event of events) {
+    const start = statements.length;
+    const admitted = and(
+      eq(localRunSessions.id, current.id),
+      eq(localRunSessions.status, "running"),
+      lt(localRunSessions.lastEventSequence, event.sequence),
+      onTeam(db, current.teamId, device.userId),
+    );
+    if (mirrorStatus !== "running" || event.sequence <= mirrorSequence) {
+      plans.push({ event, start, end: start });
+      continue;
+    }
+    const receivedAt = Date.now();
+    const elapsedMs =
+      "elapsedMs" in event && event.elapsedMs != null
+        ? event.elapsedMs
+        : Math.max(0, event.occurredAt - current.createdAt);
+    let phase: LocalRunPhase = mirrorPhase;
+    let code: RunStreamEventCode;
+    let nextValues: Partial<typeof localRunSessions.$inferInsert>;
+    let report: ReturnType<typeof localReportRow> | null = null;
+    if (event.type === "progress") {
+      if (phaseOrder.indexOf(event.phase) < phaseOrder.indexOf(mirrorPhase)) {
+        plans.push({ event, start, end: start });
+        continue;
+      }
+      phase = event.phase;
+      code = sharedProgressCode(event.code, event.phase);
+      nextValues = { phase, lastEventSequence: event.sequence, updatedAt: receivedAt };
+    } else if (event.type === "completed") {
+      const sent = event.report;
+      if (
+        sent.benchmarkId !== current.benchmarkId ||
+        sent.benchmarkVersion !== current.benchmarkVersion ||
+        sent.repositoryFullName?.toLowerCase() !== current.repositoryFullName.toLowerCase() ||
+        sent.sha !== current.sha
+      ) {
+        // Raised from the plan, before any statement of this batch has run.
+        throw new ApiHttpError(409, "invalid_request", "The completed report does not match this live run.");
+      }
+      report = localReportRow(device.userId, event.report);
+      phase = "scoring";
+      code = "run.completed";
+      nextValues = {
+        status: "succeeded",
+        phase,
+        reportId: report.reportId,
+        lastEventSequence: event.sequence,
+        updatedAt: receivedAt,
+        finishedAt: receivedAt,
+      };
+    } else {
+      phase = event.phase;
+      code = sharedFailureCode(event.code);
+      nextValues = {
+        status: "failed",
+        phase,
+        failureDetail: code,
+        lastEventSequence: event.sequence,
+        updatedAt: receivedAt,
+        finishedAt: receivedAt,
+      };
+    }
+    // A completed event's report is saved in the same transaction, under the
+    // same condition, and its event and session update then also require the
+    // saved row: the report exists exactly when the run is recorded as
+    // finished for its team.
+    const reportSave = report
+      ? await guardedLocalReportSave(
+        db,
+        report,
+        exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(admitted)),
+      )
+      : null;
+    const accepted = report
+      ? and(admitted, reportSavedBy(db, report.reportId, device.userId), teamsStillTheirs(db, report.reportId, device.userId))
+      : admitted;
+    if (reportSave) statements.push(...reportSave);
+    statements.push(guardedRunStreamEventInsert(
+      db,
+      surfaceId,
+      {
+        eventId: event.eventId,
+        source: "local",
+        sourceRunId: current.id,
+        sourceSequence: event.sequence,
+        phase,
+        code,
+        occurredAt: event.occurredAt,
+        elapsedMs,
+        progress: event.type === "progress" ? (event.progress ?? null) : null,
+      },
+      exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(accepted)),
+    ));
+    statements.push(db.update(localRunSessions).set(nextValues).where(accepted));
+    plans.push({ event, start, end: statements.length });
+    mirrorStatus = report ? "succeeded" : event.type === "failed" ? "failed" : mirrorStatus;
+    mirrorPhase = phase;
+    mirrorSequence = event.sequence;
   }
 
-  const receivedAt = Date.now();
-  const elapsedMs =
-    "elapsedMs" in event && event.elapsedMs != null
-      ? event.elapsedMs
-      : Math.max(0, event.occurredAt - current.createdAt);
-  let phase: LocalRunPhase = current.phase as LocalRunPhase;
-  let code: RunStreamEventCode;
-  let nextValues: Partial<typeof localRunSessions.$inferInsert>;
-  let report: ReturnType<typeof localReportRow> | null = null;
-  if (event.type === "progress") {
-    const phaseOrder: LocalRunPhase[] = ["preparing", "contract_check", "evaluating", "scoring"];
-    if (phaseOrder.indexOf(event.phase) < phaseOrder.indexOf(current.phase as LocalRunPhase)) {
-      return { duplicate: true, surfaceId };
+  // db.batch's signature demands at least one statement; the length check is
+  // what makes the assertion true.
+  const results = statements.length
+    ? await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]])
+    : [];
+
+  const outcomes: Array<{ duplicate: boolean; surfaceId: string }> = [];
+  let anyApplied = false;
+  for (const plan of plans) {
+    const applied = plan.end > plan.start &&
+      (results[plan.end - 1]?.meta.changes ?? 0) > 0;
+    if (applied) {
+      anyApplied = true;
+      outcomes.push({ duplicate: false, surfaceId });
+      continue;
     }
-    phase = event.phase;
-    code = sharedProgressCode(event.code, event.phase);
-    nextValues = { phase, lastEventSequence: event.sequence, updatedAt: receivedAt };
-  } else if (event.type === "completed") {
-    const sent = event.report;
-    if (
-      sent.benchmarkId !== current.benchmarkId ||
-      sent.benchmarkVersion !== current.benchmarkVersion ||
-      sent.repositoryFullName?.toLowerCase() !== current.repositoryFullName.toLowerCase() ||
-      sent.sha !== current.sha
-    ) {
-      throw new ApiHttpError(409, "invalid_request", "The completed report does not match this live run.");
+    // A leave that commits while this request was working also leaves the
+    // writes empty. That is a refusal, not a duplicate: the CLI must not be
+    // told the event arrived.
+    if (!(await isOnTeam(db, current.teamId, device.userId))) {
+      throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
     }
-    report = localReportRow(device.userId, event.report);
-    phase = "scoring";
-    code = "run.completed";
-    nextValues = {
-      status: "succeeded",
-      phase,
-      reportId: report.reportId,
-      lastEventSequence: event.sequence,
-      updatedAt: receivedAt,
-      finishedAt: receivedAt,
-    };
-  } else {
-    phase = event.phase;
-    code = sharedFailureCode(event.code);
-    nextValues = {
-      status: "failed",
-      phase,
-      failureDetail: code,
-      lastEventSequence: event.sequence,
-      updatedAt: receivedAt,
-      finishedAt: receivedAt,
-    };
+    if (plan.end > plan.start && plan.event.type === "completed") {
+      // The id was checked before the batch, but another account can save a
+      // report under it in between; the batch then writes nothing. Their
+      // report stands, and this event was not delivered.
+      await refuseOthersReportId(db, plan.event.report.reportId, device.userId);
+      // Nothing was written because a run on a team the author left points at
+      // this report id: say so, rather than calling the event a duplicate.
+      const [frozenBy] = await db
+        .select({ id: localRunSessions.id })
+        .from(localRunSessions)
+        .where(and(
+          eq(localRunSessions.reportId, plan.event.report.reportId),
+          notExists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
+            eq(teamMembers.teamId, localRunSessions.teamId),
+            eq(teamMembers.userId, device.userId),
+          ))),
+        ))
+        .limit(1);
+      if (frozenBy) throw new ApiHttpError(409, "forbidden", REPORT_ID_FROZEN);
+    }
+    outcomes.push({ duplicate: true, surfaceId });
   }
-  // The session's new state and the stream event that reports it commit
-  // together. Written apart, a failure between them left the session advanced,
-  // so the CLI's retry of that event read as a duplicate and the console never
-  // showed it. Both statements carry the same admission condition, and nothing
-  // runs between them inside the batch, so the event is written exactly when
-  // this request's update applies. A request that lost the race writes neither.
-  //
-  // A completed event's report is saved in the same batch, under the same
-  // condition, and the event and session then also require the saved row: the
-  // report exists exactly when the run is recorded as finished for its team.
-  const admitted = and(
-    eq(localRunSessions.id, current.id),
-    eq(localRunSessions.status, "running"),
-    lt(localRunSessions.lastEventSequence, event.sequence),
-    onTeam(db, current.teamId, device.userId),
-  );
-  const reportSave = report
-    ? await guardedLocalReportSave(
-      db,
-      report,
-      exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(admitted)),
-    )
-    : null;
-  // The row exists and is the author's whether this payload was saved or a
-  // run on a team the author left froze an older one, so acceptance also
-  // requires what the update required. Otherwise team B's run finished with
-  // team A's old report under the same id.
-  const accepted = report
-    ? and(admitted, reportSavedBy(db, report.reportId, device.userId), teamsStillTheirs(db, report.reportId, device.userId))
-    : admitted;
-  const eventInsert = guardedRunStreamEventInsert(
-    db,
-    surfaceId,
-    {
-      eventId: event.eventId,
-      source: "local",
-      sourceRunId: current.id,
-      sourceSequence: event.sequence,
-      phase,
-      code,
-      occurredAt: event.occurredAt,
-      elapsedMs,
-      progress: event.type === "progress" ? (event.progress ?? null) : null,
-    },
-    exists(db.select({ id: localRunSessions.id }).from(localRunSessions).where(accepted)),
-  );
-  const sessionUpdate = db.update(localRunSessions).set(nextValues).where(accepted);
-  const results = reportSave
-    ? await db.batch([reportSave[0], reportSave[1], eventInsert, sessionUpdate])
-    : await db.batch([eventInsert, sessionUpdate]);
-  const updated = results[results.length - 1];
-  const duplicate = (updated.meta.changes ?? 0) === 0;
-  // A leave that commits between the membership read above and this batch
-  // also leaves both writes empty. That is a refusal, not a duplicate: the
-  // CLI must not be told the event arrived.
-  if (duplicate && !(await isOnTeam(db, current.teamId, device.userId))) {
-    throw new ApiHttpError(403, "forbidden", LEFT_RUN_TEAM);
-  }
-  if (duplicate && report) {
-    // The id was checked before the batch, but another account can save a
-    // report under it in between; the batch then writes nothing. Their
-    // report stands, and this event was not delivered.
-    await refuseOthersReportId(db, report.reportId, device.userId);
-    // Nothing was written because a run on a team the author left points at
-    // this report id: say so, rather than calling the event a duplicate.
-    const [frozenBy] = await db
-      .select({ id: localRunSessions.id })
-      .from(localRunSessions)
-      .where(and(
-        eq(localRunSessions.reportId, report.reportId),
-        notExists(db.select({ userId: teamMembers.userId }).from(teamMembers).where(and(
-          eq(teamMembers.teamId, localRunSessions.teamId),
-          eq(teamMembers.userId, device.userId),
-        ))),
-      ))
-      .limit(1);
-    if (frozenBy) throw new ApiHttpError(409, "forbidden", REPORT_ID_FROZEN);
-  }
-  if (!duplicate) await settleRunStreamEvents(db, surfaceId);
-  return { duplicate, surfaceId };
+  if (anyApplied) await settleRunStreamEvents(db, surfaceId);
+  return outcomes;
+}
+
+async function acceptLocalRunEvent(
+  env: AppEnv["Bindings"],
+  device: { deviceId: string; userId: string },
+  sessionId: string,
+  event: LocalRunEvent,
+): Promise<{ duplicate: boolean; surfaceId: string }> {
+  const [outcome] = await acceptLocalRunEvents(env, device, sessionId, [event]);
+  return outcome;
 }
 
 function publishSurfaceInBackground(
@@ -543,20 +607,17 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/local-runs/:id/events/batch", async (c) => {
     const device = await requireDevice(c);
     const body = await parseBody(c, LocalRunEventBatchSchema);
-    let surfaceId: string | null = null;
-    let accepted = 0;
-    for (const event of body.events) {
-      const result = await acceptLocalRunEvent(c.env, device, c.req.param("id"), event);
-      surfaceId = result.surfaceId;
-      if (!result.duplicate) accepted += 1;
-    }
-    if (!surfaceId) throw new ApiHttpError(400, "invalid_request", "No local run events were supplied.");
-    publishSurfaceInBackground(c, surfaceId, c.req.param("id"));
+    // One transaction for the whole batch: the CLI does not retry a batch, so
+    // the portal either records all of it or tells the CLI none of it landed.
+    const outcomes = await acceptLocalRunEvents(c.env, device, c.req.param("id"), body.events);
+    const accepted = outcomes.filter((outcome) => !outcome.duplicate).length;
+    if (!outcomes[0]) throw new ApiHttpError(400, "invalid_request", "No local run events were supplied.");
+    publishSurfaceInBackground(c, outcomes[0].surfaceId, c.req.param("id"));
     return respond(c, LocalRunEventBatchResponseSchema, {
       ok: true,
       accepted,
       duplicate: accepted === 0,
-      discord: await discordState(c.env, surfaceId),
+      discord: await discordState(c.env, outcomes[0].surfaceId),
     });
   });
 }
