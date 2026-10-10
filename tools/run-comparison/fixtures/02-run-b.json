@@ -1,0 +1,55 @@
+{
+  "benchmarkId": "audio-identification",
+  "benchmarkVersion": 1,
+  "command": "run",
+  "contractVersion": "cogworks.submissions.v2",
+  "diagnostics": [
+    "Synthetic diagnostic: identification falls gradually from clean clips toward shifted ones, without a single break (fixture text).",
+    "Synthetic diagnostic: the weakest cell is the pitch shift (fixture text)."
+  ],
+  "dirty": false,
+  "finishedAt": 1789380597761,
+  "metrics": [
+    {
+      "help": "How often the right song came back first. Synthetic help text written for the fixture factory.",
+      "higherIsBetter": true,
+      "key": "identification_score",
+      "label": "Identification score",
+      "precision": 4,
+      "primary": true,
+      "unit": null,
+      "value": 0.6125
+    },
+    {
+      "help": "1/N for a catalog of N songs. Synthetic help text.",
+      "higherIsBetter": true,
+      "key": "chance_top1",
+      "label": "Chance",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "identification_score",
+      "role": "floor",
+      "unit": null,
+      "value": 0.0333
+    },
+    {
+      "higherIsBetter": false,
+      "key": "ranking_failure_rate",
+      "label": "Wrong song ranked first",
+      "precision": 3,
+      "primary": false,
+      "unit": null,
+      "value": 0.15
+    }
+  ],
+  "outputDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "pluginVersion": "0.1.0",
+  "reportId": "local_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "repositoryFullName": "SamGu-NRX/cogportal-demo-week1",
+  "repositoryId": 4,
+  "sdkVersion": "0.2.0",
+  "sha": "2222222222222222222222222222222222222222",
+  "startedAt": 1789380585807,
+  "weightsUploaded": [],
+  "weightsUsed": []
+}
