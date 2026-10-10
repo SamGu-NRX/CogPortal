@@ -1,0 +1,5 @@
+{
+  "apps/portal/worker/services/process-signals.ts": "1a99d96c379889ad4bad8c8ad4e1d473a08827fc6d0cfed497786e0eff84cd60",
+  "note": "sha256 of the two builder sources this study measures. A mismatch means the sources drifted and the study must be re-frozen and re-run before its results mean anything.",
+  "python/cogbench/src/cogbench/process.py": "b24d40c16d186486b67bc826db68094b8a6150b06aeef5affd172192bc0f18aa"
+}
