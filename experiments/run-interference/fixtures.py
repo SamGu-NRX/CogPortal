@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 ADAPTERS_DIR = HERE / "fixtures" / "adapters"
 
 #: The fixture adapters, by module name in fixtures/adapters/.
-ADAPTER_NAMES = ("clean_reuse", "contaminated_all", "slow_sleeper", "quick_sleeper")
+ADAPTER_NAMES = ("clean_reuse", "contaminated_all", "slow_sleeper", "quick_sleeper", "mode_variant")
 
 #: Module name under which the shared registry imports itself. Adapters do
 #: ``import shared_registry``; the loader puts the adapters directory on

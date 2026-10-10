@@ -101,23 +101,93 @@ def _status_counts(runs: List[Dict[str, Any]]) -> Dict[str, int]:
     return counts
 
 
-def compare_sequential_vs_concurrent(summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Do clean batches answer identically regardless of scheduling?
+def _answer_identity(run: Dict[str, Any]) -> str:
+    """Match key for two runs that should answer identically: the adapter
+    plus a canonical form of its DECLARED inputs. The supervisor hands each
+    run its own scratch directory, so the per-case 'workspace' field is
+    environment, not question, and is stripped. The pre-run 'before'
+    snapshot is the question actually asked — a mutated 'after' state must
+    not split one question into two identities. Mode, run index, and
+    scheduling are deliberately not part of the identity either: those are
+    the things that must not change the answer."""
 
-    Every clean batch's runs should collapse to a single output digest (the
-    fresh-import answer); a spread within a clean batch, or between the
-    sequential and concurrent forms of the same adapter set, would itself be
-    interference. Flagged batches are excluded — they are measuring leaks,
-    not equivalence.
+    inputs = run.get("inputs")
+    if isinstance(inputs, dict):  # {"before": [...], "after": [...]} snapshots
+        declared = inputs.get("before", inputs.get("after"))
+        if declared is not None:
+            inputs = declared
+    if isinstance(inputs, list):
+        inputs = [{key: value for key, value in case.items() if key != "workspace"}
+                  if isinstance(case, dict) else case for case in inputs]
+    return json.dumps({"adapter": run["adapter"], "inputs": inputs},
+                      sort_keys=True, default=str)
+
+
+def compare_batch_answers(runs_a: List[Dict[str, Any]],
+                          runs_b: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Actual digest agreement between two run sets, by matched identity.
+
+    The earlier comparison counted DISTINCT digests per batch: two different
+    constant answers (X once in the sequential leg, Y once in the concurrent
+    leg) both read as 'no spread' and passed as identical. This comparison
+    indexes runs by adapter/input identity and requires both legs to have
+    produced the SAME digest set for every identity present in both. Runs
+    without an output digest (timed out or failed) carry no answer and are
+    excluded rather than treated as a third answer.
     """
 
-    clean = [s for s in summaries if not s["flagged_signals"]]
-    rows = [{"id": s["id"], "mode": s["mode"], "concurrency": s["concurrency"],
-             "adapters": s["adapters"], "distinct_digests": s["distinct_output_digests"]}
-            for s in clean]
-    spread = {row["id"]: row["distinct_digests"] for row in rows if row["distinct_digests"] > 1}
-    verdict = "identical" if rows and not spread else ("differs" if spread else "no-clean-batches")
-    return {"clean_batches": rows, "batches_with_digest_spread": spread, "verdict": verdict}
+    def index(runs: List[Dict[str, Any]]) -> Dict[str, set]:
+        index: Dict[str, set] = {}
+        for run in runs:
+            digest = run["output"]["predictions_digest"]
+            if digest:
+                index.setdefault(_answer_identity(run), set()).add(digest)
+        return index
+
+    index_a, index_b = index(runs_a), index(runs_b)
+    matched = sorted(set(index_a) & set(index_b))
+    identities = [{
+        "adapter": json.loads(key)["adapter"],
+        "inputs": json.loads(key)["inputs"],
+        "digests_first": sorted(index_a[key]),
+        "digests_second": sorted(index_b[key]),
+        "agree": index_a[key] == index_b[key],
+    } for key in matched]
+    if not matched:
+        verdict = "no-shared-identities"
+    elif all(row["agree"] for row in identities):
+        verdict = "identical"
+    else:
+        verdict = "differs"
+    return {"matched_identities": identities, "verdict": verdict}
+
+
+def build_answer_agreements(pairs: List[Dict[str, Any]],
+                            batch_records: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Pairwise digest-identity comparisons the manifest declares.
+
+    Each pair asserts what two legs of the same adapter set must do:
+    'identical' for the clean equivalence pair, 'differs' for the
+    different-answer control that proves the comparison can fail.
+    """
+
+    rows: List[Dict[str, Any]] = []
+    for pair in pairs:
+        first = batch_records.get(str(pair["sequential"]))
+        second = batch_records.get(str(pair["concurrent"]))
+        if first is None or second is None:
+            rows.append({"id": pair["id"], "verdict": "missing-batches",
+                         "agrees_with_expectation": False})
+            continue
+        row: Dict[str, Any] = {"id": pair["id"],
+                               "sequential": pair["sequential"],
+                               "concurrent": pair["concurrent"]}
+        row.update(compare_batch_answers(first["runs"], second["runs"]))
+        expect = str(pair.get("expect", "identical"))
+        row["expect"] = expect
+        row["agrees_with_expectation"] = row["verdict"] == expect
+        rows.append(row)
+    return rows
 
 
 def run_manifest(manifest_path: Path, results_root: Path) -> Dict[str, Any]:
@@ -130,6 +200,7 @@ def run_manifest(manifest_path: Path, results_root: Path) -> Dict[str, Any]:
     prior_runs = sorted(entry.name for entry in results_root.iterdir() if entry.is_dir())
     supervisor = RunSupervisor(limits=Limits(), log=lambda line: None)
     batch_summaries: List[Dict[str, Any]] = []
+    batch_records: Dict[str, Dict[str, Any]] = {}
     sweep_record: Dict[str, List[int]] = {"reaped": [], "remaining": []}
     started = time.monotonic()
     try:
@@ -137,6 +208,7 @@ def run_manifest(manifest_path: Path, results_root: Path) -> Dict[str, Any]:
             batch = supervisor.run_batch(spec)
             batch_path = out_dir / "batch-{}.json".format(spec["id"])
             batch_path.write_text(json.dumps(batch, indent=1, sort_keys=True), encoding="utf-8")
+            batch_records[str(spec["id"])] = batch
             summary = summarize_batch(batch)
             summary["artifact"] = str(batch_path.relative_to(results_root))
             summary["artifact_sha256"] = sha256_file(batch_path)
@@ -167,7 +239,8 @@ def run_manifest(manifest_path: Path, results_root: Path) -> Dict[str, Any]:
         },
         "results_dir": {"prior_runs": prior_runs, "files_written": files_after},
         "batches": batch_summaries,
-        "sequential_vs_concurrent": compare_sequential_vs_concurrent(batch_summaries),
+        "answer_agreements": build_answer_agreements(
+            manifest.get("answer_agreement_pairs", []), batch_records),
     }
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=1, sort_keys=True), encoding="utf-8")
@@ -181,6 +254,77 @@ def run_manifest(manifest_path: Path, results_root: Path) -> Dict[str, Any]:
         before["study_scratch_dirs"], after["study_scratch_dirs"],
         len(sweep_record["reaped"])))
     return summary
+
+
+def replay_answer_agreements(summary: Dict[str, Any],
+                             batch_by_id: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Re-derive the recorded answer-agreement rows from saved artifacts.
+
+    Current summaries record explicit answer_agreements pairs; older
+    summaries recorded the global sequential_vs_concurrent verdict, which is
+    re-derived here as pairwise digest-identity agreement across that
+    section's clean batches. A row matches only when the re-derived verdict
+    equals the recorded one - so the different-answer control that the old
+    distinct-count comparison would have passed now fails any run that
+    recorded it as identical.
+    """
+
+    rows: List[Dict[str, Any]] = []
+    if "answer_agreements" in summary:
+        for recorded in summary["answer_agreements"]:
+            first = batch_by_id.get(str(recorded.get("sequential")))
+            second = batch_by_id.get(str(recorded.get("concurrent")))
+            if first is None or second is None:
+                rows.append({"id": recorded["id"], "recorded_verdict": recorded.get("verdict"),
+                             "derived_verdict": "missing-batches", "matches": False})
+                continue
+            derived = compare_batch_answers(first["runs"], second["runs"])
+            derived_agrees = derived["verdict"] == str(recorded.get("expect", "identical"))
+            rows.append({
+                "id": recorded["id"],
+                "sequential": recorded.get("sequential"),
+                "concurrent": recorded.get("concurrent"),
+                "recorded_verdict": recorded.get("verdict"),
+                "derived_verdict": derived["verdict"],
+                "recorded_agrees": recorded.get("agrees_with_expectation"),
+                "derived_agrees": derived_agrees,
+                "matched_identities": derived["matched_identities"],
+                "matches": (derived["verdict"] == recorded.get("verdict")
+                            and derived_agrees == recorded.get("agrees_with_expectation")),
+            })
+    elif "sequential_vs_concurrent" in summary:
+        recorded = summary["sequential_vs_concurrent"]
+        clean_ids = [row["id"] for row in recorded.get("clean_batches", [])]
+        pairwise = []
+        verdicts = []
+        for i in range(len(clean_ids)):
+            for j in range(i + 1, len(clean_ids)):
+                first = batch_by_id.get(clean_ids[i])
+                second = batch_by_id.get(clean_ids[j])
+                if first is None or second is None:
+                    continue
+                comparison = compare_batch_answers(first["runs"], second["runs"])
+                # Only pairs with matched identities are informative: two
+                # clean batches running different adapters share no question,
+                # which is compatible with identical answers, not evidence
+                # of divergence.
+                if comparison["matched_identities"]:
+                    pairwise.append({"batches": [clean_ids[i], clean_ids[j]],
+                                     "verdict": comparison["verdict"],
+                                     "matched_identities": comparison["matched_identities"]})
+                    verdicts.append(comparison["verdict"])
+        if not verdicts:
+            derived_verdict = "no-shared-identities"
+        elif all(v == "identical" for v in verdicts):
+            derived_verdict = "identical"
+        else:
+            derived_verdict = "differs"
+        rows.append({"id": "sequential_vs_concurrent",
+                     "recorded_verdict": recorded.get("verdict"),
+                     "derived_verdict": derived_verdict,
+                     "pairwise": pairwise,
+                     "matches": derived_verdict == recorded.get("verdict")})
+    return rows
 
 
 def replay_results(results_root: Path) -> int:
@@ -211,6 +355,7 @@ def replay_results(results_root: Path) -> int:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
     table: List[Dict[str, Any]] = []
+    batch_by_id: Dict[str, Dict[str, Any]] = {}
     for recorded in summary["batches"]:
         # recorded["artifact"] is stored relative to results/, so resolve it
         # against the run dir first, then the results root.
@@ -220,6 +365,7 @@ def replay_results(results_root: Path) -> int:
         if sha256_file(batch_path) != recorded["artifact_sha256"]:
             raise SystemExit("artifact changed since the run: {}".format(batch_path))
         batch = json.loads(batch_path.read_text(encoding="utf-8"))
+        batch_by_id[str(recorded["id"])] = batch
         fresh = detector.evaluate(batch["runs"], batch["limits"], batch["module_state_series"])
         runs_table = []
         for run in batch["runs"]:
@@ -244,13 +390,15 @@ def replay_results(results_root: Path) -> int:
             "runs": runs_table,
         })
 
-    all_match = all(row["matches"] for row in table)
+    agreement_rows = replay_answer_agreements(summary, batch_by_id)
+    all_match = all(row["matches"] for row in table) and all(row["matches"] for row in agreement_rows)
     replay_record = {
         "replayed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "results_dir": str(results_root),
         "summary_sha256": sha256_file(summary_path),
         "all_match": all_match,
         "batches": table,
+        "answer_agreements": agreement_rows,
     }
     replay_path = results_root / "replay.json"
     replay_path.write_text(json.dumps(replay_record, indent=1, sort_keys=True), encoding="utf-8")
@@ -266,6 +414,14 @@ def replay_results(results_root: Path) -> int:
             print("    {:28s} fixture={:18s} status={:10s} drift={}".format(
                 run_row["run_id"], run_row["fixture"], run_row["status"],
                 run_row["drift_from_fresh_import"]))
+    for row in agreement_rows:
+        print("  agreement {:24s} recorded={} derived={} match={}".format(
+            row["id"], row["recorded_verdict"], row["derived_verdict"], row["matches"]))
+        for identity in row.get("matched_identities", []):
+            print("    identity adapter={:18s} agree={} first={} second={}".format(
+                identity["adapter"], identity["agree"],
+                ",".join(d[:12] for d in identity["digests_first"]),
+                ",".join(d[:12] for d in identity["digests_second"])))
     print("replay table written to {}".format(replay_path))
     return 0 if all_match else 1
 

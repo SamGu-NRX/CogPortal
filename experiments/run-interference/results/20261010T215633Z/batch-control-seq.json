@@ -1,0 +1,298 @@
+{
+ "baselines": {
+  "mode_variant": {
+   "output_digest": "a5412f5fd8e5c4096cbe7ab7f5e87c8ce263aeae548220985b3010ac1e58c741",
+   "status": "completed"
+  }
+ },
+ "batch_id": "control-seq",
+ "counts": {
+  "fds": {
+   "after_batch": 7,
+   "before_batch": 7
+  },
+  "files": {
+   "after": {
+    "count": 0,
+    "names": []
+   },
+   "after_cleanup": {
+    "count": 0,
+    "names": []
+   },
+   "before": {
+    "count": 0,
+    "names": []
+   },
+   "during_max_per_run": 0
+  },
+  "processes": {
+   "after": 0,
+   "before": 0,
+   "during_max": 0
+  }
+ },
+ "limits": {
+  "capture_bytes": 262144,
+  "child_memory_bytes": 1073741824,
+  "flood_bytes": 131072,
+  "run_timeout_seconds": 10.0,
+  "sample_interval_seconds": 0.02
+ },
+ "limits_enforcement": {
+  "children": "enforced after the run (supervisor reaps descendants it owns)",
+  "cpu": "observed",
+  "handles": "observed (leaked descriptors recorded, not closed \u2014 they may belong to the host process)",
+  "memory": "observed",
+  "note": "an in-process run cannot be stopped or bounded without killing the supervisor itself; the process boundary is the only real enforcement and this mode deliberately has none",
+  "output": "observed (capped in the capture sink; cannot stop a flood in-process)",
+  "wall_clock": "observed"
+ },
+ "module_state_series": [
+  {
+   "label": "before",
+   "states": {
+    "mode_variant": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "_CONC_ANSWER": {
+      "detail": "TypeError",
+      "kind": "unfingerprintable"
+     },
+     "_SEQ_ANSWER": {
+      "detail": "TypeError",
+      "kind": "unfingerprintable"
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "os": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_000",
+   "states": {
+    "mode_variant": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "_CONC_ANSWER": {
+      "detail": "TypeError",
+      "kind": "unfingerprintable"
+     },
+     "_SEQ_ANSWER": {
+      "detail": "TypeError",
+      "kind": "unfingerprintable"
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "os": {
+      "kind": "static:module"
+     }
+    }
+   }
+  }
+ ],
+ "runs": [
+  {
+   "adapter": "mode_variant",
+   "baseline_output_digest": "a5412f5fd8e5c4096cbe7ab7f5e87c8ce263aeae548220985b3010ac1e58c741",
+   "capture": {
+    "bytes": 59,
+    "dropped_bytes": 0,
+    "head": "mode_variant: concurrency=1 answer=mode-variant/sequential\n",
+    "lines": 1,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 24452,
+     "scratch_files": 0,
+     "t_ms": 4
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 24452,
+     "scratch_files": 0,
+     "t_ms": 13
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 3,
+      "pipe": 3
+     },
+     "count": 7,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 4,
+      "pipe": 3
+     },
+     "count": 8,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc/36/stat",
+      "4": "/sys/fs/cgroup/ptys",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 0,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-control-seq-s586soap/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-control-seq-s586soap/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-control-seq-s586soap/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-control-seq-s586soap/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-control-seq-s586soap/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-control-seq-s586soap/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 24452,
+    "rss_before_kb": 24436
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "a5412f5fd8e5c4096cbe7ab7f5e87c8ce263aeae548220985b3010ac1e58c741",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "control-seq/run-000",
+   "scratch": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0101
+  }
+ ],
+ "spec": {
+  "adapters": [
+   "mode_variant"
+  ],
+  "concurrency": 1,
+  "id": "control-seq",
+  "interrupt_after_seconds": null,
+  "mode": "inprocess",
+  "purpose": "different-answer control, sequential leg (constant answer A)",
+  "runs": 1,
+  "timeout_seconds": 10.0
+ },
+ "supervision": {
+  "reaped": [],
+  "remaining_after_sweep": []
+ }
+}

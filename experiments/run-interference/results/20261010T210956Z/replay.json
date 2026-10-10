@@ -1,5 +1,63 @@
 {
  "all_match": true,
+ "answer_agreements": [
+  {
+   "derived_verdict": "identical",
+   "id": "sequential_vs_concurrent",
+   "matches": true,
+   "pairwise": [
+    {
+     "batches": [
+      "sequential-clean",
+      "concurrent-clean"
+     ],
+     "matched_identities": [
+      {
+       "adapter": "clean_reuse",
+       "agree": true,
+       "digests_first": [
+        "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa"
+       ],
+       "digests_second": [
+        "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa"
+       ],
+       "inputs": [
+        {
+         "n": 3,
+         "xs": [
+          1,
+          2,
+          3
+         ]
+        },
+        {
+         "n": 4,
+         "xs": [
+          10,
+          20,
+          30,
+          40
+         ]
+        },
+        {
+         "n": 5,
+         "xs": [
+          5,
+          5,
+          5,
+          5,
+          5
+         ]
+        }
+       ]
+      }
+     ],
+     "verdict": "identical"
+    }
+   ],
+   "recorded_verdict": "identical"
+  }
+ ],
  "batches": [
   {
    "artifact": "20261010T210956Z/batch-sequential-mixed.json",
@@ -196,7 +254,7 @@
    ]
   }
  ],
- "replayed_utc": "2026-10-10T21:15:03Z",
+ "replayed_utc": "2026-10-10T21:57:35Z",
  "results_dir": "experiments/run-interference/results/20261010T210956Z",
  "summary_sha256": "0e8f480a52b3090afa3bb1321113af5f4bca05b6a96056279d9c38537e32c8b1"
 }
