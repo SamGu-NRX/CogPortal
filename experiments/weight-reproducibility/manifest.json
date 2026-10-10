@@ -1,0 +1,145 @@
+{
+  "schema": "wr-manifest/1",
+  "experiment": "weight-reproducibility",
+  "baseBranch": "fix/device-link-recovery-20261004",
+  "purpose": "A matching receipt proves internal consistency of a recorded lineage, not that the evaluator sees those bytes or that they are the bytes any earlier lineage meant. Each case measures one way that gap opens, offline, on tiny synthetic artifacts, against the production receipt module loaded from this tree.",
+  "sourceRefs": [
+    {
+      "name": "prepared_environment",
+      "path": "apps/runner-modal/src/cogworks_runner/prepared_environment.py",
+      "role": "schema-1 prepared-artifact receipt: field set, weight records, reuse rules"
+    },
+    {
+      "name": "weight_sync_portal",
+      "path": "apps/portal/worker/services/weights.ts",
+      "role": "owned-storage weight sync: content-addressed keys, spellings, legacy keys"
+    },
+    {
+      "name": "weight_sync_runner",
+      "path": "apps/runner-modal/src/cogworks_runner/modal_app.py",
+      "role": "runner preparation: streamed download, chunked sha256, size+digest refusal"
+    },
+    {
+      "name": "protocol",
+      "path": "packages/contracts/src/protocol.ts",
+      "role": "WeightFile wire record shared by portal and runner"
+    }
+  ],
+  "cases": [
+    {
+      "id": "baseline",
+      "runner": "baseline",
+      "family": "baseline",
+      "expect": {
+        "receipt": { "storage": "matched", "prepared-receipt": "accepted" },
+        "prediction": [ { "loaded": true, "diverged": false } ]
+      }
+    },
+    {
+      "id": "substitution-store-refusal",
+      "runner": "substitution_store_refusal",
+      "family": "same-size-substitution",
+      "expect": {
+        "receipt": { "storage": "mismatched", "prepared-receipt": "accepted" },
+        "prediction": [ { "loaded": false } ]
+      }
+    },
+    {
+      "id": "substitution-receipt-consistent",
+      "runner": "substitution_receipt_consistent",
+      "family": "same-size-substitution",
+      "expect": {
+        "receipt": { "prepared-receipt": "accepted" },
+        "prediction": [ { "loaded": true, "diverged": false }, { "loaded": true, "diverged": true } ]
+      }
+    },
+    {
+      "id": "alias-repo-spelling",
+      "runner": "alias_repo_spelling",
+      "family": "alias",
+      "expect": {
+        "receipt": { "storage (mixed-case lookup)": "matched", "prepared-receipt": "refused" },
+        "prediction": [ { "loaded": true, "diverged": false } ]
+      }
+    },
+    {
+      "id": "alias-path-spelling",
+      "runner": "alias_path_spelling",
+      "family": "alias",
+      "expect": {
+        "receipt": { "storage": "refused" },
+        "prediction": [ { "loaded": true, "diverged": false } ]
+      }
+    },
+    {
+      "id": "alias-digest-keys",
+      "runner": "alias_digest_keys",
+      "family": "alias",
+      "expect": {
+        "receipt": { "storage (digest D1)": "matched", "storage (digest D2)": "matched" },
+        "prediction": []
+      }
+    },
+    {
+      "id": "missing-weight",
+      "runner": "missing_weight",
+      "family": "missing-partial",
+      "expect": {
+        "receipt": { "storage": "missing", "prepared-receipt": "accepted" },
+        "prediction": [ { "loaded": false } ]
+      }
+    },
+    {
+      "id": "partial-truncated-object",
+      "runner": "partial_truncated_object",
+      "family": "missing-partial",
+      "expect": {
+        "receipt": { "storage": "mismatched", "prepared-receipt": "accepted" },
+        "prediction": [ { "loaded": false } ]
+      }
+    },
+    {
+      "id": "partial-upload-short",
+      "runner": "partial_upload_short",
+      "family": "missing-partial",
+      "expect": {
+        "receipt": { "storage (publication)": "refused", "storage (later lookup)": "missing" },
+        "prediction": []
+      }
+    },
+    {
+      "id": "changed-loader-bypass",
+      "runner": "changed_loader_bypass",
+      "family": "changed-loader",
+      "expect": {
+        "receipt": { "prepared-receipt": "accepted" },
+        "prediction": [ { "loaded": false }, { "loaded": true, "diverged": true } ]
+      }
+    },
+    {
+      "id": "state-mutation-after-load",
+      "runner": "state_mutation_after_load",
+      "family": "state-mutation",
+      "expect": {
+        "receipt": { "storage": "matched", "prepared-receipt": "accepted" },
+        "prediction": [ { "loaded": true, "diverged": false }, { "loaded": true, "diverged": true } ]
+      }
+    },
+    {
+      "id": "cache-publication",
+      "runner": "cache_publication",
+      "family": "cache-publication",
+      "expect": {
+        "receipt": {
+          "complete": "matched",
+          "interrupted (payload only)": "refused",
+          "interrupted (unsealed index)": "refused",
+          "payload tampered after publish": "refused",
+          "index without payload": "refused",
+          "never published": "missing"
+        },
+        "prediction": []
+      }
+    }
+  ]
+}
