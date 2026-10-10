@@ -1,0 +1,19 @@
+{
+  "ablationCount": 7,
+  "counts": {
+    "bulk_upload": 2,
+    "empty": 1,
+    "fetch_failed": 1,
+    "usable": 6
+  },
+  "note": "History-type counts over the frozen scenarios in manifest.json. fetch_failed is a TypeScript-only state; the Python module cannot represent it (see FIELDS.md).",
+  "pythonVisibleCounts": {
+    "bulk_upload": 2,
+    "empty": 1,
+    "usable": 6
+  },
+  "totalScenarios": 10,
+  "tsOnlyCounts": {
+    "fetch_failed": 1
+  }
+}

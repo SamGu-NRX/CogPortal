@@ -1,0 +1,21 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": null,
+    "scoredRunCount": 0
+  },
+  "historyQuality": "usable",
+  "ownershipBreadth": {},
+  "stageFootprint": {},
+  "tsOnly": {
+    "historyFetchFailureReason": null,
+    "historyWindow": {
+      "commits": 4,
+      "truncated": false
+    },
+    "runsElsewhere": false,
+    "stageMapResolved": null,
+    "weekLabel": null
+  },
+  "windowCommits": 4
+}

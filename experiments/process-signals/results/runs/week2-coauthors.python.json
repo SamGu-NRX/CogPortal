@@ -1,0 +1,55 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": 1791028800000,
+    "scoredRunCount": 1
+  },
+  "historyQuality": "usable",
+  "ownershipBreadth": {
+    "descriptors": [
+      "dana"
+    ],
+    "matching": [
+      "dana"
+    ],
+    "profiles": [
+      "eli"
+    ],
+    "whispers": []
+  },
+  "stageFootprint": {
+    "descriptors": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790935200000,
+      "lastTouchAtMs": 1790935200000,
+      "unavailableReason": null
+    },
+    "matching": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1791108000000,
+      "lastTouchAtMs": 1791108000000,
+      "unavailableReason": null
+    },
+    "profiles": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1791021600000,
+      "lastTouchAtMs": 1791021600000,
+      "unavailableReason": null
+    },
+    "whispers": {
+      "available": true,
+      "commitCount": 0,
+      "distinctAuthorCount": 0,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": null
+    }
+  },
+  "windowCommits": 3
+}

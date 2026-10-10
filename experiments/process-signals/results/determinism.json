@@ -1,0 +1,73 @@
+{
+  "note": "Each arm ran twice per unit; hashes must agree. A cached/replayed run is compared in regeneration.json.",
+  "units": {
+    "ablate-coauthor": {
+      "python": "identical (pure function of frozen inputs)",
+      "ts": "subprocess determinism covered by scenario repeats"
+    },
+    "ablate-filename": {
+      "python": "identical (pure function of frozen inputs)",
+      "ts": "subprocess determinism covered by scenario repeats"
+    },
+    "ablate-insertions": {
+      "python": "identical (pure function of frozen inputs)",
+      "ts": "subprocess determinism covered by scenario repeats"
+    },
+    "ablate-run-status": {
+      "python": "identical (pure function of frozen inputs)",
+      "ts": "subprocess determinism covered by scenario repeats"
+    },
+    "ablate-scored-flag": {
+      "python": "identical (pure function of frozen inputs)",
+      "ts": "subprocess determinism covered by scenario repeats"
+    },
+    "ablate-timestamp": {
+      "python": "identical (pure function of frozen inputs)",
+      "ts": "subprocess determinism covered by scenario repeats"
+    },
+    "combined-many-changes": {
+      "python": "identical (pure function of frozen inputs)",
+      "ts": "subprocess determinism covered by scenario repeats"
+    },
+    "week1-empty": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week1-exact-sixty": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week1-fetch-failed-unauthorized": {
+      "python": "unexercisable (process.py has no fetch-failure input)",
+      "ts": "identical"
+    },
+    "week1-share-bulk": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week1-single-commit": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week1-spread-usable": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week1-unscored-only": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week2-coauthors": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week2-no-runs": {
+      "python": "identical",
+      "ts": "identical"
+    },
+    "week3-boundary-timing": {
+      "python": "identical",
+      "ts": "identical"
+    }
+  }
+}
