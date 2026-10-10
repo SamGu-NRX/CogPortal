@@ -1,0 +1,26 @@
+{
+  "applied": "inserted 'import numpy as np'",
+  "expectation": "restored must be False: a deliberately wrong repair fails the oracle",
+  "measured_input": "raw/fp_freq_sign/bundle.json (variant source copy)",
+  "observed_outcome": {
+    "metrics": {
+      "chance_top1": 0.125,
+      "clean_top1": 0.125,
+      "identification_score": 0.125,
+      "margin_separation": 0.5,
+      "median_identify_seconds": 0.0195,
+      "noisy_top1": 0.125,
+      "pitch_top1": 0.125,
+      "ranking_failure_rate": 0.0,
+      "retrieval_failure_rate": 0.375,
+      "short_clip_top1": 0.125,
+      "trivial_baseline_top1": 0.375
+    },
+    "outcome_split": "Outcome split over 64 scored queries: 8 top_1, 32 top_k, 24 retrieval_failure."
+  },
+  "oracle_agrees": true,
+  "post_capture": "wrong_repair.post.json",
+  "probe": "name_error repair applied to fp_freq_sign variant",
+  "restored": false,
+  "wrong_claim_source": "raw/name_error/bundle.json diagnosis"
+}

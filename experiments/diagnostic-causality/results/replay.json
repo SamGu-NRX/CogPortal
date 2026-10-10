@@ -1,0 +1,15 @@
+{
+  "agrees": true,
+  "mode": "replay",
+  "problems": [],
+  "source": "/home/user/work/cogportal-diag/experiments/diagnostic-causality/results",
+  "variants_replayed": [
+    "empty_result",
+    "fp_freq_sign",
+    "fp_swap",
+    "name_error",
+    "shape_pairs",
+    "signature",
+    "wrong_order"
+  ]
+}
