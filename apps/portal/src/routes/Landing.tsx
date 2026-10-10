@@ -23,10 +23,23 @@ import { pendingReturn } from "@/lib/pending-return";
  *
  * It cannot carry the setup commands: those need a clone URL and a track, and
  * a signed-out page has neither. They live on /setup, which knows both.
+ *
+ * The sign-in button promises GitHub only when the session read says GitHub
+ * sign-in is configured (the same flag SignInPage disables its button on,
+ * and one an anonymous /session already carries). Until the read answers, or
+ * when the answer is no, the button says "Sign in", which /signin can always
+ * honor. Beneath the buttons, one sentence names the steps sign-in starts,
+ * in the app's own words: nextStagePath lands a fresh sign-in on /join and
+ * then /connect, and a page whose last word is "sign in" leaves those two
+ * steps invisible until the student is inside them.
  */
 export function Landing() {
   const { data: session } = useSession();
   const template = session?.auth.templateRepo ?? null;
+  // Known only once the session read answers; before that (and when the
+  // deployment has no GitHub App) the CTA keeps the label every deployment
+  // can honor. See the CTA branch below.
+  const githubConfigured = session?.auth.githubConfigured === true;
   const saved = session?.user ? pendingReturn() : null;
   if (saved) return <Navigate to={saved} replace />;
   const next = session?.user ? nextStagePath(session) : null;
@@ -51,13 +64,23 @@ export function Landing() {
               </Link>
             ) : (
               <Link to="/signin" className={buttonClass("primary", "px-6")}>
-                <GitHubIcon />
-                Sign in with GitHub
+                {githubConfigured && <GitHubIcon />}
+                {githubConfigured ? "Sign in with GitHub" : "Sign in"}
               </Link>
             )}
             <Link to="/leaderboard" className={buttonClass("quiet")}>
               See this year's results
             </Link>
+            {/* The steps after sign-in, named the way the pages name them
+                (JoinPage, ConnectPage, SetupPage). Prose, not links: a signed-out
+                link to a gated route saves a return and bounces through /signin
+                (RequireStage), which is a redirect where a sentence would do. */}
+            {!next && (
+              <p className="w-full text-[14.5px] leading-[1.6] text-ink-secondary">
+                Signing in is the first of four steps: join the cohort, join or
+                start your team, then set up your machine.
+              </p>
+            )}
           </div>
         </div>
 
