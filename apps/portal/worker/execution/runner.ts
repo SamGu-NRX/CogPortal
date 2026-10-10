@@ -6,7 +6,7 @@ import {
   type RunJobV1,
   type WeightFile,
 } from "@cogworks/contracts/protocol";
-import { runSource } from "@cogworks/contracts/schema";
+import { EVALUATION_TIME_LIMIT_SECONDS, runSource } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
@@ -174,7 +174,7 @@ function buildRunJobInputs(
         benchmark.id === "language-search" || benchmark.id === "audio-identification"
           ? 4_096
           : 2_048,
-      timeoutSeconds: 900,
+      timeoutSeconds: EVALUATION_TIME_LIMIT_SECONDS,
       maxOutputBytes: 8 * 1_024,
     },
     ...(run.preparedArtifactId ? {} : { weights }),

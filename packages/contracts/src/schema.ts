@@ -1682,5 +1682,14 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 
 export const PRACTICE_LIMIT = 10;
 export const OFFICIAL_LIMIT = 3;
+
+/**
+ * The evaluation wall-time the portal dispatches with every hosted run, and
+ * the only number the failure copy may quote. `execution/runner.ts` sends it
+ * in the job's runtime block (protocol `timeoutSeconds`), the hosted runner
+ * holds the run to it, and the timeout copy below interpolates it — a changed
+ * limit reads correctly everywhere or not at all.
+ */
+export const EVALUATION_TIME_LIMIT_SECONDS = 900;
 export const ACTIVE_RUN_POLL_MS = 2000; // plan §4: 2-second active-run polling
 export const LOG_CAP_BYTES = 8 * 1024;

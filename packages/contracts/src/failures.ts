@@ -1,7 +1,7 @@
 /** Diagnostic copy and corrective actions for each failure category.
  * Failed executions do not consume practice or official quota.
  */
-import type { FailureCategory, Module } from "./schema";
+import { EVALUATION_TIME_LIMIT_SECONDS, type FailureCategory, type Module } from "./schema";
 
 export interface FailureCopy {
   /** Stable, student-visible code (mono chip). */
@@ -118,8 +118,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   timeout: {
     code: "E-TIMEOUT",
     title: "Evaluation exceeded the time limit",
-    explanation:
-      "Your submission ran past the 15-minute wall-time ceiling and was stopped.",
+    explanation: `Your submission ran past the ${EVALUATION_TIME_LIMIT_SECONDS / 60}-minute wall-time ceiling and was stopped.`,
     action:
       "Profile a single case locally, then batch the work your adapter repeats and stop re-loading model weights on every call.",
     reproCommand: "cogworks run --benchmark {benchmark}",
