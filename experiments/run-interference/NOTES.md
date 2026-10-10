@@ -137,6 +137,36 @@ predate the final manifest and were not retained).
   `leftover_children` go silent; the in-run signals still fire from
   child-side evidence).
 
+## M3 — replay agreement and witnesses (run `20261010T210956Z`)
+
+Replay command: `python experiments/run-interference/run.py --replay
+experiments/run-interference/results` — resolves the latest recorded run,
+verifies every batch artifact against the sha256 the run recorded for it
+(integrity: `verified` on all six), then re-runs the detector over the saved
+per-run evidence and compares the fresh verdict with the recorded one.
+
+Agreement check, per batch (full per-fixture table in
+`results/20261010T210956Z/replay.json`): all six batches match — recorded and
+re-derived flagged-signal sets are identical, and both agree with the
+manifest expectations. Per-fixture drift, re-derived from each run's own
+recorded digests (`predictions_digest` vs `baseline_output_digest`):
+
+- sequential-mixed: `contaminated_all` run 1 is the baseline (no drift — the
+  fresh import has not been contaminated yet); every following `clean_reuse`
+  run drifts (3/3) — the inheritance signature, reproduced from saved bytes.
+- Every clean batch (sequential-clean, concurrent-clean, timeout-bounded,
+  interrupted-batch): zero drift on every run.
+- isolated-contaminated: zero drift on the host side — the leaks happen
+  inside the child and die at the process boundary, while the detector still
+  flags the three in-run signals from child-side evidence.
+
+Witnesses (`witnesses/`, one small script per genuine contamination signal,
+plus the negative control; each exits 0 on PASS): `mutated_arrays.py`,
+`module_globals.py`, `unclosed_handles.py`, `leftover_children.py`,
+`output_flooding.py` — each runs the contaminated control through the real
+runner in-process and confirms its signal fires; `clean_reuse_negative.py`
+runs the clean control and confirms nothing is flagged. All six PASS.
+
 ## Status
 
 - Milestone 1 (supervisor + detector + tests, enforced/observed matrix):
@@ -144,4 +174,7 @@ predate the final manifest and were not retained).
 - Milestone 2 (manifest runs through the real runner, recorded counts):
   complete — run `20261010T210956Z` recorded under `results/`, all six
   batches agree with their manifest expectations, zero host leftovers.
-- Milestone 3 (replay agreement, witness scripts, handoff PR): pending.
+- Milestone 3 (replay agreement, witness scripts, handoff PR): complete —
+  replay ALL MATCH with artifact integrity verified, six witnesses PASS,
+  suite green (29 passed). The handoff PR from this branch carries the
+  Handoff section; this file records the study itself.
