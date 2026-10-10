@@ -129,9 +129,9 @@ def manifest_environment(manifest: dict) -> dict:
 
 def wrong_repair_probe(paths: dict, control_outcome: dict, scratch: Path) -> dict:
     """Apply the name_error claimed repair (a numpy import) to the
-    fp_time_sign variant. The import is harmless, the fingerprint defect
+    fp_freq_sign variant. The import is harmless, the fingerprint defect
     remains, and the oracle must NOT report restoration."""
-    target = paths["fp_time_sign"]
+    target = paths["fp_freq_sign"]
     wrong_claim = {
         "claimed_class": "name_error",
         "claimed_repair": {
