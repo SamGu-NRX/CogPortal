@@ -4,7 +4,7 @@ import type { ApiErrorCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { isGitHubUnauthorized } from "../github/client";
 
-type ApiStatus = 400 | 401 | 403 | 404 | 409 | 410 | 413 | 500 | 501 | 502;
+type ApiStatus = 400 | 401 | 403 | 404 | 409 | 410 | 413 | 500 | 501 | 502 | 503;
 
 export class ApiHttpError extends Error {
   constructor(

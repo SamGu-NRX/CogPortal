@@ -532,6 +532,39 @@ test("a repeated completion of the author's own report is still a duplicate", as
 });
 
 /**
+ * The CLI sends a batch once and never retries it (cli.py `_LiveRun._flush`).
+ * A refusal that only the batch's tail trips must therefore leave the
+ * batch's earlier events unwritten too: a console told "409" while its
+ * heartbeats had already advanced the session would show events the CLI
+ * believes were never delivered.
+ */
+test("a batch stands or falls together: a refused completion leaves its earlier events unwritten", async () => {
+  const run = await liveRun();
+  const sessionBefore = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+  const late = completed(2);
+  late.report = { ...late.report, sha: "d".repeat(40) };
+  await run.post("/events/batch", { events: [heartbeat(1), late] }, 409);
+
+  assert.deepEqual(
+    await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION)),
+    sessionBefore,
+    "the batch's heartbeat advanced the session of a batch that was refused",
+  );
+  assert.equal((await run.db.select().from(runStreamEvents)).length, 0, "no event of a refused batch was stored");
+});
+
+test("a batch retransmitting an accepted event skips it and accepts the rest", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  const response = await run.post("/events/batch", { events: [heartbeat(0), heartbeat(1)] }) as { accepted: number; duplicate: boolean };
+  assert.equal(response.accepted, 1, "only the new heartbeat counted as accepted");
+  assert.equal(response.duplicate, false, "the batch was not refused wholesale");
+  const session = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+  assert.equal(session[0]?.lastEventSequence, 1);
+  assert.equal((await run.db.select().from(runStreamEvents)).length, 2, "the retransmitted heartbeat is stored once");
+});
+
+/**
  * The CLI sends its final event twice: alone, and in a batch with the history
  * before it (cli.py `_LiveRun._finish`). Either may be the one that lands, and
  * neither may be refused because the portal had stopped hearing from the run.
