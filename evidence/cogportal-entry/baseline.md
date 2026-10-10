@@ -3,6 +3,8 @@
 Recorded 2026-10-10, at base `e546392` (`origin/obv/products-cogportal-hardening-20261009`).
 Every number below is the output of a command run this session in
 `/home/user/work/CogPortal`; nothing is carried over from another session.
+`Landing.tsx` line numbers refer to the file as it stood at this base;
+Milestone 2's edits (committed later on this branch) shift them.
 
 ## Environment repairs done before the baseline (documented, not committed)
 
@@ -58,17 +60,19 @@ register — the counts are not comparable between rows.
    visitor is signed out, without consulting `session.auth.githubConfigured`.
    The sign-in page itself treats an unconfigured GitHub App as a real state:
    it renders the button disabled with "GitHub sign-in isn't configured. Ask
-   course staff to enable it." (`SignInPage.tsx:174-190`). The entry already
+   course staff to enable it." (`SignInPage.tsx:157-171`). The entry already
    holds the session query (`Landing.tsx:43`), and an anonymous `/session`
-   response carries the full auth config — `worker/routes/session.ts:26-29`
-   builds it through `authToSession`'s null branch, and
-   `worker/auth/session.ts:99-102` returns `auth: authConfig(env)` with
-   `githubConfigured` in it (`:88-97`). So the entry can label its CTA
-   truthfully without any new endpoint or behavioral edit elsewhere.
+   response carries the full auth config: the GET handler
+   (`worker/routes/session.ts:24`) responds through `authToSession`
+   (`worker/auth/session.ts:99`), whose anonymous branch (`:101`) still
+   returns `auth` from `authConfig` (`worker/auth/session.ts:89-96`,
+   `githubConfigured` at `:90`; the guard at `worker/env.ts:80`; the schema
+   field at `packages/contracts/src/schema.ts:428`). So the entry can label
+   its CTA truthfully without any new endpoint or behavioral edit elsewhere.
 2. **The numbered sequence skips the two portal steps the CTA lands on.**
    The "How a capstone week goes" list runs "Bring a repository" → "Set up
    your machine" (`Landing.tsx:97-146`), but the portal's own onboarding
-   ladder is Sign in → Cohort → Team → Set up (`OnboardingPath.tsx:14-19`),
+   ladder is Sign in → Cohort → Team → Set up (`components/OnboardingPath.tsx:16-21`),
    and `nextStagePath` (`App.tsx:36-42`) sends a fresh sign-in to `/join`
    first, then `/connect`. A student who clicks the entry's primary button
    immediately meets steps the list never names.
@@ -89,8 +93,9 @@ register — the counts are not comparable between rows.
    become a link: signed out, `/setup` saves a pending return, sends the
    visitor to `/signin`, and a mid-onboarding student is then re-routed to
    the step they owe (`App.tsx:60-90`). The commands themselves are real:
-   `setupCommandsForTeam` emits clone / tool / benchmark / link / check lines
-   (`setup-progress.ts:111-171`), and the README's student path names the
+   `setupCommandLines` emits the clone / tool / benchmark / link / check lines
+   (`setup-progress.ts:96-188`; the check line at `:171`), which
+   `setupCommandsForTeam` (`:189`) assembles per team, and the README's student path names the
    same install surface; where wording differs (README's bare
    `cogworks check` vs the rail's
    `cogworks check --benchmark <id> --update-setup`, `setup-progress.ts:171`),
