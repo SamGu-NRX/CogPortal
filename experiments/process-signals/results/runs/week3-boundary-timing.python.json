@@ -1,0 +1,62 @@
+{
+  "boundaryChurn": [
+    {
+      "authorLogin": "sara",
+      "authoredAtMs": 1791194400001,
+      "files": [
+        "benchmark_adapter.py"
+      ],
+      "sha": "s7c2"
+    }
+  ],
+  "firstLight": {
+    "firstScoredAtMs": 1791194400000,
+    "scoredRunCount": 1
+  },
+  "historyQuality": "usable",
+  "ownershipBreadth": {
+    "embedding": [],
+    "organizer": [
+      "sara"
+    ],
+    "search": [
+      "tim"
+    ],
+    "training": []
+  },
+  "stageFootprint": {
+    "embedding": {
+      "available": true,
+      "commitCount": 0,
+      "distinctAuthorCount": 0,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": null
+    },
+    "organizer": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1791194400000,
+      "lastTouchAtMs": 1791194400000,
+      "unavailableReason": null
+    },
+    "search": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1791104400000,
+      "lastTouchAtMs": 1791104400000,
+      "unavailableReason": null
+    },
+    "training": {
+      "available": true,
+      "commitCount": 0,
+      "distinctAuthorCount": 0,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": null
+    }
+  },
+  "windowCommits": 3
+}

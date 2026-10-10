@@ -1,0 +1,11 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": null,
+    "scoredRunCount": 0
+  },
+  "historyQuality": "usable",
+  "ownershipBreadth": {},
+  "stageFootprint": {},
+  "windowCommits": 3
+}

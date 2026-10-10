@@ -1,0 +1,68 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": 1791050400000,
+    "scoredRunCount": 1
+  },
+  "historyQuality": "empty",
+  "ownershipBreadth": {},
+  "stageFootprint": {
+    "database": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "this repository has no recorded commits"
+    },
+    "fanout": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "this repository has no recorded commits"
+    },
+    "peaks": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "this repository has no recorded commits"
+    },
+    "query": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "this repository has no recorded commits"
+    },
+    "spectrogram": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "this repository has no recorded commits"
+    }
+  },
+  "tsOnly": {
+    "historyFetchFailureReason": null,
+    "historyWindow": {
+      "commits": 0,
+      "truncated": false
+    },
+    "runsElsewhere": false,
+    "stageMapResolved": [
+      "spectrogram",
+      "peaks",
+      "fanout",
+      "database",
+      "query"
+    ],
+    "weekLabel": "week1"
+  },
+  "windowCommits": 0
+}

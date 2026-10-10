@@ -1,0 +1,84 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": 1791014400000,
+    "scoredRunCount": 1
+  },
+  "historyQuality": "usable",
+  "ownershipBreadth": {
+    "database": [],
+    "fanout": [
+      "ada"
+    ],
+    "peaks": [
+      "ada",
+      "blake"
+    ],
+    "query": [
+      "ada",
+      "blake"
+    ],
+    "spectrogram": [
+      "ada"
+    ]
+  },
+  "stageFootprint": {
+    "database": {
+      "available": true,
+      "commitCount": 0,
+      "distinctAuthorCount": 0,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": null
+    },
+    "fanout": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790845200000,
+      "lastTouchAtMs": 1790845200000,
+      "unavailableReason": null
+    },
+    "peaks": {
+      "available": true,
+      "commitCount": 2,
+      "distinctAuthorCount": 2,
+      "firstTouchAtMs": 1790845200000,
+      "lastTouchAtMs": 1790931600000,
+      "unavailableReason": null
+    },
+    "query": {
+      "available": true,
+      "commitCount": 2,
+      "distinctAuthorCount": 2,
+      "firstTouchAtMs": 1790845200000,
+      "lastTouchAtMs": 1791014400000,
+      "unavailableReason": null
+    },
+    "spectrogram": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790845200000,
+      "lastTouchAtMs": 1790845200000,
+      "unavailableReason": null
+    }
+  },
+  "tsOnly": {
+    "historyFetchFailureReason": null,
+    "historyWindow": {
+      "commits": 4,
+      "truncated": false
+    },
+    "runsElsewhere": false,
+    "stageMapResolved": [
+      "spectrogram",
+      "peaks",
+      "fanout",
+      "database",
+      "query"
+    ],
+    "weekLabel": "week1"
+  },
+  "windowCommits": 4
+}
