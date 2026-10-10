@@ -15,9 +15,5 @@
     "db:seed:local": "pnpm --filter @cogworks/portal db:seed:local",
     "deploy:portal": "pnpm --filter @cogworks/portal run deploy",
     "deploy:discord": "pnpm --filter @cogworks/discord-bot run deploy"
-  },
-  "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.64.0"
   }
 }
