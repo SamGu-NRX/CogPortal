@@ -1,5 +1,0 @@
-{
-  "detail": "no runnable `pnpm exec tsx` found; TypeScript arm not executed",
-  "ok": false,
-  "reason": "unexercised"
-}
