@@ -1,0 +1,8 @@
+"variant","true_class","claimed_class","claimed_points_at_true","repair_restored_control","diagnosis_correct","non_actionable"
+"empty_result","empty_result","shape_pairs","False","False","False","False"
+"fp_swap","fingerprint_space","undiagnosed","False","False","False","True"
+"fp_time_sign","fingerprint_space","undiagnosed","False","False","False","True"
+"name_error","name_error","name_error","True","False","False","False"
+"shape_pairs","shape_pairs","shape_pairs","True","False","False","False"
+"signature","signature","signature","True","False","False","False"
+"wrong_order","ranking_direction","hash_space","False","False","False","True"

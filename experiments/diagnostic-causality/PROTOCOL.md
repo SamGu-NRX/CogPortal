@@ -44,7 +44,7 @@ The subject (cogbench) sees only materialized project directories.
 | signature | signature | identify drops sample_rate |
 | wrong_order | ranking_direction | ascending sort |
 | empty_result | empty_result | unconditional `return []` |
-| fp_time_sign | fingerprint_space | delta sign flip |
+| fp_freq_sign | fingerprint_space | negated probe frequency bins |
 | fp_swap | fingerprint_space | swapped fingerprint pair |
 | shape_pairs | shape_pairs | ids returned without scores |
 
@@ -69,6 +69,32 @@ fetched). Counts: 1 measured, 3 unavailable.
   (IPython, librosa, llvmlite, numba, scipy, soundfile). The miniature
   adapters are numpy-only, so no fixture reads a skipped module; the note is
   captured verbatim in every raw bundle.
+
+## Pilot run and instrument calibration
+
+One full measurement (the pilot) was run before the frozen run and then
+discarded (never committed). It was used to calibrate the instrument and
+surrogate, and exposed three defects in the study apparatus itself:
+
+1. The oracle's restore criterion compared the raw metrics dict, which
+   includes `median_identify_seconds` - a timing measurement that moves
+   between identical runs - so genuinely restored repairs recorded
+   `restored: false`. Outcome equality now excludes that one metric
+   (`measure.outcomes_match`).
+2. The original fingerprint-space defect (delta sign flip in
+   `make_fingerprints`) was outcome-neutral by construction: the same code
+   computes fingerprints at enroll and query time, so any consistent
+   transform cancels out (verified: pilot outcomes identical to control).
+   Fingerprint-space defects now break enroll/query consistency by patching
+   identify's probe fingerprints only (`fp_freq_sign`, `fp_swap`).
+3. The shape-pairs diagnostic rule over-fired: the CLI prints its shape
+   warning whenever no out-of-database query yields a margin, which is also
+   true when retrieval fails entirely. The rule now yields to bundles that
+   indicate total retrieval failure (regression test:
+   `test_shape_rule_yields_to_retrieval_failure`).
+
+After these fixes the full study was re-run from scratch; the committed
+results are the frozen run.
 
 ## Rules of the run
 

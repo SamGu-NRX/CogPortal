@@ -68,6 +68,16 @@ def test_shape_bundle_claims_pair_restoration():
     assert diagnosis["claimed_class"] == "shape_pairs"
 
 
+def test_shape_rule_yields_to_retrieval_failure():
+    """The CLI prints its shape warning whenever no out-of-database query
+    produced a margin - which is also true when retrieval itself is dead.
+    The rule must not fire on those bundles (pre-study probes + the pilot
+    run both showed this over-firing)."""
+    combined = SHAPE_BUNDLE + " " + HASH_SPACE_BUNDLE
+    diagnosis = diagnose.diagnose(combined)
+    assert diagnosis["claimed_class"] == "hash_space"
+
+
 def test_undiagnosed_bundle_is_honest():
     diagnosis = diagnose.diagnose("nothing here matches any rule")
     assert diagnosis["claimed_class"] == "undiagnosed"

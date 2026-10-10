@@ -1,0 +1,84 @@
+{
+  "empty_result": {
+    "bundle_sha256": "5915e49e5ad47ea88385b21687d78282737d3c329694b383fd268ca62d509534",
+    "diagnosis": {
+      "claimed_class": "shape_pairs",
+      "claimed_repair": {
+        "find": "return [sid for sid, v in ranked[:TOP]]",
+        "op": "replace",
+        "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+      },
+      "evidence": "returned ranked ids without scores"
+    }
+  },
+  "fp_swap": {
+    "bundle_sha256": "cd8f204ce486954c32f174e699e2ad58e950e4477783deac49fb3fbe808ec238",
+    "diagnosis": {
+      "claimed_class": "undiagnosed",
+      "claimed_repair": {
+        "op": "non_actionable",
+        "reason": "no rule matched the diagnostic bundle"
+      },
+      "evidence": null
+    }
+  },
+  "fp_time_sign": {
+    "bundle_sha256": "2e47fb327459f59605dd9aa0ef741ca65b56ec06c97fd6ce3eca786da35ecaff",
+    "diagnosis": {
+      "claimed_class": "undiagnosed",
+      "claimed_repair": {
+        "op": "non_actionable",
+        "reason": "no rule matched the diagnostic bundle"
+      },
+      "evidence": null
+    }
+  },
+  "name_error": {
+    "bundle_sha256": "9d102521696e17106e53de5f3bfa10ac3d775243e255b07bc4cffd1b1e3ade97",
+    "diagnosis": {
+      "claimed_class": "name_error",
+      "claimed_repair": {
+        "file": "submission.py",
+        "line": "import numpy as np",
+        "name": "np",
+        "op": "insert_import"
+      },
+      "evidence": "NameError: name 'np' is not defined at submission.py:11"
+    }
+  },
+  "shape_pairs": {
+    "bundle_sha256": "e1169c66d66cb67b2c08befbc3f2ebd8a102e3f33527a63f23441fd08f696c0c",
+    "diagnosis": {
+      "claimed_class": "shape_pairs",
+      "claimed_repair": {
+        "find": "return [sid for sid, v in ranked[:TOP]]",
+        "op": "replace",
+        "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+      },
+      "evidence": "returned ranked ids without scores"
+    }
+  },
+  "signature": {
+    "bundle_sha256": "b96bb5afae0802ede97c9d221672b242aa7d11d34cab22595a4fb7067eea83c2",
+    "diagnosis": {
+      "claimed_class": "signature",
+      "claimed_repair": {
+        "find": "def identify(self, samples):\n        spec = song_spectrogram(samples)",
+        "op": "replace",
+        "replace": "def identify(self, samples, sample_rate):\n        spec = song_spectrogram(samples, sample_rate)"
+      },
+      "evidence": "missing: identify(samples, sample_rate)"
+    }
+  },
+  "wrong_order": {
+    "bundle_sha256": "ee4407fa740650942db208a00f1f3d0b9616bbdbc1a140def37deb1fc93bfd33",
+    "diagnosis": {
+      "claimed_class": "hash_space",
+      "claimed_repair": {
+        "op": "non_actionable",
+        "reason": "diagnostic names no edit: claims hash-space mismatch"
+      },
+      "evidence": "Retrieval, not ranking, is what is failing"
+    }
+  }
+}

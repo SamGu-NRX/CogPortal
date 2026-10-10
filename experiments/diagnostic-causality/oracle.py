@@ -9,7 +9,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from measure import measure_variant, outcome_of
+from measure import measure_variant, outcomes_match, outcome_of
 
 CONTROL_FILE = "submission.py"
 
@@ -64,7 +64,7 @@ def oracle(
         outcome = outcome_of(bundle)
         current_text = source
         diagnosis = None
-        if outcome != control_outcome:
+        if not outcomes_match(outcome, control_outcome):
             from measure import bundle_text  # noqa: PLC0415
 
             diagnosis = diagnose(bundle_text(bundle))
@@ -73,7 +73,7 @@ def oracle(
             rounds.append(
                 {
                     "round": round_index,
-                    "outcome_matches_control": outcome == control_outcome,
+                    "outcome_matches_control": outcomes_match(outcome, control_outcome),
                     "diagnosis": diagnosis,
                     "applied": applied,
                 }
@@ -88,7 +88,7 @@ def oracle(
 
     final_bundle = measure_variant(work, with_run=with_run)
     final_outcome = outcome_of(final_bundle)
-    restored = final_outcome == control_outcome
+    restored = outcomes_match(final_outcome, control_outcome)
     return {
         "variant": variant_dir.name,
         "restored": restored,

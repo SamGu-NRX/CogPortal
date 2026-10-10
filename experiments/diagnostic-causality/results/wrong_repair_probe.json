@@ -1,0 +1,23 @@
+{
+  "applied": "inserted 'import numpy as np'",
+  "expectation": "restored must be False: a deliberately wrong repair fails the oracle",
+  "observed_outcome": {
+    "metrics": {
+      "chance_top1": 0.125,
+      "clean_top1": 1.0,
+      "identification_score": 0.671875,
+      "margin_separation": 0.796875,
+      "median_identify_seconds": 0.0199,
+      "noisy_top1": 1.0,
+      "pitch_top1": 0.34375,
+      "ranking_failure_rate": 0.0,
+      "retrieval_failure_rate": 0.0625,
+      "short_clip_top1": 1.0,
+      "trivial_baseline_top1": 0.375
+    },
+    "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+  },
+  "oracle_agrees": false,
+  "probe": "name_error repair applied to fp_time_sign variant",
+  "restored": true
+}

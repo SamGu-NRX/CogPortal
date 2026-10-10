@@ -1,0 +1,73 @@
+{
+  "arms": {
+    "control": "fixtures/control materialized unmodified",
+    "multi_defect": "3 variants, two defects each (key.json)",
+    "probe": "1 deliberately wrong repair through the oracle",
+    "single_defect": "7 variants, one defect each (key.json)"
+  },
+  "base_branch": "fix/device-link-recovery-20261004",
+  "blindness": "diagnose.py / repair ops / oracle / measure never read key.json. materialize.py reads it only to build fixture directories before measurement; grade.py reads it only after all measurement is persisted.",
+  "branch": "obv/products-l2-diagnostic-causality-20261010",
+  "commands": {
+    "measure": "python experiments/diagnostic-causality/run.py --manifest experiments/diagnostic-causality/manifest.json",
+    "replay": "python experiments/diagnostic-causality/run.py --replay experiments/diagnostic-causality/results",
+    "tests": "python -m pytest -q experiments/diagnostic-causality/tests"
+  },
+  "created": "2026-10-10",
+  "deviations": [
+    "week1 pins numpy>=1.24,<2; the only host interpreter is CPython 3.13.14, which has no numpy<2 wheel. Installed numpy 2.5.3 with --no-deps and verified the driver/scorer end to end. Precedent: the week1 audio-validity study on this machine ran the same pinned checkout against sandbox numpy 2.x.",
+    "The subject's check report notes 6 graded-run packages missing locally (IPython, librosa, llvmlite, numba, scipy, soundfile). The miniature adapters are numpy-only, so no fixture reads a skipped module; the note is captured verbatim in every raw bundle."
+  ],
+  "measured_with": {
+    "numpy": "2.5.3",
+    "platform": "Linux-6.1.158+-x86_64-with-glibc2.41",
+    "python": "3.13.14"
+  },
+  "oracle": "A diagnosis is correct only when applying its claimed repair restores the control outcome: identical metrics dict and identical 'Outcome split' line on the test tier.",
+  "source_pins": {
+    "benchmark_week1_submodule_commit": "4e516f39ffbeefe579e093260b2865eb354c17a7",
+    "benchmark_week2_submodule_commit": "a3dd948d0c108fabf070b4f159acdecd4d6c3897",
+    "benchmark_week3_submodule_commit": "4b1755433110b387b8a37021ef173300636d3b8c",
+    "cogportal_base_commit": "276da32fc2e6ea3849a06c8c0d5f37417ba31da1",
+    "install": [
+      "python3 -m venv /home/user/work/venvs/diag-causality",
+      "pip install 'numpy>=2,<3' platformdirs 'pytest>=7,<9' 'ruff>=0.4,<1' matplotlib",
+      "pip install --no-deps -e python/cogbench -e benchmarks/week1",
+      "pip install -e 'benchmarks/week1[test]' equivalent satisfied by pytest+ruff above"
+    ],
+    "subject": "python/cogbench (cogworks-benchmark CLI, version 0.2.0, editable install from the pinned checkout; source unmodified while measured)",
+    "vision_recognition_tree": "in-repo benchmarks/vision-recognition (DEPRECATED.md present), not pinned as a submodule"
+  },
+  "study": "diagnostic-causality",
+  "track_counts": {
+    "measured": 1,
+    "unavailable": 3
+  },
+  "tracks": [
+    {
+      "benchmark": "benchmarks/week1 @ 4e516f39ffbeefe579e093260b2865eb354c17a7",
+      "evidence": "check reports dataTestCache/dataEvaluationCache 'generated locally (no download)'; control scored offline.",
+      "measured": true,
+      "name": "audio-identification"
+    },
+    {
+      "benchmark": "benchmarks/week2 @ a3dd948d0c108fabf070b4f159acdecd4d6c3897",
+      "measured": false,
+      "name": "vision-recognition",
+      "reason": "unmeasured: needs the [data] extra (HF datasets + face dataset download) and the recognition model weights, which were not fetched in this offline study; the week2 benchmark also requires python <3.13 while the host is 3.13.14."
+    },
+    {
+      "benchmark": "benchmarks/week2 @ a3dd948d0c108fabf070b4f159acdecd4d6c3897",
+      "measured": false,
+      "name": "vision-clustering",
+      "reason": "unmeasured: missing-data track - [data] extra and public image dataset not fetched; requires python <3.13 on a 3.13.14 host."
+    },
+    {
+      "benchmark": "benchmarks/week3 @ 4b1755433110b387b8a37021ef173300636d3b8c",
+      "measured": false,
+      "name": "language-search",
+      "reason": "unmeasured: missing-data/weights track - requires python <3.13 on a 3.13.14 host; GloVe data extra not fetched."
+    }
+  ],
+  "work_dir": "/home/user/work/diag-causality-build"
+}

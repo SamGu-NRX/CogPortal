@@ -144,7 +144,7 @@ def wrong_repair_probe(paths: dict, control_outcome: dict, scratch: Path) -> dic
     }
     source = (target / "submission.py").read_text(encoding="utf-8")
     scratch.mkdir(parents=True, exist_ok=True)
-    work = scratch / "wrong_repair_on_fp_time_sign"
+    work = scratch / "wrong_repair_on_fp_freq_sign"
     if work.exists():
         shutil.rmtree(work)
     shutil.copytree(target, work)
@@ -152,9 +152,9 @@ def wrong_repair_probe(paths: dict, control_outcome: dict, scratch: Path) -> dic
     (work / "submission.py").write_text(new_source, encoding="utf-8")
     bundle = measure.measure_variant(work, with_run=False)
     outcome = measure.outcome_of(bundle)
-    restored = outcome == control_outcome
+    restored = measure.outcomes_match(outcome, control_outcome)
     return {
-        "probe": "name_error repair applied to fp_time_sign variant",
+        "probe": "name_error repair applied to fp_freq_sign variant",
         "applied": applied,
         "restored": restored,
         "expectation": "restored must be False: a deliberately wrong repair fails the oracle",
@@ -203,7 +203,7 @@ def replay(results: Path) -> int:
     for name, record in committed_oracle.items():
         final = record["final_outcome"]
         control = record["control_outcome"]
-        if record["restored"] != (final == control):
+        if record["restored"] != measure.outcomes_match(final, control):
             problems.append(f"oracle.json self-inconsistent for {name}")
 
     graded = grading.grade(results, key)

@@ -1,0 +1,584 @@
+{
+  "empty_result": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 0.0,
+        "identification_score": 0.0,
+        "median_identify_seconds": 0.00875,
+        "noisy_top1": 0.0,
+        "pitch_top1": 0.0,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 1.0,
+        "short_clip_top1": 0.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 64 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "failed: find-string absent: 'return [sid for sid, v in ranked[:TOP]]'",
+        "diagnosis": {
+          "claimed_class": "shape_pairs",
+          "claimed_repair": {
+            "find": "return [sid for sid, v in ranked[:TOP]]",
+            "op": "replace",
+            "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+          },
+          "evidence": "returned ranked ids without scores"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      }
+    ],
+    "variant": "empty_result"
+  },
+  "fp_swap": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0187,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "non_actionable: no rule matched the diagnostic bundle",
+        "diagnosis": {
+          "claimed_class": "undiagnosed",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "no rule matched the diagnostic bundle"
+          },
+          "evidence": null
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      }
+    ],
+    "variant": "fp_swap"
+  },
+  "fp_time_sign": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0194,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "non_actionable: no rule matched the diagnostic bundle",
+        "diagnosis": {
+          "claimed_class": "undiagnosed",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "no rule matched the diagnostic bundle"
+          },
+          "evidence": null
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      }
+    ],
+    "variant": "fp_time_sign"
+  },
+  "multi_empty_sign": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 0.0,
+        "identification_score": 0.0,
+        "median_identify_seconds": 0.0076500000000000005,
+        "noisy_top1": 0.0,
+        "pitch_top1": 0.0,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 1.0,
+        "short_clip_top1": 0.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 64 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "failed: find-string absent: 'return [sid for sid, v in ranked[:TOP]]'",
+        "diagnosis": {
+          "claimed_class": "shape_pairs",
+          "claimed_repair": {
+            "find": "return [sid for sid, v in ranked[:TOP]]",
+            "op": "replace",
+            "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+          },
+          "evidence": "returned ranked ids without scores"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      }
+    ],
+    "variant": "multi_empty_sign"
+  },
+  "multi_name_order": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 0.0,
+        "identification_score": 0.0,
+        "margin_separation": 0.73046875,
+        "median_identify_seconds": 0.01985,
+        "noisy_top1": 0.0,
+        "pitch_top1": 0.0,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.859375,
+        "short_clip_top1": 0.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 9 top_k, 55 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "inserted 'import numpy as np'",
+        "diagnosis": {
+          "claimed_class": "name_error",
+          "claimed_repair": {
+            "file": "submission.py",
+            "line": "import numpy as np",
+            "name": "np",
+            "op": "insert_import"
+          },
+          "evidence": "NameError: name 'np' is not defined at submission.py:11"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      },
+      {
+        "applied": "non_actionable: diagnostic names no edit: claims hash-space mismatch",
+        "diagnosis": {
+          "claimed_class": "hash_space",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "diagnostic names no edit: claims hash-space mismatch"
+          },
+          "evidence": "Retrieval, not ranking, is what is failing"
+        },
+        "outcome_matches_control": false,
+        "round": 2
+      }
+    ],
+    "variant": "multi_name_order"
+  },
+  "multi_signature_swap": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0174,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "replaced 'def identify(self, samples):\\n        spe'",
+        "diagnosis": {
+          "claimed_class": "signature",
+          "claimed_repair": {
+            "find": "def identify(self, samples):\n        spec = song_spectrogram(samples)",
+            "op": "replace",
+            "replace": "def identify(self, samples, sample_rate):\n        spec = song_spectrogram(samples, sample_rate)"
+          },
+          "evidence": "missing: identify(samples, sample_rate)"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      },
+      {
+        "applied": "non_actionable: no rule matched the diagnostic bundle",
+        "diagnosis": {
+          "claimed_class": "undiagnosed",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "no rule matched the diagnostic bundle"
+          },
+          "evidence": null
+        },
+        "outcome_matches_control": false,
+        "round": 2
+      }
+    ],
+    "variant": "multi_signature_swap"
+  },
+  "name_error": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0186,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "inserted 'import numpy as np'",
+        "diagnosis": {
+          "claimed_class": "name_error",
+          "claimed_repair": {
+            "file": "submission.py",
+            "line": "import numpy as np",
+            "name": "np",
+            "op": "insert_import"
+          },
+          "evidence": "NameError: name 'np' is not defined at submission.py:11"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      },
+      {
+        "applied": "non_actionable: no rule matched the diagnostic bundle",
+        "diagnosis": {
+          "claimed_class": "undiagnosed",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "no rule matched the diagnostic bundle"
+          },
+          "evidence": null
+        },
+        "outcome_matches_control": false,
+        "round": 2
+      }
+    ],
+    "variant": "name_error"
+  },
+  "shape_pairs": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0203,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "replaced 'return [sid for sid, v in ranked[:TOP]]'",
+        "diagnosis": {
+          "claimed_class": "shape_pairs",
+          "claimed_repair": {
+            "find": "return [sid for sid, v in ranked[:TOP]]",
+            "op": "replace",
+            "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+          },
+          "evidence": "returned ranked ids without scores"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      },
+      {
+        "applied": "non_actionable: no rule matched the diagnostic bundle",
+        "diagnosis": {
+          "claimed_class": "undiagnosed",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "no rule matched the diagnostic bundle"
+          },
+          "evidence": null
+        },
+        "outcome_matches_control": false,
+        "round": 2
+      }
+    ],
+    "variant": "shape_pairs"
+  },
+  "signature": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0197,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "replaced 'def identify(self, samples):\\n        spe'",
+        "diagnosis": {
+          "claimed_class": "signature",
+          "claimed_repair": {
+            "find": "def identify(self, samples):\n        spec = song_spectrogram(samples)",
+            "op": "replace",
+            "replace": "def identify(self, samples, sample_rate):\n        spec = song_spectrogram(samples, sample_rate)"
+          },
+          "evidence": "missing: identify(samples, sample_rate)"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      },
+      {
+        "applied": "non_actionable: no rule matched the diagnostic bundle",
+        "diagnosis": {
+          "claimed_class": "undiagnosed",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "no rule matched the diagnostic bundle"
+          },
+          "evidence": null
+        },
+        "outcome_matches_control": false,
+        "round": 2
+      }
+    ],
+    "variant": "signature"
+  },
+  "wrong_order": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 1.0,
+        "identification_score": 0.671875,
+        "margin_separation": 0.796875,
+        "median_identify_seconds": 0.0199,
+        "noisy_top1": 1.0,
+        "pitch_top1": 0.34375,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.0625,
+        "short_clip_top1": 1.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 0.0,
+        "identification_score": 0.0,
+        "margin_separation": 0.73046875,
+        "median_identify_seconds": 0.0171,
+        "noisy_top1": 0.0,
+        "pitch_top1": 0.0,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.859375,
+        "short_clip_top1": 0.0,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 9 top_k, 55 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "non_actionable: diagnostic names no edit: claims hash-space mismatch",
+        "diagnosis": {
+          "claimed_class": "hash_space",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "diagnostic names no edit: claims hash-space mismatch"
+          },
+          "evidence": "Retrieval, not ranking, is what is failing"
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      }
+    ],
+    "variant": "wrong_order"
+  }
+}

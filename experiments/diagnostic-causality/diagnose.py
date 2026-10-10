@@ -53,6 +53,9 @@ RULES = (
         # (song_id, score) pairs to get this column."
         "class": "shape_pairs",
         "pattern": re.compile(r"returned ranked ids without scores"),
+        "guard": lambda text: not re.search(
+            r"came back with no shared fingerprints at all|Retrieval, not ranking", text
+        ),
         "repair": lambda m: {
             "op": "replace",
             "find": "return [sid for sid, v in ranked[:TOP]]",
@@ -82,16 +85,21 @@ RULES = (
 
 
 def diagnose(bundle_text_value: str) -> dict:
-    """First matching rule wins; evidence records what matched."""
+    """First matching rule wins; evidence records what matched. A rule with a
+    guard is skipped when its guard rejects the bundle."""
     for rule in RULES:
         match = rule["pattern"].search(bundle_text_value)
-        if match:
-            claimed_repair = rule["repair"](match)
-            return {
-                "claimed_class": rule["class"],
-                "claimed_repair": claimed_repair,
-                "evidence": match.group(0)[:200],
-            }
+        if not match:
+            continue
+        guard = rule.get("guard")
+        if guard and not guard(bundle_text_value):
+            continue
+        claimed_repair = rule["repair"](match)
+        return {
+            "claimed_class": rule["class"],
+            "claimed_repair": claimed_repair,
+            "evidence": match.group(0)[:200],
+        }
     return {
         "claimed_class": "undiagnosed",
         "claimed_repair": {"op": "non_actionable", "reason": "no rule matched the diagnostic bundle"},

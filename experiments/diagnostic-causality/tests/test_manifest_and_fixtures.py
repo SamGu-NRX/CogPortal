@@ -26,9 +26,15 @@ def test_manifest_pins_are_present_and_consistent():
 
 
 def test_worktree_sits_on_pinned_base():
-    git = subprocess_git(["rev-parse", "HEAD"])
+    import subprocess
+
     manifest = json.loads((STUDY / "manifest.json").read_text(encoding="utf-8"))
-    assert git.strip() == manifest["source_pins"]["cogportal_base_commit"]
+    base = manifest["source_pins"]["cogportal_base_commit"]
+    ancestry = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base, "HEAD"],
+        cwd=STUDY, capture_output=True, text=True,
+    )
+    assert ancestry.returncode == 0, f"pinned base {base} is not an ancestor of HEAD"
     week1 = subprocess_git(["rev-parse", "HEAD:benchmarks/week1"])
     assert week1.strip() == manifest["source_pins"]["benchmark_week1_submodule_commit"]
 

@@ -94,3 +94,15 @@ def outcome_of(bundle: dict) -> dict:
         None,
     )
     return {"metrics": metrics, "outcome_split": split}
+
+
+#: Metrics that are timing measurements, not behavior: they move between
+#: identical runs, so outcome equality excludes them.
+NONDETERMINISTIC_METRICS = {"median_identify_seconds"}
+
+
+def outcomes_match(a: dict, b: dict) -> bool:
+    """Outcome equality for the oracle criterion, ignoring timing metrics."""
+    metrics_a = {k: v for k, v in a["metrics"].items() if k not in NONDETERMINISTIC_METRICS}
+    metrics_b = {k: v for k, v in b["metrics"].items() if k not in NONDETERMINISTIC_METRICS}
+    return metrics_a == metrics_b and a["outcome_split"] == b["outcome_split"]
