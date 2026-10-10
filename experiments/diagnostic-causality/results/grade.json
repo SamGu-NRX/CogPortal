@@ -1,11 +1,10 @@
 {
   "cause_class_counts": {
     "claimed": {
-      "hash_space": 1,
+      "hash_space": 4,
       "name_error": 1,
-      "shape_pairs": 2,
-      "signature": 1,
-      "undiagnosed": 2
+      "shape_pairs": 1,
+      "signature": 1
     },
     "true": {
       "empty_result": 1,
@@ -19,46 +18,25 @@
   "indistinguishable_pairs": [],
   "misleading_witnesses": [
     {
-      "claimed_class": "shape_pairs",
-      "evidence": "returned ranked ids without scores",
+      "claimed_class": "hash_space",
+      "evidence": "in different hash spaces",
       "repair_restored_control": false,
       "true_class": "empty_result",
       "variant": "empty_result"
     },
     {
-      "claimed_class": "undiagnosed",
-      "evidence": null,
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_freq_sign"
+    },
+    {
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
       "repair_restored_control": false,
       "true_class": "fingerprint_space",
       "variant": "fp_swap"
-    },
-    {
-      "claimed_class": "undiagnosed",
-      "evidence": null,
-      "repair_restored_control": false,
-      "true_class": "fingerprint_space",
-      "variant": "fp_time_sign"
-    },
-    {
-      "claimed_class": "name_error",
-      "evidence": "NameError: name 'np' is not defined at submission.py:11",
-      "repair_restored_control": false,
-      "true_class": "name_error",
-      "variant": "name_error"
-    },
-    {
-      "claimed_class": "shape_pairs",
-      "evidence": "returned ranked ids without scores",
-      "repair_restored_control": false,
-      "true_class": "shape_pairs",
-      "variant": "shape_pairs"
-    },
-    {
-      "claimed_class": "signature",
-      "evidence": "missing: identify(samples, sample_rate)",
-      "repair_restored_control": false,
-      "true_class": "signature",
-      "variant": "signature"
     },
     {
       "claimed_class": "hash_space",
@@ -71,7 +49,7 @@
   "multi_defect": [
     {
       "claimed_classes_by_round": [
-        "shape_pairs"
+        "hash_space"
       ],
       "restored": false,
       "rounds_recorded": 1,
@@ -81,7 +59,7 @@
       ],
       "true_defects": [
         "empty_result",
-        "fp_time_sign"
+        "fp_freq_sign"
       ],
       "variant": "multi_empty_sign"
     },
@@ -122,16 +100,25 @@
   ],
   "single_defect": [
     {
-      "claimed_class": "shape_pairs",
+      "claimed_class": "hash_space",
       "claimed_points_at_true": false,
       "diagnosis_correct": false,
-      "non_actionable": false,
+      "non_actionable": true,
       "repair_restored_control": false,
       "true_class": "empty_result",
       "variant": "empty_result"
     },
     {
-      "claimed_class": "undiagnosed",
+      "claimed_class": "hash_space",
+      "claimed_points_at_true": false,
+      "diagnosis_correct": false,
+      "non_actionable": true,
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_freq_sign"
+    },
+    {
+      "claimed_class": "hash_space",
       "claimed_points_at_true": false,
       "diagnosis_correct": false,
       "non_actionable": true,
@@ -140,38 +127,29 @@
       "variant": "fp_swap"
     },
     {
-      "claimed_class": "undiagnosed",
-      "claimed_points_at_true": false,
-      "diagnosis_correct": false,
-      "non_actionable": true,
-      "repair_restored_control": false,
-      "true_class": "fingerprint_space",
-      "variant": "fp_time_sign"
-    },
-    {
       "claimed_class": "name_error",
       "claimed_points_at_true": true,
-      "diagnosis_correct": false,
+      "diagnosis_correct": true,
       "non_actionable": false,
-      "repair_restored_control": false,
+      "repair_restored_control": true,
       "true_class": "name_error",
       "variant": "name_error"
     },
     {
       "claimed_class": "shape_pairs",
       "claimed_points_at_true": true,
-      "diagnosis_correct": false,
+      "diagnosis_correct": true,
       "non_actionable": false,
-      "repair_restored_control": false,
+      "repair_restored_control": true,
       "true_class": "shape_pairs",
       "variant": "shape_pairs"
     },
     {
       "claimed_class": "signature",
       "claimed_points_at_true": true,
-      "diagnosis_correct": false,
+      "diagnosis_correct": true,
       "non_actionable": false,
-      "repair_restored_control": false,
+      "repair_restored_control": true,
       "true_class": "signature",
       "variant": "signature"
     },
@@ -187,7 +165,7 @@
   ],
   "totals": {
     "claimed_class_matches_true": 3,
-    "diagnoses_correct": 0,
+    "diagnoses_correct": 3,
     "multi_defect_restored": 0,
     "multi_defect_variants": 3,
     "single_defect_variants": 7

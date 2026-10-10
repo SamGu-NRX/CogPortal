@@ -115,8 +115,8 @@ def grade(results: Path, key: dict) -> dict:
     }
 
 
-def write_tables(results: Path, graded: dict) -> None:
-    tables = results / "tables"
+def write_tables(tables_dir: Path, graded: dict) -> None:
+    tables = tables_dir
     tables.mkdir(parents=True, exist_ok=True)
 
     with open(tables / "cause_classes.csv", "w", newline="", encoding="utf-8") as handle:

@@ -1,36 +1,35 @@
 {
   "empty_result": {
-    "bundle_sha256": "5915e49e5ad47ea88385b21687d78282737d3c329694b383fd268ca62d509534",
+    "bundle_sha256": "40d12a8d168e1879484ffca7dbb6fc1d099c1f3b4f04459bd498d1c211700cf1",
     "diagnosis": {
-      "claimed_class": "shape_pairs",
+      "claimed_class": "hash_space",
       "claimed_repair": {
-        "find": "return [sid for sid, v in ranked[:TOP]]",
-        "op": "replace",
-        "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+        "op": "non_actionable",
+        "reason": "diagnostic names no edit: claims hash-space mismatch"
       },
-      "evidence": "returned ranked ids without scores"
+      "evidence": "in different hash spaces"
+    }
+  },
+  "fp_freq_sign": {
+    "bundle_sha256": "4efd91bd9d523a034c1980e33b18aa1e969e4368804fae274fe827e4615b54be",
+    "diagnosis": {
+      "claimed_class": "hash_space",
+      "claimed_repair": {
+        "op": "non_actionable",
+        "reason": "diagnostic names no edit: claims hash-space mismatch"
+      },
+      "evidence": "Retrieval, not ranking, is what is failing"
     }
   },
   "fp_swap": {
-    "bundle_sha256": "cd8f204ce486954c32f174e699e2ad58e950e4477783deac49fb3fbe808ec238",
+    "bundle_sha256": "a0ff6357324afe9ee693eb99ed87e579c3bd63434418fd4aaccbc0e0a4dfc342",
     "diagnosis": {
-      "claimed_class": "undiagnosed",
+      "claimed_class": "hash_space",
       "claimed_repair": {
         "op": "non_actionable",
-        "reason": "no rule matched the diagnostic bundle"
+        "reason": "diagnostic names no edit: claims hash-space mismatch"
       },
-      "evidence": null
-    }
-  },
-  "fp_time_sign": {
-    "bundle_sha256": "2e47fb327459f59605dd9aa0ef741ca65b56ec06c97fd6ce3eca786da35ecaff",
-    "diagnosis": {
-      "claimed_class": "undiagnosed",
-      "claimed_repair": {
-        "op": "non_actionable",
-        "reason": "no rule matched the diagnostic bundle"
-      },
-      "evidence": null
+      "evidence": "Retrieval, not ranking, is what is failing"
     }
   },
   "name_error": {
@@ -47,7 +46,7 @@
     }
   },
   "shape_pairs": {
-    "bundle_sha256": "e1169c66d66cb67b2c08befbc3f2ebd8a102e3f33527a63f23441fd08f696c0c",
+    "bundle_sha256": "bb486e4ad8825d94b0a325507ef8eace8630d7b408fe80459a5bb9f923c4e9dd",
     "diagnosis": {
       "claimed_class": "shape_pairs",
       "claimed_repair": {
@@ -71,7 +70,7 @@
     }
   },
   "wrong_order": {
-    "bundle_sha256": "ee4407fa740650942db208a00f1f3d0b9616bbdbc1a140def37deb1fc93bfd33",
+    "bundle_sha256": "838d278a6866c77507682cc0d83066affd94b3e2c403f1625f70e16164b0d567",
     "diagnosis": {
       "claimed_class": "hash_space",
       "claimed_repair": {

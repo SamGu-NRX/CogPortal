@@ -6,7 +6,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -21,7 +21,7 @@
         "chance_top1": 0.125,
         "clean_top1": 0.0,
         "identification_score": 0.0,
-        "median_identify_seconds": 0.00875,
+        "median_identify_seconds": 0.0087,
         "noisy_top1": 0.0,
         "pitch_top1": 0.0,
         "ranking_failure_rate": 0.0,
@@ -34,15 +34,14 @@
     "restored": false,
     "rounds": [
       {
-        "applied": "failed: find-string absent: 'return [sid for sid, v in ranked[:TOP]]'",
+        "applied": "non_actionable: diagnostic names no edit: claims hash-space mismatch",
         "diagnosis": {
-          "claimed_class": "shape_pairs",
+          "claimed_class": "hash_space",
           "claimed_repair": {
-            "find": "return [sid for sid, v in ranked[:TOP]]",
-            "op": "replace",
-            "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+            "op": "non_actionable",
+            "reason": "diagnostic names no edit: claims hash-space mismatch"
           },
-          "evidence": "returned ranked ids without scores"
+          "evidence": "in different hash spaces"
         },
         "outcome_matches_control": false,
         "round": 1
@@ -50,14 +49,14 @@
     ],
     "variant": "empty_result"
   },
-  "fp_swap": {
+  "fp_freq_sign": {
     "control_outcome": {
       "metrics": {
         "chance_top1": 0.125,
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -70,10 +69,45 @@
     "final_outcome": {
       "metrics": {
         "chance_top1": 0.125,
+        "clean_top1": 0.125,
+        "identification_score": 0.125,
+        "margin_separation": 0.5,
+        "median_identify_seconds": 0.02005,
+        "noisy_top1": 0.125,
+        "pitch_top1": 0.125,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.375,
+        "short_clip_top1": 0.125,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 8 top_1, 32 top_k, 24 retrieval_failure."
+    },
+    "restored": false,
+    "rounds": [
+      {
+        "applied": "non_actionable: no rule matched the diagnostic bundle",
+        "diagnosis": {
+          "claimed_class": "undiagnosed",
+          "claimed_repair": {
+            "op": "non_actionable",
+            "reason": "no rule matched the diagnostic bundle"
+          },
+          "evidence": null
+        },
+        "outcome_matches_control": false,
+        "round": 1
+      }
+    ],
+    "variant": "fp_freq_sign"
+  },
+  "fp_swap": {
+    "control_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0187,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -82,6 +116,22 @@
         "trivial_baseline_top1": 0.375
       },
       "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    },
+    "final_outcome": {
+      "metrics": {
+        "chance_top1": 0.125,
+        "clean_top1": 0.875,
+        "identification_score": 0.578125,
+        "margin_separation": 0.5625,
+        "median_identify_seconds": 0.0218,
+        "noisy_top1": 0.875,
+        "pitch_top1": 0.40625,
+        "ranking_failure_rate": 0.0,
+        "retrieval_failure_rate": 0.078125,
+        "short_clip_top1": 0.375,
+        "trivial_baseline_top1": 0.375
+      },
+      "outcome_split": "Outcome split over 64 scored queries: 37 top_1, 22 top_k, 5 retrieval_failure."
     },
     "restored": false,
     "rounds": [
@@ -101,57 +151,6 @@
     ],
     "variant": "fp_swap"
   },
-  "fp_time_sign": {
-    "control_outcome": {
-      "metrics": {
-        "chance_top1": 0.125,
-        "clean_top1": 1.0,
-        "identification_score": 0.671875,
-        "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
-        "noisy_top1": 1.0,
-        "pitch_top1": 0.34375,
-        "ranking_failure_rate": 0.0,
-        "retrieval_failure_rate": 0.0625,
-        "short_clip_top1": 1.0,
-        "trivial_baseline_top1": 0.375
-      },
-      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
-    },
-    "final_outcome": {
-      "metrics": {
-        "chance_top1": 0.125,
-        "clean_top1": 1.0,
-        "identification_score": 0.671875,
-        "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0194,
-        "noisy_top1": 1.0,
-        "pitch_top1": 0.34375,
-        "ranking_failure_rate": 0.0,
-        "retrieval_failure_rate": 0.0625,
-        "short_clip_top1": 1.0,
-        "trivial_baseline_top1": 0.375
-      },
-      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
-    },
-    "restored": false,
-    "rounds": [
-      {
-        "applied": "non_actionable: no rule matched the diagnostic bundle",
-        "diagnosis": {
-          "claimed_class": "undiagnosed",
-          "claimed_repair": {
-            "op": "non_actionable",
-            "reason": "no rule matched the diagnostic bundle"
-          },
-          "evidence": null
-        },
-        "outcome_matches_control": false,
-        "round": 1
-      }
-    ],
-    "variant": "fp_time_sign"
-  },
   "multi_empty_sign": {
     "control_outcome": {
       "metrics": {
@@ -159,7 +158,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -174,7 +173,7 @@
         "chance_top1": 0.125,
         "clean_top1": 0.0,
         "identification_score": 0.0,
-        "median_identify_seconds": 0.0076500000000000005,
+        "median_identify_seconds": 0.0103,
         "noisy_top1": 0.0,
         "pitch_top1": 0.0,
         "ranking_failure_rate": 0.0,
@@ -187,15 +186,14 @@
     "restored": false,
     "rounds": [
       {
-        "applied": "failed: find-string absent: 'return [sid for sid, v in ranked[:TOP]]'",
+        "applied": "non_actionable: diagnostic names no edit: claims hash-space mismatch",
         "diagnosis": {
-          "claimed_class": "shape_pairs",
+          "claimed_class": "hash_space",
           "claimed_repair": {
-            "find": "return [sid for sid, v in ranked[:TOP]]",
-            "op": "replace",
-            "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]"
+            "op": "non_actionable",
+            "reason": "diagnostic names no edit: claims hash-space mismatch"
           },
-          "evidence": "returned ranked ids without scores"
+          "evidence": "in different hash spaces"
         },
         "outcome_matches_control": false,
         "round": 1
@@ -210,7 +208,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -226,7 +224,7 @@
         "clean_top1": 0.0,
         "identification_score": 0.0,
         "margin_separation": 0.73046875,
-        "median_identify_seconds": 0.01985,
+        "median_identify_seconds": 0.024300000000000002,
         "noisy_top1": 0.0,
         "pitch_top1": 0.0,
         "ranking_failure_rate": 0.0,
@@ -276,7 +274,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -289,18 +287,18 @@
     "final_outcome": {
       "metrics": {
         "chance_top1": 0.125,
-        "clean_top1": 1.0,
-        "identification_score": 0.671875,
-        "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0174,
-        "noisy_top1": 1.0,
-        "pitch_top1": 0.34375,
+        "clean_top1": 0.875,
+        "identification_score": 0.578125,
+        "margin_separation": 0.5625,
+        "median_identify_seconds": 0.02325,
+        "noisy_top1": 0.875,
+        "pitch_top1": 0.40625,
         "ranking_failure_rate": 0.0,
-        "retrieval_failure_rate": 0.0625,
-        "short_clip_top1": 1.0,
+        "retrieval_failure_rate": 0.078125,
+        "short_clip_top1": 0.375,
         "trivial_baseline_top1": 0.375
       },
-      "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+      "outcome_split": "Outcome split over 64 scored queries: 37 top_1, 22 top_k, 5 retrieval_failure."
     },
     "restored": false,
     "rounds": [
@@ -341,7 +339,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -357,7 +355,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0186,
+        "median_identify_seconds": 0.019,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -367,7 +365,7 @@
       },
       "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
     },
-    "restored": false,
+    "restored": true,
     "rounds": [
       {
         "applied": "inserted 'import numpy as np'",
@@ -385,16 +383,7 @@
         "round": 1
       },
       {
-        "applied": "non_actionable: no rule matched the diagnostic bundle",
-        "diagnosis": {
-          "claimed_class": "undiagnosed",
-          "claimed_repair": {
-            "op": "non_actionable",
-            "reason": "no rule matched the diagnostic bundle"
-          },
-          "evidence": null
-        },
-        "outcome_matches_control": false,
+        "outcome_matches_control": true,
         "round": 2
       }
     ],
@@ -407,7 +396,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -423,7 +412,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0203,
+        "median_identify_seconds": 0.02005,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -433,7 +422,7 @@
       },
       "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
     },
-    "restored": false,
+    "restored": true,
     "rounds": [
       {
         "applied": "replaced 'return [sid for sid, v in ranked[:TOP]]'",
@@ -450,16 +439,7 @@
         "round": 1
       },
       {
-        "applied": "non_actionable: no rule matched the diagnostic bundle",
-        "diagnosis": {
-          "claimed_class": "undiagnosed",
-          "claimed_repair": {
-            "op": "non_actionable",
-            "reason": "no rule matched the diagnostic bundle"
-          },
-          "evidence": null
-        },
-        "outcome_matches_control": false,
+        "outcome_matches_control": true,
         "round": 2
       }
     ],
@@ -472,7 +452,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -488,7 +468,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0197,
+        "median_identify_seconds": 0.03395,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -498,7 +478,7 @@
       },
       "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
     },
-    "restored": false,
+    "restored": true,
     "rounds": [
       {
         "applied": "replaced 'def identify(self, samples):\\n        spe'",
@@ -515,16 +495,7 @@
         "round": 1
       },
       {
-        "applied": "non_actionable: no rule matched the diagnostic bundle",
-        "diagnosis": {
-          "claimed_class": "undiagnosed",
-          "claimed_repair": {
-            "op": "non_actionable",
-            "reason": "no rule matched the diagnostic bundle"
-          },
-          "evidence": null
-        },
-        "outcome_matches_control": false,
+        "outcome_matches_control": true,
         "round": 2
       }
     ],
@@ -537,7 +508,7 @@
         "clean_top1": 1.0,
         "identification_score": 0.671875,
         "margin_separation": 0.796875,
-        "median_identify_seconds": 0.0199,
+        "median_identify_seconds": 0.025099999999999997,
         "noisy_top1": 1.0,
         "pitch_top1": 0.34375,
         "ranking_failure_rate": 0.0,
@@ -553,7 +524,7 @@
         "clean_top1": 0.0,
         "identification_score": 0.0,
         "margin_separation": 0.73046875,
-        "median_identify_seconds": 0.0171,
+        "median_identify_seconds": 0.01915,
         "noisy_top1": 0.0,
         "pitch_top1": 0.0,
         "ranking_failure_rate": 0.0,

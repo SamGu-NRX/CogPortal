@@ -106,7 +106,7 @@ def measure_all(manifest: dict, results: Path) -> None:
     # 4. Grade against the key, after all measurement is persisted.
     graded = grading.grade(results, key)
     write_json(results / "grade.json", graded)
-    grading.write_tables(results, graded)
+    grading.write_tables(results / "tables", graded)
     write_json(results / "summary.json", summarize(results, graded, probe))
 
 
@@ -187,7 +187,7 @@ def replay(results: Path) -> int:
     recomputed_diagnoses = {}
     for path in sorted((results / "raw").glob("*/bundle.json")):
         name = path.parent.name
-        if name == "control":
+        if name == "control" or name in materialize.multi_defect_names(key):
             continue
         raw = grading.load_json(path)
         text = measure.bundle_text(raw)

@@ -4,20 +4,20 @@
   "observed_outcome": {
     "metrics": {
       "chance_top1": 0.125,
-      "clean_top1": 1.0,
-      "identification_score": 0.671875,
-      "margin_separation": 0.796875,
-      "median_identify_seconds": 0.0199,
-      "noisy_top1": 1.0,
-      "pitch_top1": 0.34375,
+      "clean_top1": 0.125,
+      "identification_score": 0.125,
+      "margin_separation": 0.5,
+      "median_identify_seconds": 0.035750000000000004,
+      "noisy_top1": 0.125,
+      "pitch_top1": 0.125,
       "ranking_failure_rate": 0.0,
-      "retrieval_failure_rate": 0.0625,
-      "short_clip_top1": 1.0,
+      "retrieval_failure_rate": 0.375,
+      "short_clip_top1": 0.125,
       "trivial_baseline_top1": 0.375
     },
-    "outcome_split": "Outcome split over 64 scored queries: 43 top_1, 17 top_k, 4 retrieval_failure."
+    "outcome_split": "Outcome split over 64 scored queries: 8 top_1, 32 top_k, 24 retrieval_failure."
   },
-  "oracle_agrees": false,
-  "probe": "name_error repair applied to fp_time_sign variant",
-  "restored": true
+  "oracle_agrees": true,
+  "probe": "name_error repair applied to fp_freq_sign variant",
+  "restored": false
 }
