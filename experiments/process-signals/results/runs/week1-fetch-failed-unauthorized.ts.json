@@ -1,0 +1,65 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": 1791136800000,
+    "scoredRunCount": 1
+  },
+  "historyQuality": "fetch_failed",
+  "ownershipBreadth": {},
+  "stageFootprint": {
+    "database": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page."
+    },
+    "fanout": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page."
+    },
+    "peaks": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page."
+    },
+    "query": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page."
+    },
+    "spectrogram": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page."
+    }
+  },
+  "tsOnly": {
+    "historyFetchFailureReason": "unauthorized",
+    "historyWindow": null,
+    "runsElsewhere": false,
+    "stageMapResolved": [
+      "spectrogram",
+      "peaks",
+      "fanout",
+      "database",
+      "query"
+    ],
+    "weekLabel": "week1"
+  },
+  "windowCommits": null
+}

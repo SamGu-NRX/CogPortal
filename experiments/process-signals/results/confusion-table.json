@@ -1,0 +1,243 @@
+{
+  "manifestSha256": "5bf2720cac1ca1d376b7dde0a8fc1b8cac7ed2e728b18c1fd017974809236dc6",
+  "note": "Confusion table over the frozen histories. Verdicts compare observed deltas against declared expectations; an unexercised arm is never evidence of agreement or divergence. No per-person scores or grades appear anywhere in this table.",
+  "rows": [
+    {
+      "declaredHistoryType": "usable",
+      "id": "week1-spread-usable",
+      "kind": "scenario",
+      "pythonObserved": "usable",
+      "sharedDiffPaths": [],
+      "tsObserved": "usable",
+      "verdict": "agree"
+    },
+    {
+      "declaredHistoryType": "bulk_upload",
+      "id": "week1-single-commit",
+      "kind": "scenario",
+      "pythonObserved": "bulk_upload",
+      "sharedDiffPaths": [],
+      "tsObserved": "bulk_upload",
+      "verdict": "agree"
+    },
+    {
+      "declaredHistoryType": "empty",
+      "id": "week1-empty",
+      "kind": "scenario",
+      "pythonObserved": "empty",
+      "sharedDiffPaths": [],
+      "tsObserved": "empty",
+      "verdict": "agree"
+    },
+    {
+      "declaredHistoryType": "bulk_upload",
+      "id": "week1-share-bulk",
+      "kind": "scenario",
+      "pythonObserved": "bulk_upload",
+      "sharedDiffPaths": [],
+      "tsObserved": "bulk_upload",
+      "verdict": "agree"
+    },
+    {
+      "declaredHistoryType": "usable",
+      "id": "week2-no-runs",
+      "kind": "scenario",
+      "pythonObserved": "usable",
+      "sharedDiffPaths": [],
+      "tsObserved": "usable",
+      "verdict": "agree"
+    },
+    {
+      "declaredHistoryType": "usable",
+      "id": "week2-coauthors",
+      "kind": "scenario",
+      "pythonObserved": "usable",
+      "sharedDiffPaths": [
+        "ownershipBreadth.descriptors",
+        "stageFootprint.descriptors.distinctAuthorCount"
+      ],
+      "tsObserved": "usable",
+      "verdict": "agree-except-documented-divergence"
+    },
+    {
+      "declaredHistoryType": "usable",
+      "id": "week3-boundary-timing",
+      "kind": "scenario",
+      "pythonObserved": "usable",
+      "sharedDiffPaths": [],
+      "tsObserved": "usable",
+      "verdict": "agree"
+    },
+    {
+      "declaredHistoryType": "fetch_failed",
+      "id": "week1-fetch-failed-unauthorized",
+      "kind": "scenario",
+      "pythonObserved": null,
+      "sharedDiffPaths": null,
+      "tsObserved": "fetch_failed",
+      "verdict": "unexercisable-python (TS-only state; not evidence either way)"
+    },
+    {
+      "declaredHistoryType": "usable",
+      "id": "week1-exact-sixty",
+      "kind": "scenario",
+      "pythonObserved": "usable",
+      "sharedDiffPaths": [],
+      "tsObserved": "usable",
+      "verdict": "agree"
+    },
+    {
+      "declaredHistoryType": "usable",
+      "id": "week1-unscored-only",
+      "kind": "scenario",
+      "pythonObserved": "usable",
+      "sharedDiffPaths": [],
+      "tsObserved": "usable",
+      "verdict": "agree"
+    },
+    {
+      "basedOn": "week1-spread-usable",
+      "expected": "query stage commit_count drops 1 -> 0 in both arms; no other stage moves",
+      "id": "ablate-filename",
+      "kind": "ablation",
+      "manySimultaneous": false,
+      "pythonDeltaPaths": [
+        "ownershipBreadth.query",
+        "stageFootprint.query.commitCount",
+        "stageFootprint.query.distinctAuthorCount",
+        "stageFootprint.query.firstTouchAtMs",
+        "stageFootprint.query.lastTouchAtMs"
+      ],
+      "pythonVerdict": "confirmed",
+      "singleVariable": "one commit's file paths stop matching the query stage",
+      "tsDeltaPaths": [
+        "ownershipBreadth.query",
+        "stageFootprint.query.commitCount",
+        "stageFootprint.query.distinctAuthorCount",
+        "stageFootprint.query.firstTouchAtMs",
+        "stageFootprint.query.lastTouchAtMs"
+      ],
+      "tsVerdict": "confirmed"
+    },
+    {
+      "basedOn": "week1-spread-usable",
+      "expected": "firstScoredAt moves to the second run in both arms; scoredRunCount 3 -> 2; churn unchanged (the surviving boundary commit is still after the new first light)",
+      "id": "ablate-scored-flag",
+      "kind": "ablation",
+      "manySimultaneous": false,
+      "pythonDeltaPaths": [
+        "firstLight.firstScoredAtMs",
+        "firstLight.scoredRunCount"
+      ],
+      "pythonVerdict": "confirmed",
+      "singleVariable": "the first run loses its scored flag",
+      "tsDeltaPaths": [
+        "firstLight.firstScoredAtMs",
+        "firstLight.scoredRunCount"
+      ],
+      "tsVerdict": "confirmed"
+    },
+    {
+      "basedOn": "week1-spread-usable",
+      "expected": "TypeScript arm: spectrogram and peaks distinct-author counts include blake, ownership lists gain blake. Python arm: no change (single author_login per commit). This is the documented ported divergence, not a defect.",
+      "id": "ablate-coauthor",
+      "kind": "ablation",
+      "manySimultaneous": false,
+      "pythonDeltaPaths": [],
+      "pythonVerdict": "confirmed-null (zero delta was the expectation; still inconclusive about code paths this history never reaches)",
+      "singleVariable": "one commit gains a Co-authored-by trailer that resolves to roster member blake",
+      "tsDeltaPaths": [
+        "ownershipBreadth.peaks",
+        "ownershipBreadth.spectrogram",
+        "stageFootprint.peaks.distinctAuthorCount",
+        "stageFootprint.spectrogram.distinctAuthorCount"
+      ],
+      "tsVerdict": "confirmed"
+    },
+    {
+      "basedOn": "week1-spread-usable",
+      "expected": "no signal change in either arm: both modules accept these fields and no function in either reads them. A zero-delta measurement is the expected outcome, and it cannot rule out reading in code paths this history never reaches.",
+      "id": "ablate-insertions",
+      "kind": "ablation",
+      "manySimultaneous": false,
+      "pythonDeltaPaths": [],
+      "pythonVerdict": "confirmed-null (zero delta was the expectation; still inconclusive about code paths this history never reaches)",
+      "singleVariable": "insertions/deletions inflated on every commit",
+      "tsDeltaPaths": [],
+      "tsVerdict": "confirmed-null (zero delta was the expectation; still inconclusive about code paths this history never reaches)"
+    },
+    {
+      "basedOn": "week1-spread-usable",
+      "expected": "no signal change in either arm: status is accepted input that no signal reads. Same inconclusive-by-design caveat as ablate-insertions.",
+      "id": "ablate-run-status",
+      "kind": "ablation",
+      "manySimultaneous": false,
+      "pythonDeltaPaths": [],
+      "pythonVerdict": "confirmed-null (zero delta was the expectation; still inconclusive about code paths this history never reaches)",
+      "singleVariable": "the first run's status string changes to 'failed'",
+      "tsDeltaPaths": [],
+      "tsVerdict": "confirmed-null (zero delta was the expectation; still inconclusive about code paths this history never reaches)"
+    },
+    {
+      "basedOn": "week1-spread-usable",
+      "expected": "boundary churn 1 event -> 0 events in both arms; stage footprints unchanged (the commit matched no stage)",
+      "id": "ablate-timestamp",
+      "kind": "ablation",
+      "manySimultaneous": false,
+      "pythonDeltaPaths": [
+        "boundaryChurn"
+      ],
+      "pythonVerdict": "confirmed",
+      "singleVariable": "the post-first-light boundary commit moves to before first light",
+      "tsDeltaPaths": [
+        "boundaryChurn"
+      ],
+      "tsVerdict": "confirmed"
+    },
+    {
+      "basedOn": "week1-spread-usable",
+      "expected": "all three deltas land at once; the combined result cannot attribute any observed change to a single cause. Included precisely to show why single-variable ablation is the study's unit of evidence.",
+      "id": "combined-many-changes",
+      "kind": "ablation",
+      "manySimultaneous": true,
+      "pythonDeltaPaths": [
+        "firstLight.firstScoredAtMs",
+        "firstLight.scoredRunCount",
+        "ownershipBreadth.query",
+        "stageFootprint.query.commitCount",
+        "stageFootprint.query.distinctAuthorCount",
+        "stageFootprint.query.firstTouchAtMs",
+        "stageFootprint.query.lastTouchAtMs"
+      ],
+      "pythonVerdict": "confirmed",
+      "singleVariable": null,
+      "tsDeltaPaths": [
+        "firstLight.firstScoredAtMs",
+        "firstLight.scoredRunCount",
+        "ownershipBreadth.peaks",
+        "ownershipBreadth.query",
+        "ownershipBreadth.spectrogram",
+        "stageFootprint.peaks.distinctAuthorCount",
+        "stageFootprint.query.commitCount",
+        "stageFootprint.query.distinctAuthorCount",
+        "stageFootprint.query.firstTouchAtMs",
+        "stageFootprint.query.lastTouchAtMs",
+        "stageFootprint.spectrogram.distinctAuthorCount"
+      ],
+      "tsVerdict": "confirmed"
+    }
+  ],
+  "sourceHashes": {
+    "apps/portal/worker/services/process-signals.ts": "1a99d96c379889ad4bad8c8ad4e1d473a08827fc6d0cfed497786e0eff84cd60",
+    "python/cogbench/src/cogbench/process.py": "b24d40c16d186486b67bc826db68094b8a6150b06aeef5affd172192bc0f18aa"
+  },
+  "tsxInvocation": {
+    "args": [
+      "pnpm",
+      "exec",
+      "tsx",
+      "experiments/process-signals/run-worker.ts"
+    ],
+    "cwd": "/home/user/work/CogPortal-signals"
+  }
+}

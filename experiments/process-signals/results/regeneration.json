@@ -1,0 +1,7 @@
+{
+  "builderExecutedDuringReplay": false,
+  "committedSummarySha256": "f28220424ba7098a6e113238b12621ad5082d61939309cb18b7a90e673e4c185",
+  "note": "Agreement between the committed summary and a replay that executed no builder. Byte equality here is the cached-run guarantee, and it covers the aggregate records (confusion-table.json, determinism.json) the summary is built from; per-run bytes are attested by the live-run repeats, not by replay.",
+  "regeneratedSummarySha256": "f28220424ba7098a6e113238b12621ad5082d61939309cb18b7a90e673e4c185",
+  "summaryAgrees": true
+}

@@ -1,0 +1,52 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": 1791050400000,
+    "scoredRunCount": 1
+  },
+  "historyQuality": "bulk_upload",
+  "ownershipBreadth": {},
+  "stageFootprint": {
+    "database": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "the entire history is a single commit"
+    },
+    "fanout": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "the entire history is a single commit"
+    },
+    "peaks": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "the entire history is a single commit"
+    },
+    "query": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "the entire history is a single commit"
+    },
+    "spectrogram": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "the entire history is a single commit"
+    }
+  },
+  "windowCommits": 1
+}
