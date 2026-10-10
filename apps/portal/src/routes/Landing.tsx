@@ -52,7 +52,15 @@ export function Landing() {
           <h1 className="mt-3 max-w-[16ch] text-[clamp(2.5rem,1.6rem+3.4vw,3.75rem)] text-ink">
             See how your capstone holds up as the problem gets harder.
           </h1>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
+          {/* The row's geometry may not depend on the session read: the CTA
+              label is "Sign in" until the read answers, then (configured)
+              "Sign in with GitHub" — a post-paint width change that used to
+              re-wrap this row on phones (a measured 56px CLS) and nudged the
+              quiet CTA on desktop. Below sm the CTAs stack at full width;
+              from sm up the sign-in CTA keeps a slot wide enough for its
+              widest honest label, so the flip changes neither position nor
+              wrap of anything else. */}
+          <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             {next ? (
               <Link to={next} className={buttonClass("primary", "px-6")}>
                 {next === "/dashboard"
@@ -63,12 +71,18 @@ export function Landing() {
                 <HugeiconsIcon icon={ArrowRight01Icon} size={16} strokeWidth={2} aria-hidden="true" />
               </Link>
             ) : (
-              <Link to="/signin" className={buttonClass("primary", "px-6")}>
+              <Link
+                to="/signin"
+                className={buttonClass(
+                  "primary",
+                  "px-6 w-full sm:w-auto sm:min-w-[15rem]",
+                )}
+              >
                 {githubConfigured && <GitHubIcon />}
                 {githubConfigured ? "Sign in with GitHub" : "Sign in"}
               </Link>
             )}
-            <Link to="/leaderboard" className={buttonClass("quiet")}>
+            <Link to="/leaderboard" className={buttonClass("quiet", "w-full sm:w-auto")}>
               See this year's results
             </Link>
             {/* The steps after sign-in, named the way the pages name them

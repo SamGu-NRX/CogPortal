@@ -1,0 +1,38 @@
+{
+  "project": "desktop",
+  "origin": "production bundle via evidence/cogportal-entry/prod-server.mjs",
+  "loads": 3,
+  "note": "Fresh context per load (cold cache). Shift entries include sources; hadRecentInput excluded per the CLS definition.",
+  "runs": [
+    {
+      "load": 1,
+      "shifts": 0,
+      "details": [],
+      "fontsRendered": {
+        "atkinsonNext": true,
+        "sourceSerif4": true,
+        "atkinsonMono": true
+      }
+    },
+    {
+      "load": 2,
+      "shifts": 0,
+      "details": [],
+      "fontsRendered": {
+        "atkinsonNext": true,
+        "sourceSerif4": true,
+        "atkinsonMono": true
+      }
+    },
+    {
+      "load": 3,
+      "shifts": 0,
+      "details": [],
+      "fontsRendered": {
+        "atkinsonNext": true,
+        "sourceSerif4": true,
+        "atkinsonMono": true
+      }
+    }
+  ]
+}

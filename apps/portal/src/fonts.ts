@@ -4,11 +4,14 @@
 // Source Serif 4 with its optical-size axis: headings are set large, and the
 // display cut keeps them from looking like body text scaled up. The italic
 // carries the margin notes (components/Note.tsx).
-import "@fontsource-variable/source-serif-4/opsz.css";
-import "@fontsource-variable/source-serif-4/opsz-italic.css";
+//
 // Atkinson Hyperlegible was drawn for the Braille Institute to keep similar
 // letters (l, I, 1; 0, O) distinct for low-vision readers. A student copying a
 // SHA, a join code or a branch name off this page needs exactly that.
-import "@fontsource-variable/atkinson-hyperlegible-next/wght.css";
-import "@fontsource-variable/atkinson-hyperlegible-next/wght-italic.css";
-import "@fontsource-variable/atkinson-hyperlegible-mono/wght.css";
+//
+// The faces live in ./styles/fonts.css rather than the @fontsource-variable
+// css files: same families, files, weight ranges and unicode ranges, but
+// font-display: optional instead of swap, so a cold load never re-lays-out
+// the page when the webfont arrives (the entry's step section measurably
+// shifted 3-4px under swap). See that file for the trade.
+import "./styles/fonts.css";
