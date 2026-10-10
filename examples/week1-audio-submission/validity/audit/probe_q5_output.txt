@@ -1,0 +1,11 @@
+=== A. render the full catalog from manifest seeds (hash-verified) ===
+specs_from_manifest -> 30 SongSpec objects (30 in-set, 0 out-of-set)
+render_from_manifest(verify=True) -> 36 songs in 28.4s; every render matched its manifest sha256
+
+=== B. bit-exact clip replication for all 252 queries ===
+materialize_cases -> 252 query clips (scorer's own renders)
+sha256(rebuilt clip) == sha256(scorer's clip): 252/252
+
+=== C. out-of-set songs are in the same renderable hash space ===
+out-of-set query clips rebuilt bit-exactly: 12/12
+clean 10 s clip from out-of-set unseen-00 (offset 5.0, no perturbation) hash: bfc0b592d086697f... - reproducible by any submission holding the manifest

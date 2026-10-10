@@ -247,12 +247,17 @@ def cases_from_corpus(blob: Dict[str, Any]) -> List[Any]:
 # --------------------------------------------------------------------------
 
 
-class StudyQueryCase:
-    """A query with precomputed samples and a study cell label.
+class StudyQueryCase(QueryCase):
+    """A study-only query the benchmark driver can execute.
 
-    Not a benchmark QueryCase on purpose: official scoring (which walks
-    QueryCase instances) must never see a study-only cell. The diagnostic
-    scorer reads retained predictions, not these objects.
+    Subclasses the benchmark's ``QueryCase`` so the shared driver's
+    ``isinstance(case, QueryCase)`` gate runs it through the identical
+    enroll/warm-up/query path as official cases; there is exactly one
+    execution path in this study. ``samples`` shadows the parent's
+    derived-audio property (study cells carry precomputed clips directly),
+    and ``study_cell``/``cellset`` ride along for the retained predictions.
+    Official scoring never sees one of these objects: official runs walk the
+    manifest's own ``QueryCase`` instances only.
     """
 
     def __init__(
@@ -265,13 +270,22 @@ class StudyQueryCase:
         study_cell: str,
         cellset: str,
     ) -> None:
-        self.query_id = query_id
-        self.samples = samples
-        self.sample_rate = sample_rate
-        self.gold_song_id = gold_song_id
-        self.kind = kind
+        super().__init__(
+            query_id,
+            sample_rate,
+            float(samples.shape[0]) / float(sample_rate),
+            0.0,
+            None,
+            gold_song_id,
+            kind,
+        )
+        self._samples = np.ascontiguousarray(samples, dtype=np.float32)
         self.study_cell = study_cell
         self.cellset = cellset
+
+    @property
+    def samples(self) -> np.ndarray:
+        return self._samples
 
 
 def _renorm(signal: np.ndarray, level: float = 0.89) -> np.ndarray:
@@ -849,6 +863,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.arm != ORACLE_ARM and "metadata_oracle" in names:
         names.remove("metadata_oracle")
         print("note: metadata_oracle runs on the official arm only; dropped for {}".format(args.arm))
+    if args.arm not in ("official", "seeds") and "call_order" in names:
+        names.remove("call_order")
+        print("note: call_order needs manifest-ordered queries; dropped for {} (see PROTOCOL.md)".format(args.arm))
     orchestrate(args.arm, tier, args.seed or None, names, Path(args.out), args.jobs, real_dir)
     return 0
 

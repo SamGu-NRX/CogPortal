@@ -1,0 +1,23 @@
+=== A. plaintext gold reachable from inside a submission process ===
+load_manifest('evaluation') -> 252 query rows, 30 songs, manifest_id=week1-evaluation-v1
+first 3 rows as a submission sees them (plaintext gold):
+   {"query_id": "q0000", "source_song_id": "song-00", "in_set": true, "cell": "clean", "clip_seconds": 10.0, "offset_seconds": 8.3075, "pitch_semitones": 0.0, "snr_db": null, "noise_seed": 1607937033}
+   {"query_id": "q0001", "source_song_id": "song-01", "in_set": true, "cell": "clean", "clip_seconds": 10.0, "offset_seconds": 6.3565, "pitch_semitones": 0.0, "snr_db": null, "noise_seed": 1457333756}
+   {"query_id": "q0002", "source_song_id": "song-02", "in_set": true, "cell": "clean", "clip_seconds": 10.0, "offset_seconds": 5.8251, "pitch_semitones": 0.0, "snr_db": null, "noise_seed": 1473752657}
+
+=== B. materialize the corpus (what the scorer hands the driver) ===
+materialize_cases -> 30 enroll cases + 252 query cases (28.9s)
+in-set queries: 240; sample gold metadata on QueryCase objects:
+   q0000: gold_song_id='song-00' offset=8.3075 noise_seed=1607937033 source='song-00'
+   q0001: gold_song_id='song-01' offset=6.3565 noise_seed=1457333756 source='song-01'
+   q0002: gold_song_id='song-02' offset=5.8251 noise_seed=1473752657 source='song-02'
+
+=== C. gc channel: enumerate the scorer's own QueryCase objects ===
+gc walk from 'student-side' module scope found 240 in-set QueryCase objects belonging to the scorer's run
+   q0000: gold_song_id='song-00'
+   q0001: gold_song_id='song-01'
+
+=== D. attack run through drivers.run_cases + score_outputs ===
+warm-up detected and skipped by zeros rule: True; query calls consumed: 240 of 240 in-set queries
+identification_score = 1.0
+clean_top1=1.0 noisy_top1=1.0 short_clip_top1=1.0 pitch_top1=1.0 chance_top1=0.0333

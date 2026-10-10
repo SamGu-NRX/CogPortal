@@ -1,0 +1,13 @@
+=== A. observed call order on the test tier (spy adapter) ===
+first 3 calls: [('enroll', 'song-00', 529200), ('enroll', 'song-01', 529200), ('enroll', 'song-02', 529200)]
+warm-up call (first identify): ('identify', 44100, True)
+calls after warm-up, first 5: [('identify', 264600, False), ('identify', 264600, False), ('identify', 264600, False), ('identify', 264600, False), ('identify', 264600, False)]
+total calls: 77 = 8 enroll + 1 warm-up + 68 identify
+
+=== B. gold from identify index alone, evaluation tier (no audio used) ===
+evaluation tier: 252 queries, 240 in-set, 30 enrolled songs
+index->gold rule 'song-{k % 30:02d}': 240/240 in-set queries correct
+cell blocks (in-set index ranges): [(0, 'clean'), (30, 'short'), (60, 'noisy'), (90, 'noisy_mid'), (120, 'pitch_down_2'), (150, 'pitch_down_1'), (180, 'pitch_up_1'), (210, 'pitch_up_2')]
+out-of-set indices (never scored): [(240, 'q0240'), (241, 'q0241'), (242, 'q0242'), (243, 'q0243'), (244, 'q0244'), (245, 'q0245'), (246, 'q0246'), (247, 'q0247'), (248, 'q0248'), (249, 'q0249'), (250, 'q0250'), (251, 'q0251')]
+
+wrote probe_q2_calls.json

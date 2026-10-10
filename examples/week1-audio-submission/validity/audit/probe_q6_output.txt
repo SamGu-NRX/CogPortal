@@ -1,0 +1,21 @@
+driver.KEEP_CANDIDATES = 16
+
+=== A. KEEP_CANDIDATES truncation is observable in the output record ===
+submission returned 20 candidates; driver stored {16} (every record truncated to 16)
+so the length of the stored list is a driver artifact, not the submission's depth
+
+=== B. output-record fields (what any diagnostic/report discloses) ===
+keys of a query output record: ['candidates', 'kind', 'ok', 'query_id', 'scores', 'seconds', 'shape']
+out-of-set records kept in outputs: 12; ids: ['q0240', 'q0241', 'q0242', 'q0243', 'q0244', 'q0245', 'q0246', 'q0247', 'q0248', 'q0249', 'q0250', 'q0251']
+per-record 'seconds' timing field, first 3 queries: [('q0000', 0.0), ('q0001', 0.0), ('q0002', 0.0)]
+
+=== B2. provenance channel: student-set PROVENANCE reaches the run page ===
+last output's 'mappings' after PROVENANCE spoof: ['scored through an instructor-supplied adapter; we supplied: <arbitrary student text>']
+
+=== C. clip length alone classifies the cell ===
+identify clip-length histogram over 254 calls: {44100: 2, 441000: 222, 132300: 30}
+expected from manifest clip_seconds: 10.0s clean/noisy/pitch (210 calls), 5.0s short (30), 3.0s lowsnr (30)
+manifest clip_seconds histogram: {'10.0': 222, '3.0': 30}
+warm-up call was first and had length 44100
+
+wrote probe_q6_lengths.json

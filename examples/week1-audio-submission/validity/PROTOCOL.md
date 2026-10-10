@@ -55,6 +55,7 @@ in `study_pipeline.py` and follow the same one-knob discipline.
 | `abstain_all` | returns `[]` every query | always-abstain policy |
 | `abstain_margin` | tuned pipeline, abstains when top1/top2 vote margin < τ | sometimes-abstain policy |
 | `metadata_oracle` | ignores audio; reads the shipped manifest inside the scorer's own process and replays gold by deterministic call order, skipping the driver's warm-up call | metadata audit demonstration |
+| `call_order` | ignores audio, files, and packages; counts identify calls and answers `enrollment_order[k mod N]` (enrollment arrives sorted; warm-up skipped) | metadata audit demonstration (strongest channel) |
 
 τ for `abstain_margin` was chosen on tuning manifests only (rule below) and
 frozen before measurement. `chroma12` parameters (12 pitch classes, 55 Hz–8 kHz
@@ -147,9 +148,36 @@ saturate for every fingerprint pipeline; integer pitch cells sit at chance
 for every exact-hash pipeline while `chroma12` (the only integer-shift-
 invariant one) either saturates them or collapses specificity; `nbhd3`/
 `nbhd51` are indistinguishable from `tuned` on the official grid despite
-0.3–0.5 measured deficits on finer cells; `metadata_oracle` approaches 1.0
-in-set. If these hold, the instrument's published number is (a) unable to
+0.3–0.5 measured deficits on finer cells; `metadata_oracle` and `call_order`
+approach 1.0 in-set on manifest-ordered arms (metadata channels, not audio
+ability). If these hold, the instrument's published number is (a) unable to
 see the improvements it exists to rank and (b) reachable without audio.
 The study's contribution is quantifying all of that on the current pin,
 adding the corpus and ambiguity measurements the calibration did not make,
 and saying which improvements survive controls.
+
+## Amendment 1 (pre-measurement)
+
+Recorded before any measurement-tier run. Three changes, each made after the
+test-tier shakedown but before the frozen measurement:
+
+1. **`StudyQueryCase` now subclasses the benchmark's `QueryCase`.** The
+   original study-only class was silently invisible to the driver's
+   `isinstance(case, QueryCase)` gate — study rows would have produced no
+   outputs at all. Found by code read (a unit check against the real driver
+   reproduced it) before any study-arm run was spent. Study rows now travel
+   the identical enroll/warm-up/query path as official rows; official runs
+   never construct study rows, so official scoring is unchanged.
+2. **`call_order` variant added.** The metadata audit (audit/AUDIT.md,
+   channel 2) proved the identify-call index alone determines gold:
+   `sorted(catalog)[k mod N]` scored 240/240 on the shipped evaluation
+   manifest. Unlike `metadata_oracle`, it needs no file access, no package
+   import, and no manifest — sandbox hardening cannot remove it. It runs on
+   the official and seeds arms only (arms whose query order is the
+   manifest's row order); probe, ambiguity, and real-audio arms reorder
+   queries and drop it with a printed note.
+3. **Reference environment.** CALIBRATION.md's reproduce commands run on
+   Python 3.8.20 / numpy 1.24.4 / scipy 1.10.1 / matplotlib 3.7.5. The
+   measurement environment is that stack (venv `3.8.20`), matching the
+   pinned calibration. Shakedown runs that preceded this amendment used
+   Python 3.13 and are labeled shakedown, not measurement.

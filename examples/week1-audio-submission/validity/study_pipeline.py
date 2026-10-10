@@ -391,6 +391,48 @@ class MetadataOracle:
         return [(self._first, 1.0)] if self._first else []
 
 
+class CallOrderOracle:
+    """Inert to audio; replays gold from the identify-call order alone.
+
+    The strongest channel the metadata audit proved (AUDIT.md, probe 4): the
+    driver walks the manifest's query rows in presentation order, so the
+    k-th real identify call is the k-th query row, whose source song is
+    ``sorted(catalog)[k mod n]``. This variant never opens a file, never
+    imports the benchmark package, never touches the manifest — it counts
+    calls and records enrollment order. Any sandbox hardening that blocks
+    file or package access leaves this channel intact, which is why it is
+    measured separately from ``metadata_oracle``. Valid on arms whose query
+    order equals the manifest's row order (official, seeds); probe and
+    ambiguity arms reorder queries, so they do not run it. Warm-up (the
+    driver's one-second zeros identify) is skipped by detecting silence.
+    """
+
+    def __init__(self, resources: object = None, top_k: int = 10) -> None:
+        self.top_k = int(top_k)
+        self._ids: List[str] = []
+        self._queries = 0
+        self._warmup_seen = False
+        self._first: Optional[str] = None
+
+    def enroll(self, song_id: str, samples: np.ndarray, sample_rate: int) -> None:
+        if self._first is None:
+            self._first = song_id
+        self._ids.append(song_id)
+
+    def identify(self, samples: np.ndarray, sample_rate: int) -> List[Tuple[str, float]]:
+        if not self._warmup_seen:
+            # The driver's warm-up is a one-second all-zeros clip, exactly once,
+            # before the first real query.
+            self._warmup_seen = True
+            if not np.any(np.asarray(samples)):
+                return []
+        if not self._ids:
+            return []
+        index = self._queries
+        self._queries += 1
+        return [(self._ids[index % len(self._ids)], 1.0)]
+
+
 # --------------------------------------------------------------------------
 # Registry
 # --------------------------------------------------------------------------
@@ -448,6 +490,10 @@ def _make_metadata_oracle(resources: object):
     return MetadataOracle(resources, top_k=_top_k(resources))
 
 
+def _make_call_order(resources: object):
+    return CallOrderOracle(resources, top_k=_top_k(resources))
+
+
 #: Same shape as `reference_shazam.variants.VARIANTS`: name -> factory(resources).
 #: The runner passes the factory directly, which exercises the identical code
 #: path the env-var dispatch reaches.
@@ -462,4 +508,5 @@ STUDY_VARIANTS: Dict[str, object] = {
     "abstain_all": _make_abstain_all,
     "abstain_margin": _make_abstain_margin,
     "metadata_oracle": _make_metadata_oracle,
+    "call_order": _make_call_order,
 }

@@ -1,0 +1,17 @@
+=== A. controller side: build the payload the sandbox receives ===
+encode_payload -> 7360 bytes
+
+=== B. student side: read /tmp/cog-week1-payload.zip and invert the tokens ===
+metadata.json keys: ['benchmark_id', 'corpus_version', 'out_of_set_songs', 'queries', 'salt', 'sample_rate', 'showcase', 'songs']
+salt in payload: week1-evaluation-v1:719241703
+first catalog song row: {'duration_seconds': 45.0, 'seed': 838647895, 'sha256': 'd6d64e7fed47cf820355627d8b1b7302b535b6a7dd06d58656f6e362d5e435c6', 'song_id': 'song-00'}
+first query row: {'clip_seconds': 10.0, 'noise_seed': 1607937033, 'offset_seconds': 8.3075, 'pitch_semitones': 0.0, 'query_id': 'q0000', 'snr_db': None, 'source_token': 'src-462dd69158d4ac38'}
+token table built from salt + 30 known song ids
+token inversion: 240/252 queries resolved to an enrolled song id
+
+=== C. check the recovery against the true (controller-side) gold ===
+recovered gold matches the true manifest gold for 240/240 in-set queries
+
+=== D. clip re-render from payload metadata alone is bit-exact ===
+payload-rendered clip == manifest-rendered clip: True
+sha256: 6ec1d8298e545de4d02835306681aa5c54086ca6b4ad21e131e525ac6ae66dff

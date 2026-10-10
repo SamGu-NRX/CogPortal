@@ -1,0 +1,12 @@
+=== A. cogbench resolves a submission by file, in this process ===
+resolve_submission -> source='file' detail='submission.py:create_submission'
+(the factory is the imported submission.py module; no subprocess, no isolation)
+
+=== B. the v2 execute path: gold-bearing cases, in-process run and score ===
+benchmark.load_cases -> cases carry gold: 64/68 query cases have gold_song_id
+
+=== C. metadata-attack submission scored through the real local runner ===
+execute() -> LocalReport in 38.8s
+tier scored: evaluation (runner._execute_v2 chooses 'test' if smoke else 'evaluation')
+identification_score = 1.0
+clean_top1=1.0 pitch_top1=1.0 chance_top1=0.0333
