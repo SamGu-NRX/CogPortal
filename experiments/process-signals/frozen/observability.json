@@ -1,0 +1,397 @@
+{
+  "note": "Expected observability per frozen scenario, computed by the python arm at freeze time and re-verified on every test run. Unavailable means null/empty-map, computed-zero means zero; see FIELDS.md.",
+  "scenarios": {
+    "week1-empty": {
+      "boundaryChurnEventCount": 0,
+      "firstLight": {
+        "firstScoredAtMs": 1791050400000,
+        "firstScoredAtPresent": true,
+        "scoredRunCount": 1
+      },
+      "historyQuality": "empty",
+      "ownershipBreadth": {},
+      "stageFootprint": {
+        "database": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "this repository has no recorded commits"
+        },
+        "fanout": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "this repository has no recorded commits"
+        },
+        "peaks": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "this repository has no recorded commits"
+        },
+        "query": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "this repository has no recorded commits"
+        },
+        "spectrogram": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "this repository has no recorded commits"
+        }
+      }
+    },
+    "week1-exact-sixty": {
+      "boundaryChurnEventCount": 0,
+      "firstLight": {
+        "firstScoredAtMs": 1791014400000,
+        "firstScoredAtPresent": true,
+        "scoredRunCount": 1
+      },
+      "historyQuality": "usable",
+      "ownershipBreadth": {
+        "database": [],
+        "fanout": [
+          "ada"
+        ],
+        "peaks": [
+          "ada",
+          "blake"
+        ],
+        "query": [
+          "ada",
+          "blake"
+        ],
+        "spectrogram": [
+          "ada"
+        ]
+      },
+      "stageFootprint": {
+        "database": {
+          "available": true,
+          "commitCount": 0,
+          "distinctAuthorCount": 0,
+          "timestampsPresent": false,
+          "unavailableReason": null
+        },
+        "fanout": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "peaks": {
+          "available": true,
+          "commitCount": 2,
+          "distinctAuthorCount": 2,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "query": {
+          "available": true,
+          "commitCount": 2,
+          "distinctAuthorCount": 2,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "spectrogram": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        }
+      }
+    },
+    "week1-fetch-failed-unauthorized": {
+      "historyType": "fetch_failed",
+      "pythonArm": "unexercisable: process.py has no input that produces a fetch failure"
+    },
+    "week1-share-bulk": {
+      "boundaryChurnEventCount": 0,
+      "firstLight": {
+        "firstScoredAtMs": 1791104400000,
+        "firstScoredAtPresent": true,
+        "scoredRunCount": 2
+      },
+      "historyQuality": "bulk_upload",
+      "ownershipBreadth": {},
+      "stageFootprint": {
+        "database": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+        },
+        "fanout": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+        },
+        "peaks": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+        },
+        "query": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+        },
+        "spectrogram": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+        }
+      }
+    },
+    "week1-single-commit": {
+      "boundaryChurnEventCount": 0,
+      "firstLight": {
+        "firstScoredAtMs": 1791050400000,
+        "firstScoredAtPresent": true,
+        "scoredRunCount": 1
+      },
+      "historyQuality": "bulk_upload",
+      "ownershipBreadth": {},
+      "stageFootprint": {
+        "database": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "the entire history is a single commit"
+        },
+        "fanout": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "the entire history is a single commit"
+        },
+        "peaks": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "the entire history is a single commit"
+        },
+        "query": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "the entire history is a single commit"
+        },
+        "spectrogram": {
+          "available": false,
+          "commitCount": null,
+          "distinctAuthorCount": null,
+          "timestampsPresent": false,
+          "unavailableReason": "the entire history is a single commit"
+        }
+      }
+    },
+    "week1-spread-usable": {
+      "boundaryChurnEventCount": 1,
+      "firstLight": {
+        "firstScoredAtMs": 1791136800000,
+        "firstScoredAtPresent": true,
+        "scoredRunCount": 3
+      },
+      "historyQuality": "usable",
+      "ownershipBreadth": {
+        "database": [
+          "blake"
+        ],
+        "fanout": [],
+        "peaks": [
+          "ada"
+        ],
+        "query": [
+          "ada"
+        ],
+        "spectrogram": [
+          "ada",
+          "chandra"
+        ]
+      },
+      "stageFootprint": {
+        "database": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "fanout": {
+          "available": true,
+          "commitCount": 0,
+          "distinctAuthorCount": 0,
+          "timestampsPresent": false,
+          "unavailableReason": null
+        },
+        "peaks": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "query": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "spectrogram": {
+          "available": true,
+          "commitCount": 2,
+          "distinctAuthorCount": 2,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        }
+      }
+    },
+    "week1-unscored-only": {
+      "boundaryChurnEventCount": 0,
+      "firstLight": {
+        "firstScoredAtMs": null,
+        "firstScoredAtPresent": false,
+        "scoredRunCount": 0
+      },
+      "historyQuality": "usable",
+      "ownershipBreadth": {},
+      "stageFootprint": {}
+    },
+    "week2-coauthors": {
+      "boundaryChurnEventCount": 0,
+      "firstLight": {
+        "firstScoredAtMs": 1791028800000,
+        "firstScoredAtPresent": true,
+        "scoredRunCount": 1
+      },
+      "historyQuality": "usable",
+      "ownershipBreadth": {
+        "descriptors": [
+          "dana"
+        ],
+        "matching": [
+          "dana"
+        ],
+        "profiles": [
+          "eli"
+        ],
+        "whispers": []
+      },
+      "stageFootprint": {
+        "descriptors": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "matching": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "profiles": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "whispers": {
+          "available": true,
+          "commitCount": 0,
+          "distinctAuthorCount": 0,
+          "timestampsPresent": false,
+          "unavailableReason": null
+        }
+      }
+    },
+    "week2-no-runs": {
+      "boundaryChurnEventCount": 0,
+      "firstLight": {
+        "firstScoredAtMs": null,
+        "firstScoredAtPresent": false,
+        "scoredRunCount": 0
+      },
+      "historyQuality": "usable",
+      "ownershipBreadth": {},
+      "stageFootprint": {}
+    },
+    "week3-boundary-timing": {
+      "boundaryChurnEventCount": 1,
+      "firstLight": {
+        "firstScoredAtMs": 1791194400000,
+        "firstScoredAtPresent": true,
+        "scoredRunCount": 1
+      },
+      "historyQuality": "usable",
+      "ownershipBreadth": {
+        "embedding": [],
+        "organizer": [
+          "sara"
+        ],
+        "search": [
+          "tim"
+        ],
+        "training": []
+      },
+      "stageFootprint": {
+        "embedding": {
+          "available": true,
+          "commitCount": 0,
+          "distinctAuthorCount": 0,
+          "timestampsPresent": false,
+          "unavailableReason": null
+        },
+        "organizer": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "search": {
+          "available": true,
+          "commitCount": 1,
+          "distinctAuthorCount": 1,
+          "timestampsPresent": true,
+          "unavailableReason": null
+        },
+        "training": {
+          "available": true,
+          "commitCount": 0,
+          "distinctAuthorCount": 0,
+          "timestampsPresent": false,
+          "unavailableReason": null
+        }
+      }
+    }
+  }
+}

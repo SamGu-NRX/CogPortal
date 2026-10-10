@@ -1,0 +1,256 @@
+{
+  "version": "1.0.0",
+  "frozenAt": "2026-10-10",
+  "baseBranch": "fix/device-link-recovery-20261004",
+  "purpose": "Paired synthetic commit/run histories frozen for the process-signals signal study. Each scenario is one neutral history fed to both builder arms (python/cogbench/src/cogbench/process.py and apps/portal/worker/services/process-signals.ts). Histories are frozen: the study never invents data at run time, so a replay regenerates from exactly these bytes.",
+  "encoding": {
+    "commits": "Neutral form. authoredAt is an ISO-8601 UTC string with optional fractional seconds. The Python arm passes it through unchanged (process.py consumes ISO-8601); the TypeScript arm converts to epoch milliseconds with Date.parse (process-signals.ts consumes numbers). filesChanged, sha and authorLogin pass through unchanged. coAuthors is the raw Co-authored-by trailer list; only the TypeScript arm resolves it against the roster (documented divergence). insertions/deletions are carried so the study can demonstrate neither arm reads them.",
+    "runs": "Neutral form. createdAt is the instant the run finished scoring; the Python arm maps it to Run.created_at and the TypeScript arm to RunRecord.finishedAt (the TS module's documented mapping: first light is when a run finished and scored). runId and status are carried so the study can demonstrate neither arm reads them.",
+    "week": "Week label selecting the default stage map, or null. Null mirrors the TypeScript orchestrator's rule that a team with no runs yet has no knowable stage map; the Python arm implements the same rule with an empty caller-supplied stage map.",
+    "fetchFailure": "Present only when the scenario exercises the TypeScript-only fetch-failed arm ({\"ok\": false, \"reason\": ...}). The Python module has no input that can produce this state, so that scenario has no Python arm.",
+    "truncated": "True when the commit window is known to be truncated. The Python module has no truncation input, so the Python arm never reports a window; this is a disclosed arm-only field."
+  },
+  "rosters": {
+    "team1": [
+      {"login": "ada", "email": "ada@team1.edu"},
+      {"login": "blake", "email": "blake@team1.edu"},
+      {"login": "chandra", "email": "chandra@team1.edu"}
+    ],
+    "team2": [
+      {"login": "dana", "email": "dana@team2.edu"},
+      {"login": "eli", "email": "eli@team2.edu"}
+    ],
+    "team3": [
+      {"login": "sara", "email": "sara@team3.edu"},
+      {"login": "tim", "email": "tim@team3.edu"}
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "week1-spread-usable",
+      "historyType": "usable",
+      "week": "week1",
+      "roster": "team1",
+      "truncated": true,
+      "notes": "Ordinary spread-out development: three authors, five stages touched except fanout, first light on 2026-10-04, one boundary commit after it. Window truncated in the TS arm so the untouched-fanout absence is ambiguous by construction.",
+      "commits": [
+        {"sha": "s1c1", "authorLogin": "ada", "authoredAt": "2026-10-01T10:00:00Z", "filesChanged": ["src/spectrogram.py", "src/find_peaks.py"], "insertions": 120, "deletions": 4, "coAuthors": []},
+        {"sha": "s1c2", "authorLogin": "blake", "authoredAt": "2026-10-01T15:00:00Z", "filesChanged": ["src/database_builder.py", "tests/test_database_builder.py"], "insertions": 80, "deletions": 0, "coAuthors": []},
+        {"sha": "s1c3", "authorLogin": "ada", "authoredAt": "2026-10-02T09:30:00Z", "filesChanged": ["src/query_matcher.py", "tests/test_query_matcher.py"], "insertions": 60, "deletions": 10, "coAuthors": []},
+        {"sha": "s1c4", "authorLogin": "chandra", "authoredAt": "2026-10-03T11:00:00Z", "filesChanged": ["notebook/Spectogram.ipynb"], "insertions": 15, "deletions": 2, "coAuthors": []},
+        {"sha": "s1c5", "authorLogin": "blake", "authoredAt": "2026-10-04T14:20:00Z", "filesChanged": ["submission.py"], "insertions": 5, "deletions": 5, "coAuthors": []},
+        {"sha": "s1c6", "authorLogin": "ada", "authoredAt": "2026-10-05T16:45:00Z", "filesChanged": ["benchmark_adapter.py"], "insertions": 9, "deletions": 3, "coAuthors": []}
+      ],
+      "runs": [
+        {"runId": "s1r1", "createdAt": "2026-10-04T18:00:00Z", "status": "success", "scored": true},
+        {"runId": "s1r2", "createdAt": "2026-10-05T12:00:00Z", "status": "success", "scored": true},
+        {"runId": "s1r3", "createdAt": "2026-10-06T08:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week1-single-commit",
+      "historyType": "bulk_upload",
+      "week": "week1",
+      "roster": "team1",
+      "truncated": false,
+      "notes": "Whole project pushed as one commit (the real failure two of five capstone teams hit). Per-commit attribution is meaningless; every commit-derived signal must refuse, while run history still counts.",
+      "commits": [
+        {"sha": "s2c1", "authorLogin": "chandra", "authoredAt": "2026-10-02T09:00:00Z", "filesChanged": ["src/spectrogram.py", "src/find_peaks.py", "src/fanout.py", "src/database.py", "src/query.py", "submission.py", "benchmark_adapter.py", "README.md", "requirements.txt", ".gitignore"], "insertions": 2400, "deletions": 0, "coAuthors": []}
+      ],
+      "runs": [
+        {"runId": "s2r1", "createdAt": "2026-10-03T18:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week1-empty",
+      "historyType": "empty",
+      "week": "week1",
+      "roster": "team1",
+      "truncated": false,
+      "notes": "Repository connected but no recorded commits; one scored run exists.",
+      "commits": [],
+      "runs": [
+        {"runId": "s3r1", "createdAt": "2026-10-03T18:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week1-share-bulk",
+      "historyType": "bulk_upload",
+      "week": "week1",
+      "roster": "team1",
+      "truncated": false,
+      "notes": "Bulk upload by share, not by count: three commits, but the first holds 10 of 12 changed files (83% > 60% threshold).",
+      "commits": [
+        {"sha": "s4c1", "authorLogin": "ada", "authoredAt": "2026-10-02T09:00:00Z", "filesChanged": ["src/spectrogram.py", "src/peaks.py", "src/fanout.py", "src/db.py", "src/query.py", "submission.py", "benchmark_adapter.py", "README.md", "requirements.txt", ".gitignore"], "insertions": 1800, "deletions": 0, "coAuthors": []},
+        {"sha": "s4c2", "authorLogin": "blake", "authoredAt": "2026-10-03T10:00:00Z", "filesChanged": ["src/peak_util.py"], "insertions": 20, "deletions": 1, "coAuthors": []},
+        {"sha": "s4c3", "authorLogin": "blake", "authoredAt": "2026-10-03T17:00:00Z", "filesChanged": ["src/db_util.py"], "insertions": 12, "deletions": 0, "coAuthors": []}
+      ],
+      "runs": [
+        {"runId": "s4r1", "createdAt": "2026-10-04T09:00:00Z", "status": "success", "scored": true},
+        {"runId": "s4r2", "createdAt": "2026-10-05T09:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week2-no-runs",
+      "historyType": "usable",
+      "week": null,
+      "roster": "team2",
+      "truncated": false,
+      "notes": "Real, usable commit history but the team has never run anything, so no week label is knowable. Both arms must degrade stage footprint and ownership to empty without treating it as a data failure.",
+      "commits": [
+        {"sha": "s5c1", "authorLogin": "dana", "authoredAt": "2026-10-01T10:00:00Z", "filesChanged": ["src/face_descriptors.py"], "insertions": 90, "deletions": 0, "coAuthors": []},
+        {"sha": "s5c2", "authorLogin": "eli", "authoredAt": "2026-10-02T10:00:00Z", "filesChanged": ["src/profile_db.py", "src/add_database.py"], "insertions": 70, "deletions": 5, "coAuthors": []},
+        {"sha": "s5c3", "authorLogin": "dana", "authoredAt": "2026-10-03T10:00:00Z", "filesChanged": ["src/match_threshold.py"], "insertions": 30, "deletions": 2, "coAuthors": []},
+        {"sha": "s5c4", "authorLogin": "eli", "authoredAt": "2026-10-04T10:00:00Z", "filesChanged": ["src/whispers_cluster.py"], "insertions": 45, "deletions": 0, "coAuthors": []}
+      ],
+      "runs": []
+    },
+    {
+      "id": "week2-coauthors",
+      "historyType": "usable",
+      "week": "week2",
+      "roster": "team2",
+      "truncated": false,
+      "notes": "Co-authored-by trailers. One trailer resolves to roster member eli via the roster email; one trailer names a bot and must be dropped. Known, documented divergence: the TypeScript arm resolves trailers against the roster, the Python module does not (single author_login per commit).",
+      "commits": [
+        {"sha": "s6c1", "authorLogin": "dana", "authoredAt": "2026-10-02T10:00:00Z", "filesChanged": ["src/face_descriptors.py"], "insertions": 55, "deletions": 0, "coAuthors": [{"name": "Eli", "email": "eli@team2.edu"}]},
+        {"sha": "s6c2", "authorLogin": "eli", "authoredAt": "2026-10-03T10:00:00Z", "filesChanged": ["src/profile_db.py"], "insertions": 40, "deletions": 2, "coAuthors": [{"name": "Claude", "email": "noreply@anthropic.com"}]},
+        {"sha": "s6c3", "authorLogin": "dana", "authoredAt": "2026-10-04T10:00:00Z", "filesChanged": ["src/match_threshold.py"], "insertions": 25, "deletions": 0, "coAuthors": []}
+      ],
+      "runs": [
+        {"runId": "s6r1", "createdAt": "2026-10-03T12:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week3-boundary-timing",
+      "historyType": "usable",
+      "week": "week3",
+      "roster": "team3",
+      "truncated": false,
+      "notes": "Boundary churn is strictly-after first light: one contract commit exactly at the first-light instant is excluded, one 1 millisecond later is included, one before is excluded.",
+      "commits": [
+        {"sha": "s7c1", "authorLogin": "sara", "authoredAt": "2026-10-05T10:00:00Z", "filesChanged": ["submission.py", "src/organize_coco.py"], "insertions": 30, "deletions": 3, "coAuthors": []},
+        {"sha": "s7c2", "authorLogin": "sara", "authoredAt": "2026-10-05T10:00:00.001Z", "filesChanged": ["benchmark_adapter.py"], "insertions": 8, "deletions": 1, "coAuthors": []},
+        {"sha": "s7c3", "authorLogin": "tim", "authoredAt": "2026-10-04T09:00:00Z", "filesChanged": ["src/image_query.py"], "insertions": 22, "deletions": 0, "coAuthors": []}
+      ],
+      "runs": [
+        {"runId": "s7r1", "createdAt": "2026-10-05T10:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week1-fetch-failed-unauthorized",
+      "historyType": "fetch_failed",
+      "week": "week1",
+      "roster": "team1",
+      "truncated": false,
+      "fetchFailure": {"ok": false, "reason": "unauthorized"},
+      "notes": "TypeScript-only arm: the commit fetch failed with an authorization error. The Python module has no input that can produce this state, so this scenario has no Python arm; it exists so the TS arm's honest-unavailable path is measured rather than assumed.",
+      "commits": [],
+      "runs": [
+        {"runId": "s8r1", "createdAt": "2026-10-04T18:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week1-exact-sixty",
+      "historyType": "usable",
+      "week": "week1",
+      "roster": "team1",
+      "truncated": false,
+      "notes": "The largest commit holds exactly 60% of changed files (6 of 10). The bulk-upload threshold is strictly greater-than, so this history must classify as usable, not bulk_upload.",
+      "commits": [
+        {"sha": "s9c1", "authorLogin": "ada", "authoredAt": "2026-10-01T09:00:00Z", "filesChanged": ["src/spectrogram.py", "src/stft_helper.py", "src/peaks.py", "src/fanout_map.py", "src/db.py", "src/query.py"], "insertions": 300, "deletions": 0, "coAuthors": []},
+        {"sha": "s9c2", "authorLogin": "blake", "authoredAt": "2026-10-02T09:00:00Z", "filesChanged": ["src/peak_util.py", "tests/test_peak_util.py"], "insertions": 40, "deletions": 2, "coAuthors": []},
+        {"sha": "s9c3", "authorLogin": "ada", "authoredAt": "2026-10-02T15:00:00Z", "filesChanged": ["src/db_loader.py"], "insertions": 15, "deletions": 0, "coAuthors": []},
+        {"sha": "s9c4", "authorLogin": "blake", "authoredAt": "2026-10-03T08:00:00Z", "filesChanged": ["src/query_tool.py"], "insertions": 18, "deletions": 4, "coAuthors": []}
+      ],
+      "runs": [
+        {"runId": "s9r1", "createdAt": "2026-10-03T08:00:00Z", "status": "success", "scored": true}
+      ]
+    },
+    {
+      "id": "week1-unscored-only",
+      "historyType": "usable",
+      "week": null,
+      "roster": "team1",
+      "truncated": false,
+      "notes": "Runs exist but none has ever scored, so first light is null and there is no first-light anchor for churn. Harness assumption, recorded here: an all-unscored run list is treated as week-unknown, mirroring the no-runs degradation, because a week label is resolved from run evidence in this study.",
+      "commits": [
+        {"sha": "s10c1", "authorLogin": "ada", "authoredAt": "2026-10-01T10:00:00Z", "filesChanged": ["src/spectrogram.py"], "insertions": 50, "deletions": 0, "coAuthors": []},
+        {"sha": "s10c2", "authorLogin": "blake", "authoredAt": "2026-10-02T10:00:00Z", "filesChanged": ["src/find_peaks.py"], "insertions": 35, "deletions": 0, "coAuthors": []},
+        {"sha": "s10c3", "authorLogin": "ada", "authoredAt": "2026-10-03T10:00:00Z", "filesChanged": ["src/query_matcher.py"], "insertions": 28, "deletions": 1, "coAuthors": []}
+      ],
+      "runs": [
+        {"runId": "s10r1", "createdAt": "2026-10-03T18:00:00Z", "status": "failed", "scored": false},
+        {"runId": "s10r2", "createdAt": "2026-10-04T18:00:00Z", "status": "error", "scored": false}
+      ]
+    }
+  ],
+  "ablations": [
+    {
+      "id": "ablate-filename",
+      "basedOn": "week1-spread-usable",
+      "singleVariable": "one commit's file paths stop matching the query stage",
+      "patches": [
+        {"op": "set", "path": "commits[2].filesChanged", "value": ["src/finder.py", "tests/test_finder.py"]}
+      ],
+      "expected": "query stage commit_count drops 1 -> 0 in both arms; no other stage moves"
+    },
+    {
+      "id": "ablate-scored-flag",
+      "basedOn": "week1-spread-usable",
+      "singleVariable": "the first run loses its scored flag",
+      "patches": [
+        {"op": "set", "path": "runs[0].scored", "value": false}
+      ],
+      "expected": "firstScoredAt moves to the second run in both arms; scoredRunCount 3 -> 2; churn unchanged (the surviving boundary commit is still after the new first light)"
+    },
+    {
+      "id": "ablate-coauthor",
+      "basedOn": "week1-spread-usable",
+      "singleVariable": "one commit gains a Co-authored-by trailer that resolves to roster member blake",
+      "patches": [
+        {"op": "set", "path": "commits[0].coAuthors", "value": [{"name": "Blake", "email": "blake@team1.edu"}]}
+      ],
+      "expected": "TypeScript arm: spectrogram and peaks distinct-author counts include blake, ownership lists gain blake. Python arm: no change (single author_login per commit). This is the documented ported divergence, not a defect."
+    },
+    {
+      "id": "ablate-insertions",
+      "basedOn": "week1-spread-usable",
+      "singleVariable": "insertions/deletions inflated on every commit",
+      "patches": [
+        {"op": "set-all-commits", "insertions": 9999, "deletions": 9999}
+      ],
+      "expected": "no signal change in either arm: both modules accept these fields and no function in either reads them. A zero-delta measurement is the expected outcome, and it cannot rule out reading in code paths this history never reaches."
+    },
+    {
+      "id": "ablate-run-status",
+      "basedOn": "week1-spread-usable",
+      "singleVariable": "the first run's status string changes to 'failed'",
+      "patches": [
+        {"op": "set", "path": "runs[0].status", "value": "failed"}
+      ],
+      "expected": "no signal change in either arm: status is accepted input that no signal reads. Same inconclusive-by-design caveat as ablate-insertions."
+    },
+    {
+      "id": "ablate-timestamp",
+      "basedOn": "week1-spread-usable",
+      "singleVariable": "the post-first-light boundary commit moves to before first light",
+      "patches": [
+        {"op": "set", "path": "commits[5].authoredAt", "value": "2026-10-04T17:00:00Z"}
+      ],
+      "expected": "boundary churn 1 event -> 0 events in both arms; stage footprints unchanged (the commit matched no stage)"
+    },
+    {
+      "id": "combined-many-changes",
+      "basedOn": "week1-spread-usable",
+      "singleVariable": null,
+      "manySimultaneous": true,
+      "patches": [
+        {"op": "set", "path": "commits[2].filesChanged", "value": ["src/finder.py", "tests/test_finder.py"]},
+        {"op": "set", "path": "runs[0].scored", "value": false},
+        {"op": "set", "path": "commits[0].coAuthors", "value": [{"name": "Blake", "email": "blake@team1.edu"}]}
+      ],
+      "expected": "all three deltas land at once; the combined result cannot attribute any observed change to a single cause. Included precisely to show why single-variable ablation is the study's unit of evidence."
+    }
+  ]
+}
