@@ -45,7 +45,7 @@ export function Landing() {
   const next = session?.user ? nextStagePath(session) : null;
 
   return (
-    <div className="page !max-w-[64rem]">
+    <div className="page !max-w-[64rem]" data-entry-page>
       <section className="grid items-center gap-x-16 gap-y-12 lg:grid-cols-[minmax(0,1fr)_25rem]">
         <div className="anim-rise">
           <p className="u-eyebrow">CogWorks 2026 capstone benchmark</p>

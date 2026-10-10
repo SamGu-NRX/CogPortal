@@ -80,7 +80,7 @@ test("nothing overflows the viewport", async ({ page }, testInfo) => {
     `the entry scrolls horizontally by ${overflow}px at ${testInfo.project.name}`,
   ).toBeLessThanOrEqual(0);
   await page.screenshot({
-    path: `evidence/cogportal-entry/results/viewport-${testInfo.project.name}.png`,
+    path: resultsPath(screenshotName(testInfo, "viewport")),
   });
 });
 
@@ -104,7 +104,7 @@ test("keyboard navigation reaches sign-in", async ({ page }, testInfo) => {
   }
   expect(focused, "the primary CTA must be reachable by Tab").toBe("/signin");
   await page.screenshot({
-    path: `evidence/cogportal-entry/results/keyboard-focus-${testInfo.project.name}.png`,
+    path: resultsPath(screenshotName(testInfo, "keyboard-focus")),
   });
 
   await page.keyboard.press("Enter");
@@ -140,7 +140,7 @@ test("reduced motion disables the rise animation", async ({ browser }, testInfo)
       "prefers-reduced-motion must turn the rise animation off",
     ).toBe("none");
     await page.screenshot({
-      path: `evidence/cogportal-entry/results/reduced-motion-${testInfo.project.name}.png`,
+      path: resultsPath(screenshotName(testInfo, "reduced-motion")),
       fullPage: true,
     });
   } finally {

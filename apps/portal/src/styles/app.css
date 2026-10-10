@@ -558,3 +558,110 @@
     transition: none;
   }
 }
+
+/* ── Entry-only, swap-tolerant type ──────────────────────────────────────
+   The public entry is measured (evidence/cogportal-entry/) with cold font
+   loads, and a swap font must not move it: the webfonts' vertical metrics
+   differ from the system faces, which moved the section/step headings 3-4px
+   and the banner's sign-in label 10px the moment the fonts arrived. Shared
+   font loading (fonts.ts and the @fontsource rules) is untouched; this adds
+   fallback faces whose boxes are METRIC-MATCHED to the webfonts and, only
+   while the entry is mounted (:has() on the Landing's data-entry-page),
+   re-points the theme's font variables at stacks that name them.
+
+   Derivation, measured in headless Chromium against the production bundle:
+   Chrome applies size-adjust to the override metrics too (a face with
+   size-adjust 150% and overrides 100/25 measures 150/38), so every
+   ascent/descent override below is the webfont's own box ratio DIVIDED by
+   the face's size-adjust factor — the effective (scaled) box then equals
+   the webfont's exactly: serif 104/34, sans 98/32, mono 98/32, all in
+   percent of em. That kills the 1px baseline drop the headings showed on
+   swap. size-adjust tunes advance widths where width feeds layout: the
+   serif face is tuned on the wordmark's row (21px/600); the sans face is
+   split into two weight ranges because the local bold is a separate
+   design, and its 600 range is tuned on the banner's right-aligned
+   "Sign in" label (a 0.0px width difference at 104.705%). The layout-shift
+   evidence re-measures both viewports with fonts genuinely fetched per
+   load; if a face or the wordmark changes, re-run it. */
+
+@font-face {
+  font-family: "Source Serif 4 Fallback";
+  src: local("Liberation Serif"), local("DejaVu Serif"), local("FreeSerif");
+  font-weight: 100 900;
+  size-adjust: 105.33%;
+  ascent-override: 98.73%;
+  descent-override: 32.28%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Atkinson Next Fallback";
+  src: local("Liberation Sans"), local("DejaVu Sans"), local("FreeSans");
+  font-weight: 100 549;
+  size-adjust: 99.5%;
+  ascent-override: 98.49%;
+  descent-override: 32.16%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Atkinson Next Fallback";
+  src: local("Liberation Sans"), local("DejaVu Sans"), local("FreeSans");
+  font-weight: 550 900;
+  size-adjust: 104.705%;
+  ascent-override: 93.6%;
+  descent-override: 30.56%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Atkinson Mono Fallback";
+  src: local("Liberation Mono"), local("DejaVu Sans Mono"), local("FreeMono");
+  font-weight: 100 900;
+  size-adjust: 105%;
+  ascent-override: 93.33%;
+  descent-override: 30.48%;
+  line-gap-override: 0%;
+}
+
+/* Inert on every other route: :has() is false without the entry mounted. */
+html:has([data-entry-page]) {
+  --font-sans: "Atkinson Hyperlegible Next Variable", "Atkinson Next Fallback",
+    ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4 Fallback", Georgia,
+    serif;
+  --font-mono: "Atkinson Hyperlegible Mono Variable", "Atkinson Mono Fallback",
+    ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* The header's flex-1 nav floors at its links' min-content width (flex
+   min-width: auto). With swap-tolerant type that floor is the only width
+   still feeding the header row's flex distribution: pre-swap the fallback
+   links measured ~10px wider, which nudged the nav's start 5px. Letting the
+   nav shrink to its flex share makes its position font-independent; the
+   links' real content sits well below the share down to the md breakpoint
+   where this nav appears at all. */
+html:has([data-entry-page]) header nav.flex-1 {
+  min-width: 0;
+}
+
+/* The wordmark's slot is the one piece of the header row whose width is the
+   text itself (md:flex-none), so any serif advance difference moves the
+   nav's start on swap. Two measures make it font-independent: the slot
+   reserves 102px — covering every measured fallback, bistable, and webfont
+   state — and the wordmark renders with text-rendering:
+   geometricPrecision, which disables the local face's hinting so its
+   advances scale smoothly and the serif face's size-adjust can match the
+   webfont's advance to 0.02px (hinted advances jump in ~6px steps and
+   cannot match). The text stays left-aligned inside the reservation and a
+   size-only width change is not a layout shift, so nothing moves pre- or
+   post-swap. If the wordmark text or size changes, re-derive both from the
+   layout-shift evidence. */
+html:has([data-entry-page]) header a[href="/"] {
+  text-rendering: geometricPrecision;
+}
+@media (min-width: 768px) {
+  html:has([data-entry-page]) header .u-gutter > div:first-child {
+    min-width: 102px;
+  }
+}

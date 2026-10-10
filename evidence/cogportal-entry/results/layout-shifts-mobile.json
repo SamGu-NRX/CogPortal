@@ -2,12 +2,18 @@
   "project": "mobile",
   "origin": "production bundle via evidence/cogportal-entry/prod-server.mjs",
   "loads": 3,
-  "note": "Fresh context per load (cold cache). Shift entries include sources; hadRecentInput excluded per the CLS definition.",
+  "note": "Fresh context per load (cold cache, fonts fetched over the network each load). Shift entries include sources; hadRecentInput excluded per the CLS definition.",
   "runs": [
     {
       "load": 1,
       "shifts": 0,
       "details": [],
+      "fontsFetched": [
+        "atkinson-hyperlegible-mono-latin-wght-normal-CoA7y8X5.woff2",
+        "atkinson-hyperlegible-next-latin-wght-normal-BcXVPD7q.woff2",
+        "source-serif-4-latin-opsz-italic-BOLXpvkj.woff2",
+        "source-serif-4-latin-opsz-normal-BpEBLj1O.woff2"
+      ],
       "fontsRendered": {
         "atkinsonNext": true,
         "sourceSerif4": true,
@@ -18,6 +24,12 @@
       "load": 2,
       "shifts": 0,
       "details": [],
+      "fontsFetched": [
+        "atkinson-hyperlegible-mono-latin-wght-normal-CoA7y8X5.woff2",
+        "atkinson-hyperlegible-next-latin-wght-normal-BcXVPD7q.woff2",
+        "source-serif-4-latin-opsz-italic-BOLXpvkj.woff2",
+        "source-serif-4-latin-opsz-normal-BpEBLj1O.woff2"
+      ],
       "fontsRendered": {
         "atkinsonNext": true,
         "sourceSerif4": true,
@@ -28,6 +40,12 @@
       "load": 3,
       "shifts": 0,
       "details": [],
+      "fontsFetched": [
+        "atkinson-hyperlegible-mono-latin-wght-normal-CoA7y8X5.woff2",
+        "atkinson-hyperlegible-next-latin-wght-normal-BcXVPD7q.woff2",
+        "source-serif-4-latin-opsz-italic-BOLXpvkj.woff2",
+        "source-serif-4-latin-opsz-normal-BpEBLj1O.woff2"
+      ],
       "fontsRendered": {
         "atkinsonNext": true,
         "sourceSerif4": true,

@@ -21,7 +21,7 @@ export default defineConfig({
   timeout: 120_000,
   reporter: [
     ["list"],
-    ["json", { outputFile: "results/report.json" }],
+    ["json", { outputFile: fileURLToPath(new URL("./results/report.json", import.meta.url)) }],
   ],
   use: {
     baseURL: "http://localhost:5173",

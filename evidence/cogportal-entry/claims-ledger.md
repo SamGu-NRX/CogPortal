@@ -24,7 +24,42 @@ Two edits to `apps/portal/src/routes/Landing.tsx`, both traceable to code:
    would save a return and bounce through `/signin` (`RequireStage`,
    `apps/portal/src/App.tsx:60-90`).
 
-No other user-facing wording changed in this pass.
+## Review rework: entry-only swap-tolerant type (and what was reverted)
+
+The first review round had set the app's shared webfonts to
+`font-display: optional` to stop shift entries; that masked the swap instead
+of fixing it and was reverted — `apps/portal/src/fonts.ts`, root
+`package.json` and root `pnpm-lock.yaml` are byte-identical to the base
+branch again (empty `git diff` against
+`origin/obv/products-cogportal-hardening-20261009`, verified at commit
+time). The fix is entry-scoped and measured instead
+(`apps/portal/src/styles/app.css`, the `Entry-only, swap-tolerant type`
+block):
+
+- Metric-matched fallback faces (`@font-face` with `size-adjust` and
+  ascent/descent overrides derived from the webfonts' own box ratios, with
+  the overrides scale-compensated because Chrome applies `size-adjust` to
+  them too). While the entry is mounted, the theme's font variables point
+  at stacks naming these faces; every other route is untouched (`:has()` on
+  the Landing's `data-entry-page` is false elsewhere).
+- The wordmark renders with `text-rendering: geometricPrecision` and its
+  header slot reserves 102px, because the local serif's hinted advances
+  cannot match the webfont's at the wordmark's size by any `size-adjust`
+  value — the derivation and its limits are in the CSS comment.
+- The header's flex nav shrinks to its flex share (`min-width: 0`) so its
+  position no longer depends on any face's text width.
+- The evidence toolchain is entry-local: `evidence/cogportal-entry/` is its
+  own non-workspace package (own `package.json` + `package-lock.json`,
+  pinned Playwright 1.64.0 and axe 4.13.0; the workspace globs in
+  `pnpm-workspace.yaml` — `apps/portal`, `apps/discord-bot`, `packages/*` —
+  do not cover it, so the root lockfile stays untouched). Reproduce with:
+  `pnpm --filter @cogworks/portal build && cd evidence/cogportal-entry &&
+  npm ci && npx playwright install --with-deps chromium &&
+  npx playwright test --config playwright.config.ts` (runs from the
+  package's own directory; Node 24 required — the dev server needs
+  `node:sqlite`).
+
+No entry claim or link changed in the rework; the table below is unchanged.
 
 ## Signed-out entry: claims and links
 

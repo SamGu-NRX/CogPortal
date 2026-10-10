@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { SHIFT_OBSERVER_SCRIPT, heroCta, writeResults } from "./helpers";
 // The same frozen fixture module the render tests parse: the stubbed
@@ -31,7 +32,9 @@ interface ProdPortal {
 
 /** Serve the built bundle + the frozen signed-out session on a private port. */
 async function startProdPortal(workerIndex: number): Promise<ProdPortal> {
-  const staticRoot = join(process.cwd(), "apps", "portal", "dist", "client");
+  // Resolved from this file, not the process cwd: the package is standalone
+  // and is meant to run from its own directory.
+  const staticRoot = fileURLToPath(new URL("../../apps/portal/dist/client", import.meta.url));
   try {
     await access(join(staticRoot, "index.html"));
   } catch {
@@ -47,7 +50,7 @@ async function startProdPortal(workerIndex: number): Promise<ProdPortal> {
   const child = spawn(
     process.execPath,
     [
-      join(process.cwd(), "evidence", "cogportal-entry", "prod-server.mjs"),
+      fileURLToPath(new URL("./prod-server.mjs", import.meta.url)),
       `--static=${staticRoot}`,
       `--port=${port}`,
       `--session=${sessionFile}`,
@@ -88,33 +91,50 @@ test.afterAll(async () => {
   await prodPortal?.close();
 });
 
-async function coldLoad(page: Page, origin: string): Promise<{ fontsRendered: Record<string, boolean> }> {
+async function coldLoad(page: Page, origin: string): Promise<{
+  fontsRendered: Record<string, boolean>;
+  fontsFetched: string[];
+}> {
+  // Record every font file the page actually fetches: with a fresh context
+  // per load there is no cache to serve from, so a non-empty list is the
+  // proof that the webfonts were genuinely fetched over the network (and
+  // genuinely swapped in) on that load.
+  const fontUrls = new Set<string>();
+  page.on("request", (req) => {
+    if (/\.(woff2?|ttf|otf)(\?|$)/i.test(req.url())) fontUrls.add(req.url().split("/").pop()!);
+  });
   await page.addInitScript(SHIFT_OBSERVER_SCRIPT);
   await page.goto(`${origin}/`);
   // Past the session read and the settle window a student would see.
   await heroCta(page).waitFor({ state: "visible" });
   await page.waitForTimeout(1_500);
   // Zero shifts is only meaningful if the course type actually rendered:
-  // record that the webfonts are live (font-display: optional serves them
-  // whenever they make the block window, which a local load always does).
+  // record that the webfonts are live (font-display: swap serves them after
+  // their load; a local load always gets there).
   const fontsRendered = await page.evaluate(() => ({
     atkinsonNext: document.fonts.check('16px "Atkinson Hyperlegible Next Variable"'),
     sourceSerif4: document.fonts.check('16px "Source Serif 4 Variable"'),
     atkinsonMono: document.fonts.check('16px "Atkinson Hyperlegible Mono Variable"'),
   }));
-  return { fontsRendered };
+  return { fontsRendered, fontsFetched: [...fontUrls].sort() };
 }
 
 test("repeated loads produce zero layout shifts", async ({ browser }, testInfo) => {
   const origin = prodPortal?.origin;
   if (!origin) throw new Error("prod portal did not start");
-  const runs: { load: number; shifts: number; details: unknown[] }[] = [];
+  const runs: {
+    load: number;
+    shifts: number;
+    details: unknown[];
+    fontsFetched: string[];
+    fontsRendered: Record<string, boolean>;
+  }[] = [];
 
   for (let load = 1; load <= LOADS_PER_VIEWPORT; load += 1) {
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
-      const { fontsRendered } = await coldLoad(page, origin);
+      const { fontsRendered, fontsFetched } = await coldLoad(page, origin);
       const shifts = await page.evaluate(
         () => (window as unknown as { __shifts: unknown[] }).__shifts,
       );
@@ -126,7 +146,18 @@ test("repeated loads produce zero layout shifts", async ({ browser }, testInfo) 
           "shift observer did not install — SHIFT_OBSERVER_SCRIPT must be plain JavaScript",
         );
       }
-      runs.push({ load, shifts: shifts.length, details: shifts, fontsRendered });
+      // Zero shifts must be measured with the course type genuinely loading:
+      // each fresh context fetches the webfonts over the network (cold), and
+      // all three families must have rendered by the end of the load.
+      expect(
+        fontsFetched.length,
+        `load #${load} fetched no webfonts — the measurement would not be honest`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        Object.values(fontsRendered),
+        `load #${load} finished without all three webfonts rendered`,
+      ).toEqual([true, true, true]);
+      runs.push({ load, shifts: shifts.length, details: shifts, fontsFetched, fontsRendered });
     } finally {
       await context.close();
     }
@@ -136,7 +167,7 @@ test("repeated loads produce zero layout shifts", async ({ browser }, testInfo) 
     project: testInfo.project.name,
     origin: "production bundle via evidence/cogportal-entry/prod-server.mjs",
     loads: LOADS_PER_VIEWPORT,
-    note: "Fresh context per load (cold cache). Shift entries include sources; hadRecentInput excluded per the CLS definition.",
+    note: "Fresh context per load (cold cache, fonts fetched over the network each load). Shift entries include sources; hadRecentInput excluded per the CLS definition.",
     runs,
   });
 
