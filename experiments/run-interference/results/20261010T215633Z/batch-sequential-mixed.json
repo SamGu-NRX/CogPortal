@@ -1,0 +1,1155 @@
+{
+ "baselines": {
+  "clean_reuse": {
+   "output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "status": "completed"
+  },
+  "contaminated_all": {
+   "output_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+   "status": "completed"
+  }
+ },
+ "batch_id": "sequential-mixed",
+ "counts": {
+  "fds": {
+   "after_batch": 10,
+   "before_batch": 7
+  },
+  "files": {
+   "after": {
+    "count": 0,
+    "names": []
+   },
+   "after_cleanup": {
+    "count": 0,
+    "names": []
+   },
+   "before": {
+    "count": 0,
+    "names": []
+   },
+   "during_max_per_run": 3
+  },
+  "processes": {
+   "after": 0,
+   "before": 0,
+   "during_max": 1
+  }
+ },
+ "limits": {
+  "capture_bytes": 262144,
+  "child_memory_bytes": 1073741824,
+  "flood_bytes": 131072,
+  "run_timeout_seconds": 10.0,
+  "sample_interval_seconds": 0.02
+ },
+ "limits_enforcement": {
+  "children": "enforced after the run (supervisor reaps descendants it owns)",
+  "cpu": "observed",
+  "handles": "observed (leaked descriptors recorded, not closed \u2014 they may belong to the host process)",
+  "memory": "observed",
+  "note": "an in-process run cannot be stopped or bounded without killing the supervisor itself; the process boundary is the only real enforcement and this mode deliberately has none",
+  "output": "observed (capped in the capture sink; cannot stop a flood in-process)",
+  "wall_clock": "observed"
+ },
+ "module_state_series": [
+  {
+   "label": "before",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "44136fa355b3678a",
+      "kind": "dict",
+      "size": 0
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    },
+    "contaminated_all": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_ABANDONED_CHILDREN": {
+      "digest": "4f53cda18c2baa0c",
+      "kind": "list",
+      "size": 0
+     },
+     "_CALL_LOG": {
+      "digest": "4f53cda18c2baa0c",
+      "kind": "list",
+      "size": 0
+     },
+     "_LEAKED_HANDLES": {
+      "digest": "4f53cda18c2baa0c",
+      "kind": "list",
+      "size": 0
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     },
+     "subprocess": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_000",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "44136fa355b3678a",
+      "kind": "dict",
+      "size": 0
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    },
+    "contaminated_all": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_ABANDONED_CHILDREN": {
+      "digest": "660ed35231680639",
+      "kind": "list",
+      "size": 1
+     },
+     "_CALL_LOG": {
+      "digest": "06d033ece6645de5",
+      "kind": "list",
+      "size": 1
+     },
+     "_LEAKED_HANDLES": {
+      "digest": "7a980305df40d8ab",
+      "kind": "list",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     },
+     "subprocess": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_001",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "2988246bbd68003d",
+      "kind": "dict",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    },
+    "contaminated_all": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_ABANDONED_CHILDREN": {
+      "digest": "660ed35231680639",
+      "kind": "list",
+      "size": 1
+     },
+     "_CALL_LOG": {
+      "digest": "06d033ece6645de5",
+      "kind": "list",
+      "size": 1
+     },
+     "_LEAKED_HANDLES": {
+      "digest": "7a980305df40d8ab",
+      "kind": "list",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     },
+     "subprocess": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_002",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "2988246bbd68003d",
+      "kind": "dict",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    },
+    "contaminated_all": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_ABANDONED_CHILDREN": {
+      "digest": "660ed35231680639",
+      "kind": "list",
+      "size": 1
+     },
+     "_CALL_LOG": {
+      "digest": "06d033ece6645de5",
+      "kind": "list",
+      "size": 1
+     },
+     "_LEAKED_HANDLES": {
+      "digest": "7a980305df40d8ab",
+      "kind": "list",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     },
+     "subprocess": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_003",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "2988246bbd68003d",
+      "kind": "dict",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    },
+    "contaminated_all": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_ABANDONED_CHILDREN": {
+      "digest": "660ed35231680639",
+      "kind": "list",
+      "size": 1
+     },
+     "_CALL_LOG": {
+      "digest": "06d033ece6645de5",
+      "kind": "list",
+      "size": 1
+     },
+     "_LEAKED_HANDLES": {
+      "digest": "7a980305df40d8ab",
+      "kind": "list",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     },
+     "subprocess": {
+      "kind": "static:module"
+     }
+    }
+   }
+  }
+ ],
+ "runs": [
+  {
+   "adapter": "contaminated_all",
+   "baseline_output_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+   "capture": {
+    "bytes": 262144,
+    "dropped_bytes": 997856,
+    "head": "flood line 000000 padding-padding-padding\nflood line 000001 padding-padding-padding\nflood line 000002 padding-padding-padding\nflood line 000003 padding-padding-padding\nflood line 000004 padding-padding-padding\nflood line 000005 padding-padding-padding\nflood line 000006 padding-padding-padding\nflood line 000007 padding-padding-padding\nflood line 000008 padding-padding-padding\nflood line 000009 padd",
+    "lines": 30000,
+    "overflowed": true
+   },
+   "children": {
+    "after": [
+     {
+      "cmdline": "sleep 5",
+      "pid": 9180,
+      "ppid": 9165
+     }
+    ],
+    "before_count": 0,
+    "reaped": [
+     {
+      "cmdline": "sleep 5",
+      "pid": 9180
+     }
+    ],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 11,
+     "rss_kb": 23532,
+     "scratch_files": 3,
+     "t_ms": 73
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "sleep 5",
+       "pid": 9180,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 10,
+     "rss_kb": 23704,
+     "scratch_files": 3,
+     "t_ms": 83
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-4.txt",
+      "6": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-5.txt",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-6.txt"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 3,
+      "pipe": 3
+     },
+     "count": 7,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 0,
+   "inputs": {
+    "after": [
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-000",
+      "xs": [
+       1,
+       2,
+       3,
+       3
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40,
+       4
+      ]
+     },
+     {
+      "n": 6,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 23708,
+    "rss_before_kb": 22804
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "sequential-mixed/run-000",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "leak-4.txt",
+      "leak-5.txt",
+      "leak-6.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0789
+  },
+  {
+   "adapter": "clean_reuse",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 21,
+    "dropped_bytes": 0,
+    "head": "clean_reuse: 3 cases\n",
+    "lines": 1,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 15,
+     "rss_kb": 23708,
+     "scratch_files": 3,
+     "t_ms": 4
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 10,
+     "rss_kb": 23712,
+     "scratch_files": 3,
+     "t_ms": 15
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 1,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-001",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-001",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 23712,
+    "rss_before_kb": 23708
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "4ab24a870c48612859bedcd550609beb6bd37d6d9bdfaa79cb4bb859d43eb3cf",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "sequential-mixed/run-001",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "clean-3.txt",
+      "clean-4.txt",
+      "clean-5.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0115
+  },
+  {
+   "adapter": "clean_reuse",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 21,
+    "dropped_bytes": 0,
+    "head": "clean_reuse: 3 cases\n",
+    "lines": 1,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 11,
+     "rss_kb": 23712,
+     "scratch_files": 3,
+     "t_ms": 5
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 10,
+     "rss_kb": 23712,
+     "scratch_files": 3,
+     "t_ms": 13
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 2,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-002",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-002",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-002",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-002",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-002",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-002",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 23712,
+    "rss_before_kb": 23712
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "4ab24a870c48612859bedcd550609beb6bd37d6d9bdfaa79cb4bb859d43eb3cf",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "sequential-mixed/run-002",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "clean-3.txt",
+      "clean-4.txt",
+      "clean-5.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0095
+  },
+  {
+   "adapter": "clean_reuse",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 21,
+    "dropped_bytes": 0,
+    "head": "clean_reuse: 3 cases\n",
+    "lines": 1,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 11,
+     "rss_kb": 23712,
+     "scratch_files": 3,
+     "t_ms": 4
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 10,
+     "rss_kb": 23712,
+     "scratch_files": 3,
+     "t_ms": 13
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[66208]",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-6i14qbwp/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 3,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-003",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-003",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-003",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-003",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-003",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-mixed-6i14qbwp/run-003",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 23712,
+    "rss_before_kb": 23712
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "4ab24a870c48612859bedcd550609beb6bd37d6d9bdfaa79cb4bb859d43eb3cf",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "sequential-mixed/run-003",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "clean-3.txt",
+      "clean-4.txt",
+      "clean-5.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.01
+  }
+ ],
+ "spec": {
+  "adapters": [
+   "contaminated_all",
+   "clean_reuse",
+   "clean_reuse",
+   "clean_reuse"
+  ],
+  "concurrency": 1,
+  "id": "sequential-mixed",
+  "interrupt_after_seconds": null,
+  "mode": "inprocess",
+  "purpose": "cross-adapter inheritance in one process (sequential)",
+  "runs": 4,
+  "timeout_seconds": 10.0
+ },
+ "supervision": {
+  "reaped": [],
+  "remaining_after_sweep": []
+ }
+}

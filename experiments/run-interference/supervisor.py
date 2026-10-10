@@ -191,6 +191,14 @@ class RunSupervisor:
             batch_id, mode, "+".join(adapters_cycle), runs_planned, concurrency, timeout_seconds))
 
         work_root = Path(tempfile.mkdtemp(prefix="ri-{}-".format(batch_id)))
+        # Publish the batch's concurrency to the adapters BEFORE the fresh
+        # baselines: a baseline must answer under the same published context
+        # as the batch's runs, so drift measures contamination and not
+        # context sensitivity (the mode-variant control answers per this
+        # variable by design). Saved and restored around the batch so
+        # nothing leaks into later batches or the host.
+        concurrency_token = os.environ.get("RI_BATCH_CONCURRENCY")
+        os.environ["RI_BATCH_CONCURRENCY"] = str(concurrency)
         baseline_timeout = min(timeout_seconds, self.limits.run_timeout_seconds)
         baselines = {name: self._fresh_baseline(name, baseline_timeout)
                      for name in dict.fromkeys(adapters_cycle)}
@@ -265,6 +273,10 @@ class RunSupervisor:
             }
             self._log("batch {}: interrupted by SIGINT after {} run(s)".format(batch_id, len(runs)))
         finally:
+            if concurrency_token is None:
+                os.environ.pop("RI_BATCH_CONCURRENCY", None)
+            else:
+                os.environ["RI_BATCH_CONCURRENCY"] = concurrency_token
             if timer is not None:
                 timer.cancel()
             if shared_capture:

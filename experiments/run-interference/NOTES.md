@@ -167,6 +167,56 @@ plus the negative control; each exits 0 on PASS): `mutated_arrays.py`,
 runner in-process and confirms its signal fires; `clean_reuse_negative.py`
 runs the clean control and confirms nothing is flagged. All six PASS.
 
+## Rework - digest-identity answer agreement (review round 1)
+
+Reviewer finding on draft PR #98: the sequential-vs-concurrent comparison
+counted DISTINCT digests per batch, so two different constant answers
+(sequential digest X once, concurrent digest Y once) both read as "no
+spread" and passed as identical. Strengthened in this rework:
+
+- `compare_batch_answers` indexes runs by answer identity - the adapter
+  plus its DECLARED inputs (the pre-run `before` snapshot; the per-run
+  scratch `workspace` field is environment, not question, and a mutated
+  `after` state must not split one question into two identities) - and
+  requires both legs to have produced the same digest SET for every
+  identity present in both. Verdicts: `identical`, `differs`,
+  `no-shared-identities` (nothing comparable is not agreement).
+- The manifest declares `answer_agreement_pairs`: the clean pair
+  (`sequential-clean` vs `concurrent-clean`, expect `identical`) and the
+  new different-answer control (`control-seq` vs `control-conc`, expect
+  `differs`) - a negative control proving the comparison can fail.
+- The control fixture `mode_variant` answers one constant when the
+  supervisor-published batch concurrency (`RI_BATCH_CONCURRENCY`, saved and
+  restored around each batch) is 1 and a different constant otherwise. It
+  leaks nothing, and both legs are detector-clean: the divergence is by
+  design, so the check that must catch it is the answer-agreement
+  comparison, not the contamination detector. The variable is published
+  BEFORE the fresh baselines, so a baseline answers under the same context
+  as its batch's runs and drift keeps measuring contamination, not context
+  sensitivity.
+- Replay re-derives the recorded agreement rows from the saved batch
+  artifacts and compares verdicts; for pre-rework summaries (global
+  `sequential_vs_concurrent` verdict) it re-derives pairwise digest
+  identity across that section's clean batches, counting only
+  identity-bearing pairs. A stale recorded `identical` contradicted by the
+  artifacts now FAILS replay (exit 1) - pinned by
+  `tests/test_answer_agreement.py::test_replay_fails_when_recorded_verdict_stale`.
+
+Definitive post-rework run `20261010T215633Z` (8 batches, 24 runs, ~8.6 s):
+clean pair re-derives `identical` (one digest, `ee295a3a...`, in both legs);
+different-answer control re-derives `differs` (`a5412f5f...` sequential vs
+`b6f5d6e7...` concurrent) and agrees with its recorded expectation; all six
+original batches reproduce their recorded detector verdicts; host zero
+descendants and zero scratch before/after, post-run sweep reaped nothing.
+The SIGINT interruption stopped `interrupted-batch` after 2 of 6 runs this
+time (timing-dependent; the M2 definitive run recorded 1 of 6) - zero
+orphans in both.
+
+The preserved M2/M3 run `20261010T210956Z` keeps its recorded artifacts
+byte-identical; its `replay.json` was regenerated under the strengthened
+check and re-derives `identical` from the recorded verdict - the recorded
+clean results survive the stronger comparison.
+
 ## Status
 
 - Milestone 1 (supervisor + detector + tests, enforced/observed matrix):
@@ -176,5 +226,9 @@ runs the clean control and confirms nothing is flagged. All six PASS.
   batches agree with their manifest expectations, zero host leftovers.
 - Milestone 3 (replay agreement, witness scripts, handoff PR): complete —
   replay ALL MATCH with artifact integrity verified, six witnesses PASS,
-  suite green (29 passed). The handoff PR from this branch carries the
-  Handoff section; this file records the study itself.
+  suite green. The handoff PR from this branch carries the Handoff section;
+  this file records the study itself.
+- Review round 1 rework (digest-identity answer agreement +
+  different-answer control): complete — suite green (39 passed), definitive
+  rework run `20261010T215633Z` recorded, replay ALL MATCH on both the
+  rework run and the preserved original run.

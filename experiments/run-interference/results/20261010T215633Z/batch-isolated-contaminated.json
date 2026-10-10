@@ -1,0 +1,843 @@
+{
+ "baselines": {
+  "contaminated_all": {
+   "output_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+   "status": "completed"
+  }
+ },
+ "batch_id": "isolated-contaminated",
+ "counts": {
+  "fds": {
+   "after_batch": 7,
+   "before_batch": 7
+  },
+  "files": {
+   "after": {
+    "count": 0,
+    "names": []
+   },
+   "after_cleanup": {
+    "count": 0,
+    "names": []
+   },
+   "before": {
+    "count": 0,
+    "names": []
+   },
+   "during_max_per_run": 3
+  },
+  "processes": {
+   "after": 0,
+   "before": 0,
+   "during_max": 2
+  }
+ },
+ "limits": {
+  "capture_bytes": 262144,
+  "child_memory_bytes": 1073741824,
+  "flood_bytes": 131072,
+  "run_timeout_seconds": 10.0,
+  "sample_interval_seconds": 0.02
+ },
+ "limits_enforcement": {
+  "children": "enforced (child runs setsid; cogbench.isolate kills the process group, which reaches children the child spawned)",
+  "cpu": "enforced (RLIMIT_CPU soft/hard via cogbench.isolate._cpu_limit)",
+  "handles": "observed in-child; the boundary destroys them with the child",
+  "memory": "enforced (RLIMIT_AS, when the platform honors it)",
+  "note": "a descendant that escapes the group (setsid of its own) is outside what cogbench.isolate claims to reach; the supervisor's sweep would still see it here",
+  "output": "observed in-child (capped); result payload bounded by the isolate transport",
+  "wall_clock": "enforced (cogbench.isolate kills the child at the deadline)"
+ },
+ "module_state_series": [],
+ "runs": [
+  {
+   "adapter": "contaminated_all",
+   "baseline_output_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+   "capture": {
+    "bytes": 262144,
+    "dropped_bytes": 997856,
+    "head": "flood line 000000 padding-padding-padding\nflood line 000001 padding-padding-padding\nflood line 000002 padding-padding-padding\nflood line 000003 padding-padding-padding\nflood line 000004 padding-padding-padding\nflood line 000005 padding-padding-padding\nflood line 000006 padding-padding-padding\nflood line 000007 padding-padding-padding\nflood line 000008 padding-padding-padding\nflood line 000009 padd",
+    "lines": 30000,
+    "overflowed": true
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 24308,
+     "scratch_files": 3,
+     "t_ms": 5
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9257,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9259,
+       "ppid": 9257
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24308,
+     "scratch_files": 3,
+     "t_ms": 29
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9257,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9259,
+       "ppid": 9257
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24308,
+     "scratch_files": 3,
+     "t_ms": 53
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 24304,
+     "scratch_files": 3,
+     "t_ms": 76
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 8,
+      "pipe": 3
+     },
+     "count": 12,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "10": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000/leak-5.txt",
+      "11": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000/leak-6.txt",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[66883]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000/leak-4.txt"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 5,
+      "pipe": 3
+     },
+     "count": 9,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[66883]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-child"
+   },
+   "index": 0,
+   "inputs": {
+    "after": [
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000",
+      "xs": [
+       1,
+       2,
+       3,
+       3
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40,
+       4
+      ]
+     },
+     {
+      "n": 6,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "isolate_diagnostics": {
+    "alarmFired": false,
+    "detail": "",
+    "limits": {
+     "cpuHardSeconds": 85,
+     "cpuSeconds": 80,
+     "memoryBytes": 1073741824,
+     "wallSeconds": 10
+    },
+    "readReason": null,
+    "signal": null,
+    "status": "completed"
+   },
+   "memory": {
+    "child_rss_series_kb": [
+     18324,
+     18956
+    ]
+   },
+   "mode": "isolated",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "isolated-contaminated/run-000",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "leak-4.txt",
+      "leak-5.txt",
+      "leak-6.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0727
+  },
+  {
+   "adapter": "contaminated_all",
+   "baseline_output_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+   "capture": {
+    "bytes": 262144,
+    "dropped_bytes": 997856,
+    "head": "flood line 000000 padding-padding-padding\nflood line 000001 padding-padding-padding\nflood line 000002 padding-padding-padding\nflood line 000003 padding-padding-padding\nflood line 000004 padding-padding-padding\nflood line 000005 padding-padding-padding\nflood line 000006 padding-padding-padding\nflood line 000007 padding-padding-padding\nflood line 000008 padding-padding-padding\nflood line 000009 padd",
+    "lines": 30000,
+    "overflowed": true
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 5
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9265,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9267,
+       "ppid": 9265
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 29
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9265,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9267,
+       "ppid": 9265
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 53
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 24368,
+     "scratch_files": 3,
+     "t_ms": 75
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 8,
+      "pipe": 3
+     },
+     "count": 12,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "10": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001/leak-5.txt",
+      "11": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001/leak-6.txt",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[66885]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001/leak-4.txt"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 5,
+      "pipe": 3
+     },
+     "count": 9,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[66885]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-child"
+   },
+   "index": 1,
+   "inputs": {
+    "after": [
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001",
+      "xs": [
+       1,
+       2,
+       3,
+       3
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40,
+       4
+      ]
+     },
+     {
+      "n": 6,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "isolate_diagnostics": {
+    "alarmFired": false,
+    "detail": "",
+    "limits": {
+     "cpuHardSeconds": 85,
+     "cpuSeconds": 80,
+     "memoryBytes": 1073741824,
+     "wallSeconds": 10
+    },
+    "readReason": null,
+    "signal": null,
+    "status": "completed"
+   },
+   "memory": {
+    "child_rss_series_kb": [
+     18340,
+     18856
+    ]
+   },
+   "mode": "isolated",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "isolated-contaminated/run-001",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "leak-4.txt",
+      "leak-5.txt",
+      "leak-6.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0722
+  },
+  {
+   "adapter": "contaminated_all",
+   "baseline_output_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+   "capture": {
+    "bytes": 262144,
+    "dropped_bytes": 997856,
+    "head": "flood line 000000 padding-padding-padding\nflood line 000001 padding-padding-padding\nflood line 000002 padding-padding-padding\nflood line 000003 padding-padding-padding\nflood line 000004 padding-padding-padding\nflood line 000005 padding-padding-padding\nflood line 000006 padding-padding-padding\nflood line 000007 padding-padding-padding\nflood line 000008 padding-padding-padding\nflood line 000009 padd",
+    "lines": 30000,
+    "overflowed": true
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 5
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9273,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9275,
+       "ppid": 9273
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 29
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9273,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9275,
+       "ppid": 9273
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 53
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9273,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9275,
+       "ppid": 9273
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 76
+    },
+    {
+     "descendant_count": 2,
+     "descendants": [
+      {
+       "cmdline": "",
+       "pid": 9273,
+       "ppid": 9165
+      },
+      {
+       "cmdline": "sleep 5",
+       "pid": 9275,
+       "ppid": 9273
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24372,
+     "scratch_files": 3,
+     "t_ms": 99
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 24368,
+     "scratch_files": 3,
+     "t_ms": 107
+    }
+   ],
+   "expect_clean": [],
+   "expect_flagged": [
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 8,
+      "pipe": 3
+     },
+     "count": 12,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "10": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002/leak-5.txt",
+      "11": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002/leak-6.txt",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[66887]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002/leak-4.txt"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 5,
+      "pipe": 3
+     },
+     "count": 9,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[66887]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-child"
+   },
+   "index": 2,
+   "inputs": {
+    "after": [
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002",
+      "xs": [
+       1,
+       2,
+       3,
+       3
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002",
+      "xs": [
+       10,
+       20,
+       30,
+       40,
+       4
+      ]
+     },
+     {
+      "n": 6,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-isolated-contaminated-pi77xhfv/run-002",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "isolate_diagnostics": {
+    "alarmFired": false,
+    "detail": "",
+    "limits": {
+     "cpuHardSeconds": 85,
+     "cpuSeconds": 80,
+     "memoryBytes": 1073741824,
+     "wallSeconds": 10
+    },
+    "readReason": null,
+    "signal": null,
+    "status": "completed"
+   },
+   "memory": {
+    "child_rss_series_kb": [
+     18388,
+     18792
+    ]
+   },
+   "mode": "isolated",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.0
+     }
+    ],
+    "predictions_digest": "2cd2abe692a15167299c265b2ef55166d356756afaaf6dfc97e0a59717a1eff6",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "isolated-contaminated/run-002",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "leak-4.txt",
+      "leak-5.txt",
+      "leak-6.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.1043
+  }
+ ],
+ "spec": {
+  "adapters": [
+   "contaminated_all"
+  ],
+  "concurrency": 1,
+  "id": "isolated-contaminated",
+  "interrupt_after_seconds": null,
+  "mode": "isolated",
+  "purpose": "isolation containment of the contaminated control",
+  "runs": 3,
+  "timeout_seconds": 10.0
+ },
+ "supervision": {
+  "reaped": [],
+  "remaining_after_sweep": []
+ }
+}
