@@ -70,7 +70,7 @@ comparable through a guessed default.
 | `verify.py` | independent cross-check of built evidence (milestone 2) |
 | `tests/` | pytest suite |
 | `fixtures/` | synthetic reports: accepted-with-unknowns and refused cases |
-| `evidence/` | committed outputs (reader-checks now; view and replay receipts as milestones land) |
+| `evidence/` | committed outputs: reader-checks, the example view with its receipt and replay record, browser walk evidence |
 
 ## Running
 
@@ -79,6 +79,12 @@ python -m pytest -q tools/run-comparison/tests
 python tools/run-comparison/reader_checks.py \
   --fixtures tools/run-comparison/fixtures \
   --out tools/run-comparison/evidence/reader-checks.json
+python tools/run-comparison/build.py \
+  --fixtures tools/run-comparison/fixtures \
+  --out tools/run-comparison/evidence --replay
+python tools/run-comparison/verify.py \
+  --fixtures tools/run-comparison/fixtures \
+  --out tools/run-comparison/evidence
 ```
 
 ## Milestone record
@@ -88,7 +94,14 @@ python tools/run-comparison/reader_checks.py \
    `evidence/reader-checks.json` with per-file SHA-256 hashes and exact
    counts (6 accepted, 5 refused of 11 fixtures).
 2. Static comparison view via `build.py --fixtures ... --out ...`,
-   committed examples, independent verifier. (pending)
-3. `build.py --replay`, browser keyboard/reduced-motion walk with
-   1440x900 and 390x844 screenshots, axe and cold-load shift
-   measurements. (pending)
+   committed examples, independent verifier. Done: the committed view,
+   receipt and byte-identical replay record regenerate from the
+   fixtures, and `verify.py` re-derives dispositions, values, deltas
+   and the HTML from raw JSON (a tampered receipt fails it).
+3. `--replay` plus a browser walk. Done: the view has zero focusable
+   elements and zero CSS animations (nothing to keyboard-operate, no
+   motion to reduce); axe-core reports zero WCAG 2.x A/AA violations
+   with 10 passes; cold-load layout shift is 0.000 (no entries);
+   1440x900 and 390x844 screenshots plus the reduced-motion capture
+   are committed under `evidence/browser/` with the measurement record
+   `m3-browser-evidence.json`.
