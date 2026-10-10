@@ -207,6 +207,20 @@ def test_unclosed_handles_count_jitter_without_new_targets_not_flagged():
 
 
 
+def test_unclosed_handles_pseudo_fs_root_and_sentinel_not_flagged():
+    """Bare pseudo-fs roots and the vanish-race sentinel are not leaked handles."""
+
+    fds_after = {"available": True, "count": 12, "by_kind": {"file": 12},
+                 "targets": {"0": "/dev/null", "5": "/proc", "9": "unreadable"}}
+    run = make_run(fds={"before": {"available": True, "count": 9, "by_kind": {"file": 9},
+                                   "targets": {"0": "/dev/null"}},
+                        "after": fds_after})
+    batch = make_batch([run])
+    finding = {f["signal"]: f for f in evaluate(batch)["findings"]}["unclosed_handles"]
+    assert finding["flagged"] is False
+    assert finding["measured"]["transient"], "the kernel-owned targets must be recorded, not hidden"
+
+
 # ---- leftover children ---------------------------------------------------
 
 def test_leftover_children_flagged_with_reap_record():

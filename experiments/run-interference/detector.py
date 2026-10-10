@@ -25,7 +25,25 @@ __all__ = ["Finding", "check_mutated_arrays", "check_module_globals", "check_unc
 #: sampler and the process scan hold /proc and /sys reads at snapshot time),
 #: not handles an adapter opened. Only new targets on real paths count as
 #: leaks; count jitter with no new real path is recorded as transient noise.
-_PSEUDO_FS_PREFIXES = ("/proc/", "/sys/", "/dev/")
+_PSEUDO_FS_ROOTS = ("/proc", "/sys", "/dev")
+
+#: Sentinel the snapshot used to record for descriptors that vanished between
+#: listing and readlink (a snapshot race). Never a handle a run holds; newer
+#: snapshots count these separately instead of emitting a target.
+_UNREADABLE_SENTINEL = "unreadable"
+
+
+def _is_pseudo_fs(target: str) -> bool:
+    """Kernel-owned target: a pseudo-fs root exactly, anything under one, or the vanish race sentinel.
+
+    The roots themselves count — the kernel hands back a bare ``/proc`` link
+    when an fd's target is being re-scanned, and ``/proc`` is not a file an
+    adapter can open.
+    """
+
+    if target == _UNREADABLE_SENTINEL or target in _PSEUDO_FS_ROOTS:
+        return True
+    return target.startswith(tuple(root + "/" for root in _PSEUDO_FS_ROOTS))
 
 
 @dataclass(frozen=True)
@@ -174,8 +192,7 @@ def check_unclosed_handles(runs: List[Dict[str, Any]]) -> Finding:
         # process scan hold /proc and /sys handles at snapshot time); only a
         # descriptor a run opens onto a real path is a leak. Count jitter
         # with no new path is the same noise wearing a different sign.
-        leaked_targets = [t for t in new_targets
-                          if not t.startswith(_PSEUDO_FS_PREFIXES)]
+        leaked_targets = [t for t in new_targets if not _is_pseudo_fs(t)]
         entry = {"run_id": run["run_id"], "before": before, "after": after,
                  "delta": delta, "new_targets": new_targets[:8],
                  "leaked_targets": leaked_targets[:8]}

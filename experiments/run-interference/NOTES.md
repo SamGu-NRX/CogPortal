@@ -64,13 +64,63 @@ the measurement; the fix makes every batch start from the same clean import.
 ## Finding 2 — fd counting needs targets, not totals
 
 Clean concurrent batches were flagged `unclosed_handles` spuriously. Probing
-showed two noise mechanisms: the harness's own sampler/process scan holds a
-transient `/proc/<pid>/stat` descriptor at snapshot time, and descriptor
-counts jitter by ±1 with no new target path at all. The detector now judges
-by *targets*: a leak is a post-run descriptor onto a real path that was not
-open before the run (the contaminated control's `leak-*.txt` files). New
-targets under `/proc/`, `/sys/`, `/dev/` and count-only jitter are recorded
-in the finding's `transient` list — visible, but not flagged.
+showed four noise mechanisms: the harness's own sampler/process scan holds a
+transient `/proc/<pid>/stat` descriptor at snapshot time; descriptor counts
+jitter by ±1 with no new target path at all; a descriptor that vanishes
+between the snapshot's `listdir` and `readlink` used to be recorded with the
+sentinel target `unreadable` (now counted separately by `evidence.fd_snapshot`
+as `unreadable`, never emitted as a target); and the kernel sometimes hands
+back a bare `/proc` root — no trailing slash — which a `/proc/` prefix test
+misses. The detector now judges by *targets* through `_is_pseudo_fs`: a leak
+is a post-run descriptor onto a real path that was not open before the run
+(the contaminated control's `leak-*.txt` files). Pseudo-fs roots and anything
+under them, and count-only jitter, are recorded in the finding's `transient`
+list — visible, but not flagged.
+
+## M2 results — manifest through the real runner (run `20261010T210956Z`)
+
+Command: `python experiments/run-interference/run.py --manifest
+experiments/run-interference/manifest.json` — 6 batches, 22 runs, 8.3 s wall,
+all through `cogbench.runner.execute` / `cogbench.isolate.run_isolated`
+unmodified. Every batch's flags agree with its manifest expectations
+(`agrees=True` on all six).
+
+| Batch | Mode | Runs | Flags | Expected |
+|---|---|---|---|---|
+| sequential-mixed | in-process | 4 | all five | flagged (contamination + inheritance) |
+| sequential-clean | in-process | 3 | none | clean |
+| concurrent-clean | in-process, c=2 | 4 | none | clean |
+| isolated-contaminated | isolated | 3 | mutated_arrays, unclosed_handles, output_flooding | flagged (in-run only) |
+| timeout-bounded | isolated, 2 s cap | 2 | none (2 timed_out) | clean |
+| interrupted-batch | isolated, SIGINT at 0.5 s | 2 of 6 completed | none | clean |
+
+Counts, before → during → after (full series in
+`results/20261010T210956Z/summary.json` and `batch-*.json`):
+
+- Processes: 0 descendants before every batch; `during_max` 1 (sleeper child)
+  or 2 (contaminated control's `sleep 5`); 0 after every batch, including
+  after the timeout kills and the SIGINT interruption.
+- Files: per-run scratch peaks at 3 files mid-run; 0 files left in the run
+  directory after every batch, 0 after cleanup everywhere; host study-scratch
+  dirs 0 → 0 across the whole run.
+- fds: batch-level `before`/`after` recorded per batch (jitter like 7 → 10
+  and 10 → 7 across batches is the transient noise of Finding 2 — no leaked
+  targets accompany it).
+- Post-run sweep reaped nothing: `reaped=[]`, `remaining=[]`.
+
+Sequential vs concurrent: verdict `identical` — clean sequential and clean
+concurrent batches each produce exactly one output digest, and no clean batch
+shows digest spread. The only digest spread anywhere is the contaminated
+sequential-mixed batch (2 distinct digests across 4 runs: run 1 matches the
+fresh-import baseline, later runs drift — the inheritance signature).
+
+Interruption outcome (interrupted-batch): SIGINT at 0.5 s stopped the batch
+after 1 of 6 planned runs; `orphans_found=[]`, `reaped_after_interrupt=[]`,
+`remaining_after_sweep=[]` — the in-flight child was reaped with the run's
+own cleanup path and the supervisor's post-batch sweep found nothing left.
+The interruption point is timing-dependent: an earlier development run
+interrupted after 2 of 6 runs with the same zero-orphan result (its artifacts
+predate the final manifest and were not retained).
 
 ## Controls
 
@@ -90,7 +140,8 @@ in the finding's `transient` list — visible, but not flagged.
 ## Status
 
 - Milestone 1 (supervisor + detector + tests, enforced/observed matrix):
-  complete — suite green twice consecutively.
+  complete — suite green.
 - Milestone 2 (manifest runs through the real runner, recorded counts):
-  pending.
+  complete — run `20261010T210956Z` recorded under `results/`, all six
+  batches agree with their manifest expectations, zero host leftovers.
 - Milestone 3 (replay agreement, witness scripts, handoff PR): pending.
