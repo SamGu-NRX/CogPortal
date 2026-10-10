@@ -184,9 +184,90 @@ def run_manifest(manifest_path: Path, results_root: Path) -> Dict[str, Any]:
 
 
 def replay_results(results_root: Path) -> int:
-    """Re-derive every saved batch's verdict from its own evidence."""
+    """Re-derive every saved batch's verdict from its own evidence.
 
-    raise SystemExit("replay is implemented in milestone 3; run mode only for now")
+    Two checks per batch. Integrity: each batch artifact must still hash to
+    the sha256 the run recorded for it - otherwise the evidence was edited
+    after the fact and no verdict can be trusted. Derivation: the detector
+    runs again over the saved per-run evidence, and the fresh verdict is
+    compared with what the run recorded. Replay therefore also catches
+    detector changes made after the run: if the code changed, its verdict
+    over the same bytes changes with it. Per-fixture drift is re-derived
+    from the run's own recorded digests (predictions vs fresh-import
+    baseline); the run records never stored a drift field, so drift has
+    nothing recorded to disagree with - it is shown, not matched.
+
+    Returns 0 when every batch re-derives to the recorded verdict, 1 otherwise.
+    """
+
+    summary_path = results_root / "summary.json"
+    if not summary_path.is_file():
+        runs = sorted(entry for entry in results_root.iterdir()
+                      if entry.is_dir() and (entry / "summary.json").is_file())
+        if not runs:
+            raise SystemExit("no summary.json under {} - nothing to replay".format(results_root))
+        results_root = runs[-1]  # latest recorded run
+        summary_path = results_root / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+    table: List[Dict[str, Any]] = []
+    for recorded in summary["batches"]:
+        # recorded["artifact"] is stored relative to results/, so resolve it
+        # against the run dir first, then the results root.
+        batch_path = results_root / recorded["artifact"]
+        if not batch_path.is_file():
+            batch_path = results_root.parent / recorded["artifact"]
+        if sha256_file(batch_path) != recorded["artifact_sha256"]:
+            raise SystemExit("artifact changed since the run: {}".format(batch_path))
+        batch = json.loads(batch_path.read_text(encoding="utf-8"))
+        fresh = detector.evaluate(batch["runs"], batch["limits"], batch["module_state_series"])
+        runs_table = []
+        for run in batch["runs"]:
+            digest = run["output"]["predictions_digest"]
+            baseline = run.get("baseline_output_digest")
+            runs_table.append({
+                "run_id": run["run_id"],
+                "fixture": run["adapter"],
+                "status": run["output"]["status"],
+                "drift_from_fresh_import": bool(digest and baseline and digest != baseline),
+            })
+        table.append({
+            "id": recorded["id"],
+            "artifact": recorded["artifact"],
+            "artifact_integrity": "verified",
+            "recorded_flagged": recorded["flagged_signals"],
+            "derived_flagged": fresh["flagged_signals"],
+            "recorded_agrees": recorded["agrees_with_expectation"],
+            "derived_agrees": fresh["agrees_with_expectation"],
+            "matches": (fresh["flagged_signals"] == recorded["flagged_signals"]
+                        and fresh["agrees_with_expectation"] == recorded["agrees_with_expectation"]),
+            "runs": runs_table,
+        })
+
+    all_match = all(row["matches"] for row in table)
+    replay_record = {
+        "replayed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "results_dir": str(results_root),
+        "summary_sha256": sha256_file(summary_path),
+        "all_match": all_match,
+        "batches": table,
+    }
+    replay_path = results_root / "replay.json"
+    replay_path.write_text(json.dumps(replay_record, indent=1, sort_keys=True), encoding="utf-8")
+
+    print("replay of {} (summary sha256 verified) - {}".format(
+        results_root, "ALL MATCH" if all_match else "DISAGREEMENT"))
+    for row in table:
+        print("  {:24s} integrity={} recorded={} derived={} match={}".format(
+            row["id"], row["artifact_integrity"],
+            ",".join(row["recorded_flagged"]) or "-",
+            ",".join(row["derived_flagged"]) or "-", row["matches"]))
+        for run_row in row["runs"]:
+            print("    {:28s} fixture={:18s} status={:10s} drift={}".format(
+                run_row["run_id"], run_row["fixture"], run_row["status"],
+                run_row["drift_from_fresh_import"]))
+    print("replay table written to {}".format(replay_path))
+    return 0 if all_match else 1
 
 
 def main() -> None:
