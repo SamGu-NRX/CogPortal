@@ -129,13 +129,22 @@ def fd_snapshot() -> Dict[str, Any]:
     if not os.path.isdir("/proc/self/fd"):
         return {"available": False, "count": None, "by_kind": {}, "targets": {}}
     targets: Dict[str, str] = {}
+    unreadable = 0
     for entry in sorted(os.listdir("/proc/self/fd"))[:_FD_TARGET_LIMIT]:
-        targets[entry] = _fd_target(int(entry))
+        target = _fd_target(int(entry))
+        if target == "unreadable":
+            # The descriptor vanished between listing and readlink — a
+            # snapshot race, not a handle anyone holds. Count it, never
+            # classify it as a target a run left open.
+            unreadable += 1
+            continue
+        targets[entry] = target
     by_kind: Dict[str, int] = {}
     for target in targets.values():
         kind = classify_fd_target(target)
         by_kind[kind] = by_kind.get(kind, 0) + 1
-    return {"available": True, "count": len(os.listdir("/proc/self/fd")), "by_kind": by_kind, "targets": targets}
+    return {"available": True, "count": len(os.listdir("/proc/self/fd")),
+            "by_kind": by_kind, "targets": targets, "unreadable": unreadable}
 
 
 def classify_fd_target(target: str) -> str:

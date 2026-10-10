@@ -1,0 +1,365 @@
+{
+ "batches": [
+  {
+   "adapters": [
+    "contaminated_all",
+    "clean_reuse",
+    "clean_reuse",
+    "clean_reuse"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T210956Z/batch-sequential-mixed.json",
+   "artifact_sha256": "bf8bf0e809e173c4ba2aac01713d8cf1fc10a7a0f395f435dbc5b55940aba58e",
+   "concurrency": 1,
+   "distinct_output_digests": 2,
+   "fds": {
+    "after_batch": 10,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "id": "sequential-mixed",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 1
+   },
+   "purpose": "cross-adapter inheritance in one process (sequential)",
+   "remaining_after_sweep": 0,
+   "runs": 4,
+   "status_counts": {
+    "completed": 4
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "clean_reuse"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T210956Z/batch-sequential-clean.json",
+   "artifact_sha256": "dfec91635054cdc7e08276c64b21683cea6a11ae99bcdb5455d1645c7ee78d38",
+   "concurrency": 1,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 10
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [],
+   "id": "sequential-clean",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 0
+   },
+   "purpose": "clean sequential control",
+   "remaining_after_sweep": 0,
+   "runs": 3,
+   "status_counts": {
+    "completed": 3
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "clean_reuse"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T210956Z/batch-concurrent-clean.json",
+   "artifact_sha256": "a85f83ce3824650619abcef6c874719af46b1ded2393f208ba737fe1d68178b4",
+   "concurrency": 2,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [],
+   "id": "concurrent-clean",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 0
+   },
+   "purpose": "clean concurrent control",
+   "remaining_after_sweep": 0,
+   "runs": 4,
+   "status_counts": {
+    "completed": 4
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "contaminated_all"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T210956Z/batch-isolated-contaminated.json",
+   "artifact_sha256": "51caf55e7135144faf23b197757c8cd61fa1cbe2745b74dbe62b75f12fdae25a",
+   "concurrency": 1,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "id": "isolated-contaminated",
+   "interruption": null,
+   "mode": "isolated",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 2
+   },
+   "purpose": "isolation containment of the contaminated control",
+   "remaining_after_sweep": 0,
+   "runs": 3,
+   "status_counts": {
+    "completed": 3
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "slow_sleeper"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T210956Z/batch-timeout-bounded.json",
+   "artifact_sha256": "be1b0c883df87454deaeca7b2280779ef9197a107d47373430167dcd936f2540",
+   "concurrency": 1,
+   "distinct_output_digests": 0,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 0
+   },
+   "flagged_signals": [],
+   "id": "timeout-bounded",
+   "interruption": null,
+   "mode": "isolated",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 1
+   },
+   "purpose": "wall-clock timeout enforcement and cleanup",
+   "remaining_after_sweep": 0,
+   "runs": 2,
+   "status_counts": {
+    "timed_out": 2
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "quick_sleeper"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T210956Z/batch-interrupted-batch.json",
+   "artifact_sha256": "0e01e0b649bb10fc6d754b1c2e468debe3da754949cd4156d2e0ff20d40779f3",
+   "concurrency": 1,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 8,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 0
+   },
+   "flagged_signals": [],
+   "id": "interrupted-batch",
+   "interruption": {
+    "completed_runs": 1,
+    "orphans_found": [],
+    "planned_runs": 6,
+    "reaped_after_interrupt": [],
+    "remaining_after_sweep": [],
+    "signal": "SIGINT"
+   },
+   "mode": "isolated",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 1
+   },
+   "purpose": "SIGINT mid-batch: what is orphaned, what the supervisor reaps",
+   "remaining_after_sweep": 0,
+   "runs": 1,
+   "status_counts": {
+    "completed": 1
+   },
+   "supervision_reaped": 0
+  }
+ ],
+ "finished_utc": "2026-10-10T21:10:04Z",
+ "host": {
+  "after": {
+   "descendants": 0,
+   "study_scratch_dirs": 0,
+   "utc": "2026-10-10T21:10:04Z"
+  },
+  "before": {
+   "descendants": 0,
+   "study_scratch_dirs": 0,
+   "utc": "2026-10-10T21:09:56Z"
+  },
+  "post_run_sweep": {
+   "reaped": [],
+   "remaining": []
+  },
+  "study_scratch_dirs_delta": 0
+ },
+ "manifest": "experiments/run-interference/manifest.json",
+ "manifest_sha256": "d8c26c7e794a150d06607daab759a203b9ffc5f8c6a4d7f0def692d48d60fcb5",
+ "results_dir": {
+  "files_written": 6,
+  "prior_runs": [
+   "20261010T210956Z"
+  ]
+ },
+ "run": "20261010T210956Z",
+ "sequential_vs_concurrent": {
+  "batches_with_digest_spread": {},
+  "clean_batches": [
+   {
+    "adapters": [
+     "clean_reuse"
+    ],
+    "concurrency": 1,
+    "distinct_digests": 1,
+    "id": "sequential-clean",
+    "mode": "inprocess"
+   },
+   {
+    "adapters": [
+     "clean_reuse"
+    ],
+    "concurrency": 2,
+    "distinct_digests": 1,
+    "id": "concurrent-clean",
+    "mode": "inprocess"
+   },
+   {
+    "adapters": [
+     "slow_sleeper"
+    ],
+    "concurrency": 1,
+    "distinct_digests": 0,
+    "id": "timeout-bounded",
+    "mode": "isolated"
+   },
+   {
+    "adapters": [
+     "quick_sleeper"
+    ],
+    "concurrency": 1,
+    "distinct_digests": 1,
+    "id": "interrupted-batch",
+    "mode": "isolated"
+   }
+  ],
+  "verdict": "identical"
+ },
+ "started_utc": "2026-10-10T21:09:56Z",
+ "wall_seconds": 8.277
+}

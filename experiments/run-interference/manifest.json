@@ -1,0 +1,75 @@
+{
+  "study": "run-interference",
+  "version": 1,
+  "bounds": {
+    "adapter_pool": ["clean_reuse", "contaminated_all", "slow_sleeper", "quick_sleeper"],
+    "max_runs_per_batch": 6,
+    "max_concurrency": 2,
+    "max_timeout_seconds": 10.0,
+    "total_runs": 22,
+    "notes": "Small synthetic adapters only: pure-Python micro-benchmarks, no model weights, no network, no Modal, no shared or production processes. Sleeper fixtures are bounded at 30 seconds by their own code."
+  },
+  "batches": [
+    {
+      "id": "sequential-mixed",
+      "mode": "inprocess",
+      "adapters": ["contaminated_all", "clean_reuse", "clean_reuse", "clean_reuse"],
+      "runs": 4,
+      "concurrency": 1,
+      "timeout_seconds": 10.0,
+      "expect_flagged": ["mutated_arrays", "module_globals", "unclosed_handles", "leftover_children", "output_flooding"],
+      "purpose": "cross-adapter inheritance in one process (sequential)"
+    },
+    {
+      "id": "sequential-clean",
+      "mode": "inprocess",
+      "adapters": ["clean_reuse"],
+      "runs": 3,
+      "concurrency": 1,
+      "timeout_seconds": 10.0,
+      "expect_clean": ["mutated_arrays", "module_globals", "unclosed_handles", "leftover_children", "output_flooding"],
+      "purpose": "clean sequential control"
+    },
+    {
+      "id": "concurrent-clean",
+      "mode": "inprocess",
+      "adapters": ["clean_reuse"],
+      "runs": 4,
+      "concurrency": 2,
+      "timeout_seconds": 10.0,
+      "expect_clean": ["mutated_arrays", "module_globals", "unclosed_handles", "leftover_children", "output_flooding"],
+      "purpose": "clean concurrent control"
+    },
+    {
+      "id": "isolated-contaminated",
+      "mode": "isolated",
+      "adapters": ["contaminated_all"],
+      "runs": 3,
+      "concurrency": 1,
+      "timeout_seconds": 10.0,
+      "expect_flagged": ["mutated_arrays", "unclosed_handles", "output_flooding"],
+      "purpose": "isolation containment of the contaminated control"
+    },
+    {
+      "id": "timeout-bounded",
+      "mode": "isolated",
+      "adapters": ["slow_sleeper"],
+      "runs": 2,
+      "concurrency": 1,
+      "timeout_seconds": 2.0,
+      "expect_clean": ["mutated_arrays", "module_globals", "unclosed_handles", "leftover_children", "output_flooding"],
+      "purpose": "wall-clock timeout enforcement and cleanup"
+    },
+    {
+      "id": "interrupted-batch",
+      "mode": "isolated",
+      "adapters": ["quick_sleeper"],
+      "runs": 6,
+      "concurrency": 1,
+      "timeout_seconds": 10.0,
+      "interrupt_after_seconds": 0.5,
+      "expect_clean": ["mutated_arrays", "module_globals", "unclosed_handles", "leftover_children", "output_flooding"],
+      "purpose": "SIGINT mid-batch: what is orphaned, what the supervisor reaps"
+    }
+  ]
+}

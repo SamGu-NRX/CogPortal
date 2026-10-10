@@ -1,0 +1,736 @@
+{
+ "baselines": {
+  "clean_reuse": {
+   "output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "status": "completed"
+  }
+ },
+ "batch_id": "sequential-clean",
+ "counts": {
+  "fds": {
+   "after_batch": 7,
+   "before_batch": 10
+  },
+  "files": {
+   "after": {
+    "count": 0,
+    "names": []
+   },
+   "after_cleanup": {
+    "count": 0,
+    "names": []
+   },
+   "before": {
+    "count": 0,
+    "names": []
+   },
+   "during_max_per_run": 3
+  },
+  "processes": {
+   "after": 0,
+   "before": 0,
+   "during_max": 0
+  }
+ },
+ "limits": {
+  "capture_bytes": 262144,
+  "child_memory_bytes": 1073741824,
+  "flood_bytes": 131072,
+  "run_timeout_seconds": 10.0,
+  "sample_interval_seconds": 0.02
+ },
+ "limits_enforcement": {
+  "children": "enforced after the run (supervisor reaps descendants it owns)",
+  "cpu": "observed",
+  "handles": "observed (leaked descriptors recorded, not closed \u2014 they may belong to the host process)",
+  "memory": "observed",
+  "note": "an in-process run cannot be stopped or bounded without killing the supervisor itself; the process boundary is the only real enforcement and this mode deliberately has none",
+  "output": "observed (capped in the capture sink; cannot stop a flood in-process)",
+  "wall_clock": "observed"
+ },
+ "module_state_series": [
+  {
+   "label": "before",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "44136fa355b3678a",
+      "kind": "dict",
+      "size": 0
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_000",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "2988246bbd68003d",
+      "kind": "dict",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_001",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "2988246bbd68003d",
+      "kind": "dict",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    }
+   }
+  },
+  {
+   "label": "after_run_002",
+   "states": {
+    "clean_reuse": {
+     "Adapter": {
+      "kind": "static:type"
+     },
+     "Path": {
+      "kind": "static:type"
+     },
+     "_CORRECTIONS": {
+      "digest": "2988246bbd68003d",
+      "kind": "dict",
+      "size": 3
+     },
+     "annotations": {
+      "digest": "697387a71e174328",
+      "kind": "_Feature",
+      "size": null
+     },
+     "shared_registry": {
+      "kind": "static:module"
+     }
+    }
+   }
+  }
+ ],
+ "runs": [
+  {
+   "adapter": "clean_reuse",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 21,
+    "dropped_bytes": 0,
+    "head": "clean_reuse: 3 cases\n",
+    "lines": 1,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 11,
+     "rss_kb": 23172,
+     "scratch_files": 3,
+     "t_ms": 6
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 10,
+     "rss_kb": 23172,
+     "scratch_files": 3,
+     "t_ms": 14
+    }
+   ],
+   "expect_clean": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[55522]",
+      "1": "pipe:[55520]",
+      "2": "pipe:[55521]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[55522]",
+      "1": "pipe:[55520]",
+      "2": "pipe:[55521]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 0,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 23172,
+    "rss_before_kb": 23172
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 1.0
+     }
+    ],
+    "predictions_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "sequential-clean/run-000",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "clean-3.txt",
+      "clean-4.txt",
+      "clean-5.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0094
+  },
+  {
+   "adapter": "clean_reuse",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 21,
+    "dropped_bytes": 0,
+    "head": "clean_reuse: 3 cases\n",
+    "lines": 1,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 23172,
+     "scratch_files": 3,
+     "t_ms": 8
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 23172,
+     "scratch_files": 3,
+     "t_ms": 14
+    }
+   ],
+   "expect_clean": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 3,
+      "pipe": 3
+     },
+     "count": 7,
+     "targets": {
+      "0": "pipe:[55522]",
+      "1": "pipe:[55520]",
+      "2": "pipe:[55521]",
+      "4": "/sys/fs/cgroup/ptys",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 6,
+      "pipe": 3
+     },
+     "count": 10,
+     "targets": {
+      "0": "pipe:[55522]",
+      "1": "pipe:[55520]",
+      "2": "pipe:[55521]",
+      "4": "/sys/fs/cgroup/ptys",
+      "5": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-4.txt (deleted)",
+      "6": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-5.txt (deleted)",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user",
+      "9": "/tmp/ri-sequential-mixed-2inmt2x9/run-000/leak-6.txt (deleted)"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 1,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-001",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-001",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 23172,
+    "rss_before_kb": 23172
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 1.0
+     }
+    ],
+    "predictions_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "sequential-clean/run-001",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "clean-3.txt",
+      "clean-4.txt",
+      "clean-5.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0089
+  },
+  {
+   "adapter": "clean_reuse",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 21,
+    "dropped_bytes": 0,
+    "head": "clean_reuse: 3 cases\n",
+    "lines": 1,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 23172,
+     "scratch_files": 3,
+     "t_ms": 7
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 23172,
+     "scratch_files": 3,
+     "t_ms": 14
+    }
+   ],
+   "expect_clean": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 3,
+      "pipe": 3
+     },
+     "count": 7,
+     "targets": {
+      "0": "pipe:[55522]",
+      "1": "pipe:[55520]",
+      "2": "pipe:[55521]",
+      "4": "/sys/fs/cgroup/ptys",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 3,
+      "pipe": 3
+     },
+     "count": 7,
+     "targets": {
+      "0": "pipe:[55522]",
+      "1": "pipe:[55520]",
+      "2": "pipe:[55521]",
+      "4": "/sys/fs/cgroup/ptys",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-supervisor"
+   },
+   "index": 2,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-002",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-002",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-002",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-002",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-002",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-sequential-clean-s9muv0yf/run-002",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "memory": {
+    "rss_after_kb": 23172,
+    "rss_before_kb": 23172
+   },
+   "mode": "inprocess",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 1.0
+     }
+    ],
+    "predictions_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "sequential-clean/run-002",
+   "scratch": {
+    "after": {
+     "count": 3,
+     "names": [
+      "clean-3.txt",
+      "clean-4.txt",
+      "clean-5.txt"
+     ]
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.0091
+  }
+ ],
+ "spec": {
+  "adapters": [
+   "clean_reuse"
+  ],
+  "concurrency": 1,
+  "id": "sequential-clean",
+  "interrupt_after_seconds": null,
+  "mode": "inprocess",
+  "purpose": "clean sequential control",
+  "runs": 3,
+  "timeout_seconds": 10.0
+ },
+ "supervision": {
+  "reaped": [],
+  "remaining_after_sweep": []
+ }
+}

@@ -197,6 +197,7 @@ class RunSupervisor:
 
         processes_before = ev.descendant_pids()
         files_before = ev.dir_file_count(work_root)
+        fds_before_batch = ev.fd_snapshot()
 
         runs: List[Dict[str, Any]] = []
         module_state_series: List[Dict[str, Any]] = []
@@ -302,6 +303,10 @@ class RunSupervisor:
                     "after": files_after,
                     "after_cleanup": files_after_cleanup,
                     "during_max_per_run": self._max_scratch_files(runs),
+                },
+                "fds": {
+                    "before_batch": fds_before_batch.get("count"),
+                    "after_batch": fds_after_batch.get("count"),
                 },
             },
             "supervision": {"reaped": reaped, "remaining_after_sweep": remaining},
