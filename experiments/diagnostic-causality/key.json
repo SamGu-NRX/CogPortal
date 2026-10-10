@@ -1,0 +1,97 @@
+{
+  "study": "diagnostic-causality",
+  "control": "control",
+  "blindness": "This key is ground truth for grading only. The subject (cogbench) reads materialized variant projects; diagnose.py, repair.py, oracle.py, and measure.py never read this file. materialize.py reads it only to build fixture projects, before any measurement.",
+  "defects": {
+    "name_error": {
+      "cause_class": "name_error",
+      "site": "module import",
+      "description": "The numpy import is deleted, so the first enroll call raises NameError: name 'np' is not defined.",
+      "patch": [
+        {"op": "remove_line", "find": "import numpy as np"}
+      ],
+      "true_repair": [
+        {"op": "insert_line", "after": "from __future__ import annotations", "line": "import numpy as np"}
+      ],
+      "expected_diagnostic_pointer": "The driver surfaces the first enroll failure with the raised location: NameError at submission.py, in the enroll phase."
+    },
+    "signature": {
+      "cause_class": "signature",
+      "site": "identify signature",
+      "description": "identify drops its sample_rate parameter, so the submission no longer maps onto the identify protocol.",
+      "patch": [
+        {"op": "replace", "find": "def identify(self, samples, sample_rate):\n        spec = song_spectrogram(samples, sample_rate)", "replace": "def identify(self, samples):\n        spec = song_spectrogram(samples)", "count": 1}
+      ],
+      "true_repair": [
+        {"op": "replace", "find": "def identify(self, samples):\n        spec = song_spectrogram(samples)", "replace": "def identify(self, samples, sample_rate):\n        spec = song_spectrogram(samples, sample_rate)", "count": 1}
+      ],
+      "expected_diagnostic_pointer": "The protocol-mapping diagnostic names the missing signature: identify(samples, sample_rate)."
+    },
+    "wrong_order": {
+      "cause_class": "ranking_direction",
+      "site": "identify ranking sort",
+      "description": "Votes are sorted ascending instead of descending, so the wrong song comes back first. Retrieval is untouched.",
+      "patch": [
+        {"op": "replace", "find": "reverse=True", "replace": "reverse=False", "count": 1}
+      ],
+      "true_repair": [
+        {"op": "replace", "find": "reverse=False", "replace": "reverse=True", "count": 1}
+      ],
+      "expected_diagnostic_pointer": "Observed in pre-study probes: the diagnostic claims retrieval/hash-space failure, which is the wrong stage - the known misleading witness for ranking_direction."
+    },
+    "empty_result": {
+      "cause_class": "empty_result",
+      "site": "identify early return",
+      "description": "identify returns [] unconditionally before voting, so every query finds 'no match' while the database is healthy.",
+      "patch": [
+        {"op": "replace", "find": "        votes = {}\n", "replace": "        votes = {}\n        return []\n", "count": 1}
+      ],
+      "true_repair": [
+        {"op": "replace", "find": "        votes = {}\n        return []\n", "replace": "        votes = {}\n", "count": 1}
+      ],
+      "expected_diagnostic_pointer": "Observed in pre-study probes: the diagnostic claims the database and queries live in different hash spaces - the wrong cause, another misleading witness."
+    },
+    "fp_time_sign": {
+      "cause_class": "fingerprint_space",
+      "site": "make_fingerprints delta",
+      "description": "The fingerprint time delta flips sign (t1 - t2 instead of t2 - t1), so stored and probe hash spaces never overlap.",
+      "patch": [
+        {"op": "replace", "find": "out.append(((f1, f2, t2 - t1), t1))", "replace": "out.append(((f1, f2, t1 - t2), t1))", "count": 1}
+      ],
+      "true_repair": [
+        {"op": "replace", "find": "out.append(((f1, f2, t1 - t2), t1))", "replace": "out.append(((f1, f2, t2 - t1), t1))", "count": 1}
+      ],
+      "expected_diagnostic_pointer": "Expect the no-shared-fingerprints bundle; the diagnostic cannot separate this site from any other fingerprint-space break."
+    },
+    "fp_swap": {
+      "cause_class": "fingerprint_space",
+      "site": "make_fingerprints tuple order",
+      "description": "Fingerprint pairs store frequencies in swapped order, so stored and probe hash spaces never overlap.",
+      "patch": [
+        {"op": "replace", "find": "out.append(((f1, f2, t2 - t1), t1))", "replace": "out.append(((f2, f1, t2 - t1), t1))", "count": 1}
+      ],
+      "true_repair": [
+        {"op": "replace", "find": "out.append(((f2, f1, t2 - t1), t1))", "replace": "out.append(((f1, f2, t2 - t1), t1))", "count": 1}
+      ],
+      "expected_diagnostic_pointer": "Expect the same no-shared-fingerprints bundle as fp_time_sign - candidate for the indistinguishable table."
+    },
+    "shape_pairs": {
+      "cause_class": "shape_pairs",
+      "site": "identify return",
+      "description": "identify returns ranked ids without scores. The scorer absorbs this at the test tier (score-neutral), which the margin diagnostic mentions.",
+      "patch": [
+        {"op": "replace", "find": "return [(sid, float(v)) for sid, v in ranked[:TOP]]", "replace": "return [sid for sid, v in ranked[:TOP]]", "count": 1}
+      ],
+      "true_repair": [
+        {"op": "replace", "find": "return [sid for sid, v in ranked[:TOP]]", "replace": "return [(sid, float(v)) for sid, v in ranked[:TOP]]", "count": 1}
+      ],
+      "expected_diagnostic_pointer": "The margin diagnostic names the missing (song_id, score) pairs."
+    }
+  },
+  "multi_defect": {
+    "multi_name_order": ["name_error", "wrong_order"],
+    "multi_signature_swap": ["signature", "fp_swap"],
+    "multi_empty_sign": ["empty_result", "fp_time_sign"]
+  },
+  "repair_semantics": "A diagnosis counts as correct only when applying its claimed repair (derived by diagnose.py from the diagnostic bundle alone) restores the control outcome on the same tier. Multi-defect variants allow repeated diagnose/repair rounds; the table records rounds to restore."
+}
