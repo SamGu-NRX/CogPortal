@@ -15,18 +15,30 @@ CLI as an instrument and never repairs it.
    patch of the control (the defect/repair key records every patch).
 3. **Measure blind.** Each variant is materialized into a plain project
    directory; the real CLI runs `check`, `test`, `run`, and `report` against
-   it in a subprocess with `PYTHONHASHSEED=0`. The diagnose step (a rule
+   it in a subprocess with `PYTHONHASHSEED=0`, using command-specific
+   arguments (`check`/`test`/`run` take `--benchmark BENCHMARK --json`;
+   `report` takes only its optional path positional). Every receipt records
+   the exact argv, exit code, stdout, and stderr. The diagnose step (a rule
    table authored from pre-study probes) reads only the words the instrument
    printed — never the key.
 4. **Oracle.** A diagnosis is correct only when applying its claimed repair
    restores the control outcome: an identical metrics dict and an identical
-   `Outcome split` line on the test tier. Multi-defect variants repeat the
-   diagnose/repair loop (max 3 rounds).
+   `Outcome split` line on the test tier. Round 1 applies the diagnosis
+   RECORDED from the variant's pristine measurement — the same measured
+   input behind the stored diagnoses.json entry — never a re-derived one;
+   every post-repair measurement is retained as a raw capture, and each
+   later round diagnoses from the immediately preceding retained capture
+   (multi-defect variants repeat the loop, max 3 rounds).
 5. **Wrong-repair probe.** The name_error repair (a numpy import) applied to
-   the fp_time_sign variant must NOT restore the control outcome.
+   the fp_freq_sign variant must NOT restore the control outcome. The
+   probe's post-repair bundle is retained alongside the oracle captures.
 6. **Replay.** `run.py --replay results` recomputes every derived artifact
    (bundle texts, diagnoses, counts, tables) from the committed raw captures
-   and asserts byte agreement.
+   and asserts byte agreement. The oracle pairing is verified from raw too:
+   every round's recorded diagnosis must recompute from the exact capture it
+   names (the pristine bundle for round 1, the previous round's retained
+   post-repair capture afterward), and every recorded outcome must recompute
+   from its retained capture file.
 
 ## Blindness
 

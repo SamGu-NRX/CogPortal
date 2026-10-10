@@ -90,17 +90,36 @@ def measure_all(manifest: dict, results: Path) -> None:
         text = measure.bundle_text(bundle)
         diagnosis = diagnose.diagnose(text)
         diagnoses[name] = {"bundle_sha256": sha256(text), "diagnosis": diagnosis}
-        oracles[name] = oracle(paths[name], control_outcome, work_root / "oracle", max_rounds=3)
+        oracles[name] = oracle(
+            paths[name],
+            control_outcome,
+            work_root / "oracle",
+            recorded_diagnosis=diagnosis,
+            capture_dir=raw_dir / name / "oracle",
+            pristine_capture=f"raw/{name}/bundle.json",
+            max_rounds=3,
+        )
     for name in materialize.multi_defect_names(key):
         bundle = measure.measure_variant(paths[name], with_run=True)
         write_json(raw_dir / name / "bundle.json", bundle)
-        oracles[name] = oracle(paths[name], control_outcome, work_root / "oracle", max_rounds=3)
+        oracles[name] = oracle(
+            paths[name],
+            control_outcome,
+            work_root / "oracle",
+            capture_dir=raw_dir / name / "oracle",
+            max_rounds=3,
+        )
 
     write_json(results / "diagnoses.json", diagnoses)
     write_json(results / "oracle.json", oracles)
 
     # 3. Wrong-repair probe: a deliberately wrong repair must fail the oracle.
-    probe = wrong_repair_probe(paths, control_outcome, work_root / "probe")
+    probe = wrong_repair_probe(
+        paths,
+        control_outcome,
+        work_root / "probe",
+        capture_dir=raw_dir / "fp_freq_sign" / "oracle",
+    )
     write_json(results / "wrong_repair_probe.json", probe)
 
     # 4. Grade against the key, after all measurement is persisted.
@@ -127,10 +146,16 @@ def manifest_environment(manifest: dict) -> dict:
     return env
 
 
-def wrong_repair_probe(paths: dict, control_outcome: dict, scratch: Path) -> dict:
+def wrong_repair_probe(paths: dict, control_outcome: dict, scratch: Path, *, capture_dir: Path | None = None) -> dict:
     """Apply the name_error claimed repair (a numpy import) to the
     fp_freq_sign variant. The import is harmless, the fingerprint defect
-    remains, and the oracle must NOT report restoration."""
+    remains, and the oracle must NOT report restoration.
+
+    Provenance: the wrong claim is the name_error diagnosis recorded from
+    name_error's pristine measurement; the measured input is a copy of the
+    fp_freq_sign variant source (the input behind its pristine bundle). The
+    post-repair bundle is retained under the capture dir.
+    """
     target = paths["fp_freq_sign"]
     wrong_claim = {
         "claimed_class": "name_error",
@@ -153,10 +178,15 @@ def wrong_repair_probe(paths: dict, control_outcome: dict, scratch: Path) -> dic
     bundle = measure.measure_variant(work, with_run=False)
     outcome = measure.outcome_of(bundle)
     restored = measure.outcomes_match(outcome, control_outcome)
+    if capture_dir is not None:
+        write_json(capture_dir / "wrong_repair.post.json", bundle)
     return {
         "probe": "name_error repair applied to fp_freq_sign variant",
+        "measured_input": "raw/fp_freq_sign/bundle.json (variant source copy)",
+        "wrong_claim_source": "raw/name_error/bundle.json diagnosis",
         "applied": applied,
         "restored": restored,
+        "post_capture": "wrong_repair.post.json" if capture_dir is not None else None,
         "expectation": "restored must be False: a deliberately wrong repair fails the oracle",
         "oracle_agrees": restored is False,
         "observed_outcome": outcome,
@@ -205,6 +235,48 @@ def replay(results: Path) -> int:
         control = record["control_outcome"]
         if record["restored"] != measure.outcomes_match(final, control):
             problems.append(f"oracle.json self-inconsistent for {name}")
+        oracle_dir = results / "raw" / name / "oracle"
+        for round_record in record["rounds"]:
+            source_name = round_record.get("diagnosis_source", "")
+            if source_name.startswith("raw/"):
+                pre_path = results / source_name
+            else:
+                pre_path = oracle_dir / source_name
+            if not pre_path.exists():
+                problems.append(f"oracle diagnosis source missing for {name} round {round_record['round']}: {pre_path}")
+                continue
+            recomputed = diagnose.diagnose(measure.bundle_text(grading.load_json(pre_path)))
+            if recomputed != round_record.get("diagnosis"):
+                problems.append(
+                    f"oracle round {round_record['round']} diagnosis for {name} disagrees with its recorded source capture"
+                )
+            post_name = round_record.get("post_capture")
+            if post_name:
+                post_path = oracle_dir / post_name
+                if not post_path.exists():
+                    problems.append(f"oracle post capture missing for {name}: {post_path}")
+                    continue
+                post_outcome = measure.outcome_of(grading.load_json(post_path))
+                if round_record["outcome_matches_control"] != measure.outcomes_match(post_outcome, control):
+                    problems.append(f"oracle post capture inconsistent for {name} round {round_record['round']}")
+        final_path = oracle_dir / record.get("final_capture", "")
+        if final_path.exists():
+            if measure.outcome_of(grading.load_json(final_path)) != final:
+                problems.append(f"oracle final_outcome disagrees with retained capture for {name}")
+        else:
+            problems.append(f"oracle final capture missing for {name}: {final_path}")
+
+    committed_probe = grading.load_json(results / "wrong_repair_probe.json")
+    probe_capture = results / "raw" / "fp_freq_sign" / "oracle" / "wrong_repair.post.json"
+    if not probe_capture.exists():
+        problems.append("wrong-repair probe capture missing")
+    else:
+        probe_bundle = grading.load_json(probe_capture)
+        if measure.outcome_of(probe_bundle) != committed_probe["observed_outcome"]:
+            problems.append("wrong-repair probe observed_outcome disagrees with retained capture")
+        probe_control = committed_oracle["fp_freq_sign"]["control_outcome"]
+        if committed_probe["restored"] != measure.outcomes_match(measure.outcome_of(probe_bundle), probe_control):
+            problems.append("wrong-repair probe restored disagrees with retained capture")
 
     graded = grading.grade(results, key)
     committed_grade = grading.load_json(results / "grade.json")

@@ -1,6 +1,6 @@
 {
   "empty_result": {
-    "bundle_sha256": "40d12a8d168e1879484ffca7dbb6fc1d099c1f3b4f04459bd498d1c211700cf1",
+    "bundle_sha256": "563bc678a66287451a999f419177970c1ba47c66fd859e9146081386d11c38c3",
     "diagnosis": {
       "claimed_class": "hash_space",
       "claimed_repair": {
@@ -11,7 +11,7 @@
     }
   },
   "fp_freq_sign": {
-    "bundle_sha256": "4efd91bd9d523a034c1980e33b18aa1e969e4368804fae274fe827e4615b54be",
+    "bundle_sha256": "0e34f517fa9c5c609f5f93851838b4e9cd6f55476287364f6dc2f2bf215d1082",
     "diagnosis": {
       "claimed_class": "hash_space",
       "claimed_repair": {
@@ -22,7 +22,7 @@
     }
   },
   "fp_swap": {
-    "bundle_sha256": "a0ff6357324afe9ee693eb99ed87e579c3bd63434418fd4aaccbc0e0a4dfc342",
+    "bundle_sha256": "3d75616be6e6eaa710d68bcafb0b570ebaa7e365e7b42650bb40a752bf667990",
     "diagnosis": {
       "claimed_class": "hash_space",
       "claimed_repair": {
@@ -33,7 +33,7 @@
     }
   },
   "name_error": {
-    "bundle_sha256": "9d102521696e17106e53de5f3bfa10ac3d775243e255b07bc4cffd1b1e3ade97",
+    "bundle_sha256": "349e559e563f9bbec09977fe6f93e902de51f9c9a417a619c6855bdb1b3a7c70",
     "diagnosis": {
       "claimed_class": "name_error",
       "claimed_repair": {
@@ -46,7 +46,7 @@
     }
   },
   "shape_pairs": {
-    "bundle_sha256": "bb486e4ad8825d94b0a325507ef8eace8630d7b408fe80459a5bb9f923c4e9dd",
+    "bundle_sha256": "dbbaefcc144aeaf96fc232321b28a949aaaba2bb41c3fa42009c3d040d2535ba",
     "diagnosis": {
       "claimed_class": "shape_pairs",
       "claimed_repair": {
@@ -58,7 +58,7 @@
     }
   },
   "signature": {
-    "bundle_sha256": "b96bb5afae0802ede97c9d221672b242aa7d11d34cab22595a4fb7067eea83c2",
+    "bundle_sha256": "3a54fc78c6d82602aad59d78c502e351dff52b0e7da8df13b35d50af521361e5",
     "diagnosis": {
       "claimed_class": "signature",
       "claimed_repair": {
@@ -70,7 +70,7 @@
     }
   },
   "wrong_order": {
-    "bundle_sha256": "838d278a6866c77507682cc0d83066affd94b3e2c403f1625f70e16164b0d567",
+    "bundle_sha256": "1e4843df69b517e0e997b76ad34d792539012216512806253bba9cd030797cf3",
     "diagnosis": {
       "claimed_class": "hash_space",
       "claimed_repair": {

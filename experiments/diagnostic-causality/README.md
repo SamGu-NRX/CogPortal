@@ -14,7 +14,9 @@ python experiments/diagnostic-causality/run.py --replay experiments/diagnostic-c
 
 Layout: `fixtures/control` is the frozen miniature adapter; `run.py`
 materializes variants from `key.json` patches, measures through the real CLI,
-oracles each diagnosis by repair-restores-control, grades against the key,
+oracles each diagnosis by repair-restores-control (round 1 acts on the
+diagnosis recorded from the pristine measurement; post-repair bundles are
+retained as raw captures), grades against the key,
 and writes `results/` (raw bundles, diagnoses, oracle verdicts, tables,
 summary). `--replay` recomputes everything derived from the raw captures and
 asserts agreement.

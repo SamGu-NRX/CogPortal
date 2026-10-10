@@ -38,6 +38,38 @@ the oracle rejects plausible-but-wrong fixes.
   (`wrong_repair_probe_oracle_agrees: true` in `summary.json`).
 - **Replay witness**: `run.py --replay results` recomputes every derived
   artifact from the committed raw captures — `agrees: true`, zero problems.
+  Replay also verifies the oracle pairing from raw: every round's recorded
+  diagnosis recomputes from the exact capture it names (the pristine bundle
+  for round 1, the previous round's retained post-repair capture after), and
+  every recorded outcome recomputes from its retained capture file.
+
+## Reviewer rework (second frozen run)
+
+PR review flagged two apparatus defects in the first frozen run. Both were
+fixed and the entire measurement was regenerated from scratch (`results/` is
+the second frozen run):
+
+1. **`report` receipts were invalid.** The old instrument passed
+   `--benchmark/--json` to `cogbench report`, which accepts only an optional
+   positional path — every report receipt exited 2 with empty stdout. The
+   instrument now uses command-specific arguments and records the exact argv,
+   exit code, stdout, and stderr in every receipt; all 44 receipts in the
+   committed bundles show `report` exit 0 with populated output. `check`
+   still exits 2 in every arm: that is the check tier's own behavior (it
+   flags 6 graded-run packages missing locally) and its JSON is valid and
+   recorded verbatim.
+2. **The oracle did not act on the recorded diagnosis.** The old loop
+   re-derived each diagnosis from its own measurements, so the repair that
+   "restored control" was not guaranteed to be the one behind the stored
+   `diagnoses.json` entry, and no post-repair bundle was retained. The oracle
+   now applies the diagnosis RECORDED from the variant's pristine measurement
+   (the same measured input as `diagnoses.json`), retains every post-repair
+   bundle under `results/raw/<variant>/oracle/`, and each later round
+   diagnoses from the immediately preceding retained capture.
+
+Diagnosis outcomes are unchanged from the first run (the broken report
+receipt never fed the diagnosis rules), so the numbers above are the second
+run's own.
 
 ## Environment deviations (PROTOCOL.md has the details)
 

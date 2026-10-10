@@ -26,8 +26,9 @@ def _env() -> dict:
 
 
 def run_cli(variant_dir: Path, command: str, extra: tuple = ()) -> dict:
+    argv = [sys.executable, "-m", "cogbench", command, *extra]
     proc = subprocess.run(
-        [sys.executable, "-m", "cogbench", command, "--benchmark", BENCHMARK, "--json", *extra],
+        argv,
         cwd=str(variant_dir),
         env=_env(),
         capture_output=True,
@@ -41,6 +42,7 @@ def run_cli(variant_dir: Path, command: str, extra: tuple = ()) -> dict:
         payload = None
     return {
         "command": command,
+        "argv": argv[1:],
         "exit": proc.returncode,
         "json": payload,
         "stdout": proc.stdout,
@@ -49,10 +51,19 @@ def run_cli(variant_dir: Path, command: str, extra: tuple = ()) -> dict:
 
 
 def measure_variant(variant_dir: Path, *, with_run: bool = False) -> dict:
-    """check + test (+ report when a report was saved) for one variant."""
-    bundle = {"check": run_cli(variant_dir, "check"), "test": run_cli(variant_dir, "test")}
+    """check + test (+ run when asked, + report) for one variant.
+
+    Command-specific arguments: `check`/`test`/`run` accept
+    `--benchmark BENCHMARK --json`; `report` takes only an optional report
+    path positional. Receipts record the exact argv.
+    """
+    scored_args = ("--benchmark", BENCHMARK, "--json")
+    bundle = {
+        "check": run_cli(variant_dir, "check", scored_args),
+        "test": run_cli(variant_dir, "test", scored_args),
+    }
     if with_run:
-        bundle["run"] = run_cli(variant_dir, "run")
+        bundle["run"] = run_cli(variant_dir, "run", scored_args)
     bundle["report"] = run_cli(variant_dir, "report")
     return bundle
 
