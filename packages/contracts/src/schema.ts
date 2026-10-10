@@ -1663,6 +1663,9 @@ export const API_ERROR_CODES = [
   "not_in_cohort",
   "cannot_remove_creator",
   "user_not_found",
+  /** GitHub didn't answer when a write needed its check. Nothing was
+   *  changed; the request can be retried. */
+  "github_unreachable",
 ] as const;
 export const ApiErrorCodeSchema = z.enum(API_ERROR_CODES);
 export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;

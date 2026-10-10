@@ -571,6 +571,10 @@ test("each team change runs only for the team the page showed, which is still yo
   github.set(ada, CURRENT_REPO, "admin");
   github.set(ada, DESTINATION_REPO, "admin");
   github.set(ben, OTHER_REPO, "admin");
+  // Adding Grace verifies her permission on the team's repository (which by
+  // then is the destination) before storing the row; the refused pages still
+  // ask GitHub nothing.
+  github.set(grace, DESTINATION_REPO, "write");
   const actions = [
     ["PATCH", (shown: string | null) => ["/team", { ...(shown ? { teamId: shown } : {}), name: "Renamed on purpose" }]],
     ["POST", (shown: string | null) => ["/team/repository", { ...(shown ? { teamId: shown } : {}), fullName: DESTINATION_REPO }]],
