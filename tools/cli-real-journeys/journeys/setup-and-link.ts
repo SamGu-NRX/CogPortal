@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CliHome, env } from "../support/cli.ts";
+import { BrowserSession } from "../support/browser.ts";
 import { Portal } from "../support/portal.ts";
 import { readStackInfo } from "../support/stack-info.ts";
 import { Case } from "./harness.ts";
@@ -93,12 +94,13 @@ function expectRevokedRefusal(
     `error message in the body: ${JSON.stringify(refusal?.message ?? response.body.slice(0, 200))}`,
   );
 }
+
 const info = await readStackInfo();
 const portal = await Portal.create();
 
 const cases = {
   session: new Case("setup-and-link", "browser-session", ["portal Worker", "D1"]),
-  deviceLink: new Case("setup-and-link", "device-link", ["portal Worker", "installed CLI", "shaper"]),
+  deviceLink: new Case("setup-and-link", "device-link", ["portal Worker", "installed CLI", "shaper", "Portal SPA"]),
   revocation: new Case("setup-and-link", "device-revocation", ["portal Worker", "installed CLI"]),
 };
 
@@ -137,27 +139,46 @@ await cases.deviceLink.run(async () => {
   const home = await CliHome.create(env("VENV_WEEK1"));
   linkedHome = home;
   // link runs from HOME, outside any repository: the unlinked first-run
-  // path. The printed verification URI carries the user code the browser
-  // approves from.
+  // path. The printed line names the verification URI a student opens and
+  // the code it carries; the browser acts on exactly what was printed.
   const link = home.start([
     "link",
     "--portal",
     info.shaperPortalOrigin,
     "--no-browser",
   ]);
-  const printed = await link.waitFor(/user_code=([A-Za-z0-9-]+)/, 30_000);
-  const userCode = printed[1];
+  const printed = await link.waitFor(/Open (\S+) and confirm code ([A-Za-z0-9-]+)/, 30_000);
+  const verificationUri = printed[1];
+  const userCode = printed[2];
   case_.claim(
     "the CLI printed a verification URI carrying a user code",
     `matched ${printed[0]}`,
   );
-  const approval = await portal.approveDevice(userCode, "journey-laptop");
-  const settled = approval >= 500 ? await portal.approveDevice(userCode, "journey-laptop") : approval;
-  case_.expect(
-    settled === 200,
-    "the browser session approved the device code",
-    `POST /api/v1/cli/device/approve answered ${settled} (first attempt ${approval})`,
-  );
+  // The approval is a student act, not an API call: a real browser signs
+  // in on the SPA, opens the printed link, and presses the page's own
+  // button — once. No retries; the page offers exactly one approval and
+  // this case asserts that one.
+  const browserSession = await BrowserSession.start(info.browsableOrigin);
+  try {
+    const signedInAt = await browserSession.devSignIn("journey-student");
+    case_.claim(
+      "the SPA's development sign-in signed the browser in",
+      `the sign-in form left the browser on ${signedInAt}`,
+    );
+    const approval = await browserSession.approveDevice(verificationUri, "journey-laptop", userCode);
+    case_.expect(
+      approval.shownCode === userCode,
+      "the approval page showed the code the CLI printed",
+      `the page showed ${approval.shownCode ?? "nothing"} for ${userCode} at ${approval.url}`,
+    );
+    case_.expect(
+      approval.statusLine.includes("Device approved"),
+      "the page's own Approve device button approved the link",
+      `after the press the page said: ${approval.statusLine}`,
+    );
+  } finally {
+    await browserSession.close();
+  }
   const exit = await link.exited(60_000);
   case_.expect(exit === 0, "the CLI linked after approval", `cogworks link exited ${exit}; output: ${link.output().slice(-400)}`);
   case_.expect(
