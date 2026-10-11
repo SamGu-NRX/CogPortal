@@ -13,7 +13,9 @@ export async function ensureNode24() {
     return { nodeDir: null, usedCache: false };
   }
   const bin = path.join(CACHE, "bin", "node");
-  if (existsSync(bin)) return { nodeDir: CACHE, usedCache: true };
+  // Consumers (bin/upgrade-suite.mjs, PATH prefixes) expect the BIN dir.
+  const nodeDir = path.join(CACHE, "bin");
+  if (existsSync(bin)) return { nodeDir, usedCache: true };
 
   const url = `https://nodejs.org/dist/${VERSION}/node-${VERSION}-linux-x64.tar.xz`;
   const tmp = `/tmp/node-${VERSION}.tar.xz`;
@@ -39,5 +41,5 @@ export async function ensureNode24() {
       throw new Error("node24 bootstrap: node binary not found after extract");
     }
   }
-  return { nodeDir: CACHE, usedCache: false };
+  return { nodeDir, usedCache: false };
 }
