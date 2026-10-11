@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run comparison — offline workbench</title>
+<style>
+.premise { background: #f6f8fa; padding: .75rem 1rem; border-radius: 6px; }
+.ok { background: #eaf7ee; color: #116329; padding: .75rem 1rem; border-radius: 6px; }
+.banner { background: #ffe5e0; color: #a40e26; padding: .75rem 1rem; border-radius: 6px; }
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 2rem 1rem; background: #ffffff; color: #1f2328; line-height: 1.55; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+main { max-width: 60rem; margin: 0 auto; }
+h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.125rem; margin-top: 2rem; padding-bottom: .25rem; border-bottom: 1px solid #d0d7de; }
+h3 { font-size: 1rem; margin: 1rem 0 .25rem; }
+p, li { font-size: .95rem; }
+table { width: 100%; margin: .75rem 0; border-collapse: collapse; }
+th, td { padding: .5rem .6rem; border-bottom: 1px solid #d0d7de; text-align: left; vertical-align: top; font-size: .9rem; }
+th[scope=row] { white-space: nowrap; font-weight: 600; }
+thead th { font-weight: 600; }
+.chip { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: .8125rem; font-weight: 600; }
+.chip-same { color: #116329; background: #d7f5dd; }
+.chip-changed { color: #7d4e00; background: #ffe9a8; }
+.chip-unknown { color: #444d56; background: #e2e8f0; }
+.muted { color: #57606a; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #d0d7de; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .875em; }
+@media (max-width: 48rem) { body { padding: 1rem .75rem; } th, td { padding: .4rem .45rem; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Run comparison</h1><h2>Findings</h2><ul><li>dataset conditions changed: see the field verdicts</li><li>While any blocker stands, a metric difference is not evidence of a source effect.</li></ul><p class="premise"><strong>Premise.</strong> A comparison is warranted only where the two runs line up on source, dataset, scorer and metric identity — the verdicts below state exactly where they do, and unknown provenance blocks a conclusion instead of being filled in. Both reports are synthetic fixture outputs built offline: no network access, no student data.</p><p>Compared: s10-accepted-test-command.json and s11-accepted-weight-receipts.json — the first two accepted reports in sorted order (5 of 18 fixture files accepted).</p>
+<h2>Conditions between the two runs</h2>
+<table>
+<thead><tr><th scope="col">Axis</th><th scope="col">Verdict</th><th scope="col">Detail</th></tr></thead>
+<tbody>
+<tr data-axis="source" data-verdict="changed"><th scope="row">source</th><td><span class="chip chip-changed">changed</span></td><td>different commits: 333333333333 vs 333333333333</td></tr>
+<tr data-axis="dataset" data-verdict="changed"><th scope="row">dataset</th><td><span class="chip chip-changed">changed</span></td><td>at least one dataset axis changed — see the field verdicts<ul><li data-field="dataset.benchmark" data-verdict="same"><strong>benchmark</strong> <span class="chip chip-same">same</span> — both runs used &#x27;audio-identification&#x27; v1 (id &#x27;audio-identification&#x27;)</li><li data-field="dataset.case set (command)" data-verdict="changed"><strong>case set (command)</strong> <span class="chip chip-changed">changed</span> — `test` vs `run` — the runs scored different case sets</li><li data-field="dataset.weights" data-verdict="changed"><strong>weights</strong> <span class="chip chip-changed">changed</span> — none recorded vs model.pt, tokenizer.json — the runs did not use the same weights</li><li data-field="dataset.scoring floors" data-verdict="same"><strong>scoring floors</strong> <span class="chip chip-same">same</span> — chance_top1: 0.033 on both runs</li></ul></td></tr>
+<tr data-axis="scorer" data-verdict="same"><th scope="row">scorer</th><td><span class="chip chip-same">same</span></td><td>contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)</td></tr>
+</tbody>
+</table>
+<p class="banner"><strong>Not comparable as conditions stand.</strong> dataset conditions changed: see the field verdicts</p>
+<h2>Metric comparison</h2>
+<table>
+<thead><tr><th scope="col">Metric</th><th scope="col">Run A (s10-accepted-test-command.json)</th><th scope="col">Run B (s11-accepted-weight-receipts.json)</th><th scope="col">Difference</th></tr></thead>
+<tbody>
+<tr data-metric-key="identification_score"><td><strong>Identification score</strong> <span class="muted">(primary)</span><br><span class="muted">identification_score</span></td><td>0.5375</td><td>0.5875</td><td><span class="muted">— not compared</span><br> <span class="muted">not compared — the runs&#x27; conditions do not line up</span></td></tr>
+<tr data-metric-key="ranking_failure_rate"><td><strong>Wrong song ranked first</strong><br><span class="muted">ranking_failure_rate</span></td><td>0.212</td><td>0.188</td><td><span class="muted">— not compared</span><br> <span class="muted">not compared — the runs&#x27; conditions do not line up</span></td></tr>
+</tbody>
+</table>
+<h2>Floor context</h2>
+<p>Floors are reference values, not findings, so they carry no difference column; both runs' values are shown.</p>
+<table><thead><tr><th scope="col">Metric</th><th scope="col">Run A (s10-accepted-test-command.json)</th><th scope="col">Run B (s11-accepted-weight-receipts.json)</th><th scope="col">Reference for</th></tr></thead><tbody>
+<tr data-floor-key="chance_top1"><td><strong>Chance</strong><br><span class="muted">chance_top1</span></td><td>0.033</td><td>0.033</td><td>floor of identification_score</td></tr>
+</tbody></table>
+<h2>Metrics without a counterpart</h2>
+<h3>Only in s10-accepted-test-command.json</h3><p class="muted">None.</p><h3>Only in s11-accepted-weight-receipts.json</h3><p class="muted">None.</p>
+<h2>Reports excluded from this comparison</h2>
+<p>The reader refused these fixture files; they are recorded here instead of being compared.</p>
+<ul>
+<li><strong>s80-refused-missing-field.json</strong><ul><li><code>missing_field: missing outputDigest</code></li></ul></li>
+<li><strong>s81-refused-bad-top-level-types.json</strong><ul><li><code>bad_field_type: benchmarkVersion must be an integer, not True</code></li><li><code>bad_field_type: dirty must be a boolean, not &#x27;no&#x27;</code></li></ul></li>
+<li><strong>s82-refused-not-an-object.json</strong><ul><li><code>not_an_object: the file is JSON but not an object</code></li></ul></li>
+<li><strong>s83-refused-duplicate-weights-used.json</strong><ul><li><code>duplicate_weights_used: weightsUsed names a path more than once; one name cannot stand for two sets of bytes</code></li><li><code>unscored_weight_receipt: weightsUploaded names &#x27;model.pt&#x27;, which this report did not score</code></li></ul></li>
+<li><strong>s84-refused-duplicate-receipt.json</strong><ul><li><code>duplicate_weight_receipt: weightsUploaded names a path more than once</code></li></ul></li>
+<li><strong>s85-refused-missing-receipt.json</strong><ul><li><code>missing_weight_receipt: weightsUploaded is missing model.pt, which this report scored</code></li></ul></li>
+<li><strong>s86-refused-uploaded-not-list.json</strong><ul><li><code>malformed_weights_uploaded: weightsUploaded must be a list or null</code></li></ul></li>
+<li><strong>s87-refused-uploaded-entry-not-object.json</strong><ul><li><code>malformed_weights_uploaded: each weightsUploaded entry must be an object</code></li><li><code>missing_weight_receipt: weightsUploaded is missing model.pt, tokenizer.json, which this report scored</code></li></ul></li>
+<li><strong>s88-refused-metric-missing-field.json</strong><ul><li><code>malformed_metrics: metrics[0] missing precision</code></li></ul></li>
+<li><strong>s89-refused-duplicate-metric-key.json</strong><ul><li><code>duplicate_metric_key: metrics names &#x27;identification_score&#x27; more than once; a comparison keyed by metric could not tell the two apart</code></li></ul></li>
+<li><strong>s8a-refused-bad-metric-value.json</strong><ul><li><code>bad_metric_value: metrics[0].value must be a number, not &#x27;0.5375 but a string&#x27;</code></li></ul></li>
+<li><strong>s8b-refused-bad-diagnostics.json</strong><ul><li><code>bad_field_type: diagnostics must be a list of strings, not [42]</code></li></ul></li>
+<li><strong>s8c-refused-old-contract.json</strong><ul><li><code>unsupported_contract: cogworks.submissions.v1 cannot be interpreted by this reader; supported: cogworks.submissions.v2</code></li></ul></li>
+</ul>
+<h2>Recorded provenance</h2>
+<table>
+<thead><tr><th scope="col">Field</th><th scope="col">Run A (s10-accepted-test-command.json)</th><th scope="col">Run B (s11-accepted-weight-receipts.json)</th></tr></thead>
+<tbody>
+<tr><th scope="row">Report ID</th><td>local_10101010101010101010101010101010</td><td>local_11111111111111111111111111111111</td></tr>
+<tr><th scope="row">Repository</th><td>SamGu-NRX/cogportal-demo-week1</td><td>SamGu-NRX/cogportal-demo-week1</td></tr>
+<tr><th scope="row">Commit</th><td>333333333333 — pins the scored bytes</td><td>333333333333 — pins the scored bytes</td></tr>
+<tr><th scope="row">Benchmark</th><td>&#x27;audio-identification&#x27; v1</td><td>&#x27;audio-identification&#x27; v1</td></tr>
+<tr><th scope="row">Case set (command)</th><td>`test`</td><td>`run`</td></tr>
+<tr><th scope="row">Weights used</th><td>none recorded</td><td>model.pt, tokenizer.json</td></tr>
+<tr><th scope="row">Weight capture</th><td>recorded: nothing was uploaded</td><td>model.pt (1234 bytes, sha256 c0ffee00c0ff); tokenizer.json (5678 bytes, sha256 deadbeefdead)</td></tr>
+<tr><th scope="row">Contract</th><td>cogworks.submissions.v2</td><td>cogworks.submissions.v2</td></tr>
+<tr><th scope="row">SDK</th><td>0.2.0</td><td>0.2.0</td></tr>
+<tr><th scope="row">Plugin</th><td>0.1.0</td><td>0.1.0</td></tr>
+</tbody>
+</table>
+<h2>Recorded diagnostics</h2>
+<h3>s10-accepted-test-command.json</h3><ul><li>Synthetic diagnostic: identification falls gradually from clean clips toward shifted ones, without a single break (fixture text).</li><li>Synthetic diagnostic: the weakest cell is the pitch shift (fixture text).</li></ul><h3>s11-accepted-weight-receipts.json</h3><ul><li>Synthetic diagnostic: identification falls gradually from clean clips toward shifted ones, without a single break (fixture text).</li><li>Synthetic diagnostic: the weakest cell is the pitch shift (fixture text).</li></ul>
+<footer><p>Generated offline by <code>tools/run-comparison/build.py</code> from the synthetic fixture matrix — nothing measured, fetched or invented at view time. The page contains no animation, transition or script, so reduced-motion preferences need no accommodation.</p></footer>
+</main>
+</body>
+</html>

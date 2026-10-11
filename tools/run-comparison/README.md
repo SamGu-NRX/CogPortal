@@ -92,6 +92,8 @@ file fails with a `misrendered:` line.
 | `tests/` | pytest suite |
 | `fixtures/` | synthetic reports: accepted-with-unknowns and refused cases |
 | `evidence/` | committed outputs: reader-checks, the example view with its receipt and replay record, browser walk evidence |
+| `fixtures-stress/` | the M3 stress corpus: schema variants, stale/missing fields and refusal outcomes (synthetic only) |
+| `evidence-stress/` | committed stress evidence: its own view, receipt, replay record and reader-checks record |
 
 ## Running
 
@@ -108,6 +110,17 @@ python tools/run-comparison/build.py \
 python tools/run-comparison/verify.py \
   --fixtures tools/run-comparison/fixtures \
   --out tools/run-comparison/evidence
+
+# the stress corpus builds and verifies against its own evidence
+# directory the same way (the compared pair is always the first two
+# accepted reports in sorted order across all --fixtures roots, so the
+# canonical and stress roots are never mixed in one committed build)
+python tools/run-comparison/build.py \
+  --fixtures tools/run-comparison/fixtures-stress \
+  --out tools/run-comparison/evidence-stress --replay
+python tools/run-comparison/verify.py \
+  --fixtures tools/run-comparison/fixtures-stress \
+  --out tools/run-comparison/evidence-stress
 
 # only to regenerate evidence after a deliberate fixture or tool change
 python tools/run-comparison/build.py \
@@ -141,3 +154,12 @@ python tools/run-comparison/build.py \
    `verify.py` requires and checks the replay receipt, so tampered or
    stale evidence fails with a `misrendered:` line; scoped failure-path
    tests cover replay mismatch, evidence tampering and preservation.
+5. Stress corpus and measured refusals. Done: an 18-file synthetic
+   stress corpus under `fixtures-stress/` (both supported commands,
+   weight receipts, version drift, unknown extra fields, dirty sources
+   and 13 named refusal outcomes), committed evidence under
+   `evidence-stress/` that builds, replays byte-identically and
+   verifies green, and scoped pins in `tests/test_stress_corpus.py`.
+   Measured: canonical 11 fixtures — 6 accepted, 5 refused; stress 18 —
+   5 accepted, 13 refused; full corpus 29 — 11 accepted, 18 refused.
+   No comparability thresholds are invented anywhere.

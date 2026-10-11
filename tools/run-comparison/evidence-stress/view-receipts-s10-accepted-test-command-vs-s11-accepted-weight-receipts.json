@@ -1,0 +1,304 @@
+{
+  "compared": [
+    "s10-accepted-test-command.json",
+    "s11-accepted-weight-receipts.json"
+  ],
+  "conditions": {
+    "dataset": {
+      "detail": "at least one dataset axis changed \u2014 see the field verdicts",
+      "fields": [
+        {
+          "detail": "both runs used 'audio-identification' v1 (id 'audio-identification')",
+          "field": "benchmark",
+          "verdict": "same"
+        },
+        {
+          "detail": "`test` vs `run` \u2014 the runs scored different case sets",
+          "field": "case set (command)",
+          "verdict": "changed"
+        },
+        {
+          "detail": "none recorded vs model.pt, tokenizer.json \u2014 the runs did not use the same weights",
+          "field": "weights",
+          "verdict": "changed"
+        },
+        {
+          "detail": "chance_top1: 0.033 on both runs",
+          "field": "scoring floors",
+          "verdict": "same"
+        }
+      ],
+      "verdict": "changed"
+    },
+    "scorer": {
+      "detail": "contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)",
+      "verdict": "same"
+    },
+    "source": {
+      "detail": "different commits: 333333333333 vs 333333333333",
+      "verdict": "changed"
+    }
+  },
+  "excluded": [
+    {
+      "file": "s80-refused-missing-field.json",
+      "reasons": [
+        "missing_field: missing outputDigest"
+      ]
+    },
+    {
+      "file": "s81-refused-bad-top-level-types.json",
+      "reasons": [
+        "bad_field_type: benchmarkVersion must be an integer, not True",
+        "bad_field_type: dirty must be a boolean, not 'no'"
+      ]
+    },
+    {
+      "file": "s82-refused-not-an-object.json",
+      "reasons": [
+        "not_an_object: the file is JSON but not an object"
+      ]
+    },
+    {
+      "file": "s83-refused-duplicate-weights-used.json",
+      "reasons": [
+        "duplicate_weights_used: weightsUsed names a path more than once; one name cannot stand for two sets of bytes",
+        "unscored_weight_receipt: weightsUploaded names 'model.pt', which this report did not score"
+      ]
+    },
+    {
+      "file": "s84-refused-duplicate-receipt.json",
+      "reasons": [
+        "duplicate_weight_receipt: weightsUploaded names a path more than once"
+      ]
+    },
+    {
+      "file": "s85-refused-missing-receipt.json",
+      "reasons": [
+        "missing_weight_receipt: weightsUploaded is missing model.pt, which this report scored"
+      ]
+    },
+    {
+      "file": "s86-refused-uploaded-not-list.json",
+      "reasons": [
+        "malformed_weights_uploaded: weightsUploaded must be a list or null"
+      ]
+    },
+    {
+      "file": "s87-refused-uploaded-entry-not-object.json",
+      "reasons": [
+        "malformed_weights_uploaded: each weightsUploaded entry must be an object",
+        "missing_weight_receipt: weightsUploaded is missing model.pt, tokenizer.json, which this report scored"
+      ]
+    },
+    {
+      "file": "s88-refused-metric-missing-field.json",
+      "reasons": [
+        "malformed_metrics: metrics[0] missing precision"
+      ]
+    },
+    {
+      "file": "s89-refused-duplicate-metric-key.json",
+      "reasons": [
+        "duplicate_metric_key: metrics names 'identification_score' more than once; a comparison keyed by metric could not tell the two apart"
+      ]
+    },
+    {
+      "file": "s8a-refused-bad-metric-value.json",
+      "reasons": [
+        "bad_metric_value: metrics[0].value must be a number, not '0.5375 but a string'"
+      ]
+    },
+    {
+      "file": "s8b-refused-bad-diagnostics.json",
+      "reasons": [
+        "bad_field_type: diagnostics must be a list of strings, not [42]"
+      ]
+    },
+    {
+      "file": "s8c-refused-old-contract.json",
+      "reasons": [
+        "unsupported_contract: cogworks.submissions.v1 cannot be interpreted by this reader; supported: cogworks.submissions.v2"
+      ]
+    }
+  ],
+  "findings": [
+    "dataset conditions changed: see the field verdicts",
+    "While any blocker stands, a metric difference is not evidence of a source effect."
+  ],
+  "fixtures_root": "tools/run-comparison/fixtures-stress",
+  "generator": "tools/run-comparison/build.py",
+  "html_sha256": "3cd0555d077ed29f8f5dbaa67b2bb4b9c3ef82b851ef21f833c101f63761d7f6",
+  "inputs": [
+    {
+      "file": "s10-accepted-test-command.json",
+      "sha256": "3b72e99d9f8f458cc3af1d7ae9660cff0f44fe53a1b04dcc3ba6d2db9e988c2d"
+    },
+    {
+      "file": "s11-accepted-weight-receipts.json",
+      "sha256": "2807e046989b9149abf4a837786beee2d5a249fb98c3d8c6963ac53e94aacc4f"
+    },
+    {
+      "file": "s12-accepted-benchmark-v2.json",
+      "sha256": "51bc08693f88fc7f9ff6e9cb9ffeec25539fae5bdac2944855622c19dfbf1328"
+    },
+    {
+      "file": "s13-accepted-extra-fields.json",
+      "sha256": "e75ae3222c3c31357ed0efc2d9bbd589c1295e1d775d198049ec335a560094d3"
+    },
+    {
+      "file": "s14-accepted-dirty-weights.json",
+      "sha256": "7ab4d183160da02422766fcf7949b6d977087002c429d54cc038aa1ada1f1cd1"
+    },
+    {
+      "file": "s80-refused-missing-field.json",
+      "sha256": "b7625a2990934b6c6896680b9036f92c084bb65fef4cc3c5ae06d523c44c3307"
+    },
+    {
+      "file": "s81-refused-bad-top-level-types.json",
+      "sha256": "d6577497cb9eafaab72ab91de5a33a22789869917c7b89bac3664d8ea54c8a91"
+    },
+    {
+      "file": "s82-refused-not-an-object.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "file": "s83-refused-duplicate-weights-used.json",
+      "sha256": "1ec22347407e376f9ba4e9df96280c469e66756be462b9982c2ba0c230194bf4"
+    },
+    {
+      "file": "s84-refused-duplicate-receipt.json",
+      "sha256": "9ae2566e81a0173fe60457d3353736cd5154c041f9509c3aa113290c25f2ff18"
+    },
+    {
+      "file": "s85-refused-missing-receipt.json",
+      "sha256": "1c09db50cd8d310a5919070a16ac9dab39ef7f727e84cd33ba4ce84b98ac25ab"
+    },
+    {
+      "file": "s86-refused-uploaded-not-list.json",
+      "sha256": "e661077cc2d2955e769d3021ae65e6c14c74f673e67e4c3edf1aa1af5430f27e"
+    },
+    {
+      "file": "s87-refused-uploaded-entry-not-object.json",
+      "sha256": "d124fc226441cfa1f078549997c8d97f4edffed1ca00d240c6eac62a57e67337"
+    },
+    {
+      "file": "s88-refused-metric-missing-field.json",
+      "sha256": "40a4ccbd024e3b7bed53e32004a066790bc04591095e2387783dd3544ceb91b0"
+    },
+    {
+      "file": "s89-refused-duplicate-metric-key.json",
+      "sha256": "7b41a3c5d3d4c3286642a7afb73ca1b590c59f83f9bf494d5d92d75a73a9f66e"
+    },
+    {
+      "file": "s8a-refused-bad-metric-value.json",
+      "sha256": "58c2e87eed7d94af312712918614b3171c12b5d6c4dd092392c6554e4670a03b"
+    },
+    {
+      "file": "s8b-refused-bad-diagnostics.json",
+      "sha256": "01acd0b4eed84a43be947fd4157615dbb5837e6b6e37e24dcc48b82586118bd4"
+    },
+    {
+      "file": "s8c-refused-old-contract.json",
+      "sha256": "a86a1f7fde7e0f2e21ffc4ebcedb8bae32fe8febe3be0441623bc5e29bebc91c"
+    }
+  ],
+  "metrics": {
+    "floors": [
+      {
+        "differs": false,
+        "key": "chance_top1",
+        "label": "Chance",
+        "relates_to": "identification_score",
+        "unit": null,
+        "value_a": "0.033",
+        "value_b": "0.033"
+      }
+    ],
+    "only_in_a": [],
+    "only_in_b": [],
+    "shared": [
+      {
+        "delta": null,
+        "delta_note": "not compared \u2014 the runs' conditions do not line up",
+        "direction": "higher is better",
+        "key": "identification_score",
+        "label": "Identification score",
+        "primary": true,
+        "run_a": "0.5375",
+        "run_b": "0.5875",
+        "unit": null
+      },
+      {
+        "delta": null,
+        "delta_note": "not compared \u2014 the runs' conditions do not line up",
+        "direction": "lower is better",
+        "key": "ranking_failure_rate",
+        "label": "Wrong song ranked first",
+        "primary": false,
+        "run_a": "0.212",
+        "run_b": "0.188",
+        "unit": null
+      }
+    ]
+  },
+  "not_compared": [
+    {
+      "file": "s12-accepted-benchmark-v2.json",
+      "note": "accepted; only the first two accepted reports form the compared pair"
+    },
+    {
+      "file": "s13-accepted-extra-fields.json",
+      "note": "accepted; only the first two accepted reports form the compared pair"
+    },
+    {
+      "file": "s14-accepted-dirty-weights.json",
+      "note": "accepted; only the first two accepted reports form the compared pair"
+    }
+  ],
+  "pair_comparable": false,
+  "sections": {
+    "conditions": [
+      "source: changed \u2014 different commits: 333333333333 vs 333333333333",
+      "dataset: changed \u2014 at least one dataset axis changed \u2014 see the field verdicts",
+      "  dataset.benchmark: same \u2014 both runs used 'audio-identification' v1 (id 'audio-identification')",
+      "  dataset.case set (command): changed \u2014 `test` vs `run` \u2014 the runs scored different case sets",
+      "  dataset.weights: changed \u2014 none recorded vs model.pt, tokenizer.json \u2014 the runs did not use the same weights",
+      "  dataset.scoring floors: same \u2014 chance_top1: 0.033 on both runs",
+      "scorer: same \u2014 contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)",
+      "pair comparable: no \u2014 dataset conditions changed: see the field verdicts"
+    ],
+    "excluded": [
+      "s80-refused-missing-field.json: missing_field: missing outputDigest",
+      "s81-refused-bad-top-level-types.json: bad_field_type: benchmarkVersion must be an integer, not True; bad_field_type: dirty must be a boolean, not 'no'",
+      "s82-refused-not-an-object.json: not_an_object: the file is JSON but not an object",
+      "s83-refused-duplicate-weights-used.json: duplicate_weights_used: weightsUsed names a path more than once; one name cannot stand for two sets of bytes; unscored_weight_receipt: weightsUploaded names 'model.pt', which this report did not score",
+      "s84-refused-duplicate-receipt.json: duplicate_weight_receipt: weightsUploaded names a path more than once",
+      "s85-refused-missing-receipt.json: missing_weight_receipt: weightsUploaded is missing model.pt, which this report scored",
+      "s86-refused-uploaded-not-list.json: malformed_weights_uploaded: weightsUploaded must be a list or null",
+      "s87-refused-uploaded-entry-not-object.json: malformed_weights_uploaded: each weightsUploaded entry must be an object; missing_weight_receipt: weightsUploaded is missing model.pt, tokenizer.json, which this report scored",
+      "s88-refused-metric-missing-field.json: malformed_metrics: metrics[0] missing precision",
+      "s89-refused-duplicate-metric-key.json: duplicate_metric_key: metrics names 'identification_score' more than once; a comparison keyed by metric could not tell the two apart",
+      "s8a-refused-bad-metric-value.json: bad_metric_value: metrics[0].value must be a number, not '0.5375 but a string'",
+      "s8b-refused-bad-diagnostics.json: bad_field_type: diagnostics must be a list of strings, not [42]",
+      "s8c-refused-old-contract.json: unsupported_contract: cogworks.submissions.v1 cannot be interpreted by this reader; supported: cogworks.submissions.v2"
+    ],
+    "floor_context": [
+      "chance_top1 (floor of identification_score): run A 0.033 vs run B 0.033"
+    ],
+    "metric_comparison": [
+      "identification_score: 0.5375 vs 0.5875 \u2014 not compared \u2014 the runs' conditions do not line up",
+      "ranking_failure_rate: 0.212 vs 0.188 \u2014 not compared \u2014 the runs' conditions do not line up"
+    ],
+    "pair": [
+      "Compared: s10-accepted-test-command.json and s11-accepted-weight-receipts.json \u2014 the first two accepted reports in sorted order (5 of 18 fixture files accepted)."
+    ],
+    "unshared": []
+  },
+  "tool_source": {
+    "files": {
+      "build.py": "c4ef087b56661a4da8d114dfeea29dacd295253963e708cd15d8441fe4427293",
+      "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
+    }
+  }
+}
