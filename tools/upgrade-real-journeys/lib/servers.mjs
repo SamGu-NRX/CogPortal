@@ -22,6 +22,11 @@ export const DEV_VARS_TEMPLATE = {
   BETTER_AUTH_URL: "http://localhost:5173",
   RUNNER_SIGNING_SECRET: "upgrade-suite-local-runner-secret",
   EXECUTION_PROVIDER: "fixture",
+  // Beta's wrangler.jsonc [vars] ships a real GITHUB_CLIENT_ID with no secret;
+  // assertAuthConfiguration throws on that id-without-secret mismatch, so the
+  // suite blanks the id (empty override wins over [vars] in dev) and dev-auth
+  // stays the only identity path.
+  GITHUB_CLIENT_ID: "",
 };
 
 export function writeDevVars(checkoutDir, overrides = {}) {
