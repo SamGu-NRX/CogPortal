@@ -1,2 +1,3 @@
 - j1-real-github-oauth.mjs: FAIL at 17:21:05 — see /tmp/rj-j1-real-github-oauth.mjs.log
 - j2-revoked-credential.mjs: FAIL at 17:21:14 — see /tmp/rj-j2-revoked-credential.mjs.log
+- j3-duplicate-send.mjs: FAIL at 17:21:26 — see /tmp/rj-j3-duplicate-send.mjs.log
