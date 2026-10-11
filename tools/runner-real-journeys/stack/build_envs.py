@@ -85,7 +85,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 HERE = Path(__file__).resolve().parent
 SUITES = HERE.parent
-REPO = Path(os.environ.get("COGBOX_REPO", SUITES.parent))
+REPO = Path(os.environ.get("COGBOX_REPO", SUITES.parent.parent))
 RUNNER_SRC = REPO / "apps" / "runner-modal" / "src"
 COGBENCH_SRC = REPO / "python" / "cogbench" / "src"
 BENCHMARKS = REPO / "benchmarks"
