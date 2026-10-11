@@ -194,7 +194,7 @@ function stopPreview() {
 function startPreview() {
   say(`starting the Worker preview on ${PORTAL_PORT}`);
   previewLog = fs.openSync(path.join(LOG_DIR, "preview.log"), "a");
-  preview = spawn("pnpm", ["exec", "vite", "preview", "--port", String(PORTAL_PORT), "--strictPort"], {
+  preview = spawn("pnpm", ["exec", "vite", "preview", "--port", String(PORTAL_PORT), "--strictPort", "--host", "127.0.0.1"], {
     cwd: PORTAL_DIR,
     env: { ...process.env, CI: "true", WRANGLER_SEND_METRICS: "false" },
     stdio: ["ignore", previewLog, previewLog],
