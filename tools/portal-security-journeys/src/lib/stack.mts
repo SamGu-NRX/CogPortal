@@ -7,7 +7,7 @@
  * never read or written.
  */
 import { execSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
@@ -163,23 +163,21 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
 
   // The vite config mirrors the portal's own config (same plugins, same
   // alias) but points the cloudflare plugin at this journey's wrangler
-  // config and D1 state directory. Plugins resolve through the portal's
-  // own node_modules, so the checkout's dependency layout is irrelevant.
-  const journeyViteConfigPath = join(stateDir, "vite.config.mjs");
+  // config and D1 state directory. The file lives inside the portal's
+  // (gitignored) node_modules so plain ESM imports resolve the plugins
+  // through the portal's own dependencies; the config is removed on
+  // teardown.
+  const journeyConfigDir = join(portal, "node_modules", ".cogportal-journeys", journeyId);
+  mkdirSync(journeyConfigDir, { recursive: true });
+  const journeyViteConfigPath = join(journeyConfigDir, "vite.config.mjs");
   writeFileSync(
     journeyViteConfigPath,
     [
-      'import { createRequire } from "node:module";',
-      `const requireFromPortal = createRequire(${JSON.stringify(join(portal, "package.json"))});`,
-      `const load = async (id) => {`,
-      `  const mod = await import(requireFromPortal.resolve(id));`,
-      `  return mod.default ?? mod;`,
-      `};`,
-      `const react = await load("@vitejs/plugin-react");`,
-      `const tailwind = await load("@tailwindcss/vite");`,
-      `const cloudflareModule = await load("@cloudflare/vite-plugin");`,
-      `const cloudflare = cloudflareModule.cloudflare ?? cloudflareModule.default;`,
-      `export default async () => ({`,
+      `import react from "@vitejs/plugin-react";`,
+      `import tailwind from "@tailwindcss/vite";`,
+      `import { cloudflare } from "@cloudflare/vite-plugin";`,
+      ``,
+      `export default {`,
       `  plugins: [`,
       `    react(),`,
       `    tailwind(),`,
@@ -189,7 +187,7 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
       `    }),`,
       `  ],`,
       `  resolve: { alias: { "@": ${JSON.stringify(join(portal, "src"))} } },`,
-      `});`,
+      `};`,
     ].join("\n"),
   );
 
@@ -250,6 +248,11 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
       }, 3000);
       try {
         rmSync(stateDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
+      try {
+        rmSync(journeyConfigDir, { recursive: true, force: true });
       } catch {
         /* best effort */
       }
