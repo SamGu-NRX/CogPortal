@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO / "apps" / "runner-modal" / "src"))
 
 from cogworks_runner.protocol import canonical_json, signature  # noqa: E402
 from cogworks_runner.week3_payload import encode_payload  # noqa: E402
+from language_search_benchmark import perturb  # noqa: E402
 
 MODAL_APP = REPO / "apps" / "runner-modal" / "src" / "cogworks_runner" / "modal_app.py"
 PAYLOAD_PATH = pathlib.Path("/tmp/cog-week3-payload.zip")
@@ -144,7 +145,17 @@ def main() -> None:
     assert len(predictions) == len(cases), "component count mismatch"
 
     scores = benchmark.score(predictions, cases)
-    assert set(scores) >= {"overall", "text_mrr", "retrieval_mrr", "search_mrr"}
+    # Every rung, not only the four headline keys. `search_mrr` is now the mean
+    # of the rewrite grid, so a rung that crosses the sandbox boundary wrong
+    # moves the published score. The defect this guards against was real: the
+    # sandbox built a fresh image_ids list per rung, which defeated the
+    # driver's identity check and rebuilt the submission's index four times
+    # where the local run built it once.
+    expected_keys = {"overall", "text_mrr", "retrieval_mrr", "search_mrr"} | {
+        "search_mrr_{}".format(rung) for rung in perturb.RUNGS
+    }
+    missing = sorted(expected_keys - set(scores))
+    assert not missing, "scored metrics are missing {}".format(missing)
     emit(events, "status", status="scoring", elapsedMs=int(elapsed * 1000))
     emit(
         events,

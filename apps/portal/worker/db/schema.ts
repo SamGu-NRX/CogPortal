@@ -1,3 +1,4 @@
+import type { MetricRole } from "@cogworks/contracts/schema";
 import { sql } from "drizzle-orm";
 import {
   index,
@@ -140,6 +141,10 @@ export const teams = sqliteTable(
     repoId: integer("repo_id"),
     templateSourceRepoId: integer("template_source_repo_id"),
     discordChannelId: text("discord_channel_id"),
+    /** The leaderboard must label rows the pipeline did not produce for a living team. */
+    provenance: text("provenance", { enum: ["live", "archive"] })
+      .notNull()
+      .default("live"),
   },
   (table) => [
     uniqueIndex("teams_cohort_repo_unique").on(table.cohortId, table.repoFullName),
@@ -203,15 +208,48 @@ export const teamTas = sqliteTable(
   (table) => [primaryKey({ columns: [table.teamId, table.userId] })],
 );
 
+/**
+ * Platform staff roster, owner-managed at runtime (migration 0031).
+ *
+ * Keyed on the lowercased login because GitHub logins are case-insensitive and
+ * this replaces an env list that was compared case-insensitively. Owners are
+ * NOT in this table; they stay in PLATFORM_OWNER_LOGINS so a writable roster
+ * can never mint an owner, and so an empty table still has somebody who can
+ * add the first row.
+ */
+export const platformStaff = sqliteTable("platform_staff", {
+  /** Lowercased GitHub login. The only value ever compared. */
+  login: text("login").primaryKey(),
+  /** The casing the owner typed, so the roster reads back as entered. */
+  displayLogin: text("display_login").notNull(),
+  /** Granting owner's login, stored as text: an audit row must outlive the
+   *  granter's account, so this is deliberately not a foreign key. */
+  grantedBy: text("granted_by").notNull(),
+  grantedAt: integer("granted_at").notNull(),
+});
+
 export const setupVerifications = sqliteTable(
   "setup_verifications",
   {
     userId: text("user_id").notNull().references(() => users.id),
     teamId: text("team_id").notNull().references(() => teams.id),
     step: text("step").notNull(),
+    /**
+     * The benchmark this evidence is about, or "" when it is not about one.
+     *
+     * `clone` and `environment` are the same fact whatever track is selected,
+     * so they are always stored unscoped. `project` and `wiring` name one
+     * distribution and one set of wired entry points, so they are stored
+     * against the benchmark the CLI checked. An older CLI sends no benchmark
+     * and its rows stay "", which no longer satisfies a per-track claim
+     * (migration 0036).
+     */
+    benchmarkId: text("benchmark_id").notNull().default(""),
     verifiedAt: integer("verified_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.teamId, table.step] })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.teamId, table.step, table.benchmarkId] }),
+  ],
 );
 
 export const benchmarks = sqliteTable(
@@ -312,13 +350,24 @@ export const runs = sqliteTable("runs", {
   failureConsumedAttempt: integer("failure_consumed_attempt", { mode: "boolean" })
     .notNull()
     .default(false),
+  /** Historical refund record. Retained so previously refunded successes do
+   *  not acquire a charge or publication eligibility under the current policy. */
+  refundedAt: integer("refunded_at"),
   log: text("log"),
   /** Scorer diagnostics from the succeeded event: the benchmark's own
    *  explanation of what a submission got wrong. JSON array of strings. */
   diagnosticsJson: text("diagnostics_json"),
+  /** Which of the team's own functions ran, when the platform found them
+   *  itself. Null when the repository declared its own submission. */
+  wiringJson: text("wiring_json"),
+  /** Why nothing could be found to score. Null for every other failure:
+   *  their code raising is theirs to read, and the log is where it belongs. */
+  refusalJson: text("refusal_json"),
   /** The scorer's difficulty sweep, as JSON. Null when the benchmark has no
    *  difficulty knob, or when the run predates migration 0023. */
   sweepJson: text("sweep_json"),
+  /** Repository-relative weight paths present in this run's prepared snapshot. */
+  weightsSuppliedJson: text("weights_supplied_json").notNull().default("[]"),
   createdAt: integer("created_at").notNull(),
   finishedAt: integer("finished_at"),
   provider: text("provider", { enum: ["fixture", "modal"] }).notNull().default("fixture"),
@@ -410,6 +459,10 @@ export const localReports = sqliteTable("local_reports", {
   finishedAt: integer("finished_at").notNull(),
   metricsJson: text("metrics_json").notNull(),
   diagnosticsJson: text("diagnostics_json").notNull(),
+  /** Paths discovery read while producing this local report. */
+  weightsUsedJson: text("weights_used_json").notNull().default("[]"),
+  /** Required uploads; NULL preserves unknown provenance on legacy reports. */
+  weightsUploadedJson: text("weights_uploaded_json"),
   syncedAt: integer("synced_at").notNull(),
 });
 
@@ -541,6 +594,21 @@ export const runMetrics = sqliteTable(
      * that were true when it ran.
      */
     help: text("help"),
+    /**
+     * What kind of number this is, when the scorer says. "floor" is the one
+     * that matters today: a chance baseline is a fact about the dataset, so
+     * the run page shows it without a direction arrow.
+     *
+     * Written when a result arrives, from what that scorer declared. One
+     * exception: 0037 filled it in for Week 1 Audio rows from the plugin's own
+     * declaration, which was safe there because the scorer version did not
+     * move. Null still means nothing was recorded, which is not the same as
+     * "ordinary", and 0035 backfills nothing on its own.
+     */
+    role: text("role").$type<MetricRole>(),
+    /** The key of the metric this one is about, for a floor or a companion
+     *  measure that only means something beside its parent. */
+    relatesTo: text("relates_to"),
   },
   (table) => [primaryKey({ columns: [table.runId, table.key] })],
 );
@@ -589,6 +657,7 @@ export const schema = {
   teams,
   teamMembers,
   teamTas,
+  platformStaff,
   setupVerifications,
   benchmarks,
   benchmarkFamilies,

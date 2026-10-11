@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from . import __version__
 
@@ -151,3 +154,65 @@ def update_setup_checks(
         retry=False,
         timeout=10,
     )
+
+
+def upload_weight(
+    portal: str,
+    token: str,
+    report_id: str,
+    rel_path: str,
+    weight_path: Path,
+    expected_sha256: Optional[str] = None,
+) -> str:
+    """Upload one repository-relative file without retrying it."""
+
+    # Workers caps request bodies at 100 MB on Free and Pro plans, and this
+    # account's plan is not established. The largest 2026 corpus weight is
+    # 411 KB; Week 3's separate 200 MiB discovery probe is unchanged.
+    max_weight_bytes = 100 * 1024 * 1024
+    file_size = weight_path.stat().st_size
+    if file_size > max_weight_bytes:
+        raise PortalError("Weight files may not exceed 100 MiB: {}".format(rel_path))
+
+    if expected_sha256 is None:
+        digest = hashlib.sha256()
+        with weight_path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        expected_sha256 = digest.hexdigest()
+    # R2 checks the stream against the report's digest, including changes after POST.
+
+    encoded_path = quote(rel_path, safe="/")
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+        "Authorization": "Bearer {}".format(token),
+        "Content-Length": str(file_size),
+        "X-Cogworks-Weight-SHA256": expected_sha256,
+    }
+
+    url = normalize_portal(portal) + "/api/v1/local-reports/{}/weights/{}".format(
+        report_id, encoded_path
+    )
+
+    try:
+        with weight_path.open("rb") as stream:
+            request = urllib.request.Request(
+                url,
+                data=stream,
+                headers=headers,
+                method="PUT",
+            )
+            with urllib.request.urlopen(request) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                return str(payload["destination"])
+    except urllib.error.HTTPError as error:
+        raw = error.read()
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            message = payload["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            message = "CogPortal returned HTTP {}.".format(error.code)
+        raise PortalError(message) from error
+    except urllib.error.URLError as error:
+        raise PortalError("Could not reach CogPortal: {}".format(error.reason)) from error

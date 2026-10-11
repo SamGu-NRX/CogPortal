@@ -6,18 +6,22 @@ export function validateTemplateRepository(env: Env, repository: GitHubRepositor
   const templateId = env.GITHUB_TEMPLATE_REPO_ID
     ? Number(env.GITHUB_TEMPLATE_REPO_ID)
     : null;
-  const template = env.GITHUB_TEMPLATE_REPO;
   const wrongTemplateId =
     templateId !== null &&
     Number.isSafeInteger(templateId) &&
     repository.sourceRepositoryId !== templateId;
-  const wrongTemplateName =
-    templateId === null && template && repository.parentFullName !== template;
-  if (wrongTemplateId || wrongTemplateName) {
+  // Only the ID restricts ancestry. GITHUB_TEMPLATE_REPO is the name on the
+  // fork button, and it used to reject every repository that was not a fork of
+  // it, so naming a template to offer the on-ramp locked out the creative
+  // projects the course is for.
+  if (wrongTemplateId) {
+    const template = env.GITHUB_TEMPLATE_REPO;
     throw new ApiHttpError(
       403,
       "forbidden",
-      `Repository must be a fork of the course template ${template}.`,
+      template
+        ? `This cohort only accepts forks of ${template}, and this repository isn't one. Fork that template and connect the fork.`
+        : "This cohort only accepts forks of its course template, and this repository isn't one. Ask your instructor which template to fork.",
     );
   }
 }

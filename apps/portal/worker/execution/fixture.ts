@@ -62,11 +62,58 @@ export function fixtureMetrics(
     ];
   }
   if (benchmarkId === "language-search") {
-    // Shapes match the real scorer: a strong text pipeline, a harder trained
-    // encoder, search trailing retrieval slightly (their own glue).
+    // Shapes match the real scorer under retrieval-v3, measured on the
+    // reference submission on the evaluation tier (2026-08-20): text 0.7829,
+    // retrieval 0.2586, search 0.2309, with the four rungs at 0.2572
+    // (verbatim), 0.2735 (keywords), 0.1671 (truncated), 0.2256 (typo).
+    //
+    // Search used to be modelled as retrieval minus 0.006, which matched the
+    // old scorer because `search_mrr` was then the verbatim rung over the
+    // same pool retrieval already ranked. It now averages the four query
+    // rewrites, so it sits meaningfully below retrieval and the preview has
+    // to as well: a fixture that still showed the two nearly equal would
+    // teach whoever reads it the wrong shape.
     const text = round4(0.74 + (hash % 900) / 10_000 + improvement);
     const retrieval = round4(0.23 + ((hash >>> 4) % 1100) / 10_000 + improvement);
-    const search = round4(Math.max(0, retrieval - 0.006));
+    // Reference ratios against the verbatim rung: keywords 1.063, truncated
+    // 0.649, typo 0.877, and verbatim itself 0.9947 of retrieval.
+    const verbatim = round4(Math.max(0, retrieval * 0.9947));
+    const keywords = round4(Math.max(0, verbatim * 1.063));
+    const truncated = round4(Math.max(0, verbatim * 0.649));
+    const typo = round4(Math.max(0, verbatim * 0.877));
+    // Three, not four. Under retrieval-v4 the verbatim rung is reported and
+    // not scored: its queries are captions read out of the file the
+    // submission is handed, so a submission that embedded nothing scored a
+    // perfect 1.0000 on the retrieval one. Averaging four here would show a
+    // preview of a scorer that no longer exists.
+    const search = round4((keywords + truncated + typo) / 3);
+    const retrievalScored = round4(
+      Math.max(0, (retrieval * (1.063 + 0.649 + 0.877)) / 3),
+    );
+    // The plugin's own pairs (benchmarks/week3, metric_roles and
+    // metric_relations), not ours. Without them the fixture drew three chance
+    // floors with "higher is better" arrows, so no local run could show the
+    // floor rendering. The rung metrics are "plotted" in the plugin because
+    // the sweep curve prints each value beside its point; this fixture emits
+    // no curve, so they stay ordinary rows rather than vanish.
+    const floorOf: Record<string, string> = {
+      chance_mrr: "retrieval_mrr",
+      text_chance: "text_mrr",
+      search_chance: "search_mrr",
+    };
+    const reportedOf: Record<string, string> = {
+      retrieval_mrr_verbatim: "retrieval_mrr",
+      search_mrr_verbatim: "search_mrr",
+    };
+    // Also the plugin's. Without these the preview drew four diagnostics among
+    // the scored results, so the surface built to show the separation did not
+    // show it.
+    const diagnostics = new Set([
+      "retrieval_recall_at_1",
+      "retrieval_recall_at_5",
+      "retrieval_recall_at_10",
+      "retrieval_median_rank",
+    ]);
     const metric = (key: string, label: string, value: number, primary = false): Metric => ({
       key,
       label,
@@ -75,17 +122,47 @@ export function fixtureMetrics(
       higherIsBetter: key !== "retrieval_median_rank",
       primary,
       precision: 3,
+      ...(floorOf[key]
+        ? { role: "floor" as const, relatesTo: floorOf[key] }
+        : reportedOf[key]
+          ? { role: "reported" as const, relatesTo: reportedOf[key] }
+          : diagnostics.has(key)
+            ? { role: "diagnostic" as const }
+            : {}),
     });
     return [
-      metric("overall", "Overall", round4((text + retrieval + search) / 3), true),
+      metric("overall", "Overall", round4((text + retrievalScored + search) / 3), true),
       metric("text_mrr", "Text MRR", text),
-      metric("retrieval_mrr", "Retrieval MRR", retrieval),
+      metric("retrieval_mrr", "Retrieval MRR", retrievalScored),
       metric("search_mrr", "Search MRR", search),
       metric("retrieval_recall_at_1", "Recall@1", round4(retrieval * 0.52)),
       metric("retrieval_recall_at_5", "Recall@5", round4(Math.min(1, retrieval * 1.44))),
       metric("retrieval_recall_at_10", "Recall@10", round4(Math.min(1, retrieval * 2.2))),
       metric("retrieval_median_rank", "Median rank", round4(8 + ((hash >>> 9) % 40) / 10)),
+      // Three floors, not one. Retrieval ranks the whole 700-image pool;
+      // search returns 50 ids and scores anything past them as a miss, so its
+      // floor is lower; text ranks captions among captions, so its floor is
+      // higher. Exact values from the evaluation tier.
       metric("chance_mrr", "Chance MRR", 0.0102),
+      metric("text_chance", "Text chance MRR", 0.04),
+      metric("search_chance", "Search chance MRR", 0.0064),
+      // The two probes that are run and reported but never scored, which is
+      // the reading that matters most here: an honest submission scores
+      // about the same on these as on the scored numbers, and one that is
+      // matching text rather than meaning scores far higher.
+      metric(
+        "retrieval_mrr_verbatim",
+        "Retrieval MRR, caption unchanged (not scored)",
+        retrieval,
+      ),
+      metric(
+        "search_mrr_verbatim",
+        "Search MRR, caption unchanged (not scored)",
+        verbatim,
+      ),
+      metric("search_mrr_keywords", "Search MRR, keywords only", keywords),
+      metric("search_mrr_truncated", "Search MRR, first three words", truncated),
+      metric("search_mrr_typo", "Search MRR, one typo", typo),
     ];
   }
   const known = round4(0.82 + (hash % 1000) / 10_000 + improvement);

@@ -42,16 +42,16 @@ so a team always knows how their code was found.
 
 | Rung | Trigger | Mechanism |
 | --- | --- | --- |
-| 1. Installed package | root `pyproject.toml` declares `cogworks.submissions.v2` | today's path, unchanged. The template path. |
-| 2. Manifest | root `cogworks.toml` | names the benchmark, its subdirectory, and the adapter symbol |
-| 3. Directory | neither of the above | resolve a root, put it on `sys.path`, import its modules, hand the namespace to the existing alias resolver |
+| 0. Installed entry point | an installed package declares `cogworks.submissions.v2` | loads the package's declared submission |
+| 1. Repository declaration | root `cogworks.toml` or `submission.py` | uses the declared root and symbol or imports the root file by path |
+| 2. Automatic discovery | neither declaration resolves | selects a root, imports its modules, and binds functions that pass the benchmark probes |
 
-Rung 3 is what makes the seven real repos scoreable, and it is smaller than it
+Rung 2 is what makes the seven real repos scoreable, and it is smaller than it
 sounds, because it reuses machinery that already exists. `adapt_search` in
 `benchmarks/week3/language_search_benchmark/adapters.py:161` resolves protocol
 roles against an object by exact documented name, refusing to guess and
 producing a mapping report when it cannot. A Python **module object** answers
-`getattr` exactly like an instance does. So rung 3 is:
+`getattr` exactly like an instance does. So rung 2 is:
 
 1. pick the root directory (below),
 2. `sys.path.insert(0, root)` and `os.chdir(root)`,
@@ -78,10 +78,10 @@ refuse-to-guess rule.
 ### What students get in the future
 
 `cogworks init` inspects the repository, proposes a `cogworks.toml`, and prints
-what it would resolve — a dry run of rung 2 or 3 before any run is spent. A
+what it would resolve. This is a dry run of rung 1 or 2 before any run is spent. A
 course template repository carries a working `pyproject.toml`, a
 `benchmark_adapter.py` stub, and a `requirements.txt`, so future cohorts start
-on rung 1. The ladder is what makes the template a convenience rather than a
+on rung 0. The ladder is what makes the template a convenience rather than a
 prerequisite.
 
 ### Dependencies

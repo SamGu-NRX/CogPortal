@@ -1,7 +1,10 @@
+import { CommandSheet } from "@/components/CommandSheet";
 import { Finding } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
+import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
+import { setupCommandLines } from "@/lib/setup-progress";
 import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
 
 /**
@@ -163,6 +166,125 @@ const SWEEPS: { title: string; note: string; sweep: NonNullable<RunDetailType["s
   },
 ];
 
+
+/**
+ * A wiring trace at the length the contract allows.
+ *
+ * The identifier field is capped at 200 characters, and this component used to
+ * put `truncate` on it, so the end of a long one was elided with no way to see
+ * it. Identifiers are the entire payload here: a team reads this to check we
+ * ran the function they think we ran, and the half that gets cut is the
+ * function name. There is no run in any fixture database with a name this long,
+ * so this is the only way to look at it.
+ */
+const LONG_WIRING: WiredStep[] = [
+  {
+    stage: "spectrogram",
+    function: "audio.processing.spectrogram_utilities.make_spectrogram_with_hann_window_and_overlap",
+    received: "an array of shape (132300,), 44100",
+    returned: "a tuple of 3, starting with an array of shape (2049, 63)",
+  },
+  {
+    stage: "peaks",
+    // 200 characters, at or near the 200 cap in
+    // packages/contracts/src/protocol.ts. Long, and a real shape: this is what
+    // a deeply namespaced repository looks like.
+    function:
+      "fingerprinting.peak_detection.local_maxima.find_peaks_by_iterative_neighbourho" +
+      "od_comparison_over_the_log_spectrogram_with_an_amplitude_floor_and_a_minimum_time_frequency_separation_between_accepted_in",
+    received: "an array of shape (2049, 63)",
+    returned: "an array of shape (355, 2)",
+  },
+  {
+    stage: "fanout",
+    function: "fingerprinting.make_fgp",
+    received: "an array of shape (355, 2)",
+    returned: "a list of 5158, starting ((221, 468, 1), 0)",
+  },
+];
+
+/** A floor whose parent is not in the list beside it. Week 3 publishes this
+ *  shape whenever the image side is unmeasured, and the run page also lifts
+ *  the primary metric out before rendering the rest, so a floor attached to
+ *  the primary arrives here with nothing to attach to. */
+const ORPHAN_FLOOR: Metric[] = [
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on this pool.",
+  }),
+];
+
+const PAIRED_FLOOR: Metric[] = [
+  metric({
+    key: "retrieval_mrr",
+    label: "Retrieval MRR",
+    value: 0.2586,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  ...ORPHAN_FLOOR,
+];
+
+/** What week 3 publishes when the image side is unmeasured: a scored text
+ *  metric, its floor, and a floor whose parent is not here at all. */
+const WITHHELD: Metric[] = [
+  metric({
+    key: "text_mrr",
+    label: "Text MRR",
+    value: 0.7888,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  metric({
+    key: "text_chance",
+    label: "Text chance MRR",
+    value: 0.04,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "text_mrr",
+    help: "What ranking at random scores on the caption pool.",
+  }),
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on the image pool.",
+  }),
+];
+
+const SETUP_LINES = setupCommandLines({
+  cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
+  repoName: "face-finder",
+  benchmarkId: "audio-identification",
+  benchmarkTitle: "Audio",
+  portalOrigin: "https://cogportal.example",
+  verified: () => true,
+  deviceLinked: true,
+});
+
+const SETUP_NOTES = {
+  clone: { title: "Clone your team's repository", why: "Every hosted attempt runs from it." },
+  tool: { title: "Install the CogWorks tool", why: "It works out which functions to call." },
+  benchmark: { title: "Install the Audio benchmark", why: "The scorer lives in its own package." },
+  link: { title: "Link this machine", why: "This is what lets a command report back." },
+  check: { title: "Check it, and tell this page", why: "The last command is the one that reports." },
+} as const;
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -194,6 +316,85 @@ export function GalleryPage() {
       ))}
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Supporting metrics, floors
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Left: a floor beside the metric it is the scale of, drawn inside that
+        row. Right: the same floor with its parent withheld. It used to be
+        filtered out of the table with nowhere else to go, so the number
+        vanished. Neither draws a direction arrow.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="FLOOR WITH ITS PARENT">
+          <SupportingMetrics metrics={PAIRED_FLOOR} />
+        </Panel>
+        <Panel label="FLOOR WHOSE PARENT IS WITHHELD">
+          <SupportingMetrics metrics={ORPHAN_FLOOR} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Results with no overall score
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        A benchmark can withhold the primary and still have measured plenty.
+        The page used to gate the whole results block on having one, so this
+        state showed a pipeline, a Promote button and a log and nothing else.
+        Left: what a withheld run has to say for itself. Right: the same
+        metrics in a run that recorded no roles at all, which is every result
+        stored before the portal kept them — the values stay, the direction
+        claims go, because a floor and a scored metric are indistinguishable
+        in that state.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="NO OVERALL SCORE">
+          <p className="max-w-prose text-[14px] leading-[1.6] text-ink">
+            This run has no overall score. Everything the scorer could measure
+            is below.
+          </p>
+          <div className="mt-4">
+            <SupportingMetrics metrics={WITHHELD} rolesRecorded />
+          </div>
+        </Panel>
+        <Panel label="NO ROLES RECORDED">
+          <SupportingMetrics metrics={WITHHELD} rolesRecorded={false} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Setup sheet, when the progress read fails
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Both sheets hold identical commands, all of them finished. On the left
+        CogPortal read its evidence. On the right that request failed, which
+        produces the same empty verified set as a student who has run nothing:
+        empty boxes would report finished work as work nobody did, so the
+        gutter shows dashes and no command is dimmed as complete.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="EVIDENCE READ">
+          <CommandSheet lines={SETUP_LINES} label="Observed" notes={SETUP_NOTES} />
+        </Panel>
+        <Panel label="EVIDENCE UNREADABLE">
+          <CommandSheet
+            lines={SETUP_LINES}
+            label="Unavailable"
+            notes={SETUP_NOTES}
+            unreadable={{ "setup-state": true, devices: true }}
+          />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Wiring trace</h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        The second identifier is 200 characters, the longest the contract
+        allows. It has to wrap inside the column, not be cut off at the edge.
+      </p>
+      <Panel className="mt-4">
+        <WiringTrace steps={LONG_WIRING} />
+      </Panel>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
         Finding above results, as the run page composes them
       </h2>
       <Panel className="mt-4">
@@ -201,7 +402,33 @@ export function GalleryPage() {
       </Panel>
       <Panel label="RESULTS" className="mt-4">
         <div className="grid items-start gap-6 sm:grid-cols-2">
-          <PrimaryMetric metric={metric()} />
+          {/* With its floors, which is the shape Week 1 publishes: two of
+              them, both of the primary, each carrying its own explanation. */}
+          <PrimaryMetric
+            metric={metric()}
+            floors={[
+              metric({
+                key: "chance_top1",
+                label: "Chance",
+                value: 0.0333,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+              }),
+              metric({
+                key: "trivial_baseline_top1",
+                label: "Trivial baseline",
+                value: 0.0812,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone.",
+              }),
+            ]}
+          />
           <SupportingMetrics metrics={SUPPORTING} />
         </div>
         <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">

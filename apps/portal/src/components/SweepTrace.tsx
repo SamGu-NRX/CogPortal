@@ -44,6 +44,19 @@ function useTraceWidth(): number {
  * a legend, rounded everything) fight the notebook look that the rest of the
  * app holds.
  */
+/**
+ * What to print under a point.
+ *
+ * A sweep's x is usually a quantity and reads correctly as itself: Week 1's
+ * is a count of songs. Week 3's is an ordering, the four query rewrites from
+ * the caption unchanged to the furthest, so its x values are 0 through 3 and
+ * say nothing. Those points carry a name, and it is the name a reader needs,
+ * in the drawing and in the sentence read aloud.
+ */
+function tick(point: Sweep["points"][number]): string {
+  return point.label ?? String(point.x);
+}
+
 export function SweepTrace({ sweep }: { sweep: Sweep }) {
   const WIDTH = useTraceWidth();
   const points = sweep.points;
@@ -74,7 +87,7 @@ export function SweepTrace({ sweep }: { sweep: Sweep }) {
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full"
         role="img"
-        aria-label={`${sweep.metric} against ${sweep.axis}, from ${points[0].y.toFixed(2)} at ${points[0].x} to ${last.y.toFixed(2)} at ${last.x}`}
+        aria-label={`${sweep.metric} against ${sweep.axis}, from ${points[0].y.toFixed(2)} at ${tick(points[0])} to ${last.y.toFixed(2)} at ${tick(last)}`}
       >
         {/* Two rules, no grid. The eye reads the shape, and the endpoints are
             labeled, so gridlines would only add ink. */}
@@ -105,6 +118,33 @@ export function SweepTrace({ sweep }: { sweep: Sweep }) {
             className="fill-paper stroke-ink" strokeWidth="1.25"
           />
         ))}
+        {/* The value at each point, printed the way an instrument prints a
+            reading beside its trace.
+            
+            This used to say a label per point turns the trace into a table
+            and the table is already on the page. That was true while every
+            plotted value was also a row. Week 3's rung values are now read
+            here and nowhere else, and nobody can take a number off a 520-unit
+            SVG by eye. A hover would not do: it is undiscoverable, it does
+            nothing on a touch screen, and it is absent from the screenshot a
+            student pastes into their writeup.
+            
+            Above the point, and only when the curve has room. Six points or
+            fewer keeps the labels from colliding; beyond that the endpoints
+            carry it as they did. */}
+        {points.length <= 6 &&
+          points.map((point) => (
+            <text
+              key={`v${point.x}`}
+              x={px(point.x)}
+              y={py(point.y) - 7}
+              textAnchor="middle"
+              className="fill-ink-faint font-mono"
+              fontSize="8.5"
+            >
+              {point.y.toFixed(2)}
+            </text>
+          ))}
         {/* Only the ends are labeled. A label per point turns the trace into
             a table, and the table is already on the page. */}
         {[points[0], last].map((point, index) => (
@@ -116,7 +156,7 @@ export function SweepTrace({ sweep }: { sweep: Sweep }) {
             className="fill-ink-faint font-mono"
             fontSize="9"
           >
-            {point.x}
+            {tick(point)}
           </text>
         ))}
       </svg>

@@ -73,9 +73,8 @@ It calls the same `_prepare` and `_evaluate_week1` the job runner calls, so a
 pass here means the deployed path works rather than that a parallel copy of it
 does. Add `--sha` to pin a commit; the default is the default branch head.
 
-A pass prints the metrics, the diagnostics, and the provenance line naming
-every piece of wiring we supplied, when the repository was scored through an
-instructor-written adapter.
+A pass prints the metrics, diagnostics, and the selected function mapping
+when automatic discovery binds the repository.
 
 Week 1 also prints the sweep sentence, which is the first diagnostic:
 
@@ -85,6 +84,14 @@ Week 1 also prints the sweep sentence, which is the first diagnostic:
 Measured on `KrazeeCoder/week1-capstone-team4`, 72 s, `identification_score`
 0.5375. The sweep costs no extra calls into student code, so a run with it
 takes the same time as one without.
+
+## Trained weights
+
+Enable R2 on the Cloudflare account and create `cogportal-artifacts-dev` and
+`cogportal-artifacts`. Each uploaded file is capped at 100 MiB because Workers
+limits request bodies to 100 MB on Free and Pro plans, and this account's plan
+is not established. A hosted run builds its weight manifest from the newest
+synced report for that repository and commit.
 
 ## Week 3
 
@@ -121,11 +128,10 @@ uses should go through `exactmath`, so a difference means either a new numpy
 call crept into `synth.py` or `exactmath` itself grew one. Background:
 `docs/decisions/week1-corpus-determinism.md`.
 
-**`No adapter found in <repo>`.** The repository has no `submission.py` at its
-root, no packaging file with a `cogworks.submissions.v2` entry point, and no
-instructor adapter under `benchmarks/adapters/<owner>__<name>/`. Adding one of
-the three fixes it; adding the third requires a redeploy, since the adapters
-are baked into the images.
+**`No adapter found in <repo>`.** The repository has no installed
+`cogworks.submissions.v2` entry point, no `cogworks.toml` or root
+`submission.py` declaration, and automatic discovery could not bind its
+functions. Add a declaration or fix the refusal reported by discovery.
 
 **`Evaluation ran past its N second budget`.** The submission is too slow on
 the evaluation corpus, and the message says the usual reason: a database

@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
+import { Hono } from "hono";
+import { symmetricEncrypt } from "better-auth/crypto";
+import { createAuth } from "../worker/auth/better-auth.ts";
+import type { AppEnv, Env } from "../worker/env.ts";
+import { handleError } from "../worker/http/errors.ts";
+import { drizzle } from "drizzle-orm/d1";
+import type { Database } from "../worker/db/client.ts";
+import { accounts, cohorts, runs, teamMembers, teamProcessSignals, teams, users } from "../worker/db/schema.ts";
 import {
   HISTORY_BULK_UPLOAD,
   HISTORY_EMPTY,
   HISTORY_FETCH_FAILED,
   HISTORY_USABLE,
+  UNAUTHORIZED_HISTORY_REASON,
   WEEK1_STAGE_MAP,
   boundaryChurn,
   buildProcessSignals,
@@ -16,9 +30,18 @@ import {
 import type {
   BuildProcessSignalsInput,
   ProcessSignals,
+  RosterMember,
   RunRecord,
 } from "../worker/services/process-signals.ts";
+import { TeamProcessSignalsSchema } from "@cogworks/contracts/schema";
+import { fetchCommitHistory, parseCoAuthorTrailers } from "../worker/github/commits.ts";
 import type { CommitRecord, FetchCommitsResult } from "../worker/github/commits.ts";
+import {
+  registerTeamRoutes,
+  hasRunsElsewhere,
+  resolveWeekLabel,
+  scoredRunRecords,
+} from "../worker/routes/team.ts";
 
 const DAY = 24 * 60 * 60 * 1_000;
 const T0 = Date.parse("2026-06-01T00:00:00Z");
@@ -29,9 +52,12 @@ function commit(overrides: Partial<CommitRecord> = {}): CommitRecord {
     authorLogin: "ada",
     authoredAt: T0,
     filesChanged: ["src/find_peaks.py"],
+    coAuthors: [],
     ...overrides,
   };
 }
+
+const NO_ROSTER: RosterMember[] = [];
 
 function run(overrides: Partial<RunRecord> = {}): RunRecord {
   return { runId: "run_1", createdAt: T0, scored: true, ...overrides };
@@ -58,7 +84,7 @@ test("one commit holding most of the changed files across the whole history is b
 test("bulk_upload marks every commit-derived signal unavailable, with a reason", () => {
   const commits = [commit({ sha: "a".repeat(40) })];
 
-  const footprint = stageFootprint(commits, WEEK1_STAGE_MAP);
+  const footprint = stageFootprint(commits, WEEK1_STAGE_MAP, NO_ROSTER);
   for (const stage of Object.keys(WEEK1_STAGE_MAP)) {
     assert.equal(footprint[stage].available, false);
     assert.equal(footprint[stage].commitCount, null);
@@ -68,7 +94,7 @@ test("bulk_upload marks every commit-derived signal unavailable, with a reason",
 
   // {}, not per-stage empty arrays -- see ownershipBreadth's own docstring
   // on why that distinction matters.
-  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP), {});
+  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP, NO_ROSTER), {});
 
   // Boundary churn is also commit-derived and degrades the same way, even
   // when a first-light timestamp exists to measure churn against.
@@ -85,6 +111,7 @@ test("first light still reports a scored run even when the commit history is bul
     commitsResult: { ok: true, commits: [commit({ sha: "a".repeat(40) })] },
     runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
     weekLabel: "week1",
+    roster: NO_ROSTER,
   };
   const signals = buildProcessSignals(input);
 
@@ -100,11 +127,36 @@ test("first light ignores commit history entirely, including a fetch failure", (
     commitsResult: { ok: false, reason: "fetch_failed" },
     runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
     weekLabel: "week1",
+    roster: NO_ROSTER,
   };
   const signals = buildProcessSignals(input);
   assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
   assert.equal(signals.firstLight.firstScoredAt, T0);
   assert.equal(signals.firstLight.scoredRunCount, 1);
+});
+
+test("a GitHub 401 threads through the signals", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 401 });
+  try {
+    const commitsResult = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.deepEqual(commitsResult, { ok: false, reason: "unauthorized" });
+
+    const signals = buildProcessSignals({
+      commitsResult,
+      runs: [],
+      weekLabel: "week1",
+      roster: NO_ROSTER,
+    });
+    assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
+    assert.equal(signals.historyFetchFailureReason, "unauthorized");
+    assert.equal(findingSentences(signals)[0], UNAUTHORIZED_HISTORY_REASON);
+    for (const activity of Object.values(signals.stageFootprint)) {
+      assert.equal(activity.unavailableReason, UNAUTHORIZED_HISTORY_REASON);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -124,6 +176,80 @@ test("a boundary-file commit before first light is ordinary design work, not chu
 test("no first light means nothing counts as churn, even with boundary-file commits", () => {
   const commits = [commit({ sha: "a".repeat(40), authoredAt: T0, filesChanged: ["submission.py"] })];
   assert.deepEqual(boundaryChurn(commits, ["submission.py"], null), []);
+});
+
+// ---------------------------------------------------------------------------
+// Co-authored commits
+// ---------------------------------------------------------------------------
+
+test("a Co-authored-by trailer is read off the commit message", () => {
+  const trailers = parseCoAuthorTrailers(
+    [
+      "Wire the query stage to the database",
+      "",
+      "Co-Authored-By: Grace Hopper <9+grace@users.noreply.github.com>",
+      "co-authored-by: Ada <ada@dev.local>",
+      "Signed-off-by: Someone <someone@example.com>",
+    ].join("\n"),
+  );
+  assert.deepEqual(trailers, [
+    { name: "Grace Hopper", email: "9+grace@users.noreply.github.com" },
+    { name: "Ada", email: "ada@dev.local" },
+  ]);
+});
+
+test("a co-author on the roster is counted, and one who isn't counts nobody", () => {
+  const roster: RosterMember[] = [{ login: "grace", email: "grace@dev.local" }];
+  const commits = [
+    // The whole point: `authorLogin` is a teammate's machine, and the person
+    // who did the work is named only in the trailer.
+    commit({
+      sha: "a".repeat(40),
+      authorLogin: "shared-laptop",
+      authoredAt: T0,
+      filesChanged: ["find_peaks.py"],
+      coAuthors: [
+        { name: "Grace Hopper", email: "9+grace@users.noreply.github.com" },
+        { name: "Claude", email: "noreply@anthropic.com" },
+      ],
+    }),
+    commit({ sha: "b".repeat(40), authorLogin: "shared-laptop", authoredAt: T0 + DAY }),
+  ];
+
+  const owners = ownershipBreadth(commits, WEEK1_STAGE_MAP, roster);
+  assert.deepEqual(owners.peaks, ["grace", "shared-laptop"]);
+  assert.equal(stageFootprint(commits, WEEK1_STAGE_MAP, roster).peaks.distinctAuthorCount, 2);
+
+  // With no roster to check against, the same trailers resolve to nobody.
+  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP, NO_ROSTER).peaks, [
+    "shared-laptop",
+  ]);
+});
+
+test("a trailer resolves by stored email or by a bare roster login", () => {
+  const roster: RosterMember[] = [
+    { login: "grace", email: "grace@dev.local" },
+    { login: "ada", email: "ada@example.edu" },
+  ];
+  const commits = [
+    commit({
+      sha: "a".repeat(40),
+      authorLogin: "shared-laptop",
+      filesChanged: ["find_peaks.py"],
+      coAuthors: [
+        { name: "A. Lovelace", email: "ADA@example.edu" },
+        { name: "Grace", email: "grace@personal.example" },
+      ],
+    }),
+    commit({ sha: "b".repeat(40), authorLogin: "shared-laptop", authoredAt: T0 + DAY }),
+  ];
+
+  // Both resolve, and both come back spelled the way the roster spells them.
+  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP, roster).peaks, [
+    "ada",
+    "grace",
+    "shared-laptop",
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -184,11 +310,20 @@ test("no output key, anywhere in the tree, is a per-person total or a line count
           authorLogin: "hedy",
           authoredAt: T0 + 3 * DAY,
           filesChanged: ["database.py", "submission.py"],
+          // A resolved co-author is in the fixture so the walk covers the
+          // authorship path that reads trailers, not only the one that
+          // reads the author field.
+          coAuthors: [{ name: "Grace Hopper", email: "9+grace@users.noreply.github.com" }],
         }),
       ],
     },
     runs: [run({ runId: "run_1", createdAt: T0 + 2 * DAY, scored: true })],
     weekLabel: "week1",
+    roster: [
+      { login: "grace", email: "grace@dev.local" },
+      { login: "ada", email: "ada@dev.local" },
+      { login: "hedy", email: "hedy@dev.local" },
+    ],
   });
   const payload = { ...richSignals, findingSentences: findingSentences(richSignals), computedAt: Date.now() };
 
@@ -214,8 +349,8 @@ test("an empty repository and a fetch failure never produce the same historyQual
   const emptyResult: FetchCommitsResult = { ok: true, commits: [] };
   const failedResult: FetchCommitsResult = { ok: false, reason: "fetch_failed" };
 
-  const emptySignals = buildProcessSignals({ commitsResult: emptyResult, runs: [], weekLabel: null });
-  const failedSignals = buildProcessSignals({ commitsResult: failedResult, runs: [], weekLabel: null });
+  const emptySignals = buildProcessSignals({ commitsResult: emptyResult, runs: [], weekLabel: null, roster: NO_ROSTER });
+  const failedSignals = buildProcessSignals({ commitsResult: failedResult, runs: [], weekLabel: null, roster: NO_ROSTER });
 
   assert.equal(emptySignals.historyQuality, HISTORY_EMPTY);
   assert.equal(failedSignals.historyQuality, HISTORY_FETCH_FAILED);
@@ -227,11 +362,13 @@ test("an empty repository and a fetch failure read differently in the finding se
     commitsResult: { ok: true, commits: [] },
     runs: [],
     weekLabel: null,
+    roster: NO_ROSTER,
   });
   const failedSignals = buildProcessSignals({
     commitsResult: { ok: false, reason: "fetch_failed" },
     runs: [],
     weekLabel: null,
+    roster: NO_ROSTER,
   });
 
   const emptySentence = findingSentences(emptySignals)[0];
@@ -240,6 +377,71 @@ test("an empty repository and a fetch failure read differently in the finding se
   assert.match(emptySentence, /no commit history yet/i);
   assert.match(failedSentence, /could not be read from GitHub/i);
   assert.notEqual(emptySentence, failedSentence);
+});
+
+// ---------------------------------------------------------------------------
+// The finding list cannot grow with the repository
+// ---------------------------------------------------------------------------
+
+/**
+ * The first version emitted one sentence per contract file and one per stage,
+ * which on a real week-2 team was seven near-identical lines above a stage
+ * list that repeated them. Each group is now one sentence naming every stage
+ * or counting every commit it covers, so the only way the list grows is if
+ * someone adds a new kind of finding -- and `MAX_FINDING_SENTENCES` caps that
+ * too. This pins the shape, not the prose.
+ */
+test("every group of findings is one sentence, however many stages or files it covers", () => {
+  const signals = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      commits: [
+        // `peaks` gets two authors, `database` gets one, and `spectrogram`,
+        // `fanout`, and `query` get none.
+        commit({ sha: "a".repeat(40), authorLogin: "grace", authoredAt: T0, filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "b".repeat(40), authorLogin: "ada", authoredAt: T0 + DAY, filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "c".repeat(40), authorLogin: "hedy", authoredAt: T0 + 2 * DAY, filesChanged: ["database.py"] }),
+        // Two commits, two contract files each, all after the scored run.
+        commit({
+          sha: "d".repeat(40),
+          authorLogin: "ada",
+          authoredAt: T0 + 4 * DAY,
+          filesChanged: ["submission.py", "src/benchmark_adapter.py"],
+        }),
+        commit({
+          sha: "e".repeat(40),
+          authorLogin: "grace",
+          authoredAt: T0 + 5 * DAY,
+          filesChanged: ["submission.py", "src/benchmark_adapter.py"],
+        }),
+      ],
+    },
+    runs: [run({ runId: "run_1", createdAt: T0 + 3 * DAY, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const sentences = findingSentences(signals);
+  assert.equal(sentences.length, 4, `expected four findings, got ${sentences.length}`);
+
+  const [firstRun, churn, untouched, solo] = sentences;
+  assert.match(firstRun, /first scored end to end on 2026-06-04/);
+  // Two commits touched four boundary paths between them; one sentence.
+  assert.match(churn, /^2 commits have changed submission\.py or benchmark_adapter\.py/);
+  // Three stages have no commits; one sentence naming all three.
+  assert.match(untouched, /the fanout, query, or spectrogram stages/);
+  // One stage has a single author; still one sentence.
+  assert.match(solo, /Only one person has committed to the database stage/);
+
+  // And no sentence anywhere names a person or counts their work. Matched on
+  // word boundaries: a bare substring search reports "ada" inside
+  // "benchmark_adapter.py", which is a filename and not a person.
+  for (const sentence of sentences) {
+    for (const login of ["grace", "ada", "hedy"]) {
+      const named = new RegExp(`\\b${login}\\b`, "i").test(sentence);
+      assert.ok(!named, `finding named a person: ${sentence}`);
+    }
+  }
 });
 
 test("classifyHistoryQuality never returns fetch_failed -- only buildProcessSignals can", () => {
@@ -254,4 +456,447 @@ test("classifyHistoryQuality never returns fetch_failed -- only buildProcessSign
     ]),
     HISTORY_USABLE,
   );
+});
+
+const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+
+function freshBinding(): unknown {
+  const sqlite = new DatabaseSync(":memory:");
+  const files = readdirSync(MIGRATIONS)
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .filter((file) => !/^(0002_seed|0016_backfill)/.test(file));
+  for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
+
+  function prepare(query: string) {
+    const statement = sqlite.prepare(query);
+    let bound: never[] = [];
+    const prepared = {
+      bind(...params: unknown[]) {
+        bound = params as never[];
+        return prepared;
+      },
+      async run() {
+        return { success: true, meta: statement.run(...bound) };
+      },
+      async all() {
+        return { success: true, results: statement.all(...bound) };
+      },
+      async raw() {
+        statement.setReturnArrays(true);
+        const rows = statement.all(...bound);
+        statement.setReturnArrays(false);
+        return rows;
+      },
+    };
+    return prepared;
+  }
+  return { prepare };
+}
+
+
+test("a repository switch drops the old repository's runs, and says so", async () => {
+  const db = drizzle(freshBinding() as never) as unknown as Database;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 111,
+  });
+  for (const [id, repositoryId, createdAt] of [
+    ["old", 111, 20], ["untracked", null, 10],
+  ] as const) {
+    await db.insert(runs).values({
+      id, teamId: "team_test", repositoryId,
+      benchmarkId: "audio-identification", benchmarkVersion: 1,
+      contractVersion: "cogworks.submissions.v2", mode: "practice", status: "succeeded",
+      branch: "main", sha: "a".repeat(40), attemptNumber: 1,
+      createdAt, finishedAt: createdAt + 1, provider: "fixture",
+    });
+  }
+  assert.equal(await resolveWeekLabel(db, "team_test", 111), "week1");
+  assert.deepEqual(await scoredRunRecords(db, "team_test", 111), [
+    { runId: "old", createdAt: 21, scored: true },
+  ]);
+
+  await db.update(teams).set({ repoId: 222 }).where(eq(teams.id, "team_test"));
+  const [team] = await db.select().from(teams).where(eq(teams.id, "team_test"));
+  const weekLabel = await resolveWeekLabel(db, team.id, team.repoId);
+  const runRecords = await scoredRunRecords(db, team.id, team.repoId);
+  const runsElsewhere = await hasRunsElsewhere(db, team.id, team.repoId);
+  assert.equal(weekLabel, null, "no run speaks for the repository connected now");
+  assert.deepEqual(runRecords, []);
+  assert.equal(runsElsewhere, true);
+
+  // The whole point: not "you have never scored", which reads as the portal
+  // losing their work. Both the run on 111 and the untracked one are real
+  // scored runs; neither is evidence for 222.
+  const signals = buildProcessSignals({
+    commitsResult: { ok: true, commits: [] }, runs: runRecords, weekLabel,
+    roster: [], runsElsewhere,
+  });
+  const said = findingSentences(signals).join(" ");
+  assert.match(said, /aren't tied to the repository that's connected now/);
+  assert.doesNotMatch(said, /No run has scored end to end yet/);
+});
+
+test("a team that really has never scored still hears the integration sentence", async () => {
+  const db = drizzle(freshBinding() as never) as unknown as Database;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 111,
+  });
+  assert.equal(await hasRunsElsewhere(db, "team_test", 111), false);
+  const signals = buildProcessSignals({
+    commitsResult: { ok: true, commits: [] }, runs: [], weekLabel: null,
+    roster: [], runsElsewhere: false,
+  });
+  assert.match(findingSentences(signals).join(" "), /No run has scored end to end yet/);
+});
+
+test("a run for another repository never speaks for the connected one", async () => {
+  const db = drizzle(freshBinding() as never) as unknown as Database;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 222,
+  });
+  // One week1 run, and it belongs to the repository the team left.
+  await db.insert(runs).values({
+    id: "on_the_old_repo", teamId: "team_test", repositoryId: 111,
+    benchmarkId: "audio-identification", benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v2", mode: "practice", status: "succeeded",
+    branch: "main", sha: "a".repeat(40), attemptNumber: 1,
+    createdAt: 20, finishedAt: 21, provider: "fixture",
+  });
+
+  assert.equal(await resolveWeekLabel(db, "team_test", 222), null);
+  assert.deepEqual(await scoredRunRecords(db, "team_test", 222), []);
+});
+
+
+test("the process route does not cache a GitHub 401 and reads history again after sign-in", async () => {
+  const binding = freshBinding();
+  const db = drizzle(binding as never) as unknown as Database;
+  const env = {
+    DB: binding,
+    ENVIRONMENT: "development",
+    DEV_AUTH: "enabled",
+    EXECUTION_PROVIDER: "fixture",
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
+    BETTER_AUTH_URL: "http://localhost:5173",
+  } as unknown as Env;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 111,
+  });
+  const signIn = await createAuth(env).api.signUpEmail({
+    body: { email: "ada@example.test", password: "cogportal-local-dev-password", name: "Ada" },
+    returnHeaders: true,
+  });
+  const userId = signIn.response.user.id;
+  await db.update(users).set({ githubLogin: "ada", cohortId: "cohort_test" })
+    .where(eq(users.id, userId));
+  await db.insert(teamMembers).values({ teamId: "team_test", userId, role: "write" });
+  await db.insert(accounts).values({
+    id: "github_account", accountId: "github_ada", providerId: "github", userId,
+    accessToken: await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: "expired-token" }),
+  });
+  env.GITHUB_CLIENT_ID = "test-client";
+  env.GITHUB_CLIENT_SECRET = "test-secret";
+  const cookie = signIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerTeamRoutes(app);
+  app.onError(handleError);
+  const request = () => app.fetch(new Request("http://localhost:5173/v1/team/process", {
+    headers: { cookie },
+  }), env);
+  const originalFetch = globalThis.fetch;
+  const tokens: Array<string | null> = [];
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.github.com/repos/course/project/commits?sha=main&per_page=100&page=1");
+    const token = new Headers(init?.headers).get("authorization");
+    tokens.push(token);
+    return token === "Bearer renewed-token"
+      ? Response.json([])
+      : new Response(null, { status: 401 });
+  };
+  try {
+    const rejected = await request();
+    assert.equal(rejected.status, 200);
+    const payload = await rejected.json() as { historyQuality: string; findingSentences: string[] };
+    assert.equal(payload.historyQuality, HISTORY_FETCH_FAILED);
+    assert.equal(payload.findingSentences[0], UNAUTHORIZED_HISTORY_REASON);
+    assert.deepEqual(await db.select().from(teamProcessSignals), []);
+
+    // A successful new GitHub sign-in replaces the account's stored token.
+    await db.update(accounts).set({
+      accessToken: await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: "renewed-token" }),
+    }).where(eq(accounts.id, "github_account"));
+    const renewed = await request();
+    assert.equal(renewed.status, 200);
+    assert.equal((await renewed.json() as { historyQuality: string }).historyQuality, HISTORY_EMPTY);
+    assert.deepEqual(tokens, ["Bearer expired-token", "Bearer renewed-token"]);
+    const cached = await db.select().from(teamProcessSignals);
+    assert.equal(cached.length, 1);
+    assert.equal(cached[0].historyQuality, HISTORY_EMPTY);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The window the history was read through
+// ---------------------------------------------------------------------------
+
+/** Answers the commit list with `count` shas, then a detail for each. */
+function githubWithCommits(count: number): () => Promise<Response> {
+  let listed = false;
+  return async (input?: unknown) => {
+    const url = String(input);
+    if (!listed && url.includes("/commits?")) {
+      listed = true;
+      const shas = Array.from({ length: count }, (_, index) => ({
+        sha: String(index).padStart(40, "0"),
+      }));
+      return new Response(JSON.stringify(shas), { status: 200 });
+    }
+    const sha = url.slice(url.lastIndexOf("/") + 1);
+    return new Response(
+      JSON.stringify({
+        sha,
+        commit: {
+          author: { name: "Student", email: "student@example.com", date: "2026-07-01T00:00:00Z" },
+          message: "work",
+        },
+        author: { login: "student" },
+        files: [{ filename: "fingerprint.py" }],
+      }),
+      { status: 200 },
+    );
+  };
+}
+
+test("a history longer than the window is read as a window and says so", async () => {
+  const originalFetch = globalThis.fetch;
+  // 75, the size of the repository whose history stopped being readable.
+  globalThis.fetch = githubWithCommits(75) as typeof globalThis.fetch;
+  try {
+    const result = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    // The cap exists because a Worker gets 50 external subrequests per
+    // invocation and each commit costs one. Reading all 75 threw at the 50th.
+    assert.equal(result.commits.length, 40);
+    assert.equal(result.truncated, true, "older commits exist and were not read");
+
+    const signals = buildProcessSignals({
+      commitsResult: result,
+      runs: [],
+      weekLabel: "week1",
+      roster: NO_ROSTER,
+    });
+    assert.deepEqual(signals.historyWindow, { commits: 40, truncated: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a history that fits is not reported as a window", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = githubWithCommits(12) as typeof globalThis.fetch;
+  try {
+    const result = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    assert.equal(result.commits.length, 12);
+    assert.equal(result.truncated, false, "nothing older was left unread");
+
+    const signals = buildProcessSignals({
+      commitsResult: result,
+      runs: [],
+      weekLabel: "week1",
+      roster: NO_ROSTER,
+    });
+    assert.deepEqual(signals.historyWindow, { commits: 12, truncated: false });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("the window stays within the subrequest budget the platform allows", async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  const answer = githubWithCommits(500);
+  globalThis.fetch = (async (input?: unknown) => {
+    requests += 1;
+    return answer(input as never);
+  }) as typeof globalThis.fetch;
+  try {
+    const result = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.equal(result.ok, true);
+    // 50 external subrequests per invocation on the Free plan, and the token
+    // refresh and any redirect hop come out of the same 50. Anything at or
+    // above the ceiling is the bug this cap was added to remove.
+    assert.ok(
+      requests <= 41,
+      `history cost ${requests} subrequests, leaving too little of the 50 for the rest of the request`,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a fetch failure reports no window at all, rather than an empty one", () => {
+  const signals = buildProcessSignals({
+    commitsResult: { ok: false, reason: "fetch_failed" },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+  // Null, not `{commits: 0}`. Zero commits read is a fact about a history we
+  // could not reach, and the panel must not render it as one we did.
+  assert.equal(signals.historyWindow, null);
+  assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
+  assert.deepEqual(signals.boundaryChurn, [], "and no churn is claimed from it");
+});
+
+test("a signals payload cached before the window existed still parses", () => {
+  // team_process_signals stores whatever the deployed version serialized. A
+  // row written before historyWindow has no such key, and the browser parses
+  // every response strictly, so this is what stops a deploy blanking the team
+  // page for every team with a warm cache.
+  const cached = {
+    historyQuality: "usable",
+    weekLabel: "week1",
+    stageFootprint: {},
+    firstLight: { firstScoredAt: null, scoredRunCount: 0 },
+    boundaryChurn: [],
+    ownershipBreadth: {},
+    findingSentences: [],
+    computedAt: T0,
+  };
+
+  const parsed = TeamProcessSignalsSchema.parse(cached);
+  assert.equal(parsed.historyWindow, null, "absent reads as unknown, not as zero commits");
+});
+
+test("a truncated window does not let a sentence claim the whole project", () => {
+  // 40 read of a longer history. Every absence below is an absence in what was
+  // read, and saying "yet" or "nobody else has been inside that code" would be
+  // telling the team something untrue about work this page never looked at.
+  const windowed = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: true,
+      commits: Array.from({ length: 40 }, (_, index) =>
+        commit({
+          sha: String(index).padStart(40, "0"),
+          authoredAt: T0 + index * DAY,
+          authorLogin: "alice",
+          filesChanged: ["find_peaks.py"],
+        }),
+      ),
+    },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const sentences = findingSentences(windowed).join(" ");
+  assert.match(sentences, /in your most recent 40 commits/);
+  assert.doesNotMatch(sentences, /nobody else has been inside that code/);
+  assert.doesNotMatch(sentences, /has touched .* yet/);
+  assert.match(sentences, /Only one person has committed to .* in your most recent 40 commits\./);
+});
+
+test("a complete history still speaks plainly", () => {
+  const whole = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: false,
+      commits: Array.from({ length: 6 }, (_, index) =>
+        commit({
+          sha: String(index).padStart(40, "0"),
+          authoredAt: T0 + index * DAY,
+          authorLogin: "alice",
+          filesChanged: ["find_peaks.py"],
+        }),
+      ),
+    },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const sentences = findingSentences(whole).join(" ");
+  assert.doesNotMatch(sentences, /in your most recent/);
+  assert.match(sentences, /has touched .* yet/);
+  // Never, on either path. Commit authorship says who committed, not who has
+  // read the code, reviewed it, or paired on it.
+  assert.doesNotMatch(sentences, /nobody else has been inside that code/);
+});
+
+test("the adapter-file section is absent when nothing touched those files", () => {
+  // The check looks at two conventional adapter filenames. A repository wired
+  // up automatically has neither, so an empty list is "we looked at two files
+  // you do not have", which the panel used to render as reassurance.
+  const signals = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: false,
+      commits: [
+        commit({ sha: "a".repeat(40), authoredAt: T0 + DAY, filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "b".repeat(40), authoredAt: T0 + 2 * DAY, filesChanged: ["database.py"] }),
+      ],
+    },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  assert.equal(signals.historyQuality, "usable");
+  assert.deepEqual(signals.boundaryChurn, [], "nothing touched an adapter file");
+  // And no sentence invents one either.
+  assert.doesNotMatch(findingSentences(signals).join(" "), /submission\.py|benchmark_adapter\.py/);
+});
+
+test("one author per stage is not reported as one author across stages", () => {
+  // alice on peaks and bob on the database is two people, one each. The
+  // sentence used to read "only one person has committed to the database and
+  // peaks stages", which says something false about both of them.
+  const signals = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: false,
+      commits: [
+        commit({ sha: "a".repeat(40), authorLogin: "alice", filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "b".repeat(40), authorLogin: "bob", filesChanged: ["database.py"] }),
+        commit({ sha: "c".repeat(40), authorLogin: "cara", filesChanged: ["spectrogram.py"] }),
+        commit({ sha: "d".repeat(40), authorLogin: "dee", filesChanged: ["spectrogram.py"] }),
+      ],
+    },
+    runs: [],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const solo = findingSentences(signals).find((s) => s.startsWith("Only one person"));
+  assert.ok(solo, "expected the single-author sentence");
+  assert.match(solo, /each of/, "several stages, one author apiece");
 });

@@ -1,11 +1,11 @@
-"""Who gets blamed for a failed evaluation decides whether an official attempt
-is spent, so a submission must not be able to influence it.
+"""Who gets blamed for a failed evaluation, and why a submission must not be
+able to influence it.
 
 The controller used to classify a failure as a platform fault by substring
 matching the sandbox's last error line, and that line is the submission's own
 exception message. `raise ValueError("glove")` was therefore enough to have a
-failed official run refunded, as many times as a team liked. The sandbox now
-tags the owner of the failing step and the controller reads only that tag.
+failed run blamed on us. The sandbox now tags the owner of the failing step and
+the controller reads only that tag.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ STUDENT_RAISES_PLATFORM_WORDS = """
 
     def load_submission(name, group=None):
         # Exactly the exploit: the submission names a platform artifact so the
-        # old substring match would refund the attempt.
+        # old substring match would blame us.
         raise ValueError("glove cache missing, torch_home checkpoint")
 """
 
@@ -134,31 +134,26 @@ class FailureAttributionTests(unittest.TestCase):
             source,
             "attribution must not substring-match the student's error text",
         )
-        # `contract_invalid` is not in CONSUMING_FAILURES, so choosing it from
-        # the student's own message refunded the attempt.
         self.assertNotIn(
             '"contract_invalid" if "benchmark_adapter.py" in detail',
             source,
             "failure category must not be chosen from student-controlled text",
         )
-        # Every payload-shaped evaluate path must read the sandbox's owner
-        # tag. Counted against the number of such paths rather than a literal,
-        # so adding a track fails this test by omitting the check, not by
-        # existing. `_evaluate` (the v1 JSON path) is excluded: it has no
-        # payload and no platform-owned step to attribute.
-        module = ast.parse(source)
-        payload_paths = [
-            node.name
-            for node in module.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name.startswith("_evaluate_")
-            and node.name != "_evaluate_installed"
-        ]
-        self.assertGreaterEqual(len(payload_paths), 3, payload_paths)
+        # This assertion used to read the other way: every payload path MUST
+        # read the owner tag. That was the previous fix, and it was wrong for
+        # a reason no amount of reading the controller would show, because the
+        # defect was in the sandbox. `redirect_stderr` rebinds `sys.stderr`
+        # and leaves file descriptor 2 alone, so `os.write(2, ...)` from any
+        # student module put the platform marker on the pipe the controller
+        # reads.
+        #
+        # So no evaluate path may read it. The conditions it reported are
+        # verified controller-side before the sandbox starts; see
+        # `_platform_owned_evaluation_failure` in modal_app.
         self.assertEqual(
             source.count('"COG_PLATFORM_ERROR:" in stderr_text'),
-            len(payload_paths),
-            "each of {} must read the owner tag".format(payload_paths),
+            0,
+            "attribution must not read anything the student process wrote",
         )
 
 
