@@ -15,8 +15,11 @@ import path from "node:path";
 export const DEV_VARS_TEMPLATE = {
   ENVIRONMENT: "development",
   DEV_AUTH: "enabled",
-  BETTER_AUTH_SECRET: "upgrade-suite-local-secret",
-  BETTER_AUTH_URL: "",
+  // min(32) is enforced by the server schema (z.string().min(32)) — a shorter
+  // value fails env validation on every route that reads ServerEnv.
+  BETTER_AUTH_SECRET: "upgrade-suite-local-better-auth-secret",
+  // Must satisfy z.url(); localhost keeps better-auth cookies non-Secure over http.
+  BETTER_AUTH_URL: "http://localhost:5173",
   RUNNER_SIGNING_SECRET: "upgrade-suite-local-runner-secret",
   EXECUTION_PROVIDER: "fixture",
 };
