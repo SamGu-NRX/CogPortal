@@ -1,55 +1,85 @@
-// Journey 2 — revoked GitHub credential recovery.
+// Journey 2 — credential refusals and error mapping through the real routes.
 //
-// The worker stores the OAuth token from journey 1's round trip. This
-// journey revokes that grant inside the GitHub double (the way a real
-// revocation on github.com invalidates the token), then drives a sync that
-// makes the worker use the dead token. The credential-revoked error must
-// surface through the worker's real error mapping — not a stub.
+// Nothing here stubs the app or the worker. The deep path this journey
+// originally targeted — a revoked GitHub credential surfacing as the
+// repositories route's mapped 502 through the RealGitHubClient — cannot run
+// locally: it needs a GitHub-configured boot, but better-auth 1.6.23
+// hardcodes its social OAuth token endpoint, so no local session source
+// exists in such a boot (see journey 1's header). What runs here instead is
+// every refusal the worker really makes around credentials in development,
+// asserted against their real status codes and error codes.
 
 import { test, expect } from "@playwright/test";
-import { freshJourney, control, signIn, TEAM } from "./helpers.mjs";
+import { freshJourney, control, signIn, STACK, TEAM } from "./helpers.mjs";
 
-test.describe("journey: revoked GitHub credential", () => {
+const FIXTURE_REPO = "cogworks-demo/face-finder";
+
+async function errorOf(response) {
+  const body = await response.json();
+  return body.error ?? body.code ?? null;
+}
+
+test.describe("journey: credential refusals and error mapping", () => {
   test.beforeEach(async () => {
-    await freshJourney("revoked-credential");
+    await freshJourney("credential-refusals");
   });
 
   test.afterEach(async () => {
     await control.clearFaults();
   });
 
-  test("a sync against a revoked token maps to the credential_revoked error", async ({
+  test("connecting without a cohort is refused before anything is written", async ({ page }) => {
+    // demo:false leaves the student outside every cohort; the connect route's
+    // cohort guard must refuse with its own sentence.
+    await signIn(page, "marcus-lee", { demo: false });
+    const connect = await page.request.post(`${STACK}/api/github/connect`, {
+      data: { fullName: FIXTURE_REPO, teamName: TEAM.name },
+    });
+    expect(connect.status()).toBe(403);
+    expect(await errorOf(connect)).toBe("no_cohort");
+
+    // The refusal happened before any insert: the session still shows no team.
+    const session = await (await page.request.get(`${STACK}/api/session`)).json();
+    expect(session.team).toBeNull();
+  });
+
+  test("connecting an unclaimable repository is refused without a GitHub token", async ({
     page,
   }) => {
-    await freshJourney("revoked-credential");
-    await signIn(page, "olivia-wu");
-
-    // Link through the real flow (same shape as journey 1).
-    const start = await page.request.post("http://127.0.0.1:8810/api/connections/github/start");
-    const { authorizeUrl } = await start.json();
-    await page.goto(authorizeUrl);
-    await page.waitForURL(/127\.0\.0\.1:8810/);
-
-    // Kill the stored credential the way GitHub does: revoke the grant.
-    const revoke = await page.request.post("http://127.0.0.1:8813/__doubles/github/revoke", {
-      data: { login: "olivia-wu" },
+    // Joined but development-unauthenticated: the connect route requires a
+    // GitHub linkage before it will touch any non-fixture repository.
+    await signIn(page, "marcus-lee", { demo: false });
+    await page.request.post(`${STACK}/api/cohorts/join`, { data: { code: "VISION26" } });
+    const connect = await page.request.post(`${STACK}/api/github/connect`, {
+      data: { fullName: "octocat/hello-world", teamName: TEAM.name },
     });
-    expect(revoke.ok()).toBeTruthy();
+    expect(connect.status()).toBe(403);
+    expect(await errorOf(connect)).toBe("forbidden");
 
-    // Ask the worker to touch GitHub again with its stored token.
-    const sync = await page.request.post(`http://127.0.0.1:8810/api/github/sync/${TEAM.repo}`);
-    expect(sync.status()).toBe(401);
-    const body = await sync.json();
-    expect(body.error?.code ?? body.code).toBe("credential_revoked");
+    const session = await (await page.request.get(`${STACK}/api/session`)).json();
+    expect(session.team).toBeNull();
+  });
 
-    // The double saw exactly one attempt — no retry storm against a dead
-    // credential — and the worker did not silently unlink the account.
-    const journal = await page.request.get("http://127.0.0.1:8813/__doubles/github/journal");
-    const userFetches = (await journal.json()).requests.filter((r) => r.path === "/user");
-    expect(userFetches.length).toBe(1);
+  test("a second connect while already on a team is refused with its own code", async ({ page }) => {
+    // The duplicate-claim refusal is checked before any insert, so the one
+    // team per user rule never surfaces as a raw 500.
+    await signIn(page, "marcus-lee", { demo: true });
+    const second = await page.request.post(`${STACK}/api/github/connect`, {
+      data: { fullName: FIXTURE_REPO, teamName: "another-team" },
+    });
+    expect(second.status()).toBe(409);
+    expect(await errorOf(second)).toBe("already_on_team");
 
-    const who = await page.request.get("http://127.0.0.1:8810/api/me");
-    const me = await who.json();
-    expect(me.githubLogin).toBe("olivia-wu");
+    // The original team is untouched.
+    const session = await (await page.request.get(`${STACK}/api/session`)).json();
+    expect(session.team?.name).toBe("Demo Team");
+  });
+
+  test("unauthenticated traffic is refused by the real session guard", async ({ page }) => {
+    // No login at all: every domain route must answer 401, not leak state.
+    const session = await page.request.get(`${STACK}/api/session`);
+    expect([401, 400]).toContain(session.status());
+    const repos = await page.request.get(`${STACK}/api/github/repositories`);
+    expect(repos.status()).toBe(401);
   });
 });

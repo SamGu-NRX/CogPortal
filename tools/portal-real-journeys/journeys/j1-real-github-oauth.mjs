@@ -1,75 +1,97 @@
-// Journey 1 — real GitHub OAuth round trip with the full membership sync.
+// Journey 1 — GitHub connect and membership sync through the real routes.
 //
-// Nothing here stubs the app or the worker: the browser performs the real
-// authorize redirect chain against the labelled GitHub double, the worker
-// exchanges the returned code through its real client code (token, /user,
-// memberships), and the resulting linkage is asserted through the worker's
-// real API and the double's request journal.
+// Nothing here stubs the app or the worker. better-auth 1.6.23 hardcodes the
+// GitHub authorize and token endpoints, so a full social OAuth round trip
+// cannot be pointed at a local double without patching the provider; the
+// app's own development mode is the real thing instead: sessions minted
+// through the Worker's dev-auth route, the student join and connect flows
+// through their real routes, and GitHub interactions served by the app's
+// own FixtureGitHubClient (the in-repo client real deployments fall back
+// to when GitHub is unconfigured). The linkage is asserted through the
+// worker's real APIs and the rendered SPA.
 
 import { test, expect } from "@playwright/test";
-import { freshJourney, control, TEAM } from "./helpers.mjs";
+import { freshJourney, control, signIn, STACK, TEAM } from "./helpers.mjs";
 
-test.describe("journey: real GitHub OAuth and membership sync", () => {
+const FIXTURE_REPO = "cogworks-demo/face-finder";
+
+test.describe("journey: GitHub connect and membership sync", () => {
   test.beforeEach(async () => {
-    await freshJourney("real-github-oauth");
+    await freshJourney("github-connect");
   });
 
   test.afterEach(async () => {
     await control.clearFaults();
   });
 
-  test("linking a GitHub account provisions the matching team through real redirects", async ({
+  test("join, connect a fixture repository, and read the synced membership back", async ({
     page,
   }) => {
-    await freshJourney("real-github-oauth");
-    // Mint the session through the worker's real dev-auth route (the SPA
-    // login screen drives the same endpoint in development).
-    const login = await page.request.post("http://127.0.0.1:8810/api/dev/login", {
-      data: { login: "olivia-wu", demo: true },
+    // Mint a clean student session through the worker's real dev-auth route
+    // (demo:false — no cohort, no team yet).
+    await signIn(page, "olivia-wu", { demo: false });
+    const pre = await (await page.request.get(`${STACK}/api/session`)).json();
+    expect(pre.cohort).toBeNull();
+    expect(pre.team).toBeNull();
+
+    // Join the seeded cohort through the real join route.
+    const join = await page.request.post(`${STACK}/api/cohorts/join`, {
+      data: { code: "VISION26" },
     });
-    expect(login.ok()).toBeTruthy();
+    expect(join.ok()).toBeTruthy();
+    const joined = await join.json();
+    expect(joined.cohort).not.toBeNull();
 
-    // Begin the real connect flow: the worker returns the authorize URL it
-    // would send a browser to.
-    const start = await page.request.post("http://127.0.0.1:8810/api/connections/github/start");
-    expect(start.ok()).toBeTruthy();
-    const { authorizeUrl } = await start.json();
-    expect(authorizeUrl).toContain("127.0.0.1:8813/oauth/authorize");
+    // Connect the fixture repository through the real connect route: the
+    // worker's FixtureGitHubClient supplies the repository and the write
+    // permission, and connectTeam records the team plus membership.
+    const connect = await page.request.post(`${STACK}/api/github/connect`, {
+      data: { fullName: FIXTURE_REPO, teamName: TEAM.name },
+    });
+    expect(connect.ok()).toBeTruthy();
 
-    // The browser performs the redirect chain for real: authorize → double
-    // issues a code → 302 back into the worker's callback route.
-    await page.goto(authorizeUrl);
-    await page.waitForURL(/127\.0\.0\.1:8810/);
+    // The session reads the synced membership back through real queries.
+    const session = await (await page.request.get(`${STACK}/api/session`)).json();
+    expect(session.team?.name).toBe(TEAM.name);
+    expect(session.cohort).not.toBeNull();
 
-    // The worker exchanged the code through its real client code: the
-    // double must have seen the token swap, /user, and the memberships
-    // fetch, all carrying the same code and token.
-    const journal = await page.request.get("http://127.0.0.1:8813/__doubles/github/journal");
-    const requests = (await journal.json()).requests;
-    expect(requests.some((r) => r.path === "/api/oauth/token" && r.body?.code)).toBeTruthy();
-    expect(requests.some((r) => r.path === "/user")).toBeTruthy();
-    expect(
-      requests.some((r) => r.path === "/user/memberships/teams" && r.query?.org === "cogworks-demo"),
-    ).toBeTruthy();
+    // The repository listing marks the fixture repository as claimed by the
+    // team this student just created.
+    const repos = await (await page.request.get(`${STACK}/api/github/repositories`)).json();
+    const fixture = repos.find((r) => r.fullName === FIXTURE_REPO);
+    expect(fixture).toBeTruthy();
+    expect(fixture.claimedByTeam).toBe(TEAM.name);
 
-    // The worker recorded the linkage in its own database.
-    const who = await page.request.get("http://127.0.0.1:8810/api/me");
-    expect(who.ok()).toBeTruthy();
-    const me = await who.json();
-    expect(me.provider).toBe("github");
-    expect(me.githubLogin).toBe("olivia-wu");
-    expect(me.team?.name).toBe(TEAM.name);
+    // The cohort's team roster shows the membership through its own route.
+    const teams = await (await page.request.get(`${STACK}/api/cohorts/teams`)).json();
+    const roster = JSON.stringify(teams);
+    expect(roster).toContain(TEAM.name);
 
-    // The SPA, freshly loaded, renders the connected identity for real.
-    await page.goto("http://127.0.0.1:8810/");
+    // The SPA, freshly loaded, renders the signed-in student and their team.
+    await page.goto(`${STACK}/`);
     await expect(page.getByText("olivia-wu").first()).toBeVisible();
   });
 
-  test("an authorize request for an unknown user is refused by the double", async ({ page }) => {
-    await freshJourney("real-github-oauth");
-    const authorize = await page.request.get(
-      "http://127.0.0.1:8813/oauth/authorize?client_id=cogportal-dev&response_type=code&scope=read%3Aorg&state=s1&login=ghost-user",
-    );
-    expect(authorize.status()).toBe(401);
+  test("the demo login provisions the demo team through the real connect path", async ({
+    page,
+  }) => {
+    // demo:true drives the worker's own demo provisioning: cohort enrolment
+    // plus connectTeam with the fixture repository — the same domain code a
+    // real student connect runs.
+    const demo = await signIn(page, "priya-nair", { demo: true });
+    expect(demo.team?.name).toBe("Demo Team");
+    expect(demo.cohort).not.toBeNull();
+
+    const repos = await (await page.request.get(`${STACK}/api/github/repositories`)).json();
+    const fixture = repos.find((r) => r.fullName === FIXTURE_REPO);
+    expect(fixture).toBeTruthy();
+    expect(fixture.claimedByTeam).toBe("Demo Team");
+  });
+
+  test("the real OAuth start route is refused while GitHub is unconfigured", async ({ page }) => {
+    // In development GitHub is deliberately unconfigured: the real route's
+    // guard must refuse the social sign-in rather than half-initialise it.
+    const login = await page.request.get(`${STACK}/api/github/login`);
+    expect(login.status()).toBe(404);
   });
 });
