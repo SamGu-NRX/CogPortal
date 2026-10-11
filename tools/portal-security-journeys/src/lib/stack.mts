@@ -97,11 +97,10 @@ function journeyWranglerConfig(portal: string, devVars: Record<string, string>):
   };
 }
 
-/** Resolve true once something accepts TCP connections on 127.0.0.1:port —
- * a health signal that never touches the database. */
-function portAccepts(port: number): Promise<boolean> {
+/** Try one TCP connect; resolves true when it connects. */
+function tcpConnect(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = netConnect({ host: "127.0.0.1", port });
+    const socket = netConnect({ host, port });
     socket.setTimeout(2000);
     socket.once("connect", () => {
       socket.destroy();
@@ -114,6 +113,13 @@ function portAccepts(port: number): Promise<boolean> {
     socket.once("timeout", fail);
     socket.once("error", fail);
   });
+}
+
+/** Resolve true once the port accepts connections on either loopback stack —
+ * a health signal that never touches the database. */
+async function portAccepts(port: number): Promise<boolean> {
+  if (await tcpConnect("127.0.0.1", port)) return true;
+  return tcpConnect("::1", port);
 }
 
 /** Run a wrangler command against the journey's isolated state, turning a
@@ -209,7 +215,7 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
   runWrangler(portal, [`d1 execute ${dbName}`, ...wranglerStateArgs, `--file="${seed}"`], "D1 seed");
 
   log(`booting vite (portal) on :${port}`);
-  const child: ChildProcess = spawn("pnpm", ["exec", "vite", "--config", journeyViteConfigPath, "--port", String(port), "--strictPort"], {
+  const child: ChildProcess = spawn("pnpm", ["exec", "vite", "--config", journeyViteConfigPath, "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
     cwd: portal,
     env: { ...process.env, CI: "1" },
     stdio: ["ignore", "pipe", "pipe"],
