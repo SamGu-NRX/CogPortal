@@ -3,6 +3,10 @@
 // every request's D1 binding calls (prepare/batch/exec statements) are counted
 // and reported on a response header. No repo worker file is edited; the
 // instrumented build is labeled as such in every receipt.
+// Wall time is deliberately NOT reported: performance.now around a fetch is
+// not Worker CPU. Receipts report the 10 ms Worker CPU budget as UNMEASURED
+// until real workerd CPU telemetry (wrangler dev tail / inspector) is wired
+// in; D1 statement counts per request remain the measured signal.
 import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,12 +33,10 @@ export default {
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
     const state = { statements: 0 };
     const env: Env = { ...rawEnv, DB: countD1Proxy(rawEnv.DB, state) };
-    const started = performance.now();
     try {
       const res = await realWorker.fetch(request, env as never, ctx);
       const headers = new Headers(res.headers);
       headers.set("x-upgrade-suite-queries", String(state.statements));
-      headers.set("x-upgrade-suite-worker-ms", (performance.now() - started).toFixed(3));
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
     } catch (e) {
       console.error("[upgrade-suite] request failed:", (e as Error).message);
