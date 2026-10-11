@@ -75,8 +75,8 @@ await cases.testSmall.run(async () => {
   const case_ = cases.testSmall;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vision26-demo-repository",
-    files: { "audio_submission.py": SUBMISSION_PY },
+    originFullName: "cogworks-demo/vector-voyagers",
+    files: { "submission.py": SUBMISSION_PY },
   });
   try {
     await link(case_, home, "journey-bench");
@@ -109,8 +109,8 @@ await cases.runSync.run(async () => {
   const case_ = cases.runSync;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vision26-demo-repository",
-    files: { "audio_submission.py": SUBMISSION_PY },
+    originFullName: "cogworks-demo/vector-voyagers",
+    files: { "submission.py": SUBMISSION_PY },
   });
   try {
     await link(case_, home, "journey-bench");
@@ -149,8 +149,8 @@ await cases.liveBubble.run(async () => {
   const case_ = cases.liveBubble;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vision26-demo-repository",
-    files: { "audio_submission.py": SUBMISSION_PY },
+    originFullName: "cogworks-demo/vector-voyagers",
+    files: { "submission.py": SUBMISSION_PY },
   });
   try {
     await link(case_, home, "journey-bench");
