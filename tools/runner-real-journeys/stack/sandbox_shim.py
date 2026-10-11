@@ -46,7 +46,27 @@ import types
 import uuid
 
 BOX = os.environ.get("COGBOX_ROOT", "/home/user/work/cogbox")
-REPO = os.environ.get("COGBOX_REPO", "/home/user/work/CogPortal-rrj")
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _repo_root() -> str:
+    """The repo root: COGBOX_REPO override, else git's own answer."""
+    override = os.environ.get("COGBOX_REPO")
+    if override:
+        return override
+    result = subprocess.run(
+        ["git", "-C", HERE, "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ShimError(
+            "cannot locate the repo root with git rev-parse --show-toplevel "
+            "from %s; set COGBOX_REPO" % HERE
+        )
+    return result.stdout.strip()
+
+
+REPO = _repo_root()
 
 #: PY38_VENV from cogbench.environment — argv[0] the controller uses for
 #: week1/week3 tracks, mapped to the track's local venv.

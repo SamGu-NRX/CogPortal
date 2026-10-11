@@ -85,7 +85,27 @@ from typing import Any, Dict, List, Optional, Tuple
 
 HERE = Path(__file__).resolve().parent
 SUITES = HERE.parent
-REPO = Path(os.environ.get("COGBOX_REPO", SUITES.parent.parent))
+def _repo_root() -> Path:
+    """The repo root: COGBOX_REPO override, else git's own answer.
+
+    The suite's position in a checkout is an assumption; git's is a fact.
+    """
+    override = os.environ.get("COGBOX_REPO")
+    if override:
+        return Path(override)
+    result = subprocess.run(
+        ["git", "-C", str(HERE), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "cannot locate the repo root with git rev-parse --show-toplevel "
+            "from %s; set COGBOX_REPO" % HERE
+        )
+    return Path(result.stdout.strip())
+
+
+REPO = _repo_root()
 RUNNER_SRC = REPO / "apps" / "runner-modal" / "src"
 COGBENCH_SRC = REPO / "python" / "cogbench" / "src"
 BENCHMARKS = REPO / "benchmarks"
