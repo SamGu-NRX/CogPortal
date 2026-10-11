@@ -1,7 +1,10 @@
 // Worker + SPA server orchestration. One origin serves both: the cloudflare
-// vite plugin's `vite preview` runs the BUILT Worker and the built SPA on a
+// vite plugin's dev server runs the Worker (source, workerd) and the SPA on a
 // single port, with the fixture execution provider and dev-auth enabled via a
 // generated .dev.vars. No repo file is edited; .dev.vars is gitignored.
+// NOTE: `vite preview` is NOT usable here — the plugin merges .dev.vars into
+// Worker bindings only in dev mode, so preview serves wrangler.jsonc's
+// production vars (DEV_AUTH=disabled) and every dev-auth login 404s.
 import { spawn, spawnSync } from "node:child_process";
 import { writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import path from "node:path";
@@ -56,11 +59,16 @@ export function startPortal({ checkoutDir, port = 5173, nodeDir }) {
   const env = { ...process.env };
   if (nodeDir) env.PATH = `${nodeDir}:${env.PATH}`;
 
+  // vite dev (not preview): dev mode is what merges .dev.vars into the
+  // Worker bindings — dev-auth and the fixture provider live there.
   const child = spawn(
     "pnpm",
-    ["exec", "vite", "preview", "--port", String(port), "--strictPort"],
-    { cwd: portalDir, env, detached: true, stdio: ["ignore", "ignore", "ignore"] },
+    ["exec", "vite", "--port", String(port), "--strictPort"],
+    { cwd: portalDir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
   );
+  const log = (chunk) => appendFileSync(logPath, chunk);
+  child.stdout?.on("data", log);
+  child.stderr?.on("data", log);
   const stop = () => {
     try { process.kill(-child.pid, "SIGTERM"); } catch { /* already gone */ }
   };
@@ -82,7 +90,7 @@ export function startPortal({ checkoutDir, port = 5173, nodeDir }) {
       } catch { /* not up yet */ }
       if (Date.now() > deadline) {
         stop();
-        reject(new Error(`vite preview did not answer within 180s; log: ${logPath}`));
+        reject(new Error(`vite dev server did not answer within 180s; log: ${logPath}`));
         return;
       }
       setTimeout(poll, 500);
