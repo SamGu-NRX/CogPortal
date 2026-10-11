@@ -22,6 +22,13 @@ const serverSchema = {
   EXECUTION_PROVIDER: z.enum(["fixture", "modal"]),
   PUBLIC_ORIGIN: z.string().optional(),
   COURSE_GUILD_ID: z.string().optional(),
+  /** Test seam: base URL overrides for outbound provider traffic. Defaults
+   *  are unchanged in every real environment (nothing in wrangler.jsonc or
+   *  the deploy sets them); the real-journeys harness
+   *  (tools/portal-real-journeys) sets them in local bindings to point the
+   *  Worker's real outbound code at labelled provider doubles. */
+  DISCORD_API_BASE_URL: z.string().optional(),
+  GITHUB_API_BASE_URL: z.string().optional(),
   /** Secret used only for posting/editing team run bubbles via Discord REST. */
   DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_CLIENT_ID: z.string().optional(),

@@ -26,7 +26,14 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { runSurfaces } from "../db/schema";
 
-const DISCORD_API = "https://discord.com/api/v10";
+// Test seam (see env.ts): same override as services/discord.ts, for the
+// message-posting client.
+// Test seam (see env.ts): the real-journeys harness overrides the Discord
+// base URL in local bindings so this real client code talks to the labelled
+// Discord double. The default is unchanged in every real environment.
+function discordApi(env: Env): string {
+  return env.DISCORD_API_BASE_URL?.length ? env.DISCORD_API_BASE_URL : "https://discord.com/api/v10";
+}
 
 interface DiscordMessage {
   id: string;
@@ -54,7 +61,7 @@ async function discordRequest<T>(
 ): Promise<T> {
   if (!env.DISCORD_BOT_TOKEN) throw new Error("Discord message delivery is not configured.");
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch(`${DISCORD_API}${path}`, {
+    const response = await fetch(`${discordApi(env)}${path}`, {
       method,
       headers: {
         Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,

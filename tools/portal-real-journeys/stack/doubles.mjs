@@ -38,7 +38,11 @@ function server(label, port, handler) {
       try {
         body = bodyRaw ? JSON.parse(bodyRaw) : bodyRaw;
       } catch {
-        // form-encoded bodies stay strings
+        // Non-JSON bodies: hand form-encoded posts to handlers as plain
+        // objects — that is the encoding every OAuth token endpoint speaks.
+        if ((req.headers["content-type"] ?? "").includes("application/x-www-form-urlencoded") && bodyRaw) {
+          body = Object.fromEntries(new URLSearchParams(bodyRaw));
+        }
       }
       state.requests += 1;
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
