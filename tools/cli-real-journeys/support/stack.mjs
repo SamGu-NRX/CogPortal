@@ -164,10 +164,15 @@ async function readBody(req) {
 
 // Forward with node:http rather than fetch: undici derives the Host header
 // from the URL and ignores an explicit override, which un-routes the request.
+// agent: false disables keep-alive pooling: Node 19+ enables keep-alive on
+// the global agent, and a pooled socket workerd closed while idle killed one
+// proxied request per run with a socket hang up (run 7/8 receipts). A fresh
+// connection per forward is what a sane reverse proxy does; the localhost
+// handshake costs microseconds.
 function forward(req, res, forwardPort, routeHost) {
   const headers = { ...req.headers, host: routeHost };
   const upstream = http.request(
-    { host: "127.0.0.1", port: forwardPort, path: req.url, method: req.method, headers },
+    { host: "127.0.0.1", port: forwardPort, path: req.url, method: req.method, headers, agent: false },
     (up) => {
       res.writeHead(up.statusCode, up.statusMessage, up.headers);
       up.pipe(res);
