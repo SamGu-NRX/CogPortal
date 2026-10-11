@@ -5,15 +5,19 @@ Adversarial end-to-end journeys for surface S10 of `docs/plan/real-user-readines
 portal Worker and D1, with the submissions a student actually writes on a Tuesday —
 ordinary broken code, never cheating.
 
-One command runs everything:
+The journey runner itself is **not built yet** — there is no
+`run-journeys.mjs` and no stub stands in for it; the entry point appears here
+when the first journey lands. What exists today is the stack it will drive,
+started by hand:
 
 ```
-node tools/runner-real-journeys/run-journeys.mjs            # all lanes, one journey
-node tools/runner-real-journeys/run-journeys.mjs --week=1,2,3 --lane=all
+bash tools/runner-real-journeys/stack/bootstrap.sh            # edge + runner, suite-only trust
+sudo -E bash tools/runner-real-journeys/stack/setup-host.sh   # local CA, certs, private hosts file
+python3 tools/runner-real-journeys/stack/build_envs.py        # course venv stacks
 ```
 
-Results land in `receipts/` (git-ignored): one JSON per journey with every case's
-pass bar verdict, and a summary printed at the end.
+The full design — lanes, corpus, receipt format — lives in this file and in
+`CONTRACTS.md`.
 
 ## What is real
 
@@ -45,9 +49,9 @@ pass bar verdict, and a summary printed at the end.
   namespace/prlimit sandbox above. The deployed images, their baked dependency
   versions, and Modal's own enforcement are not exercised. Gate command recorded in
   the Handoff.
-- **GitHub REST** — the plan allows a double. `api.github.com` is answered by a
-  local HTTPS server (`stack/github-double.mjs`, trusted via the suite's local CA)
-  that serves source tarballs; the fixture repository `cogworks-demo/face-finder`
+- **GitHub REST** — the plan allows a double. `api.github.com` is answered by
+  the suite's HTTPS edge (`stack/edge.py`, trusted via the suite's local CA,
+  scoped to suite processes) that serves source tarballs; the fixture repository `cogworks-demo/face-finder`
   keeps the Worker off real GitHub entirely (`FixtureGitHubClient`). No real OAuth.
 - **Discord** — never called. Nothing in this suite touches discord.com.
 
