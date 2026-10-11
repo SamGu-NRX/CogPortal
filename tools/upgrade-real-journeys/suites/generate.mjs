@@ -1,3 +1,4 @@
+import { runWithFailureReceipt } from "../lib/failure-receipt.mjs";
 // STAGE 1 — beta state generation. Fill in (owner: state-generation sub-thread).
 // Objective: a fresh local D1 with beta's migrations + seed, then realistic
 // course state created ONLY through beta's real paths (its own SPA and API as
@@ -31,6 +32,13 @@ const SUITE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const REPO_DIR = path.resolve(SUITE_DIR, "..", "..");
 
 export async function run() {
+  return runWithFailureReceipt(
+    new URL("../receipts/generate.json", import.meta.url),
+    runGeneration,
+  );
+}
+
+async function runGeneration() {
   const t0 = Date.now();
   const log = (msg) => console.log(`[generate] ${msg}`);
   const logFile = path.join(SUITE_DIR, ".cache", "generate.log");

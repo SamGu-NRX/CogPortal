@@ -425,7 +425,7 @@ export async function generateBetaState({ checkoutDir, baseUrl, repoDir, suiteDi
   const team = await teamPhase({ baseUrl, log });
   await adminPhase({ baseUrl, teamId: team.teamId, log });
   await hostedRunsPhase({ baseUrl, clients: team.clients, log });
-  const cli = cliPhase({
+  const cli = await cliPhase({
     stagingPin: readCogbenchPin(checkoutDir), repoDir, suiteDir, baseUrl, clients: team.clients, log });
   quirks.push(...cli.quirks);
 
