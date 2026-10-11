@@ -1,5 +1,10 @@
 # Portal journey browser harness (evidence tooling)
 
+> **Superseded (2026-10-11):** this fixture-server harness is replaced by
+> `tools/portal-real-journeys` on this branch — the real-journeys Playwright
+> suite that drives the built SPA + Worker + real D1 through labelled provider
+> doubles. Kept only for the historical evidence receipts referenced below.
+
 The Playwright walk and axe drivers behind the evidence receipts in
 `docs/design/evidence/connect-setup-journey.md` (commit a8aa493 evidence,
 e8fc4d3 receipts). Serves the **built** portal behind a local fixture server —

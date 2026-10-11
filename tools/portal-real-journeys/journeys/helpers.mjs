@@ -5,7 +5,7 @@
 // requires the development configuration); state is read back through real
 // APIs; shaping happens on the wire via the stack proxy.
 
-const STACK = "http://127.0.0.1:8810";
+export const STACK = "http://127.0.0.1:8810";
 
 /** Announces the journey: a fresh D1, freshly built SPA, fresh Worker. */
 export async function freshJourney(name, { profile = "fixture" } = {}) {
