@@ -102,7 +102,7 @@ export const j8: Journey = {
       checks.push(
         secondSignOut.status === 200 || secondSignOut.status >= 500
           ? { name: "POST /api/auth/sign-out again is the documented idempotent success (does not leak session existence)", ok: true, detail: `HTTP ${secondSignOut.status}` }
-          : { name: "POST /v1/cli/device/start ... sign-out again is the documented idempotent success (does not leak session existence)", ok: false, detail: `HTTP ${secondSignOut.status}` },
+          : { name: "POST /api/auth/sign-out again is the documented idempotent success (does not leak session existence)", ok: false, detail: `HTTP ${secondSignOut.status}` },
       );
 
       return checks;
