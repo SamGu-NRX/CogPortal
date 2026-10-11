@@ -5,7 +5,7 @@ Regenerated from the recorded result bytes in `results/` only; no builder execut
 - Manifest sha256: `5bf2720cac1ca1d376b7dde0a8fc1b8cac7ed2e728b18c1fd017974809236dc6`
 - python/cogbench/src/cogbench/process.py: `b24d40c16d186486b67bc826db68094b8a6150b06aeef5affd172192bc0f18aa`
 - apps/portal/worker/services/process-signals.ts: `1a99d96c379889ad4bad8c8ad4e1d473a08827fc6d0cfed497786e0eff84cd60`
-- TypeScript arm: exercised via `pnpm exec tsx experiments/process-signals/run-worker.ts` (cwd `/home/user/work/CogPortal-signals`)
+- TypeScript arm: exercised via `pnpm exec tsx experiments/process-signals/run-worker.ts` (cwd `/home/user/work/cogportal-pr97`)
 
 ## Scenario rows (paired histories)
 

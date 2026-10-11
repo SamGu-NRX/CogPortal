@@ -16,6 +16,14 @@ Two modes:
 An unexercised TypeScript arm (tsx unavailable, or a scenario the Python
 module cannot represent) is recorded as exactly that -- it is never treated
 as evidence of agreement or divergence.
+
+Current-invocation gating: every TS comparison reads only outputs the TS
+worker produced during THIS run.py invocation. The worker is handed an
+invocation-scoped staging path plus a per-run run-id; its output reaches the
+published path only when it exits zero AND its stderr carries that run-id.
+A failed invocation therefore stays unexercised even if output files from an
+earlier, already-committed run are still sitting at the published paths --
+existence of a file is never evidence that this run produced it.
 """
 
 from __future__ import annotations
@@ -26,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -162,24 +171,45 @@ def find_ts_invocation(repo_root: Path):
     return None
 
 
-def run_ts_arm(invocation, fixture: dict, out_path: Path) -> dict:
+def run_ts_arm(invocation, fixture: dict, out_path: Path, run_id: str) -> dict:
     """Execute the TS adapter on one fixture. Returns {'ok': True, ...} or
-    {'ok': False, 'reason': 'unexercised', 'detail': ...}."""
+    {'ok': False, 'reason': 'unexercised', 'detail': ...}.
+
+    The worker writes to an invocation-scoped staging path; the published
+    `out_path` is replaced only when the process exited zero and its stderr
+    carries this run's run-id line. A nonzero exit, a timeout, a missing or
+    mismatched run-id leaves any pre-existing `out_path` (e.g. a stale file
+    committed by an earlier run) exactly as it is -- and unread.
+    """
     if invocation is None:
-        return {"ok": False, "reason": "unexercised", "detail": "no runnable `pnpm exec tsx` found; TypeScript arm not executed"}
+        return {"ok": False, "reason": "unexercised", "runId": run_id, "detail": "no runnable `pnpm exec tsx` found; TypeScript arm not executed"}
     cwd, args = invocation
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
         json.dump(fixture, handle)
         fixture_path = handle.name
+    staged = out_path.with_name(f"{out_path.name}.{run_id}.staged")
     try:
-        proc = subprocess.run(args + [fixture_path, str(out_path)], cwd=cwd, capture_output=True, text=True, timeout=120)
+        staged.unlink(missing_ok=True)
+        proc = subprocess.run(
+            args + [fixture_path, str(staged), "--run-id", run_id],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         if proc.returncode != 0:
-            return {"ok": False, "reason": "unexercised", "detail": f"tsx exited {proc.returncode}: {proc.stderr[-400:]}"}
-        return {"ok": True, "path": str(out_path)}
+            return {"ok": False, "reason": "unexercised", "runId": run_id, "detail": f"tsx exited {proc.returncode}: {proc.stderr[-400:]}"}
+        if f"run-id {run_id}" not in proc.stderr:
+            return {"ok": False, "reason": "unexercised", "runId": run_id, "detail": "worker stderr carried no matching run-id; output is not attributable to this invocation"}
+        if not staged.exists():
+            return {"ok": False, "reason": "unexercised", "runId": run_id, "detail": "worker exited zero with a matching run-id but wrote no output"}
+        staged.replace(out_path)
+        return {"ok": True, "path": str(out_path), "runId": run_id}
     except subprocess.TimeoutExpired:
-        return {"ok": False, "reason": "unexercised", "detail": "tsx timed out after 120s"}
+        return {"ok": False, "reason": "unexercised", "runId": run_id, "detail": "tsx timed out after 120s"}
     finally:
         Path(fixture_path).unlink(missing_ok=True)
+        staged.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +258,7 @@ def run_live(results_dir: Path, manifest_path: Path) -> dict:
     ablations_dir.mkdir(parents=True, exist_ok=True)
 
     invocation = find_ts_invocation(H.REPO_ROOT)
-
+    run_id = uuid.uuid4().hex
     rows = []
     determinism = {"note": "Each arm ran twice per unit; hashes must agree. A cached/replayed run is compared in regeneration.json.", "units": {}}
 
@@ -249,12 +279,12 @@ def run_live(results_dir: Path, manifest_path: Path) -> dict:
             (runs_dir / f"{scenario_id}.python.json").write_text(json.dumps(first, indent=2, sort_keys=True) + "\n")
 
         # TypeScript arm (also twice).
-        ts_record = run_ts_arm(invocation, fixture_for(scenario, roster_members), runs_dir / f"{scenario_id}.ts.json")
+        ts_record = run_ts_arm(invocation, fixture_for(scenario, roster_members), runs_dir / f"{scenario_id}.ts.json", run_id)
         ts_canonical = None
         ts_repeat = "not-run"
         if ts_record["ok"]:
             first_ts = json.loads((runs_dir / f"{scenario_id}.ts.json").read_text())
-            ts_record2 = run_ts_arm(invocation, fixture_for(scenario, roster_members), runs_dir / f"{scenario_id}.ts.repeat.json")
+            ts_record2 = run_ts_arm(invocation, fixture_for(scenario, roster_members), runs_dir / f"{scenario_id}.ts.repeat.json", run_id)
             if ts_record2["ok"]:
                 second_ts = json.loads(Path(ts_record2["path"]).read_text())
                 ts_repeat = "identical" if H.canonical_hash(first_ts) == H.canonical_hash(second_ts) else "DIVERGED"
@@ -296,17 +326,21 @@ def run_live(results_dir: Path, manifest_path: Path) -> dict:
         arm_results["python"] = diff_paths(base_out, ablated_out)
 
         if invocation is not None:
+            # Gate on outputs this invocation published, never on file
+            # existence: a stale committed {id}.ts.{base,ablated}.json must
+            # not become evidence for a failed current run.
+            ts_records = {}
             for label, sc in (("base", base), ("ablated", mutant)):
-                record = run_ts_arm(invocation, fixture_for(sc, roster_members), ablations_dir / f"{ablation_id}.ts.{label}.json")
-                if not record["ok"]:
-                    (ablations_dir / f"{ablation_id}.ts.unexercised.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+                ts_records[label] = run_ts_arm(invocation, fixture_for(sc, roster_members), ablations_dir / f"{ablation_id}.ts.{label}.json", run_id)
+                if not ts_records[label]["ok"]:
+                    (ablations_dir / f"{ablation_id}.ts.unexercised.json").write_text(json.dumps(ts_records[label], indent=2, sort_keys=True) + "\n")
             base_file = ablations_dir / f"{ablation_id}.ts.base.json"
             ablated_file = ablations_dir / f"{ablation_id}.ts.ablated.json"
-            if base_file.exists() and ablated_file.exists():
+            if all(record["ok"] for record in ts_records.values()):
                 arm_results["ts"] = diff_paths(json.loads(base_file.read_text()), json.loads(ablated_file.read_text()))
         else:
             (ablations_dir / f"{ablation_id}.ts.unexercised.json").write_text(
-                json.dumps({"ok": False, "reason": "unexercised", "detail": "no runnable tsx"}, indent=2) + "\n"
+                json.dumps({"ok": False, "reason": "unexercised", "runId": run_id, "detail": "no runnable tsx"}, indent=2) + "\n"
             )
 
         expected = EXPECTED_ABLATION_DELTAS[ablation_id]
@@ -332,6 +366,7 @@ def run_live(results_dir: Path, manifest_path: Path) -> dict:
     # -- Assemble ----------------------------------------------------------
     confusion = {
         "note": "Confusion table over the frozen histories. Verdicts compare observed deltas against declared expectations; an unexercised arm is never evidence of agreement or divergence. No per-person scores or grades appear anywhere in this table.",
+        "runId": run_id,
         "tsxInvocation": {"cwd": str(invocation[0]), "args": invocation[1]} if invocation else None,
         "sourceHashes": {
             "python/cogbench/src/cogbench/process.py": H.sha256_of(H.PYTHON_SOURCE),

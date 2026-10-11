@@ -6,7 +6,12 @@
  * `apps/portal/worker/services/process-signals.ts` builder, and writes the
  * canonical result JSON to the output path given as argv[1]. Run via:
  *
- *   pnpm exec tsx experiments/process-signals/run-worker.ts <fixture.json> <out.json>
+ *   pnpm exec tsx experiments/process-signals/run-worker.ts <fixture.json> <out.json> [--run-id <id>]
+ *
+ * `--run-id` is never written into the canonical output: the runner passes
+ * this run's id, the adapter echoes `run-id <id>` on stderr, and the runner
+ * publishes the output only when that exact id comes back. The channel keeps
+ * a comparison from ever reading bytes an earlier run left behind.
  *
  * This adapter is plumbing, not a copy of the builder: it only decodes the
  * neutral fixture into the shapes `buildProcessSignals` consumes (ISO strings
@@ -44,9 +49,11 @@ interface Fixture {
 const fixturePath = process.argv[2];
 const outPath = process.argv[3];
 if (!fixturePath || !outPath) {
-  console.error("usage: tsx run-worker.ts <fixture.json> <out.json>");
+  console.error("usage: tsx run-worker.ts <fixture.json> <out.json> [--run-id <id>]");
   process.exit(2);
 }
+const runId: string | null = process.argv[4] === "--run-id" ? (process.argv[5] ?? null) : null;
+console.error(`run-id ${runId ?? "none"}`);
 
 const fixture: Fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
 
