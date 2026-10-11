@@ -54,6 +54,22 @@ async function latestReport(repoPath: string): Promise<Record<string, any>> {
   return JSON.parse(await readFile(join(dir, names[names.length - 1]), "utf8"));
 }
 
+/** The trailing JSON document in CLI output, parsed. The document may sit
+ * after human-readable lines and contain nested objects, so scanning from
+ * the last `{` (which is nested, not the document's start) fails; instead
+ * try each `{` from the end and take the first suffix that parses whole. */
+function trailingJson(text: string): any | null {
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (text[i] !== "{") continue;
+    try {
+      return JSON.parse(text.slice(i));
+    } catch {
+      // keep scanning backwards
+    }
+  }
+  return null;
+}
+
 const cases = {
   selfLink: new Case("benchmark-real-run", "self-link", ["portal Worker", "installed CLI"]),
   testSmall: new Case("benchmark-real-run", "test-small-case", ["installed CLI", "benchmark package", "team repo"]),
@@ -81,7 +97,7 @@ await cases.testSmall.run(async () => {
   const case_ = cases.testSmall;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vector-voyagers",
+    originFullName: "cogworks-demo/face-finder",
     files: { "submission.py": SUBMISSION_PY },
   });
   try {
@@ -93,12 +109,9 @@ await cases.testSmall.run(async () => {
       case_.blocked(`course environment missing a real dependency; CLI output ends: ${test.output().slice(-600)}`);
     }
     case_.expect(exit === 0, "the small-case run scored the submission", `cogworks test exited ${exit}`);
-    const tail = test.output().slice(test.output().lastIndexOf("{"));
-    let parsed: any;
-    try {
-      parsed = JSON.parse(tail);
-    } catch {
-      case_.blocked(`--json output was not parseable; tail: ${tail.slice(0, 400)}`);
+    const parsed = trailingJson(test.output());
+    if (parsed === null) {
+      case_.blocked(`--json output was not parseable; tail: ${test.output().slice(-400)}`);
     }
     case_.expect(
       parsed && typeof parsed === "object",
@@ -115,7 +128,7 @@ await cases.runSync.run(async () => {
   const case_ = cases.runSync;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vector-voyagers",
+    originFullName: "cogworks-demo/face-finder",
     files: { "submission.py": SUBMISSION_PY },
   });
   try {
@@ -155,7 +168,7 @@ await cases.liveBubble.run(async () => {
   const case_ = cases.liveBubble;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vector-voyagers",
+    originFullName: "cogworks-demo/face-finder",
     files: { "submission.py": SUBMISSION_PY },
   });
   try {

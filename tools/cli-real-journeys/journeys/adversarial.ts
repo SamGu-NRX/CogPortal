@@ -97,7 +97,7 @@ await cases.syncFault.run(async () => {
   const case_ = cases.syncFault;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vector-voyagers",
+    originFullName: "cogworks-demo/face-finder",
     files: { "submission.py": SUBMISSION_PY },
   });
   try {
@@ -151,7 +151,7 @@ await cases.liveFault.run(async () => {
   const case_ = cases.liveFault;
   const home = await CliHome.create(env("VENV_WEEK1"));
   const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/vector-voyagers",
+    originFullName: "cogworks-demo/face-finder",
     files: { "submission.py": SUBMISSION_PY },
   });
   try {

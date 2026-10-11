@@ -69,7 +69,7 @@ await cases.deviceLink.run(async () => {
     const exit = await link.exited(60_000);
     case_.expect(exit === 0, "the CLI linked after approval", `cogworks link exited ${exit}; output: ${link.output().slice(-400)}`);
     case_.expect(
-      /Linked\./.test(link.output()),
+      /Linked\b/.test(link.output()),
       "the CLI said it linked",
       link.output().slice(-300),
     );
