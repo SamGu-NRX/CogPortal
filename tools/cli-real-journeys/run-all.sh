@@ -82,7 +82,59 @@ for journey in setup-and-link benchmark-real-run adversarial; do
 done
 set -e
 
-echo "== [7/7] report =="
+echo "== [7/8] both documented staging pins, on every supported Python =="
+# Staging students install the CLI pinned by COGBENCH_SOURCE, and the pin
+# differs per environment: each staging copy of benchmark-packages.ts names
+# its own CLI commit. Read every pin from the revision that bakes it — never
+# from the working tree — then install it the documented way (python -m pip
+# install --upgrade --force-reinstall, docs/design/student-cli-and-onboarding.md)
+# into every supported environment and exercise it there. The receipts carry
+# the pin id, so a matrix cell can never be mistaken for another's.
+declare -a PIN_REVISIONS=("beta:064400e9cf65874b87fe888fc6fd14a564095c5e" "alpha:ecae6171521d")
+# week1/week2/week3 are the course's Python 3.8 environments; py311 and py313
+# are the other supported versions the course documents (the hosted runner's
+# shared image is 3.11; the 3.8 runners are baked venvs).
+declare -a PIN_ENVS=("week1" "week2" "week3" "py311" "py313")
+for pin_spec in "${PIN_REVISIONS[@]}"; do
+  PIN_ID="${pin_spec%%:*}"
+  PIN_REV="${pin_spec##*:}"
+  PIN_SOURCE=$(git -C "$REPO_ROOT" show "$PIN_REV:apps/portal/src/lib/benchmark-packages.ts" \
+    | sed -n 's/^[[:space:]]*"git+\([^"]*\)".*$/git+\1/p' | head -1)
+  if [ -z "$PIN_SOURCE" ]; then
+    echo "pin $PIN_ID: could not read COGBENCH_SOURCE from $PIN_REV" >&2
+    FAILED=1
+    continue
+  fi
+  for env_name in "${PIN_ENVS[@]}"; do
+    env_bin="$CONDA_ROOT/envs/$env_name/bin"
+    pin_log="$RESULTS/pin-$PIN_ID-$env_name-install.log"
+    if [ ! -x "$env_bin/python" ]; then
+      PIN_INSTALL_STATUS=missing
+      : >"$pin_log"
+    elif "$env_bin/python" -m pip install --quiet --upgrade --force-reinstall \
+      "cogworks-benchmark @ $PIN_SOURCE" >"$pin_log" 2>&1; then
+      PIN_INSTALL_STATUS=ok
+    else
+      PIN_INSTALL_STATUS=failed
+      tail -5 "$pin_log" >&2
+    fi
+    export PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS
+    export VENV_MATRIX="$env_bin" PIN_ENV="$env_name" PIN_INSTALL_LOG="$pin_log"
+    if [ "$env_name" = "week1" ]; then
+      export PIN_TEST_BENCHMARK="audio-identification"
+    else
+      export PIN_TEST_BENCHMARK=""
+    fi
+    echo "--- pin $PIN_ID on $env_name: install $PIN_INSTALL_STATUS"
+    if ! "$NODE24/bin/npx" tsx journeys/pin-exercise.ts \
+      >"$RESULTS/journey-pin-$PIN_ID-$env_name.log" 2>&1; then
+      FAILED=1
+    fi
+  done
+done
+unset PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK
+
+echo "== [8/8] report =="
 kill "$STACK_PID" 2>/dev/null || true
 wait "$STACK_PID" 2>/dev/null || true
 RESULTS_DIR="$RESULTS" node support/report.mjs || true

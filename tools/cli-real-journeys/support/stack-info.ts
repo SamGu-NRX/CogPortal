@@ -40,6 +40,16 @@ export async function readStackInfo(): Promise<StackInfo> {
   return JSON.parse(await readFile(path, "utf8")) as StackInfo;
 }
 
+/** Which documented staging pin a run exercised, when the pin matrix set one. */
+export interface PinLabel {
+  /** The staging environment's pin id: which copy of benchmark-packages.ts. */
+  id: string;
+  /** The revision whose copy of benchmark-packages.ts the pin was read from. */
+  revision: string;
+  /** The CLI source the pin's COGBENCH_SOURCE resolves to (a pip git+ reference). */
+  source: string;
+}
+
 /** One receipt per case. Written next to the run's other results, not committed. */
 export interface Receipt {
   journey: string;
@@ -53,6 +63,8 @@ export interface Receipt {
   commands?: Array<{ args: string; exit: number | null; output: string }>;
   /** What stopped the case, when the status is not PASS. */
   blockedReason?: string;
+  /** The staging pin the CLI came from, when the case ran under the pin matrix. */
+  pin?: PinLabel;
 }
 
 export async function writeReceipt(receipt: Receipt): Promise<void> {
