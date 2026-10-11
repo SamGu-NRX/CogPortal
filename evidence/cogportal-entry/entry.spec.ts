@@ -4,6 +4,8 @@ import {
   heroCta,
   openLanding,
   openLinkedPage,
+  resultsPath,
+  screenshotName,
   writeResults,
 } from "./helpers";
 
@@ -65,7 +67,7 @@ test("the entry renders and points at sign-in", async ({ page }, testInfo) => {
   }
 
   await page.screenshot({
-    path: `evidence/cogportal-entry/results/landing-${testInfo.project.name}.png`,
+    path: resultsPath(screenshotName(testInfo, "landing")),
     fullPage: true,
   });
 });
@@ -111,7 +113,7 @@ test("keyboard navigation reaches sign-in", async ({ page }, testInfo) => {
   await page.waitForURL("**/signin");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");
   await page.screenshot({
-    path: `evidence/cogportal-entry/results/keyboard-signin-${testInfo.project.name}.png`,
+    path: resultsPath(screenshotName(testInfo, "keyboard-signin")),
     fullPage: true,
   });
 });
