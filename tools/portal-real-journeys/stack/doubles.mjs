@@ -28,7 +28,7 @@ export const DOUBLE_PORTS = {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function server(label, port, handler) {
-  const state = { log: [], requests: 0 };
+  const state = { log: [], requests: 0, rules: [] };
   const instance = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -46,9 +46,63 @@ function server(label, port, handler) {
       }
       state.requests += 1;
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
-      state.log.push({ method: req.method, path: url.pathname, at: Date.now() });
+      state.log.push({ method: req.method, path: url.pathname, body: bodyRaw, at: Date.now() });
+      // Control plane (see README): inspect exactly what this double received
+      // and tell it to replay (duplicate) matched requests. Control routes are
+      // served here on the loopback double itself, never proxied anywhere.
+      const controlReply = (payload) => {
+        res.writeHead(200, { "content-type": "application/json", "x-cogportal-double": label });
+        res.end(JSON.stringify(payload));
+      };
+      if (url.pathname === "/__doubles/journal" && req.method === "GET") {
+        return controlReply({ double: label, log: state.log });
+      }
+      if (url.pathname === "/__doubles/rules" && req.method === "POST") {
+        state.rules.push(body && typeof body === "object" ? body : {});
+        return controlReply({ ok: true, rules: state.rules.length });
+      }
+      if (url.pathname === "/__doubles/reset" && req.method === "POST") {
+        state.log.length = 0;
+        state.rules.length = 0;
+        return controlReply({ ok: true });
+      }
       try {
         await handler({ req, res, url, method: req.method, body, headers: req.headers });
+        // A duplicate rule is the wire-level shape of a second identical send:
+        // the same request is received and journalled again, marked duplicate.
+        const rule = state.rules.find(
+          (candidate) =>
+            candidate.duplicate > 0 &&
+            (!candidate.match?.method || candidate.match.method === req.method) &&
+            (!candidate.match?.path || candidate.match.path === url.pathname),
+        );
+        if (rule) {
+          rule.duplicate -= 1;
+          const captured = { status: 0, body: "" };
+          await handler({
+            req,
+            res: {
+              writeHead: (status) => {
+                captured.status = status;
+              },
+              end: (chunk) => {
+                captured.body = chunk ? chunk.toString() : "";
+              },
+            },
+            url,
+            method: req.method,
+            body,
+            headers: req.headers,
+          });
+          state.log.push({
+            method: req.method,
+            path: url.pathname,
+            body: bodyRaw,
+            duplicate: true,
+            status: captured.status,
+            at: Date.now(),
+          });
+        }
       } catch (error) {
         res.writeHead(500, { "content-type": "application/json", "x-cogportal-double": label });
         res.end(JSON.stringify({ message: `double ${label} internal error: ${error.message}` }));
@@ -222,6 +276,11 @@ const discord = server("discord", DOUBLE_PORTS.discord, (ctx) => {
     res.end(JSON.stringify(payload));
   };
 
+  // Harness control: mint an activity code the real exchange can spend.
+  if (url.pathname === "/__doubles/discord/seed" && method === "POST") {
+    discord.state.activityCodes.set(body.code ?? "", { scope: "identify" });
+    return reply(200, { ok: true, code: body.code ?? "" });
+  }
   if (url.pathname === "/oauth2/token" && method === "POST") {
     const grant = discord.state.activityCodes.get(body.code ?? "");
     if (!grant) return reply(400, { error: "invalid_grant" });
