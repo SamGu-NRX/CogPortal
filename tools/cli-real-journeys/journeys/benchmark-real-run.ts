@@ -151,7 +151,14 @@ await cases.runSync.run(async () => {
     case_.command("cogworks sync", syncExit, sync.output());
     case_.expect(syncExit === 0, "the saved report synced to the portal", `cogworks sync exited ${syncExit}`);
 
-    const reports = await portal.teamLocalReports(BENCHMARK);
+    // audio-identification ships inactive (0020 holds active=0 until a
+    // calibration ablation passes), so the portal files its reports under the
+    // untracked listing rather than the active-version team view. Either view
+    // proves the sync persisted a team-scoped report.
+    const reports = [
+      ...(await portal.teamLocalReports(BENCHMARK)),
+      ...(await portal.teamUntrackedReports()),
+    ];
     const found = reports.find((row: any) => (row.id ?? row.reportId) === (report.id ?? report.reportId));
     case_.expect(
       Boolean(found),

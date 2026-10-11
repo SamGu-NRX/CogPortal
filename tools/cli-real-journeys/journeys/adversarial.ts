@@ -134,7 +134,10 @@ await cases.syncFault.run(async () => {
     const recoveredExit = await recovered.exited(120_000);
     case_.command("cogworks sync (after the fault cleared)", recoveredExit, recovered.output());
     case_.expect(recoveredExit === 0, "sync succeeded once the fault cleared", `exited ${recoveredExit}`);
-    const reports = await portal.teamLocalReports(BENCHMARK);
+    const reports = [
+      ...(await portal.teamLocalReports(BENCHMARK)),
+      ...(await portal.teamUntrackedReports()),
+    ];
     case_.expect(
       reports.some((row: any) => (row.id ?? row.reportId) === reportId),
       "the delayed report landed on the portal after recovery",
