@@ -129,19 +129,21 @@ function safeParse(text) {
 // port, then clears itself. `drop` accepts the connection and destroys the
 // socket, which is what a lost response looks like to a client; `fail_5xx`
 // answers without reaching the Worker, which is a failed hop, not a fake
-// Worker response.
+// Worker response; `delay` holds the connection for `ms`, then sends the real
+// request to the Worker and relays its real response — the fault is the wait,
+// never a response the Worker did not send.
 const modes = new Map(); // shapedPort -> { mode, remaining, ms }
 
-function shapeResponse(req, res, port) {
+function shapeResponse(req, res, port, forwardPort, routeHost) {
   const shape = modes.get(port);
   if (!shape || shape.remaining <= 0 || shape.mode === "normal") return false;
   shape.remaining -= 1;
   if (shape.remaining <= 0) modes.delete(port);
   if (shape.mode === "delay") {
-    setTimeout(() => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ shaped: "delay", ms: shape.ms }));
-    }, shape.ms ?? 5000);
+    // Hold the request for the delay, then run the same faithful forward the
+    // unshaped path uses: the Worker answers with its own status, headers and
+    // body, and the shaper has added only time.
+    setTimeout(() => forward(req, res, forwardPort, routeHost), shape.ms ?? 5000);
     return true;
   }
   if (shape.mode === "fail_5xx") {
@@ -199,7 +201,7 @@ function startShaper({ forwardPort, routeHost, controlPort, shapedPort }) {
     res.end();
   });
   const front = createServer((req, res) => {
-    if (shapeResponse(req, res, shapedPort)) return;
+    if (shapeResponse(req, res, shapedPort, forwardPort, routeHost)) return;
     forward(req, res, forwardPort, routeHost);
   });
   return { control, front };
