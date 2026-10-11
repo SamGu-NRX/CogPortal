@@ -1,0 +1,18 @@
+{
+  "name": "@cogworks/upgrade-real-journeys",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Upgrade-path suite: beta's data and installed CLI against alpha, per-route D1/CPU budgets at course volume",
+  "scripts": {
+    "suite": "node bin/upgrade-suite.mjs",
+    "generate": "node bin/upgrade-suite.mjs generate",
+    "journeys": "node bin/upgrade-suite.mjs journeys",
+    "clients": "node bin/upgrade-suite.mjs clients",
+    "failures": "node bin/upgrade-suite.mjs failures",
+    "volume": "node bin/upgrade-suite.mjs volume"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}
