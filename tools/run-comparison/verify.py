@@ -4,7 +4,10 @@ Re-derives every published decision -- refusals, comparability, source,
 dataset, scorer, weight-byte and floor verdicts, shared metric rows and
 floor rows -- straight from the raw fixture JSON with its own parser, then
 binds the rendered HTML to parsed positions and cross-checks the builder's
-receipt row by row and digest by digest. It imports neither build.py nor
+receipt row by row and digest by digest, then requires the replay receipt
+and re-checks its bindings: the exact fixture digests, the current
+generator sources, and the byte digests of the view and receipt files it
+attests. It imports neither build.py nor
 report_reader.py: two implementations must agree, or the disagreement is
 the finding.
 
@@ -56,6 +59,8 @@ _CAUSAL_PHRASES = (
 
 _TOOL_SOURCE_FILES = ("build.py", "report_reader.py")
 
+_REPLAY_GENERATOR = "tools/run-comparison/build.py --replay"
+
 
 def _fail(failures: List[str], message: str) -> None:
     failures.append("misrendered: " + message)
@@ -63,6 +68,19 @@ def _fail(failures: List[str], message: str) -> None:
 
 def _sha_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _inputs_by_name(entries: Any) -> Optional[Dict[str, str]]:
+    """A file->sha256 map from a receipt inputs list, or None if malformed."""
+
+    if not isinstance(entries, list):
+        return None
+    by_name: Dict[str, str] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or "file" not in entry or "sha256" not in entry:
+            return None
+        by_name[entry["file"]] = entry["sha256"]
+    return by_name
 
 
 def _fmt(value: float, precision: int) -> str:
@@ -660,8 +678,9 @@ def main() -> int:
         print("missing built receipt: {}".format(receipt_path), file=sys.stderr)
         return 2
     html_bytes = html_path.read_bytes()
+    receipt_bytes = receipt_path.read_bytes()
     try:
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt = json.loads(receipt_bytes.decode("utf-8"))
     except ValueError as error:
         print("misrendered: the receipt does not parse as JSON ({})".format(error), file=sys.stderr)
         return 1
@@ -669,23 +688,16 @@ def main() -> int:
     actual_inputs = {
         path.name: _sha_bytes(path.read_bytes()) for path in files
     }
-    receipt_inputs = receipt.get("inputs")
-    if not isinstance(receipt_inputs, list):
-        _fail(failures, "the receipt records no inputs list")
-    else:
-        by_name: Dict[str, str] = {}
-        for entry in receipt_inputs:
-            if not isinstance(entry, dict) or "file" not in entry or "sha256" not in entry:
-                _fail(failures, "a receipt inputs entry lacks file or sha256: {!r}".format(entry))
-            else:
-                by_name[entry["file"]] = entry["sha256"]
-        if by_name != actual_inputs:
-            _fail(
-                failures,
-                "receipt inputs do not match the fixture bytes: receipt {!r} vs actual {!r}".format(
-                    by_name, actual_inputs
-                ),
-            )
+    receipt_input_map = _inputs_by_name(receipt.get("inputs"))
+    if receipt_input_map is None:
+        _fail(failures, "the receipt records no well-formed inputs list")
+    elif receipt_input_map != actual_inputs:
+        _fail(
+            failures,
+            "receipt inputs do not match the fixture bytes: receipt {!r} vs actual {!r}".format(
+                receipt_input_map, actual_inputs
+            ),
+        )
 
     tool_path = Path(__file__).resolve().parent
     expected_tool_source = {
@@ -693,7 +705,10 @@ def main() -> int:
         for name in _TOOL_SOURCE_FILES
         if (tool_path / name).exists()
     }
-    recorded_tool_source = (receipt.get("tool_source") or {}).get("files")
+    recorded_tool = receipt.get("tool_source")
+    recorded_tool_source = (
+        recorded_tool.get("files") if isinstance(recorded_tool, dict) else None
+    )
     if recorded_tool_source != expected_tool_source:
         _fail(
             failures,
@@ -704,6 +719,81 @@ def main() -> int:
     recorded_html_sha = receipt.get("html_sha256")
     if recorded_html_sha != _sha_bytes(html_bytes):
         _fail(failures, "receipt html_sha256 does not match the built view bytes")
+
+    replay_path = out / "replay-{}.json".format(stem)
+    if not replay_path.exists():
+        _fail(
+            failures,
+            "the replay receipt {} is missing — evidence without its replay "
+            "record is incomplete".format(replay_path.name),
+        )
+    else:
+        try:
+            replay = json.loads(replay_path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeDecodeError) as error:
+            _fail(
+                failures,
+                "the replay receipt does not parse as JSON ({})".format(error),
+            )
+        else:
+            if replay.get("identical") is not True:
+                _fail(
+                    failures,
+                    "the replay receipt does not record an identical rebuild (identical={!r})".format(
+                        replay.get("identical")
+                    ),
+                )
+            if replay.get("html_sha256") != _sha_bytes(html_bytes):
+                _fail(
+                    failures,
+                    "replay receipt html_sha256 does not match the built view bytes",
+                )
+            if replay.get("rebuilt_html_sha256") != _sha_bytes(html_bytes):
+                _fail(
+                    failures,
+                    "replay receipt rebuilt_html_sha256 does not match the built view bytes",
+                )
+            if replay.get("receipt_sha256") != _sha_bytes(receipt_bytes):
+                _fail(
+                    failures,
+                    "replay receipt receipt_sha256 does not match the receipt bytes on disk",
+                )
+            replay_input_map = _inputs_by_name(replay.get("inputs"))
+            if replay_input_map is None:
+                _fail(failures, "the replay receipt records no well-formed inputs list")
+            elif replay_input_map != actual_inputs:
+                _fail(
+                    failures,
+                    "replay receipt inputs do not match the fixture bytes: receipt {!r} vs actual {!r}".format(
+                        replay_input_map, actual_inputs
+                    ),
+                )
+            replay_tool = replay.get("tool_source")
+            replay_tool_source = (
+                replay_tool.get("files") if isinstance(replay_tool, dict) else None
+            )
+            if replay_tool_source != expected_tool_source:
+                _fail(
+                    failures,
+                    "replay receipt tool_source digests do not match the current generator sources: "
+                    "receipt {!r} vs actual {!r}".format(
+                        replay_tool_source, expected_tool_source
+                    ),
+                )
+            if replay.get("compared") != expected_compared:
+                _fail(
+                    failures,
+                    "replay receipt compared {!r} != independently derived {!r}".format(
+                        replay.get("compared"), expected_compared
+                    ),
+                )
+            if replay.get("generator") != _REPLAY_GENERATOR:
+                _fail(
+                    failures,
+                    "replay receipt generator {!r} != expected {!r}".format(
+                        replay.get("generator"), _REPLAY_GENERATOR
+                    ),
+                )
 
     compared = receipt.get("compared")
     if compared != expected_compared:
@@ -1039,6 +1129,9 @@ def main() -> int:
         "receipt: inputs {}, tool sources {}, html sha256 bound".format(
             len(actual_inputs), len(expected_tool_source)
         )
+    )
+    print(
+        "replay receipt: identical rebuild attested; view, receipt, fixture and generator-source digests all bound"
     )
     print("html: conditions, metric, floor and field cells bound to parsed positions; offline output; no causal claim")
     return 0

@@ -11,8 +11,14 @@ reports: nothing is measured, fetched or invented at view time. The
 HTML has no script, no animation, no transitions and no external
 resources, so reduced-motion preferences are trivially honored.
 
-With ``--replay`` the view is rebuilt from the same fixtures and must
-come out byte-identical; the replay receipt records both digests.
+With ``--replay`` the run becomes a validate-before-write gate: the
+artifacts already in the output directory are validated against a fresh
+derivation of the same fixtures before anything is written, and any
+disagreement is reported and exits nonzero with the existing evidence
+preserved byte-for-byte. ``--force`` is the single deliberate path to
+regenerate disagreeing evidence. The replay receipt binds the view and
+the receipt to the exact fixture-input digests, the generator sources
+and each other's bytes, so stale evidence is detectable, never silent.
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ import html
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from report_reader import ReadReport as Report, read_report
 
@@ -1033,6 +1039,149 @@ def make_receipt(
 
 
 # --------------------------------------------------------------------------
+# replay gate
+# --------------------------------------------------------------------------
+
+
+REPLAY_GENERATOR = "tools/run-comparison/build.py --replay"
+
+
+def _json_bytes(payload: Dict[str, Any]) -> bytes:
+    """The canonical serialization used for every JSON file build.py writes."""
+
+    return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def replay_gate_disagreements(
+    existing: Dict[str, Optional[bytes]],
+    fresh_html: bytes,
+    fresh_receipt: Dict[str, Any],
+    inputs: List[Dict[str, str]],
+    tool_source: Dict[str, str],
+    compared: List[str],
+) -> List[str]:
+    """Validate evidence already on disk against a fresh build.
+
+    ``existing`` maps the artifact roles (view, receipt, replay) to their
+    bytes, or None where the file is absent. Returns one line per
+    disagreement; an empty list means the existing evidence matches the
+    fresh derivation — or nothing exists yet — and rewriting is safe.
+    Nothing here writes or deletes anything: the caller refuses to touch
+    the directory while any disagreement stands.
+    """
+
+    problems: List[str] = []
+    missing = sorted(name for name, data in existing.items() if data is None)
+    present = sorted(name for name, data in existing.items() if data is not None)
+    if not present:
+        return problems
+    if missing:
+        problems.append(
+            "replay disagreement: the evidence directory is in a mixed state "
+            "— {} exist but {} are missing; refusing to overwrite partial "
+            "evidence".format(", ".join(present), ", ".join(missing))
+        )
+        return problems
+
+    if existing["view"] != fresh_html:
+        problems.append(
+            "replay disagreement: the existing view does not match a fresh "
+            "build of the same fixtures (existing sha256 {}, fresh {}); it "
+            "is preserved and nothing was written".format(
+                _sha(existing["view"]), _sha(fresh_html)
+            )
+        )
+
+    try:
+        existing_receipt = json.loads(existing["receipt"].decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as error:
+        problems.append(
+            "replay disagreement: the existing receipt does not parse as "
+            "JSON ({})".format(error)
+        )
+    else:
+        if existing_receipt != fresh_receipt:
+            problems.append(
+                "replay disagreement: the existing receipt does not match a "
+                "fresh derivation from the same fixtures and generator "
+                "sources (existing sha256 {}, fresh {}); it is preserved "
+                "and nothing was written".format(
+                    _sha(existing["receipt"]), _sha(_json_bytes(fresh_receipt))
+                )
+            )
+
+    try:
+        existing_replay = json.loads(existing["replay"].decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as error:
+        problems.append(
+            "replay disagreement: the existing replay receipt does not parse "
+            "as JSON ({})".format(error)
+        )
+    else:
+        view_digest = _sha(existing["view"])
+        receipt_digest = _sha(existing["receipt"])
+        if existing_replay.get("identical") is not True:
+            problems.append(
+                "replay disagreement: the existing replay receipt does not "
+                "record an identical rebuild (identical={!r})".format(
+                    existing_replay.get("identical")
+                )
+            )
+        if existing_replay.get("html_sha256") != view_digest:
+            problems.append(
+                "replay disagreement: the existing replay receipt's "
+                "html_sha256 does not match the existing view bytes"
+            )
+        if existing_replay.get("rebuilt_html_sha256") != view_digest:
+            problems.append(
+                "replay disagreement: the existing replay receipt's "
+                "rebuilt_html_sha256 does not match the existing view bytes"
+            )
+        if existing_replay.get("receipt_sha256") != receipt_digest:
+            problems.append(
+                "replay disagreement: the existing replay receipt's "
+                "receipt_sha256 does not match the existing receipt bytes"
+            )
+        recorded_inputs = existing_replay.get("inputs")
+        if not isinstance(recorded_inputs, list):
+            problems.append(
+                "replay disagreement: the existing replay receipt records no "
+                "inputs list"
+            )
+        else:
+            by_name = {
+                entry.get("file"): entry.get("sha256")
+                for entry in recorded_inputs
+                if isinstance(entry, dict)
+            }
+            if by_name != {entry["file"]: entry["sha256"] for entry in inputs}:
+                problems.append(
+                    "replay disagreement: the existing replay receipt's input "
+                    "digests do not match the fixture bytes"
+                )
+        recorded_tool = existing_replay.get("tool_source")
+        recorded_tool_files = (
+            recorded_tool.get("files") if isinstance(recorded_tool, dict) else None
+        )
+        if recorded_tool_files != tool_source:
+            problems.append(
+                "replay disagreement: the existing replay receipt's "
+                "tool_source digests do not match the current generator "
+                "sources (receipt {!r} vs actual {!r})".format(
+                    recorded_tool_files, tool_source
+                )
+            )
+        if existing_replay.get("compared") != compared:
+            problems.append(
+                "replay disagreement: the existing replay receipt names a "
+                "different compared pair {!r} != {!r}".format(
+                    existing_replay.get("compared"), compared
+                )
+            )
+    return problems
+
+
+# --------------------------------------------------------------------------
 # entry point
 # --------------------------------------------------------------------------
 
@@ -1049,9 +1198,19 @@ def main() -> int:
     parser.add_argument(
         "--replay",
         action="store_true",
-        help="rebuild from the same fixtures and record byte identity",
+        help="validate existing artifacts against a fresh build before "
+        "writing; refuse and preserve them on any disagreement",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="with --replay: replace existing evidence even when validation "
+        "finds a disagreement (deliberate regeneration after a fixture or "
+        "tool change)",
     )
     arguments = parser.parse_args()
+    if arguments.force and not arguments.replay:
+        parser.error("--force is only meaningful with --replay")
 
     files: List[Path] = []
     roots: List[str] = []
@@ -1113,13 +1272,6 @@ def main() -> int:
     html_bytes = render(
         a, b, a_name, b_name, analysis, excluded, pair_note
     ).encode("utf-8")
-
-    out = Path(arguments.out)
-    out.mkdir(parents=True, exist_ok=True)
-    stem = "{}-vs-{}".format(Path(a_name).stem, Path(b_name).stem)
-    html_path = out / "view-{}.html".format(stem)
-    html_path.write_bytes(html_bytes)
-
     sections = build_sections(a, b, a_name, b_name, analysis, excluded, pair_note)
     receipt = make_receipt(
         "; ".join(roots),
@@ -1132,36 +1284,104 @@ def main() -> int:
         html_bytes,
         inputs,
     )
+    receipt_bytes = _json_bytes(receipt)
+
+    replay_bytes: Optional[bytes] = None
+    if arguments.replay:
+        # Second in-process build: the view must be a deterministic function
+        # of the fixtures before it is compared with anything on disk.
+        replay_html = render(
+            a, b, a_name, b_name, analyze_pair(a, b), excluded, pair_note
+        ).encode("utf-8")
+        if replay_html != html_bytes:
+            print(
+                "replay: the second build differs from the first — no artifact written",
+                file=sys.stderr,
+            )
+            return 1
+        tool_source = tool_source_digests()
+        replay_bytes = _json_bytes(
+            {
+                "generator": REPLAY_GENERATOR,
+                "fixtures_root": "; ".join(roots),
+                "compared": [a_name, b_name],
+                "inputs": inputs,
+                "tool_source": {"files": tool_source},
+                "html_sha256": _sha(html_bytes),
+                "rebuilt_html_sha256": _sha(replay_html),
+                "receipt_sha256": _sha(receipt_bytes),
+                "identical": True,
+            }
+        )
+
+    out = Path(arguments.out)
+    stem = "{}-vs-{}".format(Path(a_name).stem, Path(b_name).stem)
+    html_path = out / "view-{}.html".format(stem)
     receipt_path = out / "view-receipts-{}.json".format(stem)
-    receipt_path.write_text(
-        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    replay_path = out / "replay-{}.json".format(stem)
+
+    if arguments.replay:
+        existing = {
+            name: path.read_bytes() if path.exists() else None
+            for name, path in (
+                ("view", html_path),
+                ("receipt", receipt_path),
+                ("replay", replay_path),
+            )
+        }
+        if arguments.force:
+            fresh = {
+                "view": html_bytes,
+                "receipt": receipt_bytes,
+                "replay": replay_bytes,
+            }
+            replaced = [
+                "{} (sha256 {} -> {})".format(
+                    name,
+                    "absent" if data is None else _sha(data),
+                    _sha(fresh[name]),
+                )
+                for name, data in sorted(existing.items())
+                if data is not None
+            ]
+            if replaced:
+                print(
+                    "replay: --force replaces existing evidence — {}; the "
+                    "replaced bytes stay recoverable from version control".format(
+                        "; ".join(replaced)
+                    )
+                )
+        else:
+            problems = replay_gate_disagreements(
+                existing=existing,
+                fresh_html=html_bytes,
+                fresh_receipt=receipt,
+                inputs=inputs,
+                tool_source=tool_source,
+                compared=[a_name, b_name],
+            )
+            if problems:
+                for problem in problems:
+                    print(problem, file=sys.stderr)
+                print(
+                    "replay: refusing to write — the existing evidence is preserved",
+                    file=sys.stderr,
+                )
+                return 1
+            if existing["view"] is not None:
+                print("replay: existing evidence validated against a fresh build")
+
+    # The write happens only after every gate above has passed: on any
+    # disagreement the function has already returned and nothing on disk
+    # was touched.
+    out.mkdir(parents=True, exist_ok=True)
+    html_path.write_bytes(html_bytes)
+    receipt_path.write_bytes(receipt_bytes)
     print(
         "built {} ({} bytes) and {}".format(html_path, len(html_bytes), receipt_path)
     )
-
-    if arguments.replay:
-        replay_analysis = analyze_pair(a, b)
-        replay_html = render(
-            a, b, a_name, b_name, replay_analysis, excluded, pair_note
-        ).encode("utf-8")
-        identical = replay_html == html_bytes
-        if not identical:
-            print("replay: rebuild differs — no receipt written", file=sys.stderr)
-            return 1
-        replay_receipt = {
-            "generator": "tools/run-comparison/build.py --replay",
-            "fixtures_root": "; ".join(roots),
-            "compared": [a_name, b_name],
-            "html_sha256": _sha(html_bytes),
-            "rebuilt_html_sha256": _sha(replay_html),
-            "identical": True,
-        }
-        replay_path = out / "replay-{}.json".format(stem)
-        replay_path.write_text(
-            json.dumps(replay_receipt, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+    if replay_bytes is not None:
+        replay_path.write_bytes(replay_bytes)
         print("replay: byte-identical rebuild -> {}".format(replay_path))
     return 0
 

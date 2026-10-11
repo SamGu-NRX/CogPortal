@@ -32,29 +32,29 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 </head>
 <body>
 <main>
-<h1>Run comparison</h1><p class="premise"><strong>Premise.</strong> A comparison is warranted only where the two runs line up on source, dataset, scorer and metric identity — the verdicts below state exactly where they do, and unknown provenance blocks a conclusion instead of being filled in. Both reports are synthetic fixture outputs built offline: no network access, no student data.</p><p>Compared: 01-run-a.json and 02-run-b.json — the first two accepted reports in sorted order (6 of 11 fixture files accepted).</p>
+<h1>Run comparison</h1><h2>Findings</h2><ul><li>All recorded conditions match: source, dataset (benchmark, case set, weight bytes, scoring floors) and scorer identity.</li><li>The metric deltas below are observations only; this view states no cause for any difference.</li></ul><p class="premise"><strong>Premise.</strong> A comparison is warranted only where the two runs line up on source, dataset, scorer and metric identity — the verdicts below state exactly where they do, and unknown provenance blocks a conclusion instead of being filled in. Both reports are synthetic fixture outputs built offline: no network access, no student data.</p><p>Compared: 01-run-a.json and 02-run-b.json — the first two accepted reports in sorted order (6 of 11 fixture files accepted).</p>
 <h2>Conditions between the two runs</h2>
 <table>
 <thead><tr><th scope="col">Axis</th><th scope="col">Verdict</th><th scope="col">Detail</th></tr></thead>
 <tbody>
-<tr><th scope="row">source</th><td><span class="chip chip-changed">changed</span></td><td>different commits: 111111111111 vs 222222222222</td></tr>
-<tr><th scope="row">dataset</th><td><span class="chip chip-same">same</span></td><td>benchmark, case set and weights line up on every recorded axis<ul><li><strong>benchmark</strong> <span class="chip chip-same">same</span> — both runs used &#x27;audio-identification&#x27; v1 (id &#x27;audio-identification&#x27;)</li><li><strong>case set (command)</strong> <span class="chip chip-same">same</span> — both runs were produced by `run`</li><li><strong>weights</strong> <span class="chip chip-same">same</span> — both runs name the same weights: none recorded</li></ul></td></tr>
-<tr><th scope="row">scorer</th><td><span class="chip chip-same">same</span></td><td>contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)</td></tr>
+<tr data-axis="source" data-verdict="changed"><th scope="row">source</th><td><span class="chip chip-changed">changed</span></td><td>different commits: 111111111111 vs 222222222222</td></tr>
+<tr data-axis="dataset" data-verdict="same"><th scope="row">dataset</th><td><span class="chip chip-same">same</span></td><td>benchmark, case set, weight bytes and scoring floors line up on every recorded axis<ul><li data-field="dataset.benchmark" data-verdict="same"><strong>benchmark</strong> <span class="chip chip-same">same</span> — both runs used &#x27;audio-identification&#x27; v1 (id &#x27;audio-identification&#x27;)</li><li data-field="dataset.case set (command)" data-verdict="same"><strong>case set (command)</strong> <span class="chip chip-same">same</span> — both runs were produced by `run`</li><li data-field="dataset.weights" data-verdict="same"><strong>weights</strong> <span class="chip chip-same">same</span> — neither run used recorded weights</li><li data-field="dataset.scoring floors" data-verdict="same"><strong>scoring floors</strong> <span class="chip chip-same">same</span> — chance_top1: 0.033 on both runs</li></ul></td></tr>
+<tr data-axis="scorer" data-verdict="same"><th scope="row">scorer</th><td><span class="chip chip-same">same</span></td><td>contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)</td></tr>
 </tbody>
 </table>
-<p class="ok">Conditions line up on every axis the reports record. Where they differ below, the difference can be attributed to the change between the two runs' sources.</p>
+<p class="ok">Conditions line up on every axis the reports record. The deltas below are observations only — this view states no cause for any difference.</p>
 <h2>Metric comparison</h2>
 <table>
 <thead><tr><th scope="col">Metric</th><th scope="col">Run A (01-run-a.json)</th><th scope="col">Run B (02-run-b.json)</th><th scope="col">Difference</th></tr></thead>
 <tbody>
-<tr><td><strong>Identification score</strong> <span class="muted">(primary)</span><br><span class="muted">identification_score</span></td><td>0.5375</td><td>0.6125</td><td><strong>+0.0750</strong><br><span class="muted">higher is better</span></td></tr>
-<tr><td><strong>Wrong song ranked first</strong><br><span class="muted">ranking_failure_rate</span></td><td>0.212</td><td>0.150</td><td><strong>-0.062</strong><br><span class="muted">lower is better</span></td></tr>
+<tr data-metric-key="identification_score"><td><strong>Identification score</strong> <span class="muted">(primary)</span><br><span class="muted">identification_score</span></td><td>0.5375</td><td>0.6125</td><td><strong>+0.0750</strong><br> <span class="muted">higher is better</span></td></tr>
+<tr data-metric-key="ranking_failure_rate"><td><strong>Wrong song ranked first</strong><br><span class="muted">ranking_failure_rate</span></td><td>0.212</td><td>0.150</td><td><strong>-0.062</strong><br> <span class="muted">lower is better</span></td></tr>
 </tbody>
 </table>
 <h2>Floor context</h2>
-<p>Floors are reference values, not findings, so they carry no difference column.</p>
-<table><thead><tr><th scope="col">Metric</th><th scope="col">Value</th><th scope="col">Reference for</th></tr></thead><tbody>
-<tr><td><strong>Chance</strong><br><span class="muted">chance_top1</span></td><td>0.033</td><td>floor of identification_score</td></tr>
+<p>Floors are reference values, not findings, so they carry no difference column; both runs' values are shown.</p>
+<table><thead><tr><th scope="col">Metric</th><th scope="col">Run A (01-run-a.json)</th><th scope="col">Run B (02-run-b.json)</th><th scope="col">Reference for</th></tr></thead><tbody>
+<tr data-floor-key="chance_top1"><td><strong>Chance</strong><br><span class="muted">chance_top1</span></td><td>0.033</td><td>0.033</td><td>floor of identification_score</td></tr>
 </tbody></table>
 <h2>Metrics without a counterpart</h2>
 <h3>Only in 01-run-a.json</h3><p class="muted">None.</p><h3>Only in 02-run-b.json</h3><p class="muted">None.</p>

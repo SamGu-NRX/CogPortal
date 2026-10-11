@@ -153,6 +153,8 @@ def test_build_refuses_to_compare_fewer_than_two(tmp_path):
 
 def test_verify_rejects_a_tampered_value(tmp_path):
     out = tmp_path / "out"
+    # --replay so the evidence triple is complete: verify requires the
+    # replay record, and this test must fail on the tampered value alone.
     build_result = subprocess.run(
         [
             sys.executable,
@@ -161,6 +163,7 @@ def test_verify_rejects_a_tampered_value(tmp_path):
             str(FIXTURES),
             "--out",
             str(out),
+            "--replay",
         ],
         capture_output=True,
         text=True,

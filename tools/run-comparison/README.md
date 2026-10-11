@@ -60,6 +60,27 @@ comparable through a guessed default.
 - **metric** — per metric: key, unit, direction, role, precision and
   floor reference. Labels and help prose are not identity.
 
+## Replay gate
+
+`build.py --replay` is a validate-before-write gate. It derives the view,
+the receipt and the replay receipt fresh from the fixtures, and only when
+the artifacts already in the output directory match that derivation —
+byte for byte for the view, field for field for the receipts — does it
+rewrite them. On any disagreement it prints `replay disagreement: ...`
+lines, exits nonzero, and changes nothing: evidence that disagrees with
+the generator is preserved, never overwritten. `--force` is the single
+deliberate path around the gate, for regenerating evidence after a
+fixture or tool change.
+
+Every receipt binds the artifacts to their provenance: the SHA-256 of
+every fixture input, the SHA-256 of the generator sources (`build.py`,
+`report_reader.py`), and — in the replay receipt — the digests of the
+exact view and receipt bytes it attests. Tools or inputs change and the
+committed evidence stops verifying: staleness is detectable, never
+silent. `verify.py` checks the committed evidence exactly as it checks a
+fresh build, replay record included; a tampered or mismatched evidence
+file fails with a `misrendered:` line.
+
 ## Files
 
 | file | role |
@@ -79,12 +100,19 @@ python -m pytest -q tools/run-comparison/tests
 python tools/run-comparison/reader_checks.py \
   --fixtures tools/run-comparison/fixtures \
   --out tools/run-comparison/evidence/reader-checks.json
+# replay gate: validates the committed evidence against a fresh build
+# before writing anything; refuses and preserves it on any disagreement
 python tools/run-comparison/build.py \
   --fixtures tools/run-comparison/fixtures \
   --out tools/run-comparison/evidence --replay
 python tools/run-comparison/verify.py \
   --fixtures tools/run-comparison/fixtures \
   --out tools/run-comparison/evidence
+
+# only to regenerate evidence after a deliberate fixture or tool change
+python tools/run-comparison/build.py \
+  --fixtures tools/run-comparison/fixtures \
+  --out tools/run-comparison/evidence --replay --force
 ```
 
 ## Milestone record
@@ -105,3 +133,11 @@ python tools/run-comparison/verify.py \
    1440x900 and 390x844 screenshots plus the reduced-motion capture
    are committed under `evidence/browser/` with the measurement record
    `m3-browser-evidence.json`.
+4. Replay gate and immutable evidence. Done: `build.py --replay`
+   validates the existing evidence against a fresh derivation before
+   writing anything and preserves disagreeing evidence (`--force` is the
+   deliberate regeneration path); the replay receipt binds the view and
+   receipt bytes to the fixture digests and generator sources;
+   `verify.py` requires and checks the replay receipt, so tampered or
+   stale evidence fails with a `misrendered:` line; scoped failure-path
+   tests cover replay mismatch, evidence tampering and preservation.
