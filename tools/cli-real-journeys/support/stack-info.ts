@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { REPO_ROOT, env } from "./cli.ts";
+import { requireLoopbackOrigin } from "./loopback.ts";
 
 /**
  * What the stack harness wrote at boot. The journeys learn every origin from
@@ -37,7 +38,21 @@ export interface StackInfo {
 
 export async function readStackInfo(): Promise<StackInfo> {
   const path = env("STACK_INFO");
-  return JSON.parse(await readFile(path, "utf8")) as StackInfo;
+  const info = JSON.parse(await readFile(path, "utf8")) as StackInfo;
+  // Every origin a journey or CLI can actually dial must be loopback-only --
+  // the stack harness binds nothing else, so a foreign host here means a
+  // hostile or stale STACK_INFO, and the run refuses loudly.
+  const dialed = [
+    ["browsableOrigin", info.browsableOrigin],
+    ["shaperPortalOrigin", info.shaperPortalOrigin],
+    ["shaperBotOrigin", info.shaperBotOrigin],
+    ["shaperControlOrigin", info.shaperControlOrigin],
+    ["discordDoubleOrigin", info.discordDoubleOrigin],
+  ] as const;
+  for (const [name, origin] of dialed) {
+    requireLoopbackOrigin(origin, `the booted stack's ${name} (STACK_INFO)`);
+  }
+  return info;
 }
 
 /** Which documented staging pin a run exercised, when the pin matrix set one. */

@@ -10,6 +10,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# No pre-boot command talks to a portal, and nothing downstream may inherit a
+# caller's COGPORTAL_URL: the real origin is resolved from the booted stack
+# after step 5, guarded, and re-exported there.
+unset COGPORTAL_URL
+
 REPO_ROOT=$(cd ../.. && pwd)
 CONDA_ROOT=${CONDA_ROOT:-/home/user/work/miniconda3}
 NODE24=${NODE24:-/home/user/work/node24}
@@ -69,9 +74,19 @@ done
 grep -q '"ready": true' "$RESULTS/stack.json" || { echo "stack never became ready" >&2; exit 1; }
 cat "$RESULTS/stack.json"
 
+# The suite dials nothing but the booted local stack. Resolve the origin every
+# CLI process will be pinned to, refuse the run unless it is loopback-only,
+# then export it, overriding anything the caller's environment had set.
+export STACK_INFO="$RESULTS/stack.json"
+SUITE_PORTAL_ORIGIN=$(node -e 'const i=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(i.shaperPortalOrigin||""))' "$RESULTS/stack.json")
+"$NODE24/bin/npx" tsx support/loopback-guard.ts "$SUITE_PORTAL_ORIGIN"
+export COGPORTAL_URL="$SUITE_PORTAL_ORIGIN"
+# Probe: a CLI subprocess spawned the way the journeys spawn them must see
+# the pinned loopback origin, not an inherited value.
+"$NODE24/bin/npx" tsx support/probe-cli-env.ts
+
 echo "== [6/7] journeys (retries off; every case writes a receipt) =="
 set +e
-export STACK_INFO="$RESULTS/stack.json"
 FAILED=0
 for journey in setup-and-link benchmark-real-run adversarial; do
   echo "--- $journey"
