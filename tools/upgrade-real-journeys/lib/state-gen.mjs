@@ -1,16 +1,31 @@
 // Beta state generation through beta's real paths (stage 1). No row is
 // written directly: every entity comes from beta's own API as dev-auth users
-// with generated upg-* handles, or from the pinned student CLI (064400e) doing
+// with generated upg-* handles, or from the pinned student CLI (the staging
+// pin read from beta's benchmark-packages.ts) doing
 // its real device-link / local-report flow. The database is only read
 // (countEntities) for the receipt. Fixture execution provider only; no
 // discord.com, no real GitHub OAuth, no Modal, no dev/prod surfaces.
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { openD1, persistDirFor } from "./d1.mjs";
 
 export const BETA_COMMIT = "17d26d9";
-export const CLI_PIN = "064400e";
+// Two-pin reality (plan #108 update): staging students install the SDK from
+// BETA's apps/portal/src/lib/benchmark-packages.ts — the runner images bake
+// that pin — while alpha's copy of the same file pins a different commit.
+// Read the pin from the checkout the caller names, never a hardcode: stage 1
+// passes beta's worktree (the pin staging students actually have); stage 3
+// will test both pins in both directions.
+export function readCogbenchPin(fromDir) {
+  const file = path.join(fromDir, "apps", "portal", "src", "lib", "benchmark-packages.ts");
+  const src = readFileSync(file, "utf8");
+  const m = src.match(
+    /COGBENCH_SOURCE =\s*"git\+https:\/\/github\.com\/SamGu-NRX\/CogPortal\.git@([0-9a-f]{7,40})#subdirectory=python\/cogbench"/,
+  );
+  if (!m) throw new Error(`could not parse COGBENCH_SOURCE pin from ${file}`);
+  return m[1];
+}
 export const FIXTURE_REPO_FULL = "cogworks-demo/face-finder";
 export const COHORT_JOIN_CODE = "VISION26";
 
@@ -292,18 +307,19 @@ async function hostedRunsPhase({ baseUrl, clients, log }) {
 }
 
 // ── Phase: pinned CLI - device links, local reports, one live run ────────
-async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log }) {
+async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }) {
   const quirks = [];
   const cacheDir = path.join(suiteDir, ".cache");
   const pinDir = path.join(cacheDir, "cli-pin");
 
-  // The pin commit is in this repo's history: install the CLI from a local
-  // worktree at exactly 064400e (no tokens in URLs, no network install).
+  // The staging pin (read from beta's benchmark-packages.ts, the file staging
+  // students install from) is in this repo's history: install the CLI from a
+  // local worktree at exactly that commit (no tokens, no network install).
   mkdirSync(cacheDir, { recursive: true });
   if (!existsSync(path.join(pinDir, ".git"))) {
-    runChecked("git", ["-C", repoDir, "worktree", "add", "--detach", pinDir, CLI_PIN], { timeoutMs: 120_000 });
+    runChecked("git", ["-C", repoDir, "worktree", "add", "--detach", pinDir, stagingPin], { timeoutMs: 120_000 });
   } else {
-    runChecked("git", ["-C", pinDir, "checkout", "--detach", CLI_PIN], { timeoutMs: 60_000 });
+    runChecked("git", ["-C", pinDir, "checkout", "--detach", stagingPin], { timeoutMs: 60_000 });
   }
 
   const venvDir = path.join(cacheDir, "cli-venv");
@@ -409,7 +425,8 @@ export async function generateBetaState({ checkoutDir, baseUrl, repoDir, suiteDi
   const team = await teamPhase({ baseUrl, log });
   await adminPhase({ baseUrl, teamId: team.teamId, log });
   await hostedRunsPhase({ baseUrl, clients: team.clients, log });
-  const cli = await cliPhase({ repoDir, suiteDir, baseUrl, clients: team.clients, log });
+  const cli = cliPhase({
+    stagingPin: readCogbenchPin(checkoutDir), repoDir, suiteDir, baseUrl, clients: team.clients, log });
   quirks.push(...cli.quirks);
 
   timings.totalMs = Date.now() - t0;

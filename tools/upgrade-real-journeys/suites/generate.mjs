@@ -18,7 +18,7 @@ import { applyMigrations, findD1File, persistDirFor, snapshot } from "../lib/d1.
 import { writeDevVars, startPortal, pickFreePort } from "../lib/servers.mjs";
 import {
   BETA_COMMIT,
-  CLI_PIN,
+  readCogbenchPin,
   ROSTER,
   assertGenerated,
   countEntities,
@@ -98,14 +98,26 @@ export async function run() {
     throw new Error("snapshot did not preserve the D1 sqlite file");
   }
 
+  // Two-pin correction (plan #108): label every result with the pin actually
+  // used — beta's staging pin — and record alpha's pin for stage 3 to test
+  // both directions. Read from each file at its own revision, never hardcoded.
+  const stagingPin = readCogbenchPin(checkoutDir);
+  const alphaPin = readCogbenchPin(REPO_DIR);
   const receipt = {
     stage: "generate",
     generatedAt: new Date().toISOString(),
     beta: { commit: BETA_COMMIT, checkout: "suite .cache/beta-worktree (git worktree, deps installed)" },
     cli: {
-      pin: CLI_PIN,
+      pin: stagingPin,
+      pinSource:
+        "beta apps/portal/src/lib/benchmark-packages.ts (COGBENCH_SOURCE) — the pin staging students install from; runner images bake it",
+      alphaPin,
+      alphaPinSource:
+        "alpha apps/portal/src/lib/benchmark-packages.ts at this branch's head — a different pin, not used in stage 1",
+      twoPinNote:
+        "plan #108 correction: stage 1 uses beta's staging pin; stage 3 tests both pins in both directions",
       package: "python/cogbench",
-      install: `pip install from a local git worktree at ${CLI_PIN} (commit present in this repo's history; no network install)`,
+      install: `pip install from a local git worktree at ${stagingPin} (commit present in this repo's history; no network install)`,
       week: state.cliWeek,
     },
     executionProvider: "fixture",
@@ -115,7 +127,7 @@ export async function run() {
       "/api/team/join for self-serve joins; /api/admin/staff for staff rostering (owner PLATFORM_OWNER_LOGINS in .dev.vars); " +
       "TA assignment attempted via /api/admin/teams/:id/tas and recorded as unreachable (it matches users.github_login, " +
       "which dev-auth accounts never hold); /api/runs/practice, /api/runs/:id and " +
-      "/api/runs/:id/promote for hosted fixture runs and published official attempts; the pinned 064400e CLI linked via " +
+      "/api/runs/:id/promote for hosted fixture runs and published official attempts; the pinned staging CLI (beta's benchmark-packages.ts COGBENCH_SOURCE pin) linked via " +
       "/v1/cli/device/* and produced local reports with cogworks run --live, cogworks run + cogworks sync against real " +
       "public week data (benchmarks/week* submodule). No real student handles or submissions anywhere; no discord.com, " +
       "no real GitHub OAuth, no Modal, no dev/prod Workers/D1/R2.",
