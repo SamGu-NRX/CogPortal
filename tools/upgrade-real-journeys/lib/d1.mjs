@@ -38,7 +38,8 @@ export function applyMigrations({ checkoutDir, databaseId = DATABASE_ID, nodeDir
   const r = spawnSync(
     "pnpm",
     ["exec", "wrangler", "d1", "migrations", "apply", databaseId, "--local", `--persist-to=${persistDir}`],
-    { cwd: checkoutDir, encoding: "utf8", env, timeout: 300_000 },
+    // wrangler resolves from the portal package's node_modules, not the root.
+    { cwd: path.join(checkoutDir, "apps", "portal"), encoding: "utf8", env, timeout: 300_000 },
   );
   if (r.status !== 0) {
     throw new Error(`d1 migrations failed (exit ${r.status}):\n${(r.stderr || "") + (r.stdout || "")}`);
