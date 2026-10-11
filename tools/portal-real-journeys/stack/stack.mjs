@@ -129,8 +129,15 @@ function run(argv, opts = {}) {
   }).toString();
 }
 
+// Spawn wrangler from the portal's own node_modules instead of shelling out
+// through pnpm: a global pnpm on PATH is an environment dependency the
+// supervisor does not need, and its absence kills every D1 step with
+// spawnSync ENOENT before the stack can boot.
+const WRANGLER_BIN = path.join(PORTAL_DIR, "node_modules", ".bin", "wrangler");
+const VITE_BIN = path.join(PORTAL_DIR, "node_modules", ".bin", "vite");
+
 function pnpmWrangler(args) {
-  return run(["pnpm", "exec", "wrangler", ...args]);
+  return run([WRANGLER_BIN, ...args]);
 }
 
 function freshD1({ seed = true } = {}) {
@@ -148,7 +155,7 @@ function sqlD1(command) {
 // ── SPA build (production, the way deployment serves it) ──────────────────
 function buildSpa() {
   say("building the SPA for production");
-  run(["pnpm", "exec", "vite", "build"], {
+  run([VITE_BIN, "build"], {
     env: {
       VITE_PORTAL_ORIGIN: BASE,
       VITE_ACTIVITY_HOSTNAME: "cogactivity-dev.sillion.app",
@@ -194,7 +201,7 @@ function stopPreview() {
 function startPreview() {
   say(`starting the Worker preview on ${PORTAL_PORT}`);
   previewLog = fs.openSync(path.join(LOG_DIR, "preview.log"), "a");
-  preview = spawn("pnpm", ["exec", "vite", "preview", "--port", String(PORTAL_PORT), "--strictPort", "--host", "127.0.0.1"], {
+  preview = spawn(VITE_BIN, ["preview", "--port", String(PORTAL_PORT), "--strictPort", "--host", "127.0.0.1"], {
     cwd: PORTAL_DIR,
     env: { ...process.env, CI: "true", WRANGLER_SEND_METRICS: "false" },
     stdio: ["ignore", previewLog, previewLog],
