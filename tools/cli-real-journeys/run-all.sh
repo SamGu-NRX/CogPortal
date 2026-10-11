@@ -23,6 +23,10 @@ export PATH="$NODE24/bin:$PATH"
 RUN_TAG=${RUN_TAG:-$(date -u +%Y%m%dT%H%M%SZ)}
 RESULTS="$PWD/results/$RUN_TAG"
 mkdir -p "$RESULTS"
+# This run's own persistence directory: the wrangler migrate and seed steps
+# and the booted stack keep their state here (wrangler's v3 layout), never in
+# the checkout's .wrangler state.
+SUITE_STATE="$RESULTS/state"
 export RESULTS_DIR="$RESULTS"
 # The journeys mint dev sessions and read the setup page's check-off secret; it
 # must be the same value the booted Worker runs with.
@@ -52,10 +56,14 @@ fi
 "$WEEK1_ENV/bin/cogworks" --version >"$RESULTS/cli-version.txt" 2>&1
 cat "$RESULTS/cli-version.txt"
 
-echo "== [3/7] fresh local D1 (repo's own dev path) =="
-rm -rf "$REPO_ROOT/apps/portal/.wrangler/state"
-(cd "$REPO_ROOT/apps/portal" && pnpm db:migrate:local >"$RESULTS/d1-migrate.log" 2>&1)
-(cd "$REPO_ROOT/apps/portal" && pnpm db:seed:local >"$RESULTS/d1-seed.log" 2>&1)
+echo "== [3/7] fresh local D1 in this run's state directory =="
+# The repo's db:migrate:local / db:seed:local scripts with the per-run
+# persistence root appended. pnpm run swallows appended flags (probed on
+# 9.15.9: the checkout's default state was used and the probe dir stayed
+# empty), so the wrangler commands are invoked directly: the same commands
+# the scripts run, with --persist-to added.
+(cd "$REPO_ROOT/apps/portal" && pnpm exec wrangler d1 migrations apply cogportal-db --local --persist-to "$SUITE_STATE" >"$RESULTS/d1-migrate.log" 2>&1)
+(cd "$REPO_ROOT/apps/portal" && pnpm exec wrangler d1 execute cogportal-db --local --file scripts/seed-local.sql --persist-to "$SUITE_STATE" >"$RESULTS/d1-seed.log" 2>&1)
 
 echo "== [4/7] production build of the portal and the bot =="
 (cd "$REPO_ROOT" && pnpm --filter @cogworks/portal build >"$RESULTS/portal-build.log" 2>&1)
@@ -64,6 +72,7 @@ echo "== [4/7] production build of the portal and the bot =="
 
 echo "== [5/7] booting the local stack =="
 STACK_LOG="$RESULTS/stack.log" STACK_INFO="$RESULTS/stack.json" \
+  STACK_PERSIST_ROOT="$SUITE_STATE/v3" \
   node support/stack.mjs >"$RESULTS/stack-stdout.log" 2>&1 &
 STACK_PID=$!
 for _ in $(seq 1 180); do

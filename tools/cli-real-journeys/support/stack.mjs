@@ -28,7 +28,17 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // support/ → cli-real-journeys/ → tools/ → repo root.
 const REPO_ROOT = join(HERE, "../../..");
 const PORTAL_DIST = join(REPO_ROOT, "apps/portal/dist");
-const PERSIST_ROOT = join(REPO_ROOT, "apps/portal/.wrangler/state/v3");
+// Each run owns its persistence directory: run-all.sh points STACK_PERSIST_ROOT
+// at the run's state directory -- the same root its wrangler migrate and seed
+// steps use via --persist-to, under wrangler's v3 layout -- so the checkout's
+// own .wrangler state (a student's normal local portal storage) is never
+// read, written or deleted.
+if (!process.env.STACK_PERSIST_ROOT) {
+  throw new Error(
+    "STACK_PERSIST_ROOT is not set; run-all.sh points it at the run's own state directory so the checkout's .wrangler state is never touched.",
+  );
+}
+const PERSIST_ROOT = process.env.STACK_PERSIST_ROOT;
 const BOT_DIST = join(REPO_ROOT, "apps/discord-bot/dist");
 
 // miniflare is wrangler's own dependency (not a direct dep of any workspace
@@ -258,12 +268,12 @@ async function main() {
 
   const mf = new Miniflare({
     port: dispatchPort,
-    // Same persist root wrangler dev uses, so the D1 migrations and seed the
-    // runbook applied land in exactly the database this Worker serves.
-    // Same persist roots wrangler dev uses: each plugin's persist path is
-    // the plugin's own subdirectory under the v3 root (getPersistPath
-    // returns the string as-is), so the D1 migrations and seed the runbook
-    // applied land in exactly the database this Worker serves.
+    // The run's own persistence root (STACK_PERSIST_ROOT): each plugin's
+    // persist path is the plugin's own subdirectory under the v3 root
+    // (getPersistPath returns the string as-is), so the D1 migrations and
+    // seed run-all.sh applied with --persist-to land in exactly the database
+    // this Worker serves -- and the checkout's .wrangler state stays
+    // untouched.
     d1Persist: join(PERSIST_ROOT, "d1"),
     r2Persist: join(PERSIST_ROOT, "r2"),
     kvPersist: join(PERSIST_ROOT, "kv"),
