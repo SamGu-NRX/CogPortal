@@ -112,17 +112,28 @@ export class Portal {
   async teamUntrackedReports(): Promise<any[]> {
     const response = await this.request("/api/v1/local-reports?untracked=1");
     if (response.status !== 200) throw new Error(`local-reports answered ${response.status}: ${response.body}`);
-    const parsed = response.json() as { reports?: any[] };
-    return parsed.reports ?? [];
+    return parseReportList(response.json());
   }
 
   /** The team's local reports for one benchmark, seen through session auth. */
   async teamLocalReports(benchmarkId: string): Promise<any[]> {
     const response = await this.request(`/api/v1/local-reports?benchmark=${encodeURIComponent(benchmarkId)}`);
     if (response.status !== 200) throw new Error(`local-reports answered ${response.status}: ${response.body}`);
-    const parsed = response.json() as { reports?: any[] };
-    return parsed.reports ?? [];
+    return parseReportList(response.json());
   }
+}
+
+/** The list endpoints answer with a bare array (LocalReportListSchema is
+ *  z.array(LocalReportSchema)). An object with a `reports` key also passes so
+ *  a future envelope cannot silently read as empty again - anything else
+ *  throws, because an unreadable shape once hid real reports behind `?? []`
+ *  and every listing case read zero through runs 11 and 12. */
+function parseReportList(parsed: unknown): any[] {
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === "object" && Array.isArray((parsed as { reports?: unknown }).reports)) {
+    return (parsed as { reports: any[] }).reports;
+  }
+  throw new Error(`local-reports answered an unrecognized shape: ${JSON.stringify(parsed).slice(0, 200)}`);
 }
 
 /** The setup page's check-off secret, which mints the page's copyable commands. */
