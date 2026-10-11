@@ -121,6 +121,16 @@ export async function run() {
       week: state.cliWeek,
     },
     executionProvider: "fixture",
+    measurement: {
+      d1StatementsPerRequest:
+        "x-upgrade-suite-queries response header via the countD1Proxy shim (kept)",
+      workerCpu: {
+        budgetMsPerRequest: 10,
+        status: "UNMEASURED",
+        reason:
+          "no workerd CPU telemetry in this run (the vite-plugin dev server exposes no CPU accounting); performance.now wall time is not Worker CPU and is not reported",
+      },
+    },
     method:
       "All state created through beta's real paths: POST /api/dev/login with generated upg-* handles only; " +
       "/api/cohorts/join (code VISION26); /api/github/connect with the fixture repo (creates the one fork-provenance team); " +
