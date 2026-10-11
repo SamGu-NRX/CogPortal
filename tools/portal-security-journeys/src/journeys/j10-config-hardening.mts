@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootStack } from "../lib/stack.mts";
 import { refused, type Check, type Journey } from "../lib/framework.mts";
@@ -87,6 +87,44 @@ export const j10: Journey = {
         ? { name: ".dev.vars.example documents DEV_AUTH=enabled for local development only", ok: true, detail: "DEV_AUTH=enabled in the example template" }
         : { name: ".dev.vars.example documents DEV_AUTH=enabled for local development only", ok: false, detail: `observed DEV_AUTH=${String(exampleDevAuth)}` },
     );
+
+
+    // --- dist secret-scan (own file only): after a production build, the
+    // bundles must carry no committed-looking secret values. Needles target
+    // values, not env-var names — the worker bundle legitimately contains
+    // env.BETTER_AUTH_SECRET-style lookups. Skips with a logged reason when
+    // dist is absent (no production build available).
+    const distDir = join(portalDir, "dist");
+    if (existsSync(distDir)) {
+      const needles: Array<[RegExp, string]> = [
+        [/sec-journeys/i, "harness placeholder secret literal"],
+        [/cogportal-local-dev-secret/i, "local development secret literal"],
+        [/gh[pousr]_[A-Za-z0-9]{20,}/, "GitHub token-shaped credential"],
+      ];
+      let scanned = 0;
+      const hits: string[] = [];
+      const walk = (dir: string): void => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const p = join(dir, entry.name);
+          if (entry.isDirectory()) walk(p);
+          else if (entry.isFile()) {
+            scanned += 1;
+            const text = readFileSync(p, "utf8");
+            for (const [re, label] of needles) {
+              if (re.test(text)) hits.push(`${p.replace(distDir + "/", "")}: ${label}`);
+            }
+          }
+        }
+      };
+      walk(distDir);
+      checks.push(
+        hits.length === 0
+          ? { name: "apps/portal/dist production bundles carry no committed-looking secrets", ok: true, detail: `${scanned} files scanned under dist` }
+          : { name: "apps/portal/dist production bundles carry no committed-looking secrets", ok: false, detail: hits.slice(0, 6).join("; ") },
+      );
+    } else {
+      log("apps/portal/dist missing — dist secret-scan skipped (no production build present)");
+    }
 
     // --- live variant 1: DEV_AUTH disabled (1 of max 2 boots) ---
     const variant1 = await bootStack("j10-variant1", log, { devAuth: false });
