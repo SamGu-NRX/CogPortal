@@ -10,15 +10,7 @@ function assertAuthConfiguration(env: Env): void {
   const hasClientId = Boolean(env.GITHUB_CLIENT_ID);
   const hasClientSecret = Boolean(env.GITHUB_CLIENT_SECRET);
   if (hasClientId !== hasClientSecret) {
-    // The wrangler config's top-level GITHUB_CLIENT_ID (a staging value)
-    // leaks into local previews, where .dev.vars answers with an empty
-    // secret; throwing on the partial pair made every auth route 500 and
-    // left the dev sign-in feature unreachable in local development, where
-    // githubConfigured already requires both values and socialProviders are
-    // then simply omitted. A real deployment still fails fast.
-    if (env.ENVIRONMENT !== "development") {
-      throw new Error("GitHub OAuth requires both GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.");
-    }
+    throw new Error("GitHub OAuth requires both GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.");
   }
   if (!hasClientId && !devAuthAvailable(env)) return;
   if (!env.BETTER_AUTH_SECRET) {
