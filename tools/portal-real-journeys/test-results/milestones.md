@@ -1,4 +1,8 @@
-- j1-real-github-oauth.mjs: FAIL at 17:21:05 — see /tmp/rj-j1-real-github-oauth.mjs.log
-- j2-revoked-credential.mjs: FAIL at 17:21:14 — see /tmp/rj-j2-revoked-credential.mjs.log
-- j3-duplicate-send.mjs: FAIL at 17:21:26 — see /tmp/rj-j3-duplicate-send.mjs.log
-- j4-restart-and-prod-refusal.mjs: FAIL at 17:21:36 — see /tmp/rj-j4-restart-and-prod-refusal.mjs.log
+run started Sun Oct 11 17:29:43 UTC 2026
+[WebServer] Error: worker on 4173 never became healthy
+[WebServer]     at waitHealthy (file:///home/user/work/cogportal-web-f1/tools/portal-real-journeys/stack/stack.mjs:220:38)
+[WebServer]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[WebServer]     at async main (file:///home/user/work/cogportal-web-f1/tools/portal-real-journeys/stack/stack.mjs:445:3)
+
+Error: Process from config.webServer was not able to start. Exit code: 1
+
