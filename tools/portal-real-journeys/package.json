@@ -1,0 +1,15 @@
+{
+  "name": "@cogworks/portal-real-journeys",
+  "private": true,
+  "type": "module",
+  "description": "Real-journeys Playwright suite for the CogPortal web app: real production-served SPA, real Worker routes, real D1, labelled provider doubles and a network-shaping proxy.",
+  "scripts": {
+    "test": "playwright test",
+    "stack": "node stack/stack.mjs",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.56.1"
+  }
+}
