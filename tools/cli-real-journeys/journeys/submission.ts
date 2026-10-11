@@ -70,4 +70,9 @@ class SpectralMatcher:
             best[song_id] = max(best.get(song_id, 0), count)
         ranked = sorted(best.items(), key=lambda item: (-item[1], item[0]))
         return [(song_id, float(count)) for song_id, count in ranked[:10]]
+
+
+def create_submission(resources: Any = None) -> SpectralMatcher:
+    # The benchmark discovers this name; resources carries catalogs and caches.
+    return SpectralMatcher(resources)
 `;

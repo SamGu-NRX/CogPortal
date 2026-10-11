@@ -37,7 +37,7 @@ echo "== [2/7] install the real CLI and the week1 benchmark (student commands) =
 if [ "${SKIP_INSTALL:-0}" != "1" ]; then
   "$WEEK1_ENV/bin/python" -m pip install --quiet "numpy==1.24.4" \
     >"$RESULTS/pip-deps.log" 2>&1
-  "$WEEK1_ENV/bin/python" -m pip install --quiet scipy soundfile librosa \
+  "$WEEK1_ENV/bin/python" -m pip install --quiet scipy soundfile librosa ipython matplotlib \
     >>"$RESULTS/pip-deps.log" 2>&1
   "$WEEK1_ENV/bin/python" -m pip install --quiet -e "$REPO_ROOT/python/cogbench" \
     >>"$RESULTS/pip-cli.log" 2>&1

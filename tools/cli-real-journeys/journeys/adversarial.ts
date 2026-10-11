@@ -156,9 +156,14 @@ await cases.liveFault.run(async () => {
     const exit = await run.exited(900_000);
     case_.command("cogworks run --live (while run creation answers 500)", exit, run.output());
     case_.expect(
-      exit === 0,
-      "the live run still completed locally when the portal refused the bubble",
+      exit !== 0,
+      "the degraded live run did not pretend the bubble succeeded",
       `exited ${exit}; output ends: ${run.output().slice(-300)}`,
+    );
+    case_.expect(
+      /raised/i.test(run.output()) && /portal/i.test(run.output()),
+      "the degraded run reported a raised status and named the portal problem",
+      run.output().slice(-400),
     );
     const report = await latestReport(repo.path);
     case_.expect(
