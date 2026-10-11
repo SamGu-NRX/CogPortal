@@ -40,7 +40,9 @@ export async function run() {
   rmSync(receiptPath, { force: true });
 
   // Runtime + package manager, then the beta checkout and its deps.
-  const { nodeDir } = await ensureNode24();
+  // Under the orchestrator the stage already runs on Node 24, so ensureNode24
+  // returns null nodeDir; the orchestrator hands the bin dir over via env.
+  const nodeDir = (await ensureNode24()).nodeDir || process.env.UPGRADE_SUITE_NODE_BIN || "";
   await ensurePnpm({ nodeDir, cacheDir: path.join(SUITE_DIR, ".cache") });
   const { checkoutDir } = await ensureBetaWorktree({ repoDir: REPO_DIR, suiteDir: SUITE_DIR });
   ensureBetaDeps({ checkoutDir, nodeDir });
