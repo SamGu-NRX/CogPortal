@@ -1,0 +1,65 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.cogbench/
+.pytest_cache/
+.ruff_cache/
+
+# Cloudflare local state
+.wrangler/
+
+# Local environment and secret files
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+*.local
+
+# GitHub App and signing credentials
+*.pem
+*.private-key.pem
+*-private-key.pem
+*.key
+*.p8
+*.p12
+*.pfx
+
+# Logs and local tooling
+*.log
+.playwright-cli/
+.DS_Store
+.idea/
+.vscode/
+migrations/meta/
+.specstory
+plans
+
+# Python build artifacts (a stale apps/runner-modal/build/lib shadowed src)
+build/
+
+# Student repositories cloned for local benchmark testing. 3+ GB of their
+# audio and committed .npy files; re-clone with
+# `python tools/clone_student_repos.py` rather than committing any of it.
+.cache/
+
+# Deploy-only virtualenv (modal + fastapi), created by the runbook.
+.venv-deploy/
+.venv-week1/
+.venv-test/
+
+# Browser-driving screenshots from design passes. Regenerate rather than
+# review a binary diff.
+output/
+
+# Benchmark run output. Week 2 pins CelebA by revision and verifies every row by
+# hash (docs/decisions/0002-week2-vision-benchmark.md) precisely so the image
+# files never enter the repository; a local run wrote 24 of them here anyway.
+result/
