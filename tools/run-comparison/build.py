@@ -55,21 +55,14 @@ def _weights_text(weights: Any) -> str:
 
 
 def source_verdict(a: Report, b: Report) -> Dict[str, str]:
-    """Whether the two runs' source identity supports attribution."""
+    """Whether the two runs' source identity supports a comparison.
+
+    Pinning is checked first: a commit sha on a dirty working tree pins
+    nothing, so until both sides pin the bytes that ran, no claim of same
+    or changed source is supportable.
+    """
 
     sa, sb = a.source, b.source
-    if sa.repository is None or sb.repository is None:
-        return {
-            "verdict": "unknown",
-            "detail": "the repository is not recorded on at least one side",
-        }
-    if sa.repository != sb.repository:
-        return {
-            "verdict": "changed",
-            "detail": "different repositories: {!r} vs {!r}".format(
-                sa.repository, sb.repository
-            ),
-        }
     if not (sa.pins_the_scored_bytes and sb.pins_the_scored_bytes):
         sides = " and ".join(
             name
@@ -79,8 +72,28 @@ def source_verdict(a: Report, b: Report) -> Dict[str, str]:
         return {
             "verdict": "unknown",
             "detail": (
-                "the working tree was dirty on {}, so a commit sha cannot "
-                "pin the bytes that ran".format(sides)
+                "the source bytes cannot be pinned: on {} the working tree was "
+                "dirty or no commit sha was recorded, so nothing pins what ran".format(sides)
+            ),
+        }
+    if sa.repository is None or sb.repository is None:
+        sides = " and ".join(
+            name
+            for name, report in (("run A", a), ("run B", b))
+            if report.source.repository is None
+        )
+        return {
+            "verdict": "unknown",
+            "detail": (
+                "the repository is not recorded on {} — the runs cannot be "
+                "shown to come from the same source".format(sides)
+            ),
+        }
+    if sa.repository != sb.repository:
+        return {
+            "verdict": "changed",
+            "detail": "different repositories, both pinned: {!r} vs {!r}".format(
+                sa.repository, sb.repository
             ),
         }
     if sa.sha != sb.sha:
@@ -223,7 +236,7 @@ def dataset_verdict(a: Report, b: Report) -> Dict[str, Any]:
                 ),
             }
         )
-    elif wa != wb:
+    elif sorted(wa) != sorted(wb):
         fields.append(
             {
                 "field": "weights",
@@ -233,14 +246,156 @@ def dataset_verdict(a: Report, b: Report) -> Dict[str, Any]:
                 ),
             }
         )
-    else:
+    elif not wa:
         fields.append(
             {
                 "field": "weights",
                 "verdict": "same",
-                "detail": "both runs name the same weights: {}".format(
-                    _weights_text(wa)
-                ),
+                "detail": "neither run used recorded weights",
+            }
+        )
+    else:
+        capture_a = a.dataset.weights_uploaded
+        capture_b = b.dataset.weights_uploaded
+        if capture_a is None or capture_b is None:
+            sides = " and ".join(
+                name
+                for name, capture in (("run A", capture_a), ("run B", capture_b))
+                if capture is None
+            )
+            fields.append(
+                {
+                    "field": "weights",
+                    "verdict": "unknown",
+                    "detail": (
+                        "the byte identity of the used weights ({}) cannot be "
+                        "shown to match: weight capture is not recorded on {} "
+                        "(weightsUploaded absent or null — the report may "
+                        "predate capture)".format(_weights_text(wa), sides)
+                    ),
+                }
+            )
+        else:
+            index_a = {receipt.path: receipt for receipt in capture_a}
+            index_b = {receipt.path: receipt for receipt in capture_b}
+            byte_differences: List[str] = []
+            unreceipted: List[str] = []
+            for used_path in sorted(wa):
+                receipt_a = index_a.get(used_path)
+                receipt_b = index_b.get(used_path)
+                if receipt_a is None or receipt_b is None:
+                    if receipt_a is None and receipt_b is None:
+                        missing = "run A and run B"
+                    else:
+                        missing = "run A" if receipt_a is None else "run B"
+                    unreceipted.append(
+                        "{}: no capture receipt names it on {}".format(
+                            used_path, missing
+                        )
+                    )
+                elif (
+                    receipt_a.sha256 != receipt_b.sha256
+                    or receipt_a.size != receipt_b.size
+                ):
+                    byte_differences.append(
+                        "{}: sha256 {} ({} bytes) vs {} ({} bytes)".format(
+                            used_path,
+                            receipt_a.sha256[:12],
+                            receipt_a.size,
+                            receipt_b.sha256[:12],
+                            receipt_b.size,
+                        )
+                    )
+            if byte_differences:
+                fields.append(
+                    {
+                        "field": "weights",
+                        "verdict": "changed",
+                        "detail": (
+                            "the recorded weight bytes differ: "
+                            + "; ".join(byte_differences)
+                        ),
+                    }
+                )
+            elif unreceipted:
+                fields.append(
+                    {
+                        "field": "weights",
+                        "verdict": "unknown",
+                        "detail": (
+                            "the byte identity of the used weights ({}) is "
+                            "partly unrecorded: {}".format(
+                                _weights_text(wa), "; ".join(unreceipted)
+                            )
+                        ),
+                    }
+                )
+            else:
+                fields.append(
+                    {
+                        "field": "weights",
+                        "verdict": "same",
+                        "detail": (
+                            "same weight paths with identical recorded bytes "
+                            "(sha256 and size): {}".format(_weights_text(wa))
+                        ),
+                    }
+                )
+
+    floors_a = {m.key: m for m in a.metrics if m.role == "floor"}
+    floors_b = {m.key: m for m in b.metrics if m.role == "floor"}
+    floor_keys = sorted(set(floors_a) | set(floors_b))
+    if not floor_keys:
+        fields.append(
+            {
+                "field": "scoring floors",
+                "verdict": "same",
+                "detail": "no floor metrics are recorded on either side",
+            }
+        )
+    else:
+        floor_parts: List[str] = []
+        floors_verdict = "same"
+        for key in floor_keys:
+            metric_a = floors_a.get(key)
+            metric_b = floors_b.get(key)
+            if metric_a is None or metric_b is None:
+                if metric_a is None and metric_b is None:
+                    side = "neither run"
+                else:
+                    side = "run A" if metric_b is None else "run B"
+                floor_parts.append("{}: recorded on {} only".format(key, side))
+                if floors_verdict == "same":
+                    floors_verdict = "unknown"
+            elif (metric_a.value, metric_a.precision) != (
+                metric_b.value,
+                metric_b.precision,
+            ):
+                floor_parts.append(
+                    "{}: {} on run A vs {} on run B — the scored metric's "
+                    "floor changed between the runs".format(
+                        key,
+                        _fmt(metric_a.value, metric_a.precision),
+                        _fmt(metric_b.value, metric_b.precision),
+                    )
+                )
+                floors_verdict = "changed"
+            else:
+                floor_parts.append(
+                    "{}: {} on both runs".format(
+                        key, _fmt(metric_a.value, metric_a.precision)
+                    )
+                )
+        prefix = {
+            "changed": "the scoring floors differ: ",
+            "unknown": "the scoring floors cannot be shown to match: ",
+            "same": "",
+        }[floors_verdict]
+        fields.append(
+            {
+                "field": "scoring floors",
+                "verdict": floors_verdict,
+                "detail": prefix + "; ".join(floor_parts),
             }
         )
 
@@ -250,7 +405,7 @@ def dataset_verdict(a: Report, b: Report) -> Dict[str, Any]:
     elif any(item["verdict"] == "unknown" for item in fields):
         verdict = "unknown"
     summary = {
-        "same": "benchmark, case set and weights line up on every recorded axis",
+        "same": "benchmark, case set, weight bytes and scoring floors line up on every recorded axis",
         "changed": "at least one dataset axis changed — see the field verdicts",
         "unknown": (
             "at least one dataset axis is unrecorded — the runs cannot be "
@@ -284,9 +439,12 @@ def metric_sections(
                 {
                     "key": key,
                     "label": ma.label or key,
-                    "value": _fmt(ma.value, ma.precision),
+                    "value_a": _fmt(ma.value, ma.precision),
+                    "value_b": _fmt(mb.value, mb.precision),
                     "unit": ma.unit,
                     "relates_to": ma.relates_to,
+                    "differs": (ma.value, ma.precision)
+                    != (mb.value, mb.precision),
                 }
             )
             continue
@@ -370,10 +528,27 @@ def analyze_pair(a: Report, b: Report) -> Dict[str, Any]:
             + scorer["detail"]
         )
     sections = metric_sections(a, b, comparable)
+    findings: List[str] = []
+    if comparable:
+        findings.append(
+            "All recorded conditions match: source, dataset (benchmark, case "
+            "set, weight bytes, scoring floors) and scorer identity."
+        )
+        findings.append(
+            "The metric deltas below are observations only; this view states "
+            "no cause for any difference."
+        )
+    else:
+        findings.extend(blockers)
+        findings.append(
+            "While any blocker stands, a metric difference is not evidence "
+            "of a source effect."
+        )
     return {
         "comparable": comparable,
         "conditions": {"source": source, "dataset": dataset, "scorer": scorer},
         "blockers": blockers,
+        "findings": findings,
         **sections,
     }
 
@@ -480,14 +655,20 @@ def render(
         fields_html = ""
         if "fields" in verdict:
             fields_html = "<ul>" + "".join(
-                "<li><strong>{}</strong> {} — {}</li>".format(
-                    _esc(field["field"]), _chip(field["verdict"]), _esc(field["detail"])
+                '<li data-field="{binding}" data-verdict="{verdict}"><strong>{field_label}</strong> {chip} — {detail}</li>'.format(
+                    binding=_esc(axis + "." + field["field"]),
+                    verdict=_esc(field["verdict"]),
+                    field_label=_esc(field["field"]),
+                    chip=_chip(field["verdict"]),
+                    detail=_esc(field["detail"]),
                 )
                 for field in verdict["fields"]
             ) + "</ul>"
         condition_rows.append(
-            '<tr><th scope="row">{axis}</th><td>{chip}</td><td>{detail}{fields}</td></tr>'.format(
-                axis=_esc(axis),
+            '<tr data-axis="{axis}" data-verdict="{verdict}"><th scope="row">{axis_label}</th><td>{chip}</td><td>{detail}{fields}</td></tr>'.format(
+                axis=axis,
+                verdict=_esc(verdict["verdict"]),
+                axis_label=_esc(axis),
                 chip=_chip(verdict["verdict"]),
                 detail=_esc(verdict["detail"]),
                 fields=fields_html,
@@ -498,8 +679,8 @@ def render(
     if analysis["comparable"]:
         banner = (
             '<p class="ok">Conditions line up on every axis the reports record. '
-            "Where they differ below, the difference can be attributed to the "
-            "change between the two runs' sources.</p>"
+            "The deltas below are observations only — this view states no "
+            "cause for any difference.</p>"
         )
     else:
         banner = (
@@ -515,17 +696,18 @@ def render(
             " · " + _esc(row["unit"]) if row["unit"] else ""
         )
         if row["delta"] is None:
-            delta_cell = '<span class="muted">— not compared</span><br><span class="muted">{}</span>'.format(
+            delta_cell = '<span class="muted">— not compared</span><br> <span class="muted">{}</span>'.format(
                 _esc(row["delta_note"])
             )
         else:
-            delta_cell = '<strong>{}</strong><br><span class="muted">{}</span>'.format(
+            delta_cell = '<strong>{}</strong><br> <span class="muted">{}</span>'.format(
                 _esc(row["delta"]), _esc(row["delta_note"])
             )
         metric_rows.append(
-            "<tr><td><strong>{label}</strong>{marker}<br>"
+            '<tr data-metric-key="{key}"><td><strong>{label}</strong>{marker}<br>'
             '<span class="muted">{sub}</span></td>'
             "<td>{va}</td><td>{vb}</td><td>{delta}</td></tr>".format(
+                key=_esc(row["key"]),
                 label=_esc(row["label"]),
                 marker=marker,
                 sub=sub,
@@ -540,28 +722,38 @@ def render(
 
     if analysis["context"]:
         context_rows = "\n".join(
-            "<tr><td><strong>{label}</strong><br>"
-            '<span class="muted">{key}</span></td><td>{value}{unit}</td><td>{relates}</td></tr>'.format(
-                label=_esc(item["label"]),
+            '<tr data-floor-key="{key}"><td><strong>{label}</strong><br>'
+            '<span class="muted">{key_sub}</span></td><td>{value_a}</td><td>{value_b}</td><td>{relates}{diff_chip}</td></tr>'.format(
                 key=_esc(item["key"]),
-                value=_esc(item["value"]),
-                unit=(" " + _esc(item["unit"])) if item["unit"] else "",
+                label=_esc(item["label"]),
+                key_sub=_esc(
+                    item["key"]
+                    + ((" · " + item["unit"]) if item["unit"] else "")
+                ),
+                value_a=_esc(item["value_a"]),
+                value_b=_esc(item["value_b"]),
                 relates=(
                     _esc("floor of " + item["relates_to"])
                     if item["relates_to"]
                     else '<span class="muted">floor reference</span>'
+                ),
+                diff_chip=(
+                    ' <span class="chip chip-changed">differs between the runs</span>'
+                    if item["differs"]
+                    else ""
                 ),
             )
             for item in analysis["context"]
         )
         context_html = (
             "<p>Floors are reference values, not findings, so they carry no "
-            "difference column.</p>\n"
-            '<table><thead><tr><th scope="col">Metric</th><th scope="col">Value</th>'
+            "difference column; both runs' values are shown.</p>\n"
+            '<table><thead><tr><th scope="col">Metric</th>'
+            '<th scope="col">Run A ({fa})</th><th scope="col">Run B ({fb})</th>'
             '<th scope="col">Reference for</th></tr></thead><tbody>\n'
             + context_rows
             + "\n</tbody></table>"
-        )
+        ).format(fa=_esc(a_name), fb=_esc(b_name))
     else:
         context_html = '<p class="muted">No floor metrics recorded.</p>'
 
@@ -681,9 +873,16 @@ def render(
         _esc(a_name), _diag(a), _esc(b_name), _diag(b)
     )
 
+    findings_html = (
+        "<ul>"
+        + "".join("<li>{}</li>".format(_esc(line)) for line in analysis["findings"])
+        + "</ul>"
+    )
     head = (
         "<h1>Run comparison</h1>"
-        '<p class="premise"><strong>Premise.</strong> A comparison is warranted '
+        "<h2>Findings</h2>"
+        + findings_html
+        + '<p class="premise"><strong>Premise.</strong> A comparison is warranted '
         "only where the two runs line up on source, dataset, scorer and metric "
         "identity — the verdicts below state exactly where they do, and unknown "
         "provenance blocks a conclusion instead of being filled in. Both reports "
@@ -769,8 +968,12 @@ def build_sections(
             )
     for item in analysis["context"]:
         lines["floor_context"].append(
-            "{} (floor of {}): {}".format(
-                item["key"], item["relates_to"] or "unspecified", item["value"]
+            "{} (floor of {}): run A {} vs run B {}{}".format(
+                item["key"],
+                item["relates_to"] or "unspecified",
+                item["value_a"],
+                item["value_b"],
+                " — differs between the runs" if item["differs"] else "",
             )
         )
     for item in analysis["only_in_a"]:
@@ -788,6 +991,14 @@ def build_sections(
     return lines
 
 
+def tool_source_digests() -> Dict[str, str]:
+    here = Path(__file__).resolve().parent
+    return {
+        name: _sha((here / name).read_bytes())
+        for name in sorted(("build.py", "report_reader.py"))
+    }
+
+
 def make_receipt(
     fixtures_root: str,
     a_name: str,
@@ -797,18 +1008,24 @@ def make_receipt(
     not_compared: List[Dict[str, str]],
     sections: Dict[str, List[str]],
     html_bytes: bytes,
+    inputs: List[Dict[str, str]],
 ) -> Dict[str, Any]:
     return {
         "generator": "tools/run-comparison/build.py",
+        "tool_source": {"files": tool_source_digests()},
         "fixtures_root": fixtures_root,
+        "inputs": inputs,
         "compared": [a_name, b_name],
         "not_compared": not_compared,
         "excluded": excluded,
         "pair_comparable": analysis["comparable"],
         "conditions": analysis["conditions"],
+        "findings": analysis["findings"],
         "metrics": {
-            key: analysis[key]
-            for key in ("shared", "context", "only_in_a", "only_in_b")
+            "shared": analysis["shared"],
+            "floors": analysis["context"],
+            "only_in_a": analysis["only_in_a"],
+            "only_in_b": analysis["only_in_b"],
         },
         "sections": sections,
         "html_sha256": _sha(html_bytes),
@@ -851,6 +1068,9 @@ def main() -> int:
 
     loaded: List[Tuple[str, Report]] = []
     excluded: List[Dict[str, Any]] = []
+    inputs = [
+        {"file": path.name, "sha256": _sha(path.read_bytes())} for path in files
+    ]
     for path in files:
         report = read_report(path)
         if report.accepted:
@@ -910,6 +1130,7 @@ def main() -> int:
         not_compared,
         sections,
         html_bytes,
+        inputs,
     )
     receipt_path = out / "view-receipts-{}.json".format(stem)
     receipt_path.write_text(
