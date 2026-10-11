@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Suite test runner: runs the stage tests under Node 24 (the runtime the
- * orchestrator uses), bootstrapping the cached Node 24 install when missing.
- * Usage: node bin/test.mjs
+ * Suite test runner: runs every tests/*.test.mjs file under Node 24 (the
+ * runtime the orchestrator uses), bootstrapping the cached Node 24 install
+ * when missing. Usage: node bin/test.mjs
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CACHE_BIN = "/home/user/.cache/node24/bin/node";
@@ -23,5 +24,10 @@ async function resolveNode24() {
 
 const nodeBin = await resolveNode24();
 const testsDir = fileURLToPath(new URL("../tests/", import.meta.url));
-const result = spawnSync(nodeBin, ["--test", testsDir], { stdio: "inherit" });
+const testFiles = readdirSync(testsDir).filter((f) => f.endsWith(".test.mjs")).map((f) => join(testsDir, f));
+if (testFiles.length === 0) {
+  console.error("no test files found under", testsDir);
+  process.exit(1);
+}
+const result = spawnSync(nodeBin, ["--test", ...testFiles], { stdio: "inherit" });
 process.exit(result.status ?? 1);

@@ -49,6 +49,13 @@ export default {
   writeFileSync(
     path.join(shimDir, "d1-proxy.ts"),
     `// Counts D1 statements issued through the binding during one request.
+function statementCount(sql: string): number {
+  let count = 0;
+  for (const part of sql.split(";")) {
+    if (part.trim().length > 0) count += 1;
+  }
+  return count;
+}
 export function countD1Proxy(db: D1Database, state: { statements: number }): D1Database {
   const wrap = <T extends object>(obj: T): T =>
     new Proxy(obj, {
@@ -56,10 +63,20 @@ export function countD1Proxy(db: D1Database, state: { statements: number }): D1D
         const v = Reflect.get(target, prop);
         if (typeof v !== "function") return v;
         return (...args: unknown[]) => {
-          if (prop === "prepare" || prop === "batch" || prop === "exec") state.statements += 1;
-          if (prop === "batch" && Array.isArray(args[0])) state.statements += args[0].length - 1;
+          if (prop === "batch" && Array.isArray(args[0])) {
+            // Each statement handed to batch executes exactly once.
+            state.statements += args[0].length;
+          } else if (prop === "exec") {
+            // exec runs every ;-separated statement in its SQL.
+            state.statements += statementCount(String(args[0] ?? ""));
+          } else if (
+            prop === "all" || prop === "run" || prop === "first" || prop === "raw" || prop === "get"
+          ) {
+            // Execution happens on the prepared (or bound) statement.
+            state.statements += 1;
+          }
           const r = (v as (...a: unknown[]) => unknown).apply(target, args);
-          return r && typeof r === "object" ? wrap(r as object) : r;
+          return r && typeof r === "object" && !(r instanceof Promise) ? wrap(r as object) : r;
         };
       },
     });
