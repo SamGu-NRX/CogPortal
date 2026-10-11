@@ -1059,6 +1059,7 @@ def replay_gate_disagreements(
     inputs: List[Dict[str, str]],
     tool_source: Dict[str, str],
     compared: List[str],
+    expected_replay: Optional[Dict[str, Any]],
 ) -> List[str]:
     """Validate evidence already on disk against a fresh build.
 
@@ -1066,6 +1067,9 @@ def replay_gate_disagreements(
     bytes, or None where the file is absent. Returns one line per
     disagreement; an empty list means the existing evidence matches the
     fresh derivation — or nothing exists yet — and rewriting is safe.
+    The replay receipt is compared whole against the freshly derived
+    expected receipt (generator label, fixture-root binding and full
+    structure), so none of its fields can drift silently.
     Nothing here writes or deletes anything: the caller refuses to touch
     the directory while any disagreement stands.
     """
@@ -1118,64 +1122,24 @@ def replay_gate_disagreements(
             "as JSON ({})".format(error)
         )
     else:
-        view_digest = _sha(existing["view"])
-        receipt_digest = _sha(existing["receipt"])
-        if existing_replay.get("identical") is not True:
+        if expected_replay is None:
+            problems.append(
+                "replay disagreement: no expected replay receipt was "
+                "derived to compare against; refusing to write"
+            )
+        elif existing_replay != expected_replay:
+            differing = sorted(
+                key
+                for key in set(existing_replay) | set(expected_replay)
+                if existing_replay.get(key) != expected_replay.get(key)
+            )
             problems.append(
                 "replay disagreement: the existing replay receipt does not "
-                "record an identical rebuild (identical={!r})".format(
-                    existing_replay.get("identical")
-                )
-            )
-        if existing_replay.get("html_sha256") != view_digest:
-            problems.append(
-                "replay disagreement: the existing replay receipt's "
-                "html_sha256 does not match the existing view bytes"
-            )
-        if existing_replay.get("rebuilt_html_sha256") != view_digest:
-            problems.append(
-                "replay disagreement: the existing replay receipt's "
-                "rebuilt_html_sha256 does not match the existing view bytes"
-            )
-        if existing_replay.get("receipt_sha256") != receipt_digest:
-            problems.append(
-                "replay disagreement: the existing replay receipt's "
-                "receipt_sha256 does not match the existing receipt bytes"
-            )
-        recorded_inputs = existing_replay.get("inputs")
-        if not isinstance(recorded_inputs, list):
-            problems.append(
-                "replay disagreement: the existing replay receipt records no "
-                "inputs list"
-            )
-        else:
-            by_name = {
-                entry.get("file"): entry.get("sha256")
-                for entry in recorded_inputs
-                if isinstance(entry, dict)
-            }
-            if by_name != {entry["file"]: entry["sha256"] for entry in inputs}:
-                problems.append(
-                    "replay disagreement: the existing replay receipt's input "
-                    "digests do not match the fixture bytes"
-                )
-        recorded_tool = existing_replay.get("tool_source")
-        recorded_tool_files = (
-            recorded_tool.get("files") if isinstance(recorded_tool, dict) else None
-        )
-        if recorded_tool_files != tool_source:
-            problems.append(
-                "replay disagreement: the existing replay receipt's "
-                "tool_source digests do not match the current generator "
-                "sources (receipt {!r} vs actual {!r})".format(
-                    recorded_tool_files, tool_source
-                )
-            )
-        if existing_replay.get("compared") != compared:
-            problems.append(
-                "replay disagreement: the existing replay receipt names a "
-                "different compared pair {!r} != {!r}".format(
-                    existing_replay.get("compared"), compared
+                "match the complete expected receipt (generator, "
+                "fixture-root binding, digests, inputs, tool source and "
+                "compared pair); differing key(s): {}; the existing "
+                "receipt is preserved and nothing was written".format(
+                    ", ".join(differing) or "structure"
                 )
             )
     return problems
@@ -1300,19 +1264,18 @@ def main() -> int:
             )
             return 1
         tool_source = tool_source_digests()
-        replay_bytes = _json_bytes(
-            {
-                "generator": REPLAY_GENERATOR,
-                "fixtures_root": "; ".join(roots),
-                "compared": [a_name, b_name],
-                "inputs": inputs,
-                "tool_source": {"files": tool_source},
-                "html_sha256": _sha(html_bytes),
-                "rebuilt_html_sha256": _sha(replay_html),
-                "receipt_sha256": _sha(receipt_bytes),
-                "identical": True,
-            }
-        )
+        expected_replay = {
+            "generator": REPLAY_GENERATOR,
+            "fixtures_root": "; ".join(roots),
+            "compared": [a_name, b_name],
+            "inputs": inputs,
+            "tool_source": {"files": tool_source},
+            "html_sha256": _sha(html_bytes),
+            "rebuilt_html_sha256": _sha(replay_html),
+            "receipt_sha256": _sha(receipt_bytes),
+            "identical": True,
+        }
+        replay_bytes = _json_bytes(expected_replay)
 
     out = Path(arguments.out)
     stem = "{}-vs-{}".format(Path(a_name).stem, Path(b_name).stem)
@@ -1356,6 +1319,7 @@ def main() -> int:
                 existing=existing,
                 fresh_html=html_bytes,
                 fresh_receipt=receipt,
+                expected_replay=expected_replay,
                 inputs=inputs,
                 tool_source=tool_source,
                 compared=[a_name, b_name],

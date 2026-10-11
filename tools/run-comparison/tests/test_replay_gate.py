@@ -208,3 +208,53 @@ def test_force_regenerates_disagreeing_evidence_and_restores_the_gate(tmp_path):
     again = _run_build(out, "--replay")
     assert again.returncode == 0, again.stdout + again.stderr  # gate green again
     assert _run_verify(out).returncode == 0
+
+
+def test_gated_replay_refuses_a_tampered_generator_field_and_preserves_all_evidence(tmp_path):
+    """A tampered generator field must not survive the gate.
+
+    The replay receipt's own bytes are not digested anywhere else, so
+    this tamper leaves every digest check green — rebinding the receipt's
+    digests changes nothing. Only the complete expected-receipt
+    comparison can catch it: the gate must refuse and leave all three
+    artifacts byte-identical.
+    """
+
+    import hashlib
+
+    out = tmp_path / "evidence"
+    assert _run_build(out, "--replay").returncode == 0
+    replay_path = out / REPLAY
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    view_digest = hashlib.sha256((out / VIEW).read_bytes()).hexdigest()
+    receipt_digest = hashlib.sha256((out / RECEIPT).read_bytes()).hexdigest()
+    replay["html_sha256"] = view_digest
+    replay["rebuilt_html_sha256"] = view_digest
+    replay["receipt_sha256"] = receipt_digest
+    replay["generator"] = "tampered/tamper.py --replay"
+    replay_path.write_text(_canonical(replay), encoding="utf-8")
+    before = _snapshot(out)
+
+    result = _run_build(out, "--replay")
+    assert result.returncode == 1
+    assert "replay disagreement" in result.stderr
+    assert "generator" in result.stderr
+    assert _snapshot(out) == before  # all three artifacts byte-identical
+
+
+def test_gated_replay_refuses_a_tampered_fixture_root_binding(tmp_path):
+    """The receipt's fixture-root binding is part of its identity."""
+
+    out = tmp_path / "evidence"
+    assert _run_build(out, "--replay").returncode == 0
+    replay_path = out / REPLAY
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    replay["fixtures_root"] = "somewhere/else"
+    replay_path.write_text(_canonical(replay), encoding="utf-8")
+    before = _snapshot(out)
+
+    result = _run_build(out, "--replay")
+    assert result.returncode == 1
+    assert "replay disagreement" in result.stderr
+    assert "fixtures_root" in result.stderr
+    assert _snapshot(out) == before
