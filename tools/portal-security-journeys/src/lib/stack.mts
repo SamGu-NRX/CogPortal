@@ -22,7 +22,9 @@ function repoRoot(): string {
   throw new Error("repo root (pnpm-workspace.yaml) not found — run from a CogPortal checkout");
 }
 
-export async function bootStack(journeyId: string, log: (line: string) => void): Promise<Stack> {
+export type BootStackOptions = { devAuth?: boolean; withGithubConfig?: boolean };
+
+export async function bootStack(journeyId: string, log: (line: string) => void, opts: BootStackOptions = {}): Promise<Stack> {
   const root = repoRoot();
   const portal = join(root, "apps", "portal");
   if (!existsSync(join(portal, "package.json"))) throw new Error(`portal app not found at ${portal}`);
@@ -30,7 +32,10 @@ export async function bootStack(journeyId: string, log: (line: string) => void):
   const port = 8900 + (Math.floor(Math.random() * 90) + 10);
   const vars = [
     "ENVIRONMENT=development",
-    "DEV_AUTH=enabled",
+    `DEV_AUTH=${opts.devAuth === false ? "disabled" : "enabled"}`,
+    ...(opts.withGithubConfig
+      ? ["GITHUB_CLIENT_ID=Iv23li0000000journey-placeholder", "GITHUB_CLIENT_SECRET=sec-journeys-placeholder-not-a-real-secret"]
+      : []),
     `BETTER_AUTH_SECRET=sec-journeys-${journeyId}-${Date.now().toString(36)}`,
     `RUNNER_SIGNING_SECRET=${RUNNER_SECRET}`,
     "EXECUTION_PROVIDER=fixture",
