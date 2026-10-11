@@ -236,6 +236,11 @@ export function useApproveDevice() {
       const statusKey = ["device-link-status", userCode];
       await qc.cancelQueries({ queryKey: statusKey });
       qc.setQueryData(statusKey, { valid: true, approved: true, expiresAt: null });
+      // The approved device now exists in the caller's connections list, and
+      // Setup's progress count reads that list. Refresh it here, for the same
+      // reason the status write is here: the page that asked may be gone, and
+      // Setup should tick when the approval lands, not when a poll runs.
+      void qc.invalidateQueries({ queryKey: ["connections"] });
     },
     // A code the server refuses for good (410 link_expired) is no use to Setup
     // either, so its held link goes, here for the same reason as above. Its
