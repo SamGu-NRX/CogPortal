@@ -19,6 +19,11 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./journeys",
+  // Journey specs are named j1-…–j4-… .mjs, which the default
+  // *.spec/*.test pattern never matches — discovery found zero files.
+  // Scope the match to exactly the four journey specs in testDir;
+  // helpers.mjs is a shared module, not a spec.
+  testMatch: "**/j[1-4]-*.mjs",
   timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
