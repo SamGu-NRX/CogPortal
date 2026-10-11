@@ -1,0 +1,381 @@
+{
+  "startedAt": "2026-10-11T00:16:13.440Z",
+  "paths": [
+    {
+      "name": "first-run",
+      "states": [
+        {
+          "url": "/connect",
+          "h1": "Start your team",
+          "count": null,
+          "headings": [
+            "Start your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "connect choice screen"
+        },
+        {
+          "url": "/connect?path=start",
+          "h1": "Start your team",
+          "count": null,
+          "headings": [
+            "Start your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "start step direct"
+        },
+        {
+          "url": "/connect",
+          "h1": "Start your team",
+          "count": null,
+          "headings": [
+            "Start your team"
+          ],
+          "steps": 0,
+          "focused": "INPUT:",
+          "alerts": [],
+          "label": "repo chosen, team name step appears"
+        },
+        {
+          "url": "/setup",
+          "h1": "Set up your machine",
+          "count": "0 of 5 done",
+          "headings": [
+            "Set up your machine",
+            "Before you start",
+            "Get the code",
+            "Install the CogWorks tool",
+            "Install the Language: Search benchmark",
+            "Link this device",
+            "Check that it finds your code"
+          ],
+          "steps": 0,
+          "focused": "H1:Set up your machine",
+          "alerts": [
+            "You've created Face FinderClassmates join from the team list, or add them from the Team page."
+          ],
+          "label": "after create"
+        },
+        {
+          "url": "/setup",
+          "h1": "Set up your machine",
+          "count": "0 of 5 done",
+          "headings": [
+            "Set up your machine",
+            "Before you start",
+            "Get the code",
+            "Install the CogWorks tool",
+            "Install the Language: Search benchmark",
+            "Link this device",
+            "Check that it finds your code"
+          ],
+          "steps": 0,
+          "focused": "H1:Set up your machine",
+          "alerts": [
+            "You've created Face FinderClassmates join from the team list, or add them from the Team page."
+          ],
+          "label": "setup arrival state"
+        },
+        {
+          "url": "/connections?user_code=ABCD-1234-EFGH&return_to=setup",
+          "h1": "Connections",
+          "count": null,
+          "headings": [
+            "Connections",
+            "Approve this device",
+            "GitHub",
+            "Discord",
+            "CogWorks tool"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalFace Finde",
+          "alerts": [],
+          "label": "device approval page"
+        },
+        {
+          "url": "/setup",
+          "h1": "Set up your machine",
+          "count": "1 of 5 done, seen by the portal",
+          "headings": [
+            "Set up your machine",
+            "Before you start",
+            "Get the code",
+            "Install the CogWorks tool",
+            "Install the Language: Search benchmark",
+            "Link this deviceSeen by the portalShow command",
+            "Check that it finds your code"
+          ],
+          "steps": 0,
+          "focused": "H1:Set up your machine",
+          "alerts": [],
+          "label": "back from approval"
+        },
+        {
+          "url": "/setup",
+          "h1": "Set up your machine",
+          "count": "1 of 5 done, seen by the portal",
+          "headings": [
+            "Set up your machine",
+            "Before you start",
+            "Get the code",
+            "Install the CogWorks tool",
+            "Install the Language: Search benchmark",
+            "Link this deviceSeen by the portalShow command",
+            "Check that it finds your code"
+          ],
+          "steps": 0,
+          "focused": "H1:Set up your machine",
+          "alerts": [],
+          "label": "setup after approval poll"
+        }
+      ],
+      "consoleErrors": [],
+      "backOnDirectEntry": false,
+      "startFormShownWithoutChoice": true,
+      "linkTickedAfterApproval": true
+    },
+    {
+      "name": "first-run-with-teams",
+      "states": [
+        {
+          "url": "/connect",
+          "h1": "Join or start your team",
+          "count": null,
+          "headings": [
+            "Join or start your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "choice screen with a team present"
+        },
+        {
+          "url": "/connect?path=join",
+          "h1": "Join your team",
+          "count": null,
+          "headings": [
+            "Join your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "join step from choice"
+        },
+        {
+          "url": "/connect",
+          "h1": "Join or start your team",
+          "count": null,
+          "headings": [
+            "Join or start your team"
+          ],
+          "steps": 0,
+          "focused": "H1:Join or start your team",
+          "alerts": [],
+          "label": "back to choice"
+        },
+        {
+          "url": "/connect?path=join",
+          "h1": "Join your team",
+          "count": null,
+          "headings": [
+            "Join your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "join step direct entry"
+        }
+      ],
+      "consoleErrors": [],
+      "backOnJoinStep": true,
+      "backReturnsToChoice": true,
+      "backOnDirectJoinEntry": true
+    },
+    {
+      "name": "expired-code",
+      "states": [
+        {
+          "url": "/connections?user_code=ABCD-1234-EFGH",
+          "h1": "Connections",
+          "count": null,
+          "headings": [
+            "Connections",
+            "Approve this device",
+            "GitHub",
+            "Discord",
+            "CogWorks tool"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalFace Finde",
+          "alerts": [],
+          "label": "expired code approval form"
+        },
+        {
+          "url": "/connections",
+          "h1": "Connections",
+          "count": null,
+          "headings": [
+            "Connections",
+            "This code can't be approved",
+            "GitHub",
+            "Discord",
+            "CogWorks tool"
+          ],
+          "steps": 0,
+          "focused": "P:The code ABCD-1234-EFGH is invalid, expi",
+          "alerts": [
+            "The code ABCD-1234-EFGH is invalid, expired, or already used, so it can't be approved. Use the command below to request a fresh code."
+          ],
+          "label": "after refused approval"
+        },
+        {
+          "url": "/connections",
+          "h1": "Connections",
+          "count": null,
+          "headings": [
+            "Connections",
+            "This code can't be approved",
+            "GitHub",
+            "Discord",
+            "CogWorks tool"
+          ],
+          "steps": 0,
+          "focused": "P:The code ABCD-1234-EFGH is invalid, expi",
+          "alerts": [
+            "The code ABCD-1234-EFGH is invalid, expired, or already used, so it can't be approved. Use the command below to request a fresh code."
+          ],
+          "label": "recovery panel with fresh command"
+        }
+      ],
+      "consoleErrors": [
+        "[http 410] POST http://localhost:4173/api/v1/cli/device/approve"
+      ],
+      "refusalMessage": [
+        "The code ABCD-1234-EFGH is invalid, expired, or already used, so it can't be approved. Use the command below to request a fresh code."
+      ],
+      "recoveryShown": true,
+      "freshCommandShown": true
+    },
+    {
+      "name": "changed-team",
+      "states": [
+        {
+          "url": "/connect",
+          "h1": "Join or start your team",
+          "count": null,
+          "headings": [
+            "Join or start your team",
+            "Probably your team",
+            "Not the right team?"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "choice screen with cohort teams"
+        },
+        {
+          "url": "/connect?path=join",
+          "h1": "Join your team",
+          "count": null,
+          "headings": [
+            "Join your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "join step"
+        },
+        {
+          "url": "/setup",
+          "h1": "Set up your machine",
+          "count": "0 of 5 done",
+          "headings": [
+            "Set up your machine",
+            "Before you start",
+            "Get the code",
+            "Install the CogWorks tool",
+            "Install the Language: Search benchmark",
+            "Link this device",
+            "Check that it finds your code"
+          ],
+          "steps": 0,
+          "focused": "H1:Set up your machine",
+          "alerts": [
+            "You're on Search Squad"
+          ],
+          "label": "after join"
+        }
+      ],
+      "consoleErrors": [],
+      "backOnJoinStep": true,
+      "commandsNameNewRepo": true,
+      "arrivalNote": [
+        "You're on Search Squad"
+      ]
+    },
+    {
+      "name": "unavailable-template",
+      "states": [
+        {
+          "url": "/connect",
+          "h1": "Start your team",
+          "count": null,
+          "headings": [
+            "Start your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "connect with no template, no repos"
+        },
+        {
+          "url": "/connect",
+          "h1": "Start your team",
+          "count": null,
+          "headings": [
+            "Start your team"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalGet starte",
+          "alerts": [],
+          "label": "fork steps without template"
+        }
+      ],
+      "consoleErrors": [],
+      "noTemplateHint": true,
+      "forkStepsShown": true
+    },
+    {
+      "name": "existing-run",
+      "states": [
+        {
+          "url": "/setup",
+          "h1": "Set up your machine",
+          "count": "5 of 5 done, all seen by the portal",
+          "headings": [
+            "Set up your machine",
+            "Before you start",
+            "Get the codeSeen by the portalShow command",
+            "Install the CogWorks toolSeen by the portalShow command",
+            "Install the Language: Search benchmarkSeen by the portalShow command",
+            "Link this deviceSeen by the portalShow command",
+            "Check that it finds your codeSeen by the portalShow command",
+            "Setup complete"
+          ],
+          "steps": 0,
+          "focused": "BODY:\n    Skip to contentCog*PortalSearch Squ",
+          "alerts": [],
+          "label": "setup complete revisited"
+        }
+      ],
+      "consoleErrors": [],
+      "countFiveOfFive": true,
+      "completionClaim": null,
+      "distinguishesCheckedFromVerified": true
+    }
+  ]
+}
