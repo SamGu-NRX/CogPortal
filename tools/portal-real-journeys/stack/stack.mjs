@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { createDoubles, DOUBLE_PORTS } from "./doubles.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(HERE, "..", "..");
+const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
 const PORTAL_DIR = path.join(REPO_ROOT, "apps", "portal");
 const LOG_DIR = path.resolve(HERE, "..", "test-results", "stack-logs");
 fs.mkdirSync(LOG_DIR, { recursive: true });
