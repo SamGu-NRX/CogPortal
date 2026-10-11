@@ -11,7 +11,7 @@ export type Probe = {
   guard: string;
 };
 
-const teamProbe = { teamName: "SEC Sample Team" };
+const teamName = "SEC Sample Team";
 
 export const UNAUTHENTICATED_PROBES: Probe[] = [
   // --- auth-shaped and identity routes ---

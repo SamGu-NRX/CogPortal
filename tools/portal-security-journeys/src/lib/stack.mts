@@ -5,14 +5,11 @@
  * gets its own port and its own wiped .wrangler state.
  */
 import { execSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, mkdtemp } from "node:path";
-import { promisify } from "node:util";
+import { dirname, join } from "node:path";
 import type { Stack } from "./framework.mts";
 import { RUNNER_SECRET } from "./runner.mts";
-
-const mkdtempAsync = promisify(mkdtemp);
 
 function repoRoot(): string {
   let dir = process.cwd();
@@ -29,7 +26,7 @@ export async function bootStack(journeyId: string, log: (line: string) => void):
   const root = repoRoot();
   const portal = join(root, "apps", "portal");
   if (!existsSync(join(portal, "package.json"))) throw new Error(`portal app not found at ${portal}`);
-  const stateDir = await mkdtempAsync(join(tmpdir(), `cogportal-sec-${journeyId}-`));
+  const stateDir = mkdtempSync(join(tmpdir(), `cogportal-sec-${journeyId}-`));
   const port = 8900 + (Math.floor(Math.random() * 90) + 10);
   const vars = [
     "ENVIRONMENT=development",
