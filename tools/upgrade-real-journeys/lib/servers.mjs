@@ -107,6 +107,21 @@ export function startPortal({ checkoutDir, port = 5173, nodeDir }) {
   });
 }
 
-export function killPort(port) {
-  spawnSync("fuser", ["-k", `${port}/tcp`], { stdio: "ignore" });
+// Acquire a free TCP port by binding an ephemeral listener and releasing it.
+// The suite never clears ports by killing whatever holds them (no fuser -k):
+// on a shared sandbox that could terminate a process the suite does not own.
+// startPortal passes the picked port to vite --strictPort, so if another
+// process grabs the port in the gap, vite exits with a clear error. The only
+// processes the suite ever terminates are its own children (startPortal's
+// stop() signals its own detached child's process group).
+export async function pickFreePort() {
+  const { createServer } = await import("node:net");
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
 }

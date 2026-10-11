@@ -15,7 +15,7 @@ import { ensureNode24 } from "../lib/node24.mjs";
 import { ensurePnpm } from "../lib/pnpm.mjs";
 import { ensureBetaWorktree } from "../lib/beta-worktree.mjs";
 import { applyMigrations, findD1File, persistDirFor, snapshot } from "../lib/d1.mjs";
-import { writeDevVars, startPortal, killPort } from "../lib/servers.mjs";
+import { writeDevVars, startPortal, pickFreePort } from "../lib/servers.mjs";
 import {
   BETA_COMMIT,
   CLI_PIN,
@@ -29,7 +29,6 @@ import {
 
 const SUITE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_DIR = path.resolve(SUITE_DIR, "..", "..");
-const PORT = 5173;
 
 export async function run() {
   const t0 = Date.now();
@@ -56,11 +55,18 @@ export async function run() {
   const baseline = countEntities(findD1File(persistDir));
   log(`seeded baseline: ${JSON.stringify(baseline)}`);
 
+  // Pick an ephemeral free port per run. The suite never kills processes it
+  // did not start, so a fixed port cannot be cleared; if something grabs the
+  // port between pick and listen, vite --strictPort exits with a clear error.
+  const PORT = await pickFreePort();
   // Dev-auth on one origin; PLATFORM_OWNER_LOGINS bootstraps the owner login.
-  writeDevVars(checkoutDir, { PLATFORM_OWNER_LOGINS: ROSTER.owner });
+  // BETTER_AUTH_URL must match the picked port (better-auth validates it).
+  writeDevVars(checkoutDir, {
+    PLATFORM_OWNER_LOGINS: ROSTER.owner,
+    BETTER_AUTH_URL: `http://localhost:${PORT}`,
+  });
   // vite dev serves the Worker + SPA on one origin straight from source; the
   // production build is not needed to generate state (keep runs short).
-  killPort(PORT);
   const server = await startPortal({ checkoutDir, port: PORT, nodeDir });
   log(`server up at ${server.baseUrl}`);
 
