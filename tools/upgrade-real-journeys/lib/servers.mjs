@@ -33,7 +33,7 @@ export function writeDevVars(checkoutDir, overrides = {}) {
   const file = path.join(checkoutDir, "apps", "portal", ".dev.vars");
   const vars = { ...DEV_VARS_TEMPLATE, ...overrides };
   const lines = Object.entries(vars)
-    .filter(([, v]) => v !== "")
+    .filter(([, v]) => v !== undefined && v !== null)
     .map(([k, v]) => `${k}=${v}`);
   writeFileSync(file, lines.join("\n") + "\n");
   return file;
