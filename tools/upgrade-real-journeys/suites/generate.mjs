@@ -106,8 +106,9 @@ export async function run() {
     method:
       "All state created through beta's real paths: POST /api/dev/login with generated upg-* handles only; " +
       "/api/cohorts/join (code VISION26); /api/github/connect with the fixture repo (creates the one fork-provenance team); " +
-      "/api/team/join and DELETE /api/team/members/:login for joins/leaves; /api/admin/staff and /api/admin/teams/:id/tas " +
-      "for staff and TA assignments (owner PLATFORM_OWNER_LOGINS in .dev.vars); /api/runs/practice, /api/runs/:id and " +
+      "/api/team/join for self-serve joins; /api/admin/staff for staff rostering (owner PLATFORM_OWNER_LOGINS in .dev.vars); " +
+      "TA assignment attempted via /api/admin/teams/:id/tas and recorded as unreachable (it matches users.github_login, " +
+      "which dev-auth accounts never hold); /api/runs/practice, /api/runs/:id and " +
       "/api/runs/:id/promote for hosted fixture runs and published official attempts; the pinned 064400e CLI linked via " +
       "/v1/cli/device/* and produced local reports with cogworks run --live, cogworks run + cogworks sync against real " +
       "public week data (benchmarks/week* submodule). No real student handles or submissions anywhere; no discord.com, " +

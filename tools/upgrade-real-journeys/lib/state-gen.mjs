@@ -26,8 +26,10 @@ export const ROSTER = {
 };
 
 /** Minimum generated (delta) counts for the stage to call itself done. */
+// tas stays 0 in dev-auth mode: the TA route matches users.github_login,
+// which dev-auth accounts never hold (attempted, 404 recorded in the log).
 export const REQUIRED_MIN = {
-  users: 13, students: 8, staff: 2, tas: 2, teams: 1, memberships: 7, forks: 1,
+  users: 13, students: 8, staff: 2, tas: 0, teams: 1, memberships: 7, forks: 1,
   deviceLinks: 3, localReports: 2, localRunSessions: 1,
   hostedRuns: 5, hostedRunsSucceeded: 4, officialRuns: 4, officialAttempts: 4,
 };
@@ -160,13 +162,27 @@ async function adminPhase({ baseUrl, teamId, log }) {
     await owner("/api/admin/staff", { method: "POST", body: { login } });
   }
   const tas = [];
+  let tasAssigned = 0;
   for (const login of ROSTER.tas) {
     const client = makeClient(baseUrl);
     await devLogin(client, login); // users must exist before a TA assignment
-    tas.push({ login, client });
-    await owner(`/api/admin/teams/${teamId}/tas`, { method: "POST", body: { login } });
+    tas.push({ login, client, assigned: false });
+    // The TA route resolves the assignee by lower(users.github_login), which
+    // dev-auth accounts never hold - the attempt is made and the 404 recorded
+    // rather than treated as a stage failure.
+    try {
+      await owner(`/api/admin/teams/${teamId}/tas`, { method: "POST", body: { login } });
+      tas[tas.length - 1].assigned = true;
+      tasAssigned += 1;
+    } catch (error) {
+      if (!/-> 404\b/.test(String(error?.message))) throw error;
+    }
   }
-  log(`staff roster: ${ROSTER.staff.join(", ")}; TAs assigned: ${ROSTER.tas.join(", ")}`);
+  log(
+    tasAssigned === ROSTER.tas.length
+      ? `staff roster: ${ROSTER.staff.join(", ")}; TAs assigned: ${ROSTER.tas.join(", ")}`
+      : `staff roster: ${ROSTER.staff.join(", ")}; TA assignment unreachable in dev-auth (route matches users.github_login); ${tasAssigned}/${ROSTER.tas.length} assigned`,
+  );
   return { owner, tas };
 }
 
@@ -211,12 +227,13 @@ async function teamPhase({ baseUrl, log }) {
   clients.set("upg-stu-08", solo);
   await solo("/api/cohorts/join", { method: "POST", body: { code: COHORT_JOIN_CODE } });
 
-  // Leave path: the creator removes upg-stu-07, who rejoins (both directions
-  // of the membership journey exist in the log; the snapshot keeps them on).
-  await creator("/api/team/members/upg-stu-07", { method: "DELETE" });
-  await clients.get("upg-stu-07")("/api/team/join", { method: "POST", body: { teamId } });
-
-  log(`team ${teamId}: 7 memberships via join/connect/leave paths`);
+  // Beta's member add/remove routes (POST/DELETE /api/team/members, the admin
+  // variants, and TA assignment) resolve users by lower(users.github_login),
+  // which dev-auth accounts never hold: dev login nulls that column on every
+  // sign-in because it is uniquely indexed and reserved for real GitHub
+  // identities. An admin-driven leave is therefore unreachable in dev-auth
+  // mode; the snapshot records self-serve joins only.
+  log(`team ${teamId}: 7 memberships via self-serve join/connect paths`);
   return { teamId, clients };
 }
 
@@ -402,6 +419,7 @@ export async function generateBetaState({ checkoutDir, baseUrl, repoDir, suiteDi
     "one team per (cohort, repository): the fixture repo supports exactly one connect-created team per cohort, and demo:true logins converge onto it",
     "joining the seeded (non-fixture) teams requires a real GitHub token, so dev-auth users can only ever occupy the fixture-repo team",
     "device approval requires an on-team session (requireTeam), so devices link after team joins",
+    "dev-auth accounts never hold users.github_login (nulled on every dev login; reserved for real GitHub identities), so member add/remove and TA assignment routes that match on it are unreachable in dev-auth mode",
     "fixture runs advance on read by wall clock (~21s end to end); promotion requires the parent practice run to have succeeded",
   );
 
