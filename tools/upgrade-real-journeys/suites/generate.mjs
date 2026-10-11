@@ -22,6 +22,7 @@ import {
   ROSTER,
   assertGenerated,
   countEntities,
+  ensureBetaDeps,
   generateBetaState,
   seedLocal,
 } from "../lib/state-gen.mjs";
@@ -42,6 +43,7 @@ export async function run() {
   const { nodeDir } = await ensureNode24();
   await ensurePnpm({ nodeDir, cacheDir: path.join(SUITE_DIR, ".cache") });
   const { checkoutDir } = await ensureBetaWorktree({ repoDir: REPO_DIR, suiteDir: SUITE_DIR });
+  ensureBetaDeps({ checkoutDir, nodeDir });
 
   // Fresh local D1: beta's migrations, then the repo seed (teams/runs only -
   // users come from beta's real login and join paths below).

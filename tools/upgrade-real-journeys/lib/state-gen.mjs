@@ -112,6 +112,31 @@ export function countEntities(dbFile) {
   return counts;
 }
 
+/**
+ * Verify the beta worktree actually has the bins the stage needs. A partial
+ * install (sandbox died mid `pnpm install`) leaves node_modules in place
+ * without bin links, which surfaces later as `Command "wrangler" not found`.
+ */
+export function ensureBetaDeps({ checkoutDir, nodeDir }) {
+  const wranglerBin = path.join(checkoutDir, "apps", "portal", "node_modules", ".bin", "wrangler");
+  if (existsSync(wranglerBin)) return { wranglerBin };
+  const env = { ...process.env };
+  if (nodeDir) env.PATH = `${nodeDir}:${nodeDir}/bin:${env.PATH}`;
+  const r = spawnSync("pnpm", ["install", "--prefer-offline"], {
+    cwd: checkoutDir,
+    encoding: "utf8",
+    env,
+    timeout: 600_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.status !== 0 || !existsSync(wranglerBin)) {
+    throw new Error(
+      `beta deps install failed (exit ${r.status}):\n${((r.stderr || "") + (r.stdout || "")).slice(-2400)}`,
+    );
+  }
+  return { wranglerBin };
+}
+
 /** Apply the repo's local seed (idempotent) into the fresh persist dir. */
 export function seedLocal({ checkoutDir, nodeDir }) {
   const env = { ...process.env };
