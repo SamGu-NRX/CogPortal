@@ -1,0 +1,157 @@
+{
+  "compared": [
+    "01-run-a.json",
+    "02-run-b.json"
+  ],
+  "conditions": {
+    "dataset": {
+      "detail": "benchmark, case set and weights line up on every recorded axis",
+      "fields": [
+        {
+          "detail": "both runs used 'audio-identification' v1 (id 'audio-identification')",
+          "field": "benchmark",
+          "verdict": "same"
+        },
+        {
+          "detail": "both runs were produced by `run`",
+          "field": "case set (command)",
+          "verdict": "same"
+        },
+        {
+          "detail": "both runs name the same weights: none recorded",
+          "field": "weights",
+          "verdict": "same"
+        }
+      ],
+      "verdict": "same"
+    },
+    "scorer": {
+      "detail": "contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)",
+      "verdict": "same"
+    },
+    "source": {
+      "detail": "different commits: 111111111111 vs 222222222222",
+      "verdict": "changed"
+    }
+  },
+  "excluded": [
+    {
+      "file": "07-refused-future-contract.json",
+      "reasons": [
+        "unsupported_contract: cogworks.submissions.v9 cannot be interpreted by this reader; supported: cogworks.submissions.v2"
+      ]
+    },
+    {
+      "file": "08-refused-unknown-command.json",
+      "reasons": [
+        "unknown_command: command must be one of test, run, not 'profile'"
+      ]
+    },
+    {
+      "file": "09-refused-bad-receipt-digest.json",
+      "reasons": [
+        "bad_weight_receipt: weightsUploaded needs a SHA-256 digest for 'model.pt'"
+      ]
+    },
+    {
+      "file": "10-refused-receipt-unscored-path.json",
+      "reasons": [
+        "unscored_weight_receipt: weightsUploaded names 'model.pt', which this report did not score"
+      ]
+    },
+    {
+      "file": "11-refused-malformed.json",
+      "reasons": [
+        "not_json: the file does not parse as JSON (Unterminated string starting at: line 3 column 3 (char 60))"
+      ]
+    }
+  ],
+  "fixtures_root": "tools/run-comparison/fixtures",
+  "generator": "tools/run-comparison/build.py",
+  "html_sha256": "4e7c4425c049ed90eac9b666a5ca67d835232b77cb0516a809a4bcd5cf764647",
+  "metrics": {
+    "context": [
+      {
+        "key": "chance_top1",
+        "label": "Chance",
+        "relates_to": "identification_score",
+        "unit": null,
+        "value": "0.033"
+      }
+    ],
+    "only_in_a": [],
+    "only_in_b": [],
+    "shared": [
+      {
+        "delta": "+0.0750",
+        "delta_note": "higher is better",
+        "direction": "higher is better",
+        "key": "identification_score",
+        "label": "Identification score",
+        "primary": true,
+        "run_a": "0.5375",
+        "run_b": "0.6125",
+        "unit": null
+      },
+      {
+        "delta": "-0.062",
+        "delta_note": "lower is better",
+        "direction": "lower is better",
+        "key": "ranking_failure_rate",
+        "label": "Wrong song ranked first",
+        "primary": false,
+        "run_a": "0.212",
+        "run_b": "0.150",
+        "unit": null
+      }
+    ]
+  },
+  "not_compared": [
+    {
+      "file": "03-run-dirty.json",
+      "note": "accepted; only the first two accepted reports form the compared pair"
+    },
+    {
+      "file": "04-run-legacy-unrecorded.json",
+      "note": "accepted; only the first two accepted reports form the compared pair"
+    },
+    {
+      "file": "05-run-precapture-weights.json",
+      "note": "accepted; only the first two accepted reports form the compared pair"
+    },
+    {
+      "file": "06-run-unrecorded-command.json",
+      "note": "accepted; only the first two accepted reports form the compared pair"
+    }
+  ],
+  "pair_comparable": true,
+  "sections": {
+    "conditions": [
+      "source: changed \u2014 different commits: 111111111111 vs 222222222222",
+      "dataset: same \u2014 benchmark, case set and weights line up on every recorded axis",
+      "  dataset.benchmark: same \u2014 both runs used 'audio-identification' v1 (id 'audio-identification')",
+      "  dataset.case set (command): same \u2014 both runs were produced by `run`",
+      "  dataset.weights: same \u2014 both runs name the same weights: none recorded",
+      "scorer: same \u2014 contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)",
+      "pair comparable: yes"
+    ],
+    "excluded": [
+      "07-refused-future-contract.json: unsupported_contract: cogworks.submissions.v9 cannot be interpreted by this reader; supported: cogworks.submissions.v2",
+      "08-refused-unknown-command.json: unknown_command: command must be one of test, run, not 'profile'",
+      "09-refused-bad-receipt-digest.json: bad_weight_receipt: weightsUploaded needs a SHA-256 digest for 'model.pt'",
+      "10-refused-receipt-unscored-path.json: unscored_weight_receipt: weightsUploaded names 'model.pt', which this report did not score",
+      "11-refused-malformed.json: not_json: the file does not parse as JSON (Unterminated string starting at: line 3 column 3 (char 60))"
+    ],
+    "floor_context": [
+      "chance_top1 (floor of identification_score): 0.033"
+    ],
+    "metric_comparison": [
+      "identification_score: 0.5375 vs 0.6125 (+0.0750 \u2014 higher is better)",
+      "ranking_failure_rate: 0.212 vs 0.150 (-0.062 \u2014 lower is better)"
+    ],
+    "pair": [
+      "Compared: 01-run-a.json and 02-run-b.json \u2014 the first two accepted reports in sorted order (6 of 11 fixture files accepted)."
+    ],
+    "unshared": []
+  }
+}

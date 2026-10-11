@@ -1,0 +1,11 @@
+{
+  "compared": [
+    "01-run-a.json",
+    "02-run-b.json"
+  ],
+  "fixtures_root": "tools/run-comparison/fixtures",
+  "generator": "tools/run-comparison/build.py --replay",
+  "html_sha256": "4e7c4425c049ed90eac9b666a5ca67d835232b77cb0516a809a4bcd5cf764647",
+  "identical": true,
+  "rebuilt_html_sha256": "4e7c4425c049ed90eac9b666a5ca67d835232b77cb0516a809a4bcd5cf764647"
+}

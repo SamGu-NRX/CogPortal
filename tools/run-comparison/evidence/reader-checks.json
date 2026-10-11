@@ -1,0 +1,102 @@
+{
+  "accepted": 6,
+  "files": [
+    {
+      "file": "01-run-a.json",
+      "refusals": [],
+      "reportId": "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha256": "720dc2395d7b07e0490c5d3d3351cd3e8f2771c511ce96162b4b5953902ca3bb",
+      "status": "accepted"
+    },
+    {
+      "file": "02-run-b.json",
+      "refusals": [],
+      "reportId": "local_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sha256": "80fc8149ff3247bc79937fcf3f1015ce558bbd9ce313ceef831b0410f14d285d",
+      "status": "accepted"
+    },
+    {
+      "file": "03-run-dirty.json",
+      "refusals": [],
+      "reportId": "local_cccccccccccccccccccccccccccccccc",
+      "sha256": "ffc36a4be88c2431637eec3eda05054dfc4202e7abe81b15eef6b6a8b5d6b39c",
+      "status": "accepted"
+    },
+    {
+      "file": "04-run-legacy-unrecorded.json",
+      "refusals": [],
+      "reportId": "local_dddddddddddddddddddddddddddddddd",
+      "sha256": "5354299575a8bb6cb116db88e247958b9ea2719a3b116d6d7b96ac397e7838fe",
+      "status": "accepted"
+    },
+    {
+      "file": "05-run-precapture-weights.json",
+      "refusals": [],
+      "reportId": "local_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sha256": "2278d45ea53ca74cefedec8776dac6720b279c781718bf7280d5417d58754834",
+      "status": "accepted"
+    },
+    {
+      "file": "06-run-unrecorded-command.json",
+      "refusals": [],
+      "reportId": "local_ffffffffffffffffffffffffffffffff",
+      "sha256": "7281221ea6b366ca634d31048e2ef49cfad7b6ed2a73839c7dc4809c2436f6c5",
+      "status": "accepted"
+    },
+    {
+      "file": "07-refused-future-contract.json",
+      "refusals": [
+        "unsupported_contract: cogworks.submissions.v9 cannot be interpreted by this reader; supported: cogworks.submissions.v2"
+      ],
+      "reportId": null,
+      "sha256": "83b40954ca750b6a909b6df117c9b4fbc8c4e165072d9c4cef7854bf1a828208",
+      "status": "refused"
+    },
+    {
+      "file": "08-refused-unknown-command.json",
+      "refusals": [
+        "unknown_command: command must be one of test, run, not 'profile'"
+      ],
+      "reportId": null,
+      "sha256": "f4525d64df16a93b9e8a9f318033b5f4f7766344c0976ed3545e19a3685d8f04",
+      "status": "refused"
+    },
+    {
+      "file": "09-refused-bad-receipt-digest.json",
+      "refusals": [
+        "bad_weight_receipt: weightsUploaded needs a SHA-256 digest for 'model.pt'"
+      ],
+      "reportId": null,
+      "sha256": "6260cb49f8f912f7e0428f5d6fc4d09c7a59dd05ee571f27884bcfaf64315e33",
+      "status": "refused"
+    },
+    {
+      "file": "10-refused-receipt-unscored-path.json",
+      "refusals": [
+        "unscored_weight_receipt: weightsUploaded names 'model.pt', which this report did not score"
+      ],
+      "reportId": null,
+      "sha256": "b2f7cc7657f1d29c8078beddb5e4863fabb626baf684a750f9da0aeee0809a56",
+      "status": "refused"
+    },
+    {
+      "file": "11-refused-malformed.json",
+      "refusals": [
+        "not_json: the file does not parse as JSON (Unterminated string starting at: line 3 column 3 (char 60))"
+      ],
+      "reportId": null,
+      "sha256": "92d5b3d3fae82026a88bdacfd41e1d1448340c655280278d988d6e2bcce9e1cc",
+      "status": "refused"
+    }
+  ],
+  "fixtures_root": "tools/run-comparison/fixtures",
+  "refusal_codes": {
+    "bad_weight_receipt": 1,
+    "not_json": 1,
+    "unknown_command": 1,
+    "unscored_weight_receipt": 1,
+    "unsupported_contract": 1
+  },
+  "refused": 5,
+  "total": 11
+}
