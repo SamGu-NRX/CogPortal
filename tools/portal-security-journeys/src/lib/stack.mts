@@ -5,6 +5,7 @@
  * gets its own port and its own wiped .wrangler state.
  */
 import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -36,7 +37,7 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
     ...(opts.withGithubConfig
       ? ["GITHUB_CLIENT_ID=Iv23li0000000journey-placeholder", "GITHUB_CLIENT_SECRET=sec-journeys-placeholder-not-a-real-secret"]
       : []),
-    `BETTER_AUTH_SECRET=sec-journeys-${journeyId}-${Date.now().toString(36)}`,
+    `BETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}`,
     `RUNNER_SIGNING_SECRET=${RUNNER_SECRET}`,
     "EXECUTION_PROVIDER=fixture",
     "",
