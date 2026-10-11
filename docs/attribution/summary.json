@@ -1,0 +1,106 @@
+{
+  "baseBranch": "fix/device-link-recovery-20261004",
+  "baseRevision": "421f45f610eb16c2a85ec2920963101c9065fd22",
+  "branch": "obv/products-l3-benchmark-data-attribution-20261010",
+  "countsScope": "per source group; evidence states describe what was observed, never permission",
+  "groups": [
+    {
+      "group_id": "bundled-corpus",
+      "resources": 1,
+      "secondaryReferences": 0,
+      "secondaryReuseEvidence": 0,
+      "unknownReferences": 0,
+      "unknownReuseEvidence": 0,
+      "unresolvedTerms": 0,
+      "urlsReachable": 0,
+      "urlsUnreachable": 0,
+      "urlsUnverified": 1,
+      "verifiedReferences": 1,
+      "verifiedReuseEvidence": 1
+    },
+    {
+      "group_id": "deprecated-fixture",
+      "resources": 1,
+      "secondaryReferences": 0,
+      "secondaryReuseEvidence": 0,
+      "unknownReferences": 0,
+      "unknownReuseEvidence": 0,
+      "unresolvedTerms": 0,
+      "urlsReachable": 0,
+      "urlsUnreachable": 0,
+      "urlsUnverified": 1,
+      "verifiedReferences": 1,
+      "verifiedReuseEvidence": 1
+    },
+    {
+      "group_id": "pinned-submodule",
+      "resources": 8,
+      "secondaryReferences": 2,
+      "secondaryReuseEvidence": 1,
+      "unknownReferences": 0,
+      "unknownReuseEvidence": 5,
+      "unresolvedTerms": 5,
+      "urlsReachable": 11,
+      "urlsUnreachable": 0,
+      "urlsUnverified": 0,
+      "verifiedReferences": 2,
+      "verifiedReuseEvidence": 2
+    },
+    {
+      "group_id": "repository-fixture",
+      "resources": 3,
+      "secondaryReferences": 0,
+      "secondaryReuseEvidence": 0,
+      "unknownReferences": 0,
+      "unknownReuseEvidence": 0,
+      "unresolvedTerms": 0,
+      "urlsReachable": 1,
+      "urlsUnreachable": 0,
+      "urlsUnverified": 2,
+      "verifiedReferences": 4,
+      "verifiedReuseEvidence": 3
+    }
+  ],
+  "repo": "SamGu-NRX/CogPortal",
+  "totals": {
+    "resources": 13,
+    "secondaryReferences": 2,
+    "secondaryReuseEvidence": 1,
+    "unknownReferences": 0,
+    "unknownReuseEvidence": 5,
+    "unresolvedTerms": 5,
+    "urlsReachable": 12,
+    "urlsUnreachable": 0,
+    "urlsUnverified": 4,
+    "verifiedReferences": 8,
+    "verifiedReuseEvidence": 7
+  },
+  "unresolvedTerms": [
+    {
+      "id": "benchmarks-week1-submodule",
+      "note": "No LICENSE file was found at the checked-out revision of this submodule; recorded as unknown, not guessed.",
+      "sourceGroup": "pinned-submodule"
+    },
+    {
+      "id": "week2-facenet-checkpoint",
+      "note": "No reuse notice for this checkpoint was found in the committed metadata; recorded as unknown, not guessed.",
+      "sourceGroup": "pinned-submodule"
+    },
+    {
+      "id": "week3-coco-captions",
+      "note": "No reuse notice for this artifact was found in the committed metadata; recorded as unknown, not guessed.",
+      "sourceGroup": "pinned-submodule"
+    },
+    {
+      "id": "week3-resnet-features",
+      "note": "No reuse notice for this artifact was found in the committed metadata; recorded as unknown, not guessed.",
+      "sourceGroup": "pinned-submodule"
+    },
+    {
+      "id": "week3-glove-vectors",
+      "note": "No reuse notice for this artifact was found in the committed metadata; recorded as unknown, not guessed.",
+      "sourceGroup": "pinned-submodule"
+    }
+  ],
+  "urlChecksRun": true
+}

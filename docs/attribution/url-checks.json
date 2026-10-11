@@ -1,0 +1,89 @@
+{
+  "results": [
+    {
+      "kind": "git-remote",
+      "reachability": "reachable",
+      "resource": "benchmarks-week1-submodule",
+      "status": "ls-remote ok",
+      "url": "https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
+    },
+    {
+      "kind": "git-remote",
+      "reachability": "reachable",
+      "resource": "benchmarks-week2-submodule",
+      "status": "ls-remote ok",
+      "url": "https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
+    },
+    {
+      "kind": "git-remote",
+      "reachability": "reachable",
+      "resource": "benchmarks-week3-submodule",
+      "status": "ls-remote ok",
+      "url": "https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week2-facenet-checkpoint",
+      "status": 200,
+      "url": "https://github.com/timesler/facenet-pytorch/releases/download/v2.2.9/20180402-114759-vggface2.pt"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week3-coco-captions",
+      "status": 200,
+      "url": "https://github.com/rsokl/cog_data/releases/download/language-files/captions_train2014.json"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week3-coco-captions",
+      "status": 200,
+      "url": "https://www.dropbox.com/s/0e4fpk8wppyojyk/captions_train2014.json?dl=1"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week3-resnet-features",
+      "status": 200,
+      "url": "https://github.com/rsokl/cog_data/releases/download/language-files/resnet18_features.pkl"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week3-resnet-features",
+      "status": 200,
+      "url": "https://www.dropbox.com/s/5gklm1ar3tz84rm/resnet18_features.pkl?dl=1"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week3-glove-vectors",
+      "status": 200,
+      "url": "https://github.com/rsokl/cog_data/releases/download/language-files/glove.6B.200d.txt.w2v"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week2-celeba-dataset",
+      "status": 200,
+      "url": "https://huggingface.co/datasets/flwrlabs/celeba"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "week2-celeba-dataset",
+      "status": 200,
+      "url": "http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html"
+    },
+    {
+      "kind": "http",
+      "reachability": "reachable",
+      "resource": "cogweb-mirror",
+      "status": 200,
+      "url": "https://rsokl.github.io/CogWeb/"
+    }
+  ],
+  "sourceRevision": "421f45f610eb16c2a85ec2920963101c9065fd22"
+}

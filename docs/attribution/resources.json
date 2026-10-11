@@ -1,0 +1,620 @@
+{
+  "baseBranch": "fix/device-link-recovery-20261004",
+  "baseRevision": "421f45f610eb16c2a85ec2920963101c9065fd22",
+  "branch": "obv/products-l3-benchmark-data-attribution-20261010",
+  "repo": "SamGu-NRX/CogPortal",
+  "resources": [
+    {
+      "attribution": {
+        "evidenceState": "unknown",
+        "statement": "Committed metadata pins this submodule at 4e516f39ffbeefe579e093260b2865eb354c17a7 via the parent gitlink."
+      },
+      "declaredBy": [
+        ".gitmodules"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week1/audio_identification_benchmark/datasets.py",
+          "role": "corpus generator"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week1/audio_identification_benchmark/manifests/public-test.json",
+          "role": "committed corpus manifest"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week1/audio_identification_benchmark/manifests/public-evaluation.json",
+          "role": "committed corpus manifest"
+        }
+      ],
+      "id": "benchmarks-week1-submodule",
+      "kind": "code-submodule",
+      "label": "Week 1 audio identification benchmark (pinned submodule)",
+      "notes": "No LICENSE file was found at the checked-out revision of this submodule; recorded as unknown, not guessed.",
+      "reuse": {
+        "evidenceState": "unknown",
+        "noticeReferences": []
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "4e516f39ffbeefe579e093260b2865eb354c17a7",
+        "pinSource": "benchmarks/week1 gitlink",
+        "urls": [
+          "https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "4e516f39ffbeefe579e093260b2865eb354c17a7"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "Committed metadata pins this submodule at a3dd948d0c108fabf070b4f159acdecd4d6c3897 via the parent gitlink; its committed LICENSE states a copyright line."
+      },
+      "declaredBy": [
+        ".gitmodules"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week2/facial_recognition_benchmark/datasets.py",
+          "role": "dataset loader"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week2/facial_recognition_benchmark/model-lock.json",
+          "role": "model pin"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week2/facial_recognition_benchmark/manifests/public-test.json",
+          "role": "committed dataset manifest"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week2/facial_recognition_benchmark/manifests/public-evaluation.json",
+          "role": "committed dataset manifest"
+        }
+      ],
+      "id": "benchmarks-week2-submodule",
+      "kind": "code-submodule",
+      "label": "Week 2 facial recognition benchmark (pinned submodule)",
+      "notes": "Dataset terms are referenced by the committed data-and-scoring document, which points to the CelebA agreement and Hugging Face terms without reproducing them.",
+      "reuse": {
+        "evidenceState": "verified",
+        "noticeReferences": [
+          {
+            "evidenceState": "verified",
+            "path": "benchmarks/week2/LICENSE",
+            "quote": "Copyright (c) 2026 Reynaldo Jose Morillo Nolasco",
+            "relationship": "upstream-license"
+          },
+          {
+            "evidenceState": "secondary",
+            "path": "benchmarks/week2/docs/data-and-scoring.md",
+            "quote": "CelebA files are not redistributed and remain subject to the [CelebA agreement]",
+            "relationship": "terms-pointer"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "a3dd948d0c108fabf070b4f159acdecd4d6c3897",
+        "pinSource": "benchmarks/week2 gitlink",
+        "urls": [
+          "https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "a3dd948d0c108fabf070b4f159acdecd4d6c3897"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "Committed metadata pins this submodule at 4b1755433110b387b8a37021ef173300636d3b8c via the parent gitlink."
+      },
+      "declaredBy": [
+        ".gitmodules"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week3/language_search_benchmark/datasets.py",
+          "role": "artifact table"
+        }
+      ],
+      "id": "benchmarks-week3-submodule",
+      "kind": "code-submodule",
+      "label": "Week 3 language search benchmark (pinned submodule)",
+      "notes": "A LICENSE file is committed at the checked-out revision.",
+      "reuse": {
+        "evidenceState": "verified",
+        "noticeReferences": [
+          {
+            "evidenceState": "verified",
+            "path": "benchmarks/week3/LICENSE",
+            "quote": "Copyright (c) 2026 Sam Gu",
+            "relationship": "upstream-license"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "4b1755433110b387b8a37021ef173300636d3b8c",
+        "pinSource": "benchmarks/week3 gitlink",
+        "urls": [
+          "https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "4b1755433110b387b8a37021ef173300636d3b8c"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed model-lock.json records a URL and a sha256 for this checkpoint."
+      },
+      "declaredBy": [
+        "benchmarks/week2/facial_recognition_benchmark/model-lock.json"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week2/facial_recognition_benchmark/model-lock.json",
+          "role": "pin file"
+        }
+      ],
+      "id": "week2-facenet-checkpoint",
+      "kind": "model-checkpoint",
+      "label": "FaceNet model checkpoint pinned by week2",
+      "notes": "No reuse notice for this checkpoint was found in the committed metadata; recorded as unknown, not guessed.",
+      "reuse": {
+        "evidenceState": "unknown",
+        "noticeReferences": []
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "281cebca8662831adb987a874bdcb36e73f5b1c6dc5ee5878f305e985625d99b",
+        "pinSource": "benchmarks/week2/facial_recognition_benchmark/model-lock.json checkpoint.sha256",
+        "urls": [
+          "https://github.com/timesler/facenet-pytorch/releases/download/v2.2.9/20180402-114759-vggface2.pt"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "281cebca8662831adb987a874bdcb36e73f5b1c6dc5ee5878f305e985625d99b"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed datasets.py records this artifact's size, sha256, and URL for release https://github.com/rsokl/cog_data/releases/download/language-files/."
+      },
+      "declaredBy": [
+        "benchmarks/week3/language_search_benchmark/datasets.py"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week3/language_search_benchmark/datasets.py",
+          "role": "artifact table"
+        }
+      ],
+      "id": "week3-coco-captions",
+      "kind": "dataset",
+      "label": "COCO captions_train2014.json",
+      "notes": "No reuse notice for this artifact was found in the committed metadata; recorded as unknown, not guessed.",
+      "reuse": {
+        "evidenceState": "unknown",
+        "noticeReferences": []
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "dd8c9636dc11740f956e36728866ea0c4ebe4988dcbdc5e712b7c2267f152d12",
+        "pinSource": "benchmarks/week3/language_search_benchmark/datasets.py ARTIFACTS.captions.sha256",
+        "urls": [
+          "https://github.com/rsokl/cog_data/releases/download/language-files/captions_train2014.json",
+          "https://www.dropbox.com/s/0e4fpk8wppyojyk/captions_train2014.json?dl=1"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "https://github.com/rsokl/cog_data/releases/download/language-files/"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed datasets.py records this artifact's size, sha256, and URL for release https://github.com/rsokl/cog_data/releases/download/language-files/."
+      },
+      "declaredBy": [
+        "benchmarks/week3/language_search_benchmark/datasets.py"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week3/language_search_benchmark/datasets.py",
+          "role": "artifact table"
+        }
+      ],
+      "id": "week3-resnet-features",
+      "kind": "dataset",
+      "label": "resnet18_features.pkl",
+      "notes": "No reuse notice for this artifact was found in the committed metadata; recorded as unknown, not guessed.",
+      "reuse": {
+        "evidenceState": "unknown",
+        "noticeReferences": []
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "d56e267dacd39608b4aae581595f8fa8ec55457ab59b713df1eafa93e1023450",
+        "pinSource": "benchmarks/week3/language_search_benchmark/datasets.py ARTIFACTS.descriptors.sha256",
+        "urls": [
+          "https://github.com/rsokl/cog_data/releases/download/language-files/resnet18_features.pkl",
+          "https://www.dropbox.com/s/5gklm1ar3tz84rm/resnet18_features.pkl?dl=1"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "https://github.com/rsokl/cog_data/releases/download/language-files/"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed datasets.py records this artifact's size, sha256, and URL for release https://github.com/rsokl/cog_data/releases/download/language-files/."
+      },
+      "declaredBy": [
+        "benchmarks/week3/language_search_benchmark/datasets.py"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week3/language_search_benchmark/datasets.py",
+          "role": "artifact table"
+        }
+      ],
+      "id": "week3-glove-vectors",
+      "kind": "dataset",
+      "label": "GloVe 6B 200d word vectors",
+      "notes": "No reuse notice for this artifact was found in the committed metadata; recorded as unknown, not guessed.",
+      "reuse": {
+        "evidenceState": "unknown",
+        "noticeReferences": []
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "dcee6ecdefebb5a884b23f2353561cc5f0527e59592525c0e3f4a31d81d91272",
+        "pinSource": "benchmarks/week3/language_search_benchmark/datasets.py ARTIFACTS.glove.sha256",
+        "urls": [
+          "https://github.com/rsokl/cog_data/releases/download/language-files/glove.6B.200d.txt.w2v"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "https://github.com/rsokl/cog_data/releases/download/language-files/"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed decision record states the corpus is rendered from committed seeds; counts derive from the committed manifests."
+      },
+      "declaredBy": [
+        "docs/decisions/week1-corpus-determinism.md"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week1/audio_identification_benchmark/datasets.py",
+          "role": "corpus generator"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week1/audio_identification_benchmark/manifests/public-test.json",
+          "role": "committed corpus manifest"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week1/audio_identification_benchmark/manifests/public-evaluation.json",
+          "role": "committed corpus manifest"
+        }
+      ],
+      "id": "week1-corpus",
+      "kind": "bundled-corpus",
+      "label": "Week 1 audio identification corpus (generated from committed seeds)",
+      "notes": "public-test manifest: 8 songs; public-evaluation manifest: 30 songs, 6 out-of-set.",
+      "reuse": {
+        "evidenceState": "verified",
+        "noticeReferences": [
+          {
+            "evidenceState": "verified",
+            "path": "docs/decisions/week1-corpus-determinism.md",
+            "quote": "",
+            "relationship": "decision-record"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "master_seed=719241703",
+        "pinSource": "benchmarks/week1/audio_identification_benchmark/manifests manifest master_seed",
+        "urls": [
+          "file://benchmarks/week1/audio_identification_benchmark/manifests/public-evaluation.json"
+        ]
+      },
+      "sourceGroup": "bundled-corpus",
+      "version": "synth-v1"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "Committed manifests pin dataset flwrlabs/celeba at revision 2d738f56e0e7f925ea36ae7c808ea925264aacec; the committed data-and-scoring document points to the dataset agreement and Hugging Face terms without reproducing them."
+      },
+      "declaredBy": [
+        "benchmarks/week2/docs/data-and-scoring.md"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week2/facial_recognition_benchmark/manifests/public-test.json",
+          "role": "committed dataset manifest"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/week2/facial_recognition_benchmark/manifests/public-evaluation.json",
+          "role": "committed dataset manifest"
+        }
+      ],
+      "id": "week2-celeba-dataset",
+      "kind": "dataset",
+      "label": "CelebA dataset used by week2",
+      "notes": "The terms themselves are not reproduced in this repository; follow the committed pointers to read them.",
+      "reuse": {
+        "evidenceState": "secondary",
+        "noticeReferences": [
+          {
+            "evidenceState": "secondary",
+            "path": "benchmarks/week2/docs/data-and-scoring.md",
+            "quote": "CelebA files are not redistributed and remain subject to the [CelebA agreement]",
+            "relationship": "terms-pointer"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "2d738f56e0e7f925ea36ae7c808ea925264aacec",
+        "pinSource": "benchmarks/week2/facial_recognition_benchmark/manifests revision",
+        "urls": [
+          "https://huggingface.co/datasets/flwrlabs/celeba",
+          "http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html"
+        ]
+      },
+      "sourceGroup": "pinned-submodule",
+      "version": "2d738f56e0e7f925ea36ae7c808ea925264aacec"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed capture record states the mirror is unedited and kept for design reference; 84 pages and 125 images captured, 0 failed."
+      },
+      "declaredBy": [
+        "docs/cogweb/manifest.json"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "docs/cogweb/manifest.json",
+          "role": "capture manifest"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "docs/cogweb/README.md",
+          "role": "capture record"
+        }
+      ],
+      "id": "cogweb-mirror",
+      "kind": "documentation-mirror",
+      "label": "CogWeb documentation mirror (docs/cogweb)",
+      "notes": "The mirrored text is not claimed as original work; see the quoted capture record.",
+      "reuse": {
+        "evidenceState": "verified",
+        "noticeReferences": [
+          {
+            "evidenceState": "verified",
+            "path": "docs/cogweb/README.md",
+            "quote": "`tools/capture/fetch_cogweb.py`. None of it is ours. The prose, code, math, and",
+            "relationship": "readme-statement"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "captured-2026-08-17",
+        "pinSource": "docs/cogweb/README.md capture date",
+        "urls": [
+          "https://rsokl.github.io/CogWeb/"
+        ]
+      },
+      "sourceGroup": "repository-fixture",
+      "version": "captured-2026-08-17"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed capture record states this is an edited subset of course material and that the underlying text is not ours."
+      },
+      "declaredBy": [
+        "docs/capstones/README.md"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "docs/capstones/README.md",
+          "role": "capture record"
+        }
+      ],
+      "id": "capstones-mirror",
+      "kind": "documentation-mirror",
+      "label": "Curated capstones capture (docs/capstones)",
+      "notes": "Annotations in this directory are original; the underlying captured text is not.",
+      "reuse": {
+        "evidenceState": "verified",
+        "noticeReferences": [
+          {
+            "evidenceState": "verified",
+            "path": "docs/capstones/README.md",
+            "quote": "[CogWeb](https://rsokl.github.io/CogWeb/) on 2026-08-16. None of it is ours. The",
+            "relationship": "readme-statement"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "unversioned",
+        "pinSource": "docs/capstones/README.md",
+        "urls": [
+          "file://docs/capstones/README.md"
+        ]
+      },
+      "sourceGroup": "repository-fixture",
+      "version": "unversioned"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The fixture bundles the week2 benchmark environment with an upstream LICENSE file committed alongside it; the README records the source commits it was captured from."
+      },
+      "declaredBy": [
+        "apps/runner-modal/tests/fixtures/saved_environments/README.md"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "apps/runner-modal/tests/fixtures/saved_environments/README.md",
+          "role": "fixture record"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "apps/runner-modal/tests/fixtures/saved_environments/LICENSE-week2-benchmark",
+          "role": "bundled upstream license"
+        }
+      ],
+      "id": "saved-environments-fixture",
+      "kind": "repository-fixture",
+      "label": "Saved environments fixture (apps/runner-modal tests)",
+      "notes": "Fixture content belongs to the recorded upstream commits; the bundled license file is the committed notice.",
+      "reuse": {
+        "evidenceState": "verified",
+        "noticeReferences": [
+          {
+            "evidenceState": "verified",
+            "path": "apps/runner-modal/tests/fixtures/saved_environments/LICENSE-week2-benchmark",
+            "quote": "Copyright (c) 2026 Reynaldo Jose Morillo Nolasco",
+            "relationship": "upstream-license"
+          },
+          {
+            "evidenceState": "verified",
+            "path": "apps/runner-modal/tests/fixtures/saved_environments/README.md",
+            "quote": "- `pr8_week2_payload.py`: the same CogPortal commit, `apps/runner-modal/src/cogworks_runner/week2_payload.py`.",
+            "relationship": "readme-statement"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "unrecorded",
+        "pinSource": "apps/runner-modal/tests/fixtures/saved_environments/README.md recorded commit",
+        "urls": [
+          "file://apps/runner-modal/tests/fixtures/saved_environments/README.md"
+        ]
+      },
+      "sourceGroup": "repository-fixture",
+      "version": "unversioned"
+    },
+    {
+      "attribution": {
+        "evidenceState": "verified",
+        "statement": "The committed deprecation record states the package is retained for history and should not be installed."
+      },
+      "declaredBy": [
+        "benchmarks/vision-recognition/DEPRECATED.md"
+      ],
+      "entryPoints": [
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/vision-recognition/src/cogworks_vision_benchmark/descriptor.json",
+          "role": "package descriptor"
+        },
+        {
+          "evidenceState": "verified",
+          "path": "benchmarks/vision-recognition/DEPRECATED.md",
+          "role": "deprecation record"
+        }
+      ],
+      "id": "vision-recognition-deprecated",
+      "kind": "deprecated-fixture",
+      "label": "vision-recognition package (retained for history)",
+      "notes": "datasetVersion in the descriptor is practice-v1; the package is not part of the active benchmark set.",
+      "reuse": {
+        "evidenceState": "verified",
+        "noticeReferences": [
+          {
+            "evidenceState": "verified",
+            "path": "benchmarks/vision-recognition/DEPRECATED.md",
+            "quote": "",
+            "relationship": "readme-statement"
+          }
+        ]
+      },
+      "source": {
+        "evidenceState": "verified",
+        "pin": "0.1.0",
+        "pinSource": "benchmarks/vision-recognition/src/cogworks_vision_benchmark/descriptor.json pluginVersion",
+        "urls": [
+          "file://benchmarks/vision-recognition/DEPRECATED.md"
+        ]
+      },
+      "sourceGroup": "deprecated-fixture",
+      "version": "0.1.0"
+    }
+  ],
+  "schema": "schema/resources.schema.json",
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "path": ".gitmodules",
+      "sha256": "f09a7ca90d6e3094393e9ab76ea8c5adb41a6fe19e72dd3efee0f92c96aa04f6"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "3bb4782d9d94363bf6070dedcb5eced8213d6a8a26e660d8066a1f3609903a8e"
+    },
+    {
+      "path": "apps/runner-modal/tests/fixtures/saved_environments/README.md",
+      "sha256": "137d7b423de41dbcbfd2b9ac6a3bf74429f44b292de16ad3a2f3c35935516e6b"
+    },
+    {
+      "path": "benchmarks/vision-recognition/DEPRECATED.md",
+      "sha256": "de20178fe4f9aa6b6cf8d76ccf64c90d2cf6f5f8c345a50fbc052ca046a0eff9"
+    },
+    {
+      "path": "benchmarks/vision-recognition/src/cogworks_vision_benchmark/descriptor.json",
+      "sha256": "b50b035b217d23caae76e507e8cb6a3f7129fb279053b7362622f08c0fa7ca79"
+    },
+    {
+      "path": "docs/capstones/README.md",
+      "sha256": "08e7f7eacf28222013ed4e4197b47d489fd17083de75fecd1a87cb6122193dab"
+    },
+    {
+      "path": "docs/cogweb/README.md",
+      "sha256": "931a42f3720a930cfca8a229ac0c98a2613913758a123af6b8e424d08d6f09da"
+    },
+    {
+      "path": "docs/cogweb/manifest.json",
+      "sha256": "54a6059cb127dca7a38842c7f79ff4e0301d9f789b2818ac082635f8c90e8f7e"
+    },
+    {
+      "path": "docs/decisions/week1-corpus-determinism.md",
+      "sha256": "5b9d3bf0ab91b3e72b703c42937b8978263290c3c9791291e1bc221fdd8f9290"
+    },
+    {
+      "path": "python/cogbench/src/cogbench/environment.py",
+      "sha256": "a022b2d7273e86eeee5b321f127b0a846b2c1c29990552ef87115d8204a73314"
+    }
+  ]
+}
