@@ -27,7 +27,33 @@ mkdir -p "$RESULTS"
 # and the booted stack keep their state here (wrangler's v3 layout), never in
 # the checkout's .wrangler state.
 SUITE_STATE="$RESULTS/state"
+# The aggregator reads exactly this run's receipts directory. Clear it BEFORE
+# the run so a reused RUN_TAG (or a crashed earlier attempt into the same
+# directory) cannot leak its leftovers into this run's summary; every other
+# run keeps its own directory untouched.
+rm -rf "$RESULTS/receipts"
+mkdir -p "$RESULTS/receipts" "$RESULTS/tmp"
+# Per-run scratch space for the helpers' mkdtemp calls (CLI homes, the git
+# fixture, the spawn probe): node's os.tmpdir() honors TMPDIR, so this run's
+# temp state stays scoped to its results directory and the EXIT trap below
+# can clean it without touching other runs' temp state.
+export TMPDIR="$RESULTS/tmp"
 export RESULTS_DIR="$RESULTS"
+# Any early exit - a failing step under set -e, or INT/TERM - must not leave
+# the booted stack or this run's scratch state behind. STACK_PID is set when
+# the stack boots; this trap is the only place that stops it. It preserves
+# the exit status it fires with.
+STACK_PID=""
+cleanup() {
+  if [ -n "$STACK_PID" ]; then
+    kill "$STACK_PID" 2>/dev/null || true
+    wait "$STACK_PID" 2>/dev/null || true
+  fi
+  rm -rf "$RESULTS/tmp" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # The journeys mint dev sessions and read the setup page's check-off secret; it
 # must be the same value the booted Worker runs with.
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-local-development-only-not-a-real-secret-0000}"
@@ -159,8 +185,12 @@ done
 unset PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK
 
 echo "== [8/8] report =="
-kill "$STACK_PID" 2>/dev/null || true
-wait "$STACK_PID" 2>/dev/null || true
-RESULTS_DIR="$RESULTS" node support/report.mjs || true
+# A failing report/aggregation step must fail the run, not be swallowed:
+# the summary is the operator's evidence of record.
+ORCHESTRATOR_EXIT=$FAILED
+if ! RESULTS_DIR="$RESULTS" node support/report.mjs; then
+  echo "report/aggregation failed; failing the run" >&2
+  ORCHESTRATOR_EXIT=1
+fi
 echo "results: $RESULTS"
-exit "$FAILED"
+exit "$ORCHESTRATOR_EXIT"
