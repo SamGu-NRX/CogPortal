@@ -11,9 +11,10 @@ import { SUBMISSION_PY } from "./submission.ts";
 /**
  * The adversarial journey: the same real surfaces, wounded on purpose. The
  * shaper injects failures in front of the real Worker, and the cases hold the
- * CLI to graceful degradation and the bot to its signature gate. Every fault
- * is injected and cleared through the shaper's control plane, so the Worker
- * itself is never stubbed.
+ * CLI to graceful degradation, the bot to its signature gate, and one real
+ * /cog command to the full round trip through the bot Worker to the Portal's
+ * PortalRpc entrypoint. Every fault is injected and cleared through the
+ * shaper's control plane, so the Worker itself is never stubbed.
  */
 const info = await readStackInfo();
 const portal = await Portal.create();
@@ -86,11 +87,30 @@ async function strangerKey(): Promise<webcrypto.CryptoKey> {
   return importEd25519(privateKey.export({ type: "pkcs8", format: "pem" }).toString());
 }
 
+// The reply flags CogBot sets on the message a student sees
+// (packages/discord-kit/src/components.ts): private to the one student
+// (EPHEMERAL, 1 << 6) and laid out as Components V2 (1 << 15).
+const EPHEMERAL_FLAG = 1 << 6;
+const COMPONENTS_V2_FLAG = 1 << 15;
+
+/** Every `url` field in a Discord message's component tree; a link button
+ * sits in an action row inside a container. */
+function walkUrls(node: unknown): string[] {
+  if (Array.isArray(node)) return node.flatMap(walkUrls);
+  if (node && typeof node === "object") {
+    const record = node as Record<string, unknown>;
+    const own = typeof record.url === "string" ? [record.url] : [];
+    return [...own, ...Object.values(record).flatMap(walkUrls)];
+  }
+  return [];
+}
+
 const cases = {
   syncFault: new Case("adversarial", "sync-fault-then-recover", ["shaper", "installed CLI", "portal Worker", "D1"]),
   liveFault: new Case("adversarial", "live-run-fault-degrades", ["shaper", "installed CLI", "portal Worker"]),
   forged: new Case("adversarial", "forged-interaction-rejected", ["CogBot", "Discord double"]),
   signed: new Case("adversarial", "signed-interaction-accepted", ["CogBot", "shaper"]),
+  cogCommand: new Case("adversarial", "cog-command-portal-roundtrip", ["CogBot", "portal Worker", "D1", "Discord double"]),
 };
 
 await cases.syncFault.run(async () => {
@@ -246,5 +266,127 @@ await cases.signed.run(async () => {
     /"type":?\s*1/.test(responseBody),
     "the PONG came back, through the shaper, from the real verification path",
     responseBody.slice(0, 200),
+  );
+});
+
+await cases.cogCommand.run(async () => {
+  const case_ = cases.cogCommand;
+  // A guild member the portal has never linked, unique per run so D1 state
+  // that survived an earlier run can never turn this case down the linked
+  // path. Everything about this identity is synthetic; the surfaces it
+  // travels through are not.
+  const discordUser = { id: `95${Date.now()}`, username: "journey_dc", global_name: "Journey Student" };
+  const applicationId = "987654321098765432";
+  const interactionToken = `journey${discordUser.id}`;
+  const body = JSON.stringify({
+    id: `96${Date.now()}`,
+    application_id: applicationId,
+    token: interactionToken,
+    type: 2, // APPLICATION_COMMAND
+    guild_id: info.courseGuildId,
+    channel_id: "991234567890123456",
+    data: { type: 1, name: "cog" }, // a plain CHAT_INPUT /cog, no options
+    member: { user: discordUser },
+  });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = await signInteraction(await importEd25519(info.discordPrivateKeyPem), timestamp, body);
+  const response = await fetch(`${info.shaperBotOrigin}/`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-Signature-Ed25519": signature,
+      "X-Signature-Timestamp": timestamp,
+    },
+    body,
+  });
+  const ack = (await response.json()) as { type?: number; data?: { flags?: number } };
+  case_.expect(
+    response.status === 200 && ack.type === 5 && ((ack.data?.flags ?? 0) & EPHEMERAL_FLAG) !== 0,
+    "the bot acked the /cog interaction with a private deferred response, so the Portal RPC runs after the ack",
+    `POST / answered ${response.status}: ${JSON.stringify(ack).slice(0, 200)}`,
+  );
+
+  // What the student sees back: the bot edits its deferred response through
+  // the Discord REST API, which on this stack is the labelled double
+  // (discord-api-double). The waitUntil work is asynchronous, so poll the
+  // double's log for the PATCH of this interaction's followup.
+  const webhookPath = `/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`;
+  const deadline = Date.now() + 20_000;
+  let followup: Record<string, any> | undefined;
+  while (Date.now() < deadline && followup === undefined) {
+    followup = (await doubleLog()).find((entry) => entry.method === "PATCH" && entry.path === webhookPath);
+    if (followup === undefined) await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  const reply = followup?.body as { flags?: number; components?: unknown } | undefined;
+  case_.expect(
+    reply?.flags !== undefined,
+    "the bot's deferred work came back as the followup the student sees, recorded by the discord-api-double",
+    `PATCH ${webhookPath} ${reply ? "arrived" : "not found"} in the double's log`,
+  );
+  case_.expect(
+    ((reply?.flags ?? 0) & EPHEMERAL_FLAG) !== 0 && ((reply?.flags ?? 0) & COMPONENTS_V2_FLAG) !== 0,
+    "the reply the student sees is the bot's private Components-V2 message",
+    `followup flags ${reply?.flags}`,
+  );
+  const replyText = JSON.stringify(reply?.components ?? []);
+  case_.expect(
+    replyText.includes("Hi Journey Student, I'm Cog"),
+    "the reply greets the student with the display name the signed interaction carried",
+    replyText.slice(0, 300),
+  );
+
+  const linkUrl = reply ? walkUrls(reply.components).find((url) => /\/connections#discord=[0-9a-f]{64}$/.test(url)) : undefined;
+  case_.expect(
+    linkUrl !== undefined,
+    "the reply's next action is a one-time link button into Cog*Portal",
+    replyText.slice(0, 300),
+  );
+  const portalHref = linkUrl !== undefined ? new URL(linkUrl) : undefined;
+  case_.expect(
+    portalHref?.origin === info.browsableOrigin,
+    "the link button targets the portal itself, the origin a student browses",
+    `${portalHref?.origin ?? "no link"} vs browsable ${info.browsableOrigin}`,
+  );
+  const linkToken = portalHref?.hash.startsWith("#discord=") ? portalHref.hash.slice("#discord=".length) : undefined;
+
+  // What the Portal actually did: that token exists only if the bot's Portal
+  // RPC (createDiscordLink) wrote a pending link row. The student's real
+  // session, held through support/portal.ts, redeems it over the portal's
+  // own HTTP API — the same calls the connections page makes.
+  const preview = await portal.request("/api/v1/connections/discord/preview", {
+    method: "POST",
+    body: { token: linkToken },
+  });
+  const previewBody = preview.json() as { username?: string; expiresAt?: number };
+  case_.expect(
+    preview.status === 200 && previewBody.username === "Journey Student (@journey_dc)",
+    "the portal holds the pending link the bot's RPC created, addressed to the interaction's Discord identity",
+    `preview answered ${preview.status}: ${preview.body.slice(0, 200)}`,
+  );
+  case_.expect(
+    typeof previewBody.expiresAt === "number" && previewBody.expiresAt > Date.now(),
+    "the pending link is still inside its ten-minute window",
+    `expiresAt ${previewBody.expiresAt}, now ${Date.now()}`,
+  );
+  const confirm = await portal.request("/api/v1/connections/discord/confirm", {
+    method: "POST",
+    body: { token: linkToken },
+  });
+  const confirmBody = confirm.json() as { discord?: { userId?: string; username?: string } };
+  case_.expect(
+    confirm.status === 200 &&
+      confirmBody.discord?.userId === discordUser.id &&
+      confirmBody.discord?.username === "Journey Student (@journey_dc)",
+    "redeeming the link wrote the Discord account on the portal, tied to the interaction's user id",
+    `confirm answered ${confirm.status}: ${confirm.body.slice(0, 200)}`,
+  );
+  // The synthetic identity was the case's own fixture; disconnecting it
+  // leaves the portal as the case found it and keeps repeat runs on the
+  // unlinked path the case is built around.
+  const unlink = await portal.request("/api/v1/connections/discord", { method: "DELETE" });
+  case_.expect(
+    unlink.status === 200 && (unlink.json() as { discord?: unknown }).discord === null,
+    "the case disconnected its synthetic identity, leaving no link behind",
+    `DELETE /api/v1/connections/discord answered ${unlink.status}: ${unlink.body.slice(0, 200)}`,
   );
 });
