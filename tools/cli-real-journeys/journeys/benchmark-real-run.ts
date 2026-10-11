@@ -20,6 +20,9 @@ import { SUBMISSION_PY } from "./submission.ts";
  */
 const info = await readStackInfo();
 const portal = await Portal.create();
+// Approvals run from the same dev session a browser would hold; without it
+// every approveDevice call answers 401.
+await portal.devLogin("journey-student", { demo: true });
 const BENCHMARK = "audio-identification";
 
 /** Links a fresh CLI HOME and approves it from the browser session. */

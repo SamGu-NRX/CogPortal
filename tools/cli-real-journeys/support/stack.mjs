@@ -174,6 +174,7 @@ function forward(req, res, forwardPort, routeHost) {
     },
   );
   upstream.on("error", (error) => {
+    console.error(`[shaper] forward error on ${req.method} ${req.url}: ${String(error)}`);
     if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
     res.end(JSON.stringify({ shaped: "forward_error", message: String(error) }));
   });
@@ -303,7 +304,7 @@ async function main() {
           DEV_AUTH: "enabled",
           ONBOARDING_DEV_TOOLS: "enabled",
           EXECUTION_PROVIDER: "fixture",
-          BETTER_AUTH_SECRET: "local-development-only-not-a-real-secret-0000",
+          BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "local-development-only-not-a-real-secret-0000",
           BETTER_AUTH_URL: browsableOrigin,
           PUBLIC_ORIGIN: browsableOrigin,
           COURSE_GUILD_ID: guildId,

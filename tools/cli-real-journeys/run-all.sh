@@ -19,10 +19,14 @@ RUN_TAG=${RUN_TAG:-$(date -u +%Y%m%dT%H%M%SZ)}
 RESULTS="$PWD/results/$RUN_TAG"
 mkdir -p "$RESULTS"
 export RESULTS_DIR="$RESULTS"
+# The journeys mint dev sessions and read the setup page's check-off secret; it
+# must be the same value the booted Worker runs with.
+export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-local-development-only-not-a-real-secret-0000}"
+export VENV_WEEK1="$WEEK1_ENV/bin"  # CliHome wants the venv's bin directory
 
 echo "== [1/7] prerequisites =="
 node --version
-test -d "$REPO_ROOT/apps/portal/package.json" || { echo "run from the repository" >&2; exit 1; }
+test -f "$REPO_ROOT/apps/portal/package.json" || { echo "run from the repository" >&2; exit 1; }
 test -d "$WEEK1_ENV" || { echo "conda env week1 missing; run py/bootstrap-course-envs.sh first" >&2; exit 1; }
 if [ ! -d node_modules ]; then
   corepack enable >/dev/null 2>&1 || true

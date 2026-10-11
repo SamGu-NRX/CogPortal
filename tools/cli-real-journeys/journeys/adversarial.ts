@@ -17,6 +17,9 @@ import { SUBMISSION_PY } from "./submission.ts";
  */
 const info = await readStackInfo();
 const portal = await Portal.create();
+// Approvals run from the same dev session a browser would hold; without it
+// every approveDevice call answers 401.
+await portal.devLogin("journey-student", { demo: true });
 const BENCHMARK = "audio-identification";
 
 /** Tells the shaper how the next `count` requests should fail, then clears it. */
@@ -48,10 +51,13 @@ async function link(case_: Case, home: CliHome): Promise<void> {
   case_.expect(exit === 0, "cogworks link exited cleanly", `exit ${exit}`);
 }
 
-/** The discord double's request log, parsed. */
+/** The discord double's request log, parsed. The double records its own
+ * `/__log__` reads too; those are instrumentation, not Discord traffic, so
+ * they never count. */
 async function doubleLog(): Promise<Array<Record<string, any>>> {
   const response = await fetch(`${info.discordDoubleOrigin}/__log__`);
-  return (await response.json()) as Array<Record<string, any>>;
+  const entries = (await response.json()) as Array<Record<string, any>>;
+  return entries.filter((entry) => entry.path !== "/__log__");
 }
 
 /** Signs `timestamp + body` with a PKCS8 Ed25519 private key, Discord's scheme. */
