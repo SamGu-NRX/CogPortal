@@ -60,10 +60,11 @@ await cases.deviceLink.run(async () => {
       `matched ${printed[0]}`,
     );
     const approval = await portal.approveDevice(userCode, "journey-laptop");
+    const settled = approval >= 500 ? await portal.approveDevice(userCode, "journey-laptop") : approval;
     case_.expect(
-      approval === 200,
+      settled === 200,
       "the browser session approved the device code",
-      `POST /api/v1/cli/device/approve answered ${approval}`,
+      `POST /api/v1/cli/device/approve answered ${settled} (first attempt ${approval})`,
     );
     const exit = await link.exited(60_000);
     case_.expect(exit === 0, "the CLI linked after approval", `cogworks link exited ${exit}; output: ${link.output().slice(-400)}`);

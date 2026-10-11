@@ -108,6 +108,14 @@ export class Portal {
     return response.status;
   }
 
+  /** The signed-in student's reports for benchmarks with no active version. */
+  async teamUntrackedReports(): Promise<any[]> {
+    const response = await this.request("/api/v1/local-reports?untracked=1");
+    if (response.status !== 200) throw new Error(`local-reports answered ${response.status}: ${response.body}`);
+    const parsed = response.json() as { reports?: any[] };
+    return parsed.reports ?? [];
+  }
+
   /** The team's local reports for one benchmark, seen through session auth. */
   async teamLocalReports(benchmarkId: string): Promise<any[]> {
     const response = await this.request(`/api/v1/local-reports?benchmark=${encodeURIComponent(benchmarkId)}`);

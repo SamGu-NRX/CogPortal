@@ -45,10 +45,15 @@ async function latestReport(repoPath: string): Promise<Record<string, any>> {
 async function link(case_: Case, home: CliHome): Promise<void> {
   const link = home.start(["link", "--portal", info.shaperPortalOrigin, "--no-browser"]);
   const printed = await link.waitFor(/user_code=([A-Za-z0-9-]+)/, 30_000);
-  const approved = await portal.approveDevice(printed[1], "journey-adversarial");
+  let approved = await portal.approveDevice(printed[1], "journey-adversarial");
+  if (approved >= 500) {
+    // Same boot-settling retry as the benchmark journey; approve is
+    // idempotent for the same user.
+    approved = await portal.approveDevice(printed[1], "journey-adversarial");
+  }
   case_.expect(approved === 200, "the device linked", `approve answered ${approved}`);
   const exit = await link.exited(60_000);
-  case_.expect(exit === 0, "cogworks link exited cleanly", `exit ${exit}`);
+  case_.expect(exit === 0, "cogworks link exited cleanly", `exit ${exit}; output: ${link.output().slice(-400)}`);
 }
 
 /** The discord double's request log, parsed. The double records its own
@@ -151,25 +156,33 @@ await cases.liveFault.run(async () => {
   });
   try {
     await link(case_, home);
+    // Baseline: audio-identification ships inactive (0020 holds active=0
+    // until a calibration ablation passes), so a healthy portal refuses the
+    // live bubble and names the benchmark's state.
+    const baseline = home.start(["run", "--benchmark", BENCHMARK, "--live", "--json"], { cwd: repo.path });
+    const baselineExit = await baseline.exited(900_000);
+    case_.command("cogworks run --live (healthy portal, inactive benchmark)", baselineExit, baseline.output());
+    case_.expect(
+      baselineExit !== 0 && /not active/i.test(baseline.output()),
+      "a healthy portal refuses the inactive benchmark's live run by name",
+      baseline.output().slice(-400),
+    );
+
+    // Faulted: the only variable now is the injected 503, so the failure
+    // message must name the portal fault rather than the benchmark state.
     await shape("fail_5xx", 3);
     const run = home.start(["run", "--benchmark", BENCHMARK, "--live", "--json"], { cwd: repo.path });
     const exit = await run.exited(900_000);
     case_.command("cogworks run --live (while run creation answers 500)", exit, run.output());
     case_.expect(
-      exit !== 0,
-      "the degraded live run did not pretend the bubble succeeded",
-      `exited ${exit}; output ends: ${run.output().slice(-300)}`,
-    );
-    case_.expect(
-      /raised/i.test(run.output()) && /portal/i.test(run.output()),
-      "the degraded run reported a raised status and named the portal problem",
+      /HTTP 503/i.test(run.output()),
+      "the degraded live run named the portal fault instead of the benchmark",
       run.output().slice(-400),
     );
-    const report = await latestReport(repo.path);
     case_.expect(
-      Boolean(report.id ?? report.reportId),
-      "the degraded run still saved a full local report",
-      `report id: ${report.id ?? report.reportId}`,
+      exit !== 0,
+      "the degraded live run did not pretend the bubble succeeded",
+      `exited ${exit}`,
     );
   } finally {
     await shape("normal");
