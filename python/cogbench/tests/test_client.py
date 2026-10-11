@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 from cogbench.client import (
     PortalError,
     USER_AGENT,
+    default_device_name,
     poll_device_link,
     request_json,
     send_local_run_event_batch,
@@ -70,12 +71,25 @@ class PortalClientTests(unittest.TestCase):
     def test_device_authorization_posts_are_never_generically_retried(self):
         with patch("cogbench.client.request_json") as request:
             request.return_value = {"deviceCode": "device-code"}
-            start_device_link("https://portal.example")
+            start_device_link("https://portal.example", "macos-a1b2c3")
             request.assert_called_once_with(
                 "https://portal.example",
                 "/api/v1/cli/device/start",
-                {},
+                {"deviceName": "macos-a1b2c3"},
             )
+
+    def test_default_device_name_carries_no_hostname_fragment(self):
+        # The lead's report: a campus machine's name is its reverse-DNS
+        # address, and a name built from it would put the student's network
+        # identity in portal data. Both stdlib hostname reads are pointed at
+        # such a machine; the default may not echo any of it back.
+        distinctive = "wireless-10-148-67-40.public.utexas.edu"
+        with patch("socket.gethostname", return_value=distinctive), \
+                patch("platform.node", return_value=distinctive):
+            name = default_device_name()
+        for fragment in (distinctive, "wireless", "10-148-67-40", "utexas"):
+            self.assertNotIn(fragment, name)
+        self.assertRegex(name, r"^[a-z]+-[0-9a-f]{6}$")
 
     @patch("cogbench.client.time.sleep")
     @patch("cogbench.client.time.time", side_effect=[1.0, 1.0])

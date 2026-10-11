@@ -29,6 +29,7 @@ from .isolate import COMPLETED, CRASHED, Outcome
 from . import isolate
 from .client import (
     PortalError,
+    default_device_name,
     device_status,
     poll_device_link,
     send_local_run_event,
@@ -114,6 +115,11 @@ def _parser() -> argparse.ArgumentParser:
         "--no-browser",
         action="store_true",
         help="print the approval link without opening your browser",
+    )
+    link.add_argument(
+        "--name",
+        help="name this device on CogPortal; a neutral default like "
+        "macos-a1b2c3 is sent otherwise",
     )
     sync = subparsers.add_parser("sync", help="explicitly sync one local report")
     sync.add_argument(
@@ -1311,6 +1317,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         if args.command == "link":
             portal = _portal(args.portal)
+            # An empty or whitespace --name falls back to the neutral
+            # default, never to the hostname.
+            device_name = (args.name or "").strip() or default_device_name()
             print("Connecting to {}".format(portal))
             # Linking sends setup facts on its own. A report goes up from
             # `sync` and from the end of `run --live` (`_LiveRun.completed`);
@@ -1321,7 +1330,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "`cogworks run --live`, and weights only with `cogworks sync`. Source, logs, "
                 "predictions, and environment variables stay on this machine."
             )
-            start = start_device_link(portal)
+            start = start_device_link(portal, device_name)
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
             if not args.no_browser:
                 webbrowser.open(start["verificationUri"])
@@ -1332,7 +1341,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 int(start["expiresAt"]),
             )
             save_token(portal, result["token"], int(result["expiresAt"]))
-            print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
+            print("Linked {}. Local commands still work offline.".format(device_name))
             repository = repository_state(project_root)
             if repository.full_name:
                 try:
