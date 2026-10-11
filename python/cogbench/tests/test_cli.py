@@ -257,6 +257,62 @@ class LinkConsentTests(unittest.TestCase):
         self.assertNotIn("never source, paths, logs, predictions, scores", consent)
 
 
+class DeviceNameTests(unittest.TestCase):
+    """What the device registration proposes as the device's name.
+
+    The default is neutral — the OS plus a short random suffix — because a
+    machine's own name is often its reverse-DNS address, and a name built
+    from it would put the student's network identity in portal data.
+    """
+
+    DISTINCTIVE_HOSTNAME = "wireless-10-148-67-40.public.utexas.edu"
+
+    def _link(self, extra_args):
+        # Links exactly as LinkConsentTests does, on a machine whose name is
+        # distinctive, and records the device name the registration carried.
+        stdout = io.StringIO()
+        start = {
+            "verificationUri": "https://portal.example/connections?user_code=ABCD",
+            "userCode": "ABCD",
+            "deviceCode": "device-code",
+            "pollIntervalSeconds": 5,
+            "expiresAt": 10_000,
+        }
+        with patch("cogbench.cli.start_device_link", return_value=start) as start_link, \
+                patch("cogbench.cli.poll_device_link", return_value={"token": "t", "expiresAt": 1}), \
+                patch("cogbench.cli.save_token"), \
+                patch("cogbench.cli.repository_state", return_value=SimpleNamespace(full_name=None)), \
+                patch("cogbench.cli._installed_benchmark_hint", return_value="vision-recognition"), \
+                patch("socket.gethostname", return_value=self.DISTINCTIVE_HOSTNAME), \
+                patch("platform.node", return_value=self.DISTINCTIVE_HOSTNAME), \
+                redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                main(["link", "--portal", "https://portal.example", "--no-browser"] + extra_args), 0
+            )
+        payload = start_link.call_args.args[1]
+        return payload, stdout.getvalue()
+
+    def test_default_registration_carries_no_hostname_fragment(self):
+        payload, _ = self._link([])
+        for fragment in (
+            self.DISTINCTIVE_HOSTNAME,
+            "wireless",
+            "10-148-67-40",
+            "utexas",
+        ):
+            self.assertNotIn(fragment, payload)
+        self.assertRegex(payload, r"^[a-z]+-[0-9a-f]{6}$")
+
+    def test_name_flag_overrides_the_default(self):
+        payload, _ = self._link(["--name", "Enze MacBook"])
+        self.assertEqual(payload, "Enze MacBook")
+
+    def test_the_link_line_names_the_device_it_sent(self):
+        _, text = self._link(["--name", "Team Laptop"])
+        self.assertIn("Linked Team Laptop.", text)
+        self.assertNotIn("utexas", text)
+
+
 class HelpTextTests(unittest.TestCase):
     def _subcommand_help(self, command):
         stdout = io.StringIO()

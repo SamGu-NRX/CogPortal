@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import platform
+import secrets
 import time
 import urllib.error
 import urllib.request
@@ -73,8 +75,25 @@ def request_json(
     raise PortalError("Could not reach CogPortal after {} attempts.".format(attempts))
 
 
-def start_device_link(portal: str) -> Dict[str, Any]:
-    return request_json(portal, "/api/v1/cli/device/start", {})
+def default_device_name() -> str:
+    """A neutral name for this machine: the OS plus a short random suffix.
+
+    The hostname never enters it. A campus machine's name is often its
+    reverse-DNS address (for example `wireless-10-148-67-40...`), so a name
+    derived from it would put the student's network identity in portal data.
+    The OS part comes from `platform`, never from `socket`.
+    """
+
+    system = platform.system().strip().lower()
+    if system == "darwin":
+        system = "macos"
+    return "{}-{}".format(system or "device", secrets.token_hex(3))
+
+
+def start_device_link(portal: str, device_name: str) -> Dict[str, Any]:
+    # The registration payload proposes the device's name; the approval form
+    # records it. Neutrality is this CLI's job: the hostname never enters.
+    return request_json(portal, "/api/v1/cli/device/start", {"deviceName": device_name})
 
 
 def poll_device_link(portal: str, device_code: str, interval: int, expires_at: int) -> Dict[str, Any]:
