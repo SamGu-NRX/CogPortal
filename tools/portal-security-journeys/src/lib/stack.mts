@@ -1,13 +1,15 @@
 /**
  * Fresh-stack boot for one journey: repo root discovery, a per-journey local
- * D1 state directory, dev-only bindings, a seeded catalog, and a local vite
- * server (the cloudflare vite plugin hosts the built worker + SPA assets).
- * Every boot gets its own port and its own wrangler state; the checkout's
- * shared .dev.vars and .wrangler state are never read or written.
+ * D1 state directory, dev-only bindings, migrations + seed applied before the
+ * server starts, and a local vite server (the cloudflare vite plugin hosts
+ * the built worker + SPA assets). Every boot gets its own port and its own
+ * wrangler state; the checkout's shared .dev.vars and .wrangler state are
+ * never read or written.
  */
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Stack } from "./framework.mts";
@@ -95,6 +97,37 @@ function journeyWranglerConfig(portal: string, devVars: Record<string, string>):
   };
 }
 
+/** Resolve true once something accepts TCP connections on 127.0.0.1:port —
+ * a health signal that never touches the database. */
+function portAccepts(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = netConnect({ host: "127.0.0.1", port });
+    socket.setTimeout(2000);
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    const fail = () => {
+      socket.destroy();
+      resolve(false);
+    };
+    socket.once("timeout", fail);
+    socket.once("error", fail);
+  });
+}
+
+/** Run a wrangler command against the journey's isolated state, turning a
+ * failure into a boot error that carries the command's own output. */
+function runWrangler(cwd: string, args: string[], what: string): string {
+  try {
+    return execSync(`pnpm exec wrangler ${args.join(" ")}`, { cwd, stdio: "pipe" }).toString();
+  } catch (err) {
+    const e = err as Error & { stderr?: unknown };
+    const detail = typeof e.stderr === "string" ? e.stderr : Buffer.isBuffer(e.stderr) ? e.stderr.toString() : "";
+    throw new Error(`${what} failed: ${detail || e.message}`);
+  }
+}
+
 export async function bootStack(journeyId: string, log: (line: string) => void, opts: BootStackOptions = {}): Promise<Stack> {
   const root = repoRoot();
   const portal = join(root, "apps", "portal");
@@ -160,7 +193,24 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
     ].join("\n"),
   );
 
-  log(`booting vite (portal) on :${port} with per-journey D1 state`);
+  // Apply the repo's own D1 migrations into this journey's isolated state
+  // before the worker boots, so the first request never sees an empty or
+  // half-migrated schema.
+  const dbName = journeyConfig.d1_databases?.[0]?.database_name;
+  if (!dbName) throw new Error("portal wrangler.jsonc has no d1_databases binding");
+  const wranglerStateArgs = ["--local", `--persist-to "${persistDir}"`, `--config "${journeyConfigPath}"`];
+  log("applying D1 migrations (isolated per-journey state)");
+  runWrangler(portal, [`d1 migrations apply ${dbName}`, ...wranglerStateArgs], "D1 migration apply");
+
+  // Seed the local catalog (cohorts, benchmarks, fixture repo) with the
+  // repo's own seed file.
+  const seedCandidates = [join(portal, "scripts", "seed-local.sql"), join(portal, "seed-local.sql"), join(root, "scripts", "seed-local.sql")];
+  const seed = seedCandidates.find((p) => existsSync(p));
+  if (!seed) throw new Error("seed-local.sql not found (looked in apps/portal/scripts, apps/portal, scripts)");
+  log(`seeding local D1 from ${seed.slice(root.length + 1)}`);
+  runWrangler(portal, [`d1 execute ${dbName}`, ...wranglerStateArgs, `--file="${seed}"`], "D1 seed");
+
+  log(`booting vite (portal) on :${port}`);
   const child: ChildProcess = spawn("pnpm", ["exec", "vite", "--config", journeyViteConfigPath, "--port", String(port), "--strictPort"], {
     cwd: portal,
     env: { ...process.env, CI: "1" },
@@ -175,34 +225,13 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
   let up = false;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`vite exited early (${child.exitCode}): ${out.slice(-400)}`);
-    try {
-      const res = await fetch(`${baseUrl}/api/benchmarks`);
-      if (res.status === 200) {
-        up = true;
-        break;
-      }
-    } catch {
-      /* not up yet */
+    if (await portAccepts(port)) {
+      up = true;
+      break;
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
-  if (!up) throw new Error(`stack never became ready: ${out.slice(-400)}`);
-
-  // Seed the local catalog (cohorts, benchmarks, fixture repo) if the repo
-  // ships a seed file — executed against this journey's own state directory.
-  const dbName = journeyConfig.d1_databases?.[0]?.database_name;
-  const seedCandidates = [join(portal, "seed-local.sql"), join(root, "scripts", "seed-local.sql"), join(root, "seed-local.sql")];
-  const seed = seedCandidates.find((p) => existsSync(p));
-  if (dbName && seed) {
-    try {
-      execSync(`pnpm exec wrangler d1 execute ${dbName} --local --persist-to "${persistDir}" --config "${journeyConfigPath}" --file="${seed}"`, { cwd: portal, stdio: "ignore" });
-      log("seeded local D1");
-    } catch (err) {
-      log(`seed step failed (continuing; likely already applied): ${String(err).slice(0, 120)}`);
-    }
-  } else {
-    log("no seed file or database_name found — continuing unseeded");
-  }
+  if (!up) throw new Error(`stack never became ready (port ${port} never accepted connections): ${out.slice(-400)}`);
 
   log(`stack ready at ${baseUrl}`);
   const stack: Stack = {
