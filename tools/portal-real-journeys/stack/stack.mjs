@@ -74,6 +74,7 @@ function devVars(profile) {
     // and the Discord double owns every call this token could make.
     'COURSE_GUILD_ID="1111111111111111111"',
     'DISCORD_BOT_TOKEN="rj-local-bot-token"',
+    'DISCORD_CLIENT_ID="rj-local-discord-client-id"',
     'DISCORD_CLIENT_SECRET="rj-local-discord-client-secret"',
     `ACTIVITY_SESSION_SECRET="${ACTIVITY_SESSION_SECRET}"`,
     'RUNNER_SIGNING_KEY_ID="runner-v1"',

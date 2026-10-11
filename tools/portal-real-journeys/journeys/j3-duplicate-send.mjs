@@ -1,62 +1,94 @@
-// Journey 3 — team creation under a duplicated Discord channel create.
+// Journey 3 — the Worker's Discord Activity exchange sends exactly once and
+// survives a duplicated arrival at the Discord double.
 //
-// The create-team endpoint calls Discord's real channel-create API through
-// the seamed client. The proxy duplicates exactly one upstream send of the
-// channel-create request — the wire-level shape of a client retry after a
-// response was lost. The journey must end with exactly one Discord channel
-// and exactly one stored membership row.
+// The hop under test is Worker -> Discord double (DISCORD_API_BASE_URL):
+// POST /api/activity/oauth/token exchanges a synthetic Activity code through
+// the double's /oauth2/token and /v10/users/@me, and GET /api/activity/session
+// creates the Discord link for the identity the double returned. A duplicate
+// rule on the double itself replays the token request the way a second
+// identical send would arrive on the wire. The journey must end with the
+// double having received the token request twice (one replay, journalled as
+// a duplicate), the identity fetched exactly once, and exactly one Discord
+// account link whose id is the one the exchange returned.
 
 import { test, expect } from "@playwright/test";
-import { freshJourney, control, signIn, TEAM } from "./helpers.mjs";
+import { control, freshJourney, signIn, STACK } from "./helpers.mjs";
 
-test.describe("journey: team creation survives a duplicated channel create", () => {
+const DISCORD_DOUBLE = "http://127.0.0.1:8813";
+const ACTIVITY_CODE = "act-j3-duplicate-send";
+
+async function discordDouble(path, body) {
+  const response = await fetch(`${DISCORD_DOUBLE}${path}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  expect(
+    response.ok,
+    `discord double ${path}: ${response.status} ${await response.text()}`,
+  ).toBeTruthy();
+  return response.json();
+}
+
+test.describe("journey: the activity exchange survives a duplicated Discord send", () => {
   test.beforeEach(async () => {
     await freshJourney("duplicate-send");
   });
 
-  test.afterEach(async () => {
-    await control.clearFaults();
-  });
-
-  test("duplicate upstream sends of channel create yield one channel and one membership", async ({
+  test("duplicate token arrivals at the double yield one identity fetch and one link", async ({
     page,
   }) => {
-    await freshJourney("duplicate-send");
     await signIn(page, "olivia-wu");
 
-    // Join the seeded cohort the way the SPA's join form does.
-    const join = await page.request.post("http://127.0.0.1:8810/api/cohorts/join", {
-      data: { code: "VISION26" },
-    });
-    expect(join.ok()).toBeTruthy();
-
-    // Duplicate exactly one upstream POST to the Discord channels API.
-    await control.fault({
-      match: { host: "discord-double", path: "/api/v10/guilds/987654321098765432/channels" },
+    // Mint the synthetic Activity code the real exchange will spend, then arm
+    // the duplicate rule on the Discord double itself: one replay of the
+    // token request, journalled as a duplicate arrival.
+    await discordDouble("/__doubles/discord/seed", { code: ACTIVITY_CODE });
+    await discordDouble("/__doubles/rules", {
+      match: { method: "POST", path: "/oauth2/token" },
       duplicate: 1,
     });
 
-    // Create the team through the real endpoint the SPA's form posts to.
-    const create = await page.request.post("http://127.0.0.1:8810/api/github/connect", {
-      data: {
-        fullName: TEAM.repo,
-        teamName: TEAM.name,
-        discordChannelId: TEAM.channel,
-      },
+    // The route's own anti-CSRF contract: GET mints a signed state cookie and
+    // the exchange must present the same value.
+    const state = await page.request.get(`${STACK}/api/activity/oauth/state`);
+    expect(state.ok(), await state.text()).toBeTruthy();
+    const { state: stateValue } = await state.json();
+
+    // The real hop: the Worker exchanges the code through the Discord double.
+    const exchange = await page.request.post(`${STACK}/api/activity/oauth/token`, {
+      data: { code: ACTIVITY_CODE, state: stateValue },
     });
-    expect(create.ok()).toBeTruthy();
+    expect(exchange.ok(), await exchange.text()).toBeTruthy();
+    const { user } = await exchange.json();
 
-    // The double must hold exactly one channel with that ID — the second
-    // send hit an existing channel and the worker treated it as the same
-    // success, not a new one.
-    const channel = await page.request.get(
-      `http://127.0.0.1:8814/__doubles/discord/channels/${TEAM.channel}`,
-    );
-    expect(channel.ok()).toBeTruthy();
+    // The session route creates the Discord link for the identity the double
+    // returned.
+    const session = await page.request.get(`${STACK}/api/activity/session`);
+    expect(session.ok(), await session.text()).toBeTruthy();
+    const linked = await session.json();
+    expect(linked.linked).toBe(false);
 
-    // And exactly one team membership row in the worker's database.
-    const rows = await control.sql(`SELECT COUNT(*) AS n FROM teams WHERE name = '${TEAM.name}'`);
-    const count = Number(JSON.parse(rows)[0].n);
-    expect(count).toBe(1);
+    // Wire truth at the double: the token request arrived twice (send +
+    // duplicate) and the identity was fetched exactly once — the replay is
+    // the double re-receiving, not the Worker re-sending.
+    const journalResponse = await fetch(`${DISCORD_DOUBLE}/__doubles/journal`);
+    expect(journalResponse.ok).toBeTruthy();
+    const { log } = await journalResponse.json();
+    const tokenArrivals = log.filter((entry) => entry.path === "/oauth2/token");
+    expect(tokenArrivals, "token request should arrive exactly twice").toHaveLength(2);
+    expect(
+      tokenArrivals.filter((entry) => entry.duplicate),
+      "exactly one arrival should be the replayed duplicate",
+    ).toHaveLength(1);
+    expect(
+      log.filter((entry) => entry.path === "/v10/users/@me"),
+      "the Worker should fetch the identity exactly once",
+    ).toHaveLength(1);
+
+    // Side-effect truth: exactly one Discord account link exists and it is
+    // the identity the exchange returned.
+    const rows = JSON.parse(await control.sql("SELECT discord_user_id FROM discord_accounts"));
+    expect(rows, "exactly one Discord account link should exist").toHaveLength(1);
+    expect(rows[0].discord_user_id).toBe(user.id);
   });
 });
