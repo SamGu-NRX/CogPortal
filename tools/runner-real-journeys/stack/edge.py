@@ -8,7 +8,9 @@
   fetches `https://api.github.com/repos/<owner>/<repo>/tarball/<sha>`; this
   answers from the corpus map (sha -> tar.gz) under COGBOX_ROOT/corpus.
 
-Certificates come from stack/setup-host.sh (one CA, trusted system-wide).
+Certificates come from stack/setup-host.sh (one CA, trusted only by suite
+processes via SSL_CERT_FILE / REQUESTS_CA_BUNDLE — never installed
+system-wide).
 SNI picks the certificate; the Host header picks the route.
 
     python3 tools/runner-real-journeys/stack/edge.py --port 443 \

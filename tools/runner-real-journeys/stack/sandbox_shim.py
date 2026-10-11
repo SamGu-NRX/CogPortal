@@ -252,6 +252,14 @@ class Sandbox:
         sandbox._id = sandbox_id
         sandbox._root = root
         sandbox._cg_dir = cg_dir
+        sandbox._hosts_path = os.path.join(BOX, "hosts")
+        if not os.path.isfile(sandbox._hosts_path):
+            raise ShimError(
+                "suite-private hosts file missing at %s — run "
+                "stack/setup-host.sh first; refusing to start a "
+                "sandbox whose processes would resolve the real GitHub"
+                % sandbox._hosts_path
+            )
         sandbox._timer = threading.Timer(timeout, sandbox._wall_clock_kill)
         sandbox._timer.daemon = True
         sandbox._timer.start()
@@ -280,6 +288,7 @@ class Sandbox:
             "mount --make-rprivate /",
             "mount --bind {tmp} /tmp",
             "mount --bind {ws} /workspace",
+            "mount --bind {hosts} /etc/hosts",
             "mount -t cgroup2 none {cg}",
             "mkdir {cg}/sb",
             "echo {hi} > {cg}/sb/memory.high",
@@ -296,6 +305,7 @@ class Sandbox:
             "exit $rc",
         ]).format(
             tmp=self.dirs["tmp"], ws=self.dirs["ws"], cg=cg,
+            hosts=self._hosts_path,
             hi=self.limits["memoryHigh"] * 1024 * 1024,
             mx=self.limits["memoryMax"] * 1024 * 1024,
             cpu=self.limits["cpuMax"],

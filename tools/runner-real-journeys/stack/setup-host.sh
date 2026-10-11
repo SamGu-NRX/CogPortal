@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
-# One-time host preparation for the journey rig: a local certificate
-# authority trusted system-wide, server certificates for the two local
-# hostnames, /etc/hosts entries, and the /workspace mountpoint.
+# One-time preparation for the journey rig, entirely process-local: a local
+# certificate authority, server certificates for the two local hostnames, the
+# suite's private hosts file, and the /workspace mountpoint.
 #
 #   sudo -E bash tools/runner-real-journeys/stack/setup-host.sh
+#
+# Nothing here changes the host's trust or name resolution: no system
+# /etc/hosts edits, no update-ca-certificates. The local CA is trusted only by
+# suite-started processes (stack/bootstrap.sh exports SSL_CERT_FILE,
+# REQUESTS_CA_BUNDLE and NODE_EXTRA_CA_CERTS for them), and the local
+# hostnames resolve only inside sandbox namespaces (the suite-private hosts
+# file is bind-mounted over /etc/hosts there) and in suite processes (the
+# getaddrinfo override in stack/localresolve.py). Host git and gh keep
+# reaching the real GitHub.
 #
 # Idempotent: regenerates nothing that already exists.
 
@@ -34,15 +43,14 @@ for name in cogbox.local api.github.com; do
   fi
 done
 
-cp "$SSL/ca.crt" /usr/local/share/certificates/cogbox-ca.crt 2>/dev/null ||
-  { mkdir -p /usr/local/share/ca-certificates && cp "$SSL/ca.crt" /usr/local/share/ca-certificates/cogbox-ca.crt; }
-update-ca-certificates >/dev/null 2>&1 || true
-
-for name in cogbox.local api.github.com; do
-  if ! grep -q "127.0.0.1[[:space:]].*$name" /etc/hosts; then
-    printf "127.0.0.1\t%s\n" "$name" >> /etc/hosts
-    echo "[setup-host] added /etc/hosts entry for $name"
-  fi
-done
+# The suite's private hosts file, consumed by two process-local mechanisms:
+# sandbox namespaces bind-mount it over /etc/hosts (stack/sandbox_shim.py),
+# and suite processes get the same two names from the getaddrinfo override
+# (stack/localresolve.py). It is never written to the system's /etc/hosts.
+cat > "$COGBOX/hosts" <<'HOSTS'
+127.0.0.1 cogbox.local
+127.0.0.1 api.github.com
+HOSTS
+echo "[setup-host] wrote the suite-private hosts file at $COGBOX/hosts"
 
 echo "[setup-host] done"

@@ -31,8 +31,12 @@ modal_app = None
 
 def build_runner(repo: str) -> None:
     sys.path.insert(0, HERE)
+    import localresolve
     import sandbox_shim
 
+    # Process-local name resolution for the two local hostnames; the
+    # system resolver, host git and gh are untouched by this suite.
+    localresolve.install()
     sandbox_shim.install_shim()
     sys.path.insert(0, os.path.join(repo, "apps", "runner-modal", "src"))
     sys.path.insert(0, os.path.join(repo, "python", "cogbench", "src"))
