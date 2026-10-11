@@ -59,6 +59,11 @@ A2 two tabs or two devices; A3 stale cache after a role or team change; A4 doubl
 members; A6 malformed and oversized results; A7 Unicode, RTL and emoji names and very long input; A8 clock skew;
 A9 Worker or CLI killed mid-operation; A10 revoked or expired credentials mid-journey.
 
+Local S10 runs exercise the controller, scorer and callbacks but not Modal's sandbox: isolation, network
+blocking, memory ceilings and whether a dispatched job is accepted (`apps/runner-modal/tools/run_week3_local_parity.py`,
+`docs/explanation/environments.md`). S10 can't be declared ready on local runs alone; a hosted Modal journey stays a
+named gate under "What Sam must provide".
+
 S10 adds the agenda in the repo's CLAUDE.md ("What we test for"): student code that raises, returns None or ragged
 lists, mutates inputs, prints thousands of lines or hangs gets a scored result or a categorized failure and never
 kills the runner, controller or scorer; a failed run never stays in `evaluating`; one team's bad run never affects
@@ -68,11 +73,11 @@ another's; the public leaderboard renders signed out when a run, benchmark row o
 
 | Metric | Bar |
 |--------|-----|
-| M1 journeys | each surface has at least one complete journey; 3 consecutive fresh-database runs pass, zero retries |
+| M1 journeys | every entry point in the catalog (each route, page, command and console) has a complete functional journey, shown in a coverage matrix; 3 consecutive fresh-database runs pass, zero retries |
 | M2 adversarial | each applicable class per surface: data kept, truthful state, a recovery path |
 | M3 authorization | every role × route cell matches policy at the API and in the UI |
 | M4 accessibility | axe 0 violations after content loads at 1440x900, 390x844 and 320 wide; text contrast at least 4.5:1 by computed colour; each journey completes by keyboard; reduced motion honoured |
-| M5 CLI | the documented install (the pinned `COGBENCH_SOURCE` students get, and the branch's CLI) works on Python 3.8 and each other supported version; every command runs on real public data |
+| M5 CLI | both documented installs (`beta`'s pin, which staging students get, and `alpha`'s pin) work on Python 3.8 and each other supported version; every command runs on real public data, including its documented public-asset downloads |
 | M6 defects | P0 (data loss, wrong access, false success) is 0; every other defect has a witness and a fix or an open decision |
 | M7 UX review | a council review of the integrated app on `alpha` finds no blocking issue per surface |
 
@@ -81,15 +86,23 @@ Flakes count as failures. Results are reported per metric and per surface, in th
 ### Rules every task follows
 
 - Nothing touches `main`, `beta`, the dev or production Workers, D1, R2 or Modal apps. `beta` is the dev/staging
-  environment (`cogportal-dev.sillion.app`); student setup installs the SDK from its commit `064400e` and the runner
-  images bake it, so it is never rewritten or moved. Installing from that pinned URL to test it is fine.
+  environment (`cogportal-dev.sillion.app`) and is never rewritten or moved.
+- There are two SDK pins, so read each from its own revision. Students on staging install `COGBENCH_SOURCE` from
+  `beta`'s `apps/portal/src/lib/benchmark-packages.ts` (commit `064400e`, which the runner images bake). The
+  integrated app on `alpha` pins `ecae6171` in the same file. Installing either to test it is fine.
+- The CLI's documented first real-data run downloads public assets (fixed public images, the FaceNet
+  checkpoint; `README.md`, `docs/design/student-cli-and-onboarding.md`). Allow and record those fetches; don't
+  pre-seed a cache to hide them. Any other Portal or provider traffic from an offline command is a defect.
 - Never call discord.com or post to the course guild: dev and prod share one Discord application, guild and bot.
   Discord is always a local double. Never use real GitHub OAuth; the GitHub App serves both environments.
 - Load and stress tests run only against the local stack. Production has hit the Workers Free CPU and D1 query limits.
 - Node 24 is required for the portal tests (`node:sqlite`).
 - Staff visibility is undecided. Two rules await Sam: what a TA may see about assigned teams, and whether "no
-  per-person numbers" stands. Implement both as one switchable policy, default to the current rule (no scores,
-  metrics, findings, logs, person names or per-person totals for TAs), and test both settings.
+  per-person numbers" stands. Implement them as one switchable policy whose default is today's behavior:
+  `/admin` and `worker/routes/admin.ts` show TA-scoped teams' member logins, run counts and latest published
+  score. The restricted setting (no scores, metrics, findings, logs, person names or per-person totals for TAs)
+  is a proposal awaiting Sam, never the default. Test both settings. Logs, diagnostics and private submissions
+  stay hidden from other teams under either setting.
 
 ### What Sam must provide for the remaining real paths
 
