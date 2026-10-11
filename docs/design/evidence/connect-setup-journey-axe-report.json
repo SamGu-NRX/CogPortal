@@ -1,0 +1,50 @@
+[
+  {
+    "label": "connect choice screen",
+    "url": "/connect",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+      },
+      {
+        "id": "color-contrast",
+        "nodes": 19
+      }
+    ],
+    "passes": 41
+  },
+  {
+    "label": "setup rail (created, 1 of 5)",
+    "url": "/setup",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+      },
+      {
+        "id": "color-contrast",
+        "nodes": 19
+      }
+    ],
+    "passes": 41
+  },
+  {
+    "label": "connections device list",
+    "url": "/connections?user_code=ABCD-1234-EFGH&return_to=setup",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-valid-attr-value",
+        "nodes": 1
+      },
+      {
+        "id": "color-contrast",
+        "nodes": 19
+      }
+    ],
+    "passes": 41
+  }
+]
