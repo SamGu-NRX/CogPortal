@@ -101,13 +101,17 @@ and Modal access for scored hosted runs.
 ## Steps
 
 1. **Round 0, harness and first fix pass (running).**
-   - #102 continuation (`apps-cogportal-local-setup-e2e-f1`): `tools/portal-real-journeys/`, S1–S6, fixes in
-     portal app/Worker/contract files, #106's staff desk routes plus a client page.
+   - Web e2e (`apps-cogportal-local-setup-e2e-f1`, new branch carrying #102): `tools/portal-real-journeys/`, S1–S6,
+     fixes in portal app/Worker/contract files outside auth and migrations, #106's staff desk routes plus a client page.
    - CLI and CogBot (`cogportal-cli-real-journeys-f1`): `tools/cli-real-journeys/`, S7–S8, fixes in
      `python/cogbench/` and `apps/discord-bot/`.
    - Runner and scorer (`cogportal-runner-broken-code-f1`): `tools/runner-real-journeys/`, S10, fixes in
      `apps/runner-modal/`.
-   - #101 rework (`apps-cogportal-comparison-rework-f1`): S9.
+   - Security and isolation (`cogportal-security-isolation-f1`): `tools/portal-security-journeys/`, S5 and A2/A3/A10
+     across every surface, fixes in `apps/portal/worker/auth/` and `worker/routes/session.ts`.
+   - Upgrade path (`cogportal-upgrade-path-f1`): `tools/upgrade-real-journeys/`, beta's data and installed CLI
+     against alpha, per-route D1 query and CPU budgets at course volume, additive migration fixes only.
+   - #101 rework (`apps-cogportal-comparison-rework-f1`, new branch carrying #101): S9.
 2. **Integrate on `alpha`.** `alpha` is the integration branch for running and critiquing the product, not a
    release. It starts at #95's head `e9c9a1ff` (the hardening base, which carries the beta lineage and #79-#95;
    `main` is 958 commits behind it). After the lead's accept and the caretaker's pass, Round 0 branches merge into
