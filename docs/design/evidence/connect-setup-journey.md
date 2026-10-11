@@ -4,9 +4,9 @@ Recorded 2026-10-11 at commit `a8aa493` (fix(portal): tick setup progress when a
 device approval lands). Two sources:
 
 - A six-path Playwright walk of the built portal against a local fixture server
-  (no real GitHub or Modal calls). The driver, fixture server and raw state
-  sequences live outside the repository in scratch; the state log and the key
-  screenshots are committed here as receipts.
+  (no real GitHub or Modal calls). The harness is checked in at
+  `tools/portal-journey-e2e/` (see its README for rerun commands); the state
+  log and the key screenshots are committed here as receipts.
 - axe-core scans (chromium, 1440x900) of the connect choice screen, the setup
   rail, and the connections device list.
 
