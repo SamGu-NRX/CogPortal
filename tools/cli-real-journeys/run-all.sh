@@ -5,62 +5,82 @@
 # Optional environment:
 #   RUN_TAG     label for this run's results directory (default: timestamp)
 #   CONDA_ROOT  where the course environments live (default: /home/user/work/miniconda3)
-#   NODE24      a Node >= 24 prefix (default: /home/user/work/node24)
+#   NODE24      a Node >= 22 prefix for build tools (default: /home/user/work/node24)
+#   SKIP_INSTALL=1  reuse the previously installed CLI and benchmark package
 set -euo pipefail
 cd "$(dirname "$0")"
 
 REPO_ROOT=$(cd ../.. && pwd)
 CONDA_ROOT=${CONDA_ROOT:-/home/user/work/miniconda3}
 NODE24=${NODE24:-/home/user/work/node24}
+WEEK1_ENV="$CONDA_ROOT/envs/week1"
 export PATH="$NODE24/bin:$PATH"
 RUN_TAG=${RUN_TAG:-$(date -u +%Y%m%dT%H%M%SZ)}
 RESULTS="$PWD/results/$RUN_TAG"
 mkdir -p "$RESULTS"
+export RESULTS_DIR="$RESULTS"
 
-echo "== [1/6] prerequisites =="
+echo "== [1/7] prerequisites =="
 node --version
-if [ ! -d "$CONDA_ROOT/envs/week1" ]; then
-  echo "conda env week1 missing; run-all.sh creates course envs on first use" >&2
-  bash "$REPO_ROOT/tools/cli-real-journeys/py/bootstrap-course-envs.sh"
-fi
-for env in week1 week2 week3 py311 py313; do
-  test -d "$CONDA_ROOT/envs/$env" || { echo "missing conda env: $env" >&2; exit 1; }
-done
-test -f "$REPO_ROOT/apps/portal/package.json" || { echo "run from the repository" >&2; exit 1; }
+test -d "$REPO_ROOT/apps/portal/package.json" || { echo "run from the repository" >&2; exit 1; }
+test -d "$WEEK1_ENV" || { echo "conda env week1 missing; run py/bootstrap-course-envs.sh first" >&2; exit 1; }
 if [ ! -d node_modules ]; then
-  npm ci --no-audit --no-fund >"$RESULTS/npm-install.log" 2>&1
+  corepack enable >/dev/null 2>&1 || true
+  npm install --no-audit --no-fund >"$RESULTS/npm-install.log" 2>&1
 fi
-npx playwright install chromium >"$RESULTS/playwright-install.log" 2>&1 || true
 
-echo "== [2/6] fresh local D1 (repo's own dev path) =="
+echo "== [2/7] install the real CLI and the week1 benchmark (student commands) =="
+if [ "${SKIP_INSTALL:-0}" != "1" ]; then
+  "$WEEK1_ENV/bin/python" -m pip install --quiet "numpy==1.24.4" \
+    >"$RESULTS/pip-deps.log" 2>&1
+  "$WEEK1_ENV/bin/python" -m pip install --quiet scipy soundfile librosa \
+    >>"$RESULTS/pip-deps.log" 2>&1
+  "$WEEK1_ENV/bin/python" -m pip install --quiet -e "$REPO_ROOT/python/cogbench" \
+    >>"$RESULTS/pip-cli.log" 2>&1
+  "$WEEK1_ENV/bin/python" -m pip install --quiet -e "$REPO_ROOT/benchmarks/week1" \
+    >>"$RESULTS/pip-week1.log" 2>&1
+fi
+"$WEEK1_ENV/bin/cogworks" --version >"$RESULTS/cli-version.txt" 2>&1
+cat "$RESULTS/cli-version.txt"
+
+echo "== [3/7] fresh local D1 (repo's own dev path) =="
 rm -rf "$REPO_ROOT/apps/portal/.wrangler/state"
 (cd "$REPO_ROOT/apps/portal" && pnpm db:migrate:local >"$RESULTS/d1-migrate.log" 2>&1)
 (cd "$REPO_ROOT/apps/portal" && pnpm db:seed:local >"$RESULTS/d1-seed.log" 2>&1)
 
-echo "== [3/6] production build of the portal =="
+echo "== [4/7] production build of the portal and the bot =="
 (cd "$REPO_ROOT" && pnpm --filter @cogworks/portal build >"$RESULTS/portal-build.log" 2>&1)
+(cd "$REPO_ROOT/apps/discord-bot" && "$NODE24/bin/npx" wrangler deploy --dry-run --outdir dist \
+  >"$RESULTS/bot-build.log" 2>&1)
 
-echo "== [4/6] booting the local stack =="
+echo "== [5/7] booting the local stack =="
 STACK_LOG="$RESULTS/stack.log" STACK_INFO="$RESULTS/stack.json" \
   node support/stack.mjs >"$RESULTS/stack-stdout.log" 2>&1 &
 STACK_PID=$!
-for _ in $(seq 1 120); do
-  [ -f "$RESULTS/stack.json" ] && grep -q ready "$RESULTS/stack.json" 2>/dev/null && break
+for _ in $(seq 1 180); do
+  [ -f "$RESULTS/stack.json" ] && grep -q '"ready": true' "$RESULTS/stack.json" 2>/dev/null && break
   kill -0 "$STACK_PID" 2>/dev/null || { echo "stack died at boot; see $RESULTS/stack.log" >&2; exit 1; }
   sleep 1
 done
+grep -q '"ready": true' "$RESULTS/stack.json" || { echo "stack never became ready" >&2; exit 1; }
 cat "$RESULTS/stack.json"
 
-echo "== [5/6] journeys (retries off) =="
+echo "== [6/7] journeys (retries off; every case writes a receipt) =="
 set +e
-PLAYWRIGHT_JSON_OUTPUT_NAME="$RESULTS/journeys.json" \
-  npx playwright test "$@" --reporter=list,json >"$RESULTS/playwright.log" 2>&1
-STATUS=$?
+export STACK_INFO="$RESULTS/stack.json"
+FAILED=0
+for journey in setup-and-link benchmark-real-run adversarial; do
+  echo "--- $journey"
+  "$NODE24/bin/npx" tsx "journeys/$journey.ts" >"$RESULTS/journey-$journey.log" 2>&1
+  STATUS=$?
+  echo "--- $journey exited $STATUS"
+  [ "$STATUS" -eq 0 ] || FAILED=1
+done
 set -e
 
-echo "== [6/6] report =="
-PLAYWRIGHT_JSON="$RESULTS/journeys.json" RESULTS_DIR="$RESULTS" node support/report.mjs || true
+echo "== [7/7] report =="
 kill "$STACK_PID" 2>/dev/null || true
 wait "$STACK_PID" 2>/dev/null || true
+RESULTS_DIR="$RESULTS" node support/report.mjs || true
 echo "results: $RESULTS"
-exit $STATUS
+exit "$FAILED"
