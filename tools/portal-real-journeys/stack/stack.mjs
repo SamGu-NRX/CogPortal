@@ -287,11 +287,17 @@ async function proxyPass(req, res, url) {
     let payload = firstResponse.body;
     if (rule?.body !== undefined) payload = Buffer.from(rule.body);
     const outHeaders = { ...firstResponse.headers };
-    if (outHeaders["content-length"] !== undefined) {
+    // A buffered body can restate content-length truthfully; a streamed one
+    // (SSE run surfaces) keeps the upstream framing and is piped through.
+    if (Buffer.isBuffer(payload) && outHeaders["content-length"] !== undefined) {
       outHeaders["content-length"] = String(Buffer.byteLength(payload));
     }
     res.writeHead(rule?.status ?? firstResponse.statusCode, outHeaders);
-    res.end(payload);
+    if (Buffer.isBuffer(payload)) {
+      res.end(payload);
+    } else {
+      payload.pipe(res);
+    }
   } catch (error) {
     say(`[proxy] upstream failure for ${req.method} ${url.pathname}: ${error.message}`);
     if (!res.headersSent) {
