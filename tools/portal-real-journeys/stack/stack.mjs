@@ -79,6 +79,9 @@ function devVars(profile) {
     'RUNNER_SIGNING_KEY_ID="runner-v1"',
     `RUNNER_SIGNING_SECRET="${RUNNER_SIGNING_SECRET}"`,
     `DISCORD_API_BASE_URL="http://127.0.0.1:${DOUBLE_PORTS.discord}"`,
+    // Sealed on every boot: a modal-double run dispatches to the loopback
+    // double, never to the staging runner URL baked into wrangler.jsonc.
+    `MODAL_RUNNER_URL="http://127.0.0.1:${DOUBLE_PORTS.modalRunner}"`,
     `GITHUB_API_BASE_URL="http://127.0.0.1:${DOUBLE_PORTS.githubRest}"`,
     'RUN_STALE_AFTER_SECONDS="3600"',
   ].join("\n") + "\n";
@@ -436,7 +439,37 @@ function control(req, res, url) {
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
+// ── Loopback-only provider guard ───────────────────────────────────────────
+// The stack must be physically unable to reach non-loopback providers: if a
+// provider URL env is set off-loopback, refuse to start. This catches a
+// staging or production provider URL leaking into a local harness boot.
+const PROVIDER_URL_ENVS = ["GITHUB_API_BASE_URL", "DISCORD_API_BASE_URL", "MODAL_RUNNER_URL"];
+
+function isLoopbackUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["127.0.0.1", "localhost", "[::1]", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function assertLoopbackProviderUrls() {
+  const offenders = PROVIDER_URL_ENVS.filter((name) => {
+    const value = process.env[name];
+    return value !== undefined && value !== "" && !isLoopbackUrl(value);
+  });
+  if (offenders.length > 0) {
+    console.error(
+      "[stack] refusing to start: provider URL env vars must be unset or loopback\n" +
+        offenders.map((name) => `  ${name}=${process.env[name]}`).join("\n"),
+    );
+    process.exit(1);
+  }
+}
+
 async function main() {
+  assertLoopbackProviderUrls();
   say(`stack supervisor starting; repo root ${REPO_ROOT}`);
 
   const doubles = createDoubles({ log: say });
