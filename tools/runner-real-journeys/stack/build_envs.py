@@ -567,6 +567,22 @@ import json, sys
 sys.path.insert(0, "@@STACK@@")
 import sandbox_shim
 sandbox_shim.install_shim()
+# modal_app.py builds deployed-image descriptions at import time with a
+# fluent chain (apt_install / run_commands / env / pipe / add_local_dir(
+# copy=..., ignore=...)) that predates the shim's _Recorder, which only
+# knows pip_install/add_local_dir/run. Route every unrecognized builder
+# call to a no-op that returns the recorder: nothing is deployed locally,
+# so import only needs the chain to compose.
+_recorder = sandbox_shim._Recorder
+
+def _recorder_any(self, name):
+    def _builder(*args, **kwargs):
+        return self
+    return _builder
+
+_recorder.__getattr__ = _recorder_any
+_recorder.add_local_dir = lambda self, *args, **kwargs: self
+
 sys.path.insert(0, "@@RUNNER_SRC@@")
 sys.path.insert(0, "@@COGBENCH_SRC@@")
 from cogworks_runner import modal_app
