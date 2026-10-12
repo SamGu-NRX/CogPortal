@@ -5,9 +5,9 @@
 // - Text contrast by computed colour where axe can't decide. axe reports
 //   text over a gradient, an image or a translucent layer as "incomplete"
 //   rather than pass or fail. For each such node this module photographs the
-//   node's box inside its border, with its own text, text shadow and
-//   ::before/::after decorations (a link's underline bar) made invisible,
-//   reads the pixels
+//   node's box inside its border with every glyph and icon on the page made
+//   transparent (underlines too) and the node's own ::before/::after decorations (a link's
+//   underline bar) hidden, reads the pixels
 //   behind the text in the browser (canvas), and computes the contrast of
 //   the text's computed colour against each pixel. The node's ratio is the
 //   5th percentile over its pixels: the worst part of a gradient counts, a
@@ -32,7 +32,18 @@ export async function settle(page) {
   await expect(page.locator('[aria-busy="true"]:not(.run-console)')).toHaveCount(0, { timeout: 15_000 });
   await expect(page.getByText(/^Loading/)).toHaveCount(0, { timeout: 15_000 });
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
-  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {}))));
+  // Finite animations (entrances) only: a live indicator loops forever.
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+          .map((animation) => animation.finished.catch(() => {})),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]),
+  );
 }
 
 function luminance([r, g, b]) {
@@ -52,12 +63,14 @@ export function contrast(a, b) {
  * Worst contrast of each text node axe left incomplete, measured on pixels.
  * Returns [{ target, ratio, required }].
  */
-async function measureIncomplete(page, nodes) {
+async function measureIncomplete(page, nodes, frame = null) {
   const results = [];
   for (const node of nodes) {
     const selector = node.target.at(-1);
     if (typeof selector !== "string") continue;
-    const element = page.locator(selector).first();
+    // A node inside the Activity's frame has the frame's selector first.
+    const root = node.target.length > 1 && frame ? frame : page;
+    const element = root.locator(selector).first();
     if (!(await element.isVisible().catch(() => false))) continue;
     const facts = await element.evaluate((el) => {
       const style = getComputedStyle(el);
@@ -70,12 +83,17 @@ async function measureIncomplete(page, nodes) {
       el.style.setProperty("text-shadow", "none", "important");
       el.dataset.rjRestore = JSON.stringify({ previous, previousShadow });
       el.setAttribute("data-rj-measure", "");
-      if (!document.getElementById("rj-measure-style")) {
-        const sheet = document.createElement("style");
-        sheet.id = "rj-measure-style";
-        sheet.textContent = "[data-rj-measure]::before,[data-rj-measure]::after{visibility:hidden!important}";
-        document.head.append(sheet);
-      }
+      // Every glyph on the page goes transparent, not only this node's: a
+      // wrapped inline node's box spans its neighbours' text, and a node's
+      // children may set their own colour. Icons go too. Backgrounds,
+      // gradients and images stay.
+      const sheet = document.createElement("style");
+      sheet.id = "rj-measure-style";
+      sheet.textContent =
+        "*,*::before,*::after{color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important;caret-color:transparent!important;text-decoration-color:transparent!important}" +
+        "svg{visibility:hidden!important}" +
+        "[data-rj-measure]::before,[data-rj-measure]::after{visibility:hidden!important}";
+      document.head.append(sheet);
       const border = ["Top", "Right", "Bottom", "Left"].map((side) => parseFloat(style[`border${side}Width`]) || 0);
       return { colour: el.dataset.rjColour, large: size >= 24 || (bold && size >= 18.66), border };
     });
@@ -103,6 +121,7 @@ async function measureIncomplete(page, nodes) {
       delete el.dataset.rjRestore;
       delete el.dataset.rjColour;
       el.removeAttribute("data-rj-measure");
+      document.getElementById("rj-measure-style")?.remove();
     });
     if (!shot) continue;
     const pixels = await page.evaluate(async (base64) => {
@@ -146,7 +165,7 @@ async function measureIncomplete(page, nodes) {
  * axe with zero violations, and computed contrast for what axe left
  * incomplete. `label` names the page in failure messages.
  */
-export async function expectAccessible(page, label) {
+export async function expectAccessible(page, label, { frame = null } = {}) {
   await settle(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(
@@ -154,12 +173,14 @@ export async function expectAccessible(page, label) {
     `axe violations on ${label}`,
   ).toEqual([]);
   const incompleteContrast = result.incomplete.find((rule) => rule.id === "color-contrast")?.nodes ?? [];
-  const measured = await measureIncomplete(page, incompleteContrast);
+  const measured = await measureIncomplete(page, incompleteContrast, frame);
+  // Every incomplete node was measured or isn't visible; none skipped for want of a root.
+  expect(incompleteContrast.filter((n) => n.target.length > 1 && !frame), `contrast nodes in a frame on ${label}`).toEqual([]);
   expect(
     measured.filter((m) => m.ratio < m.required),
     `text below its contrast bar on ${label}, measured on pixels`,
   ).toEqual([]);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  const overflow = await (frame ?? page).evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow, `${label} is wider than the window`).toBeLessThanOrEqual(0);
   return { measured: measured.length };
 }
