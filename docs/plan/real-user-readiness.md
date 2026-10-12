@@ -89,7 +89,7 @@ Flakes count as failures. Results are reported per metric and per surface, in th
   environment (`cogportal-dev.sillion.app`) and is never rewritten or moved.
 - There are two SDK pins, so read each from its own revision. Students on staging install `COGBENCH_SOURCE` from
   `beta`'s `apps/portal/src/lib/benchmark-packages.ts` (commit `064400e`, which the runner images bake). The
-  integrated app on `alpha` pins `ecae6171` in the same file. Installing either to test it is fine.
+  integrated app on `alpha` pins `ac8ddafa` in the same file. Installing either to test it is fine.
 - The CLI's documented first real-data run downloads public assets (fixed public images, the FaceNet
   checkpoint; `README.md`, `docs/design/student-cli-and-onboarding.md`). Allow and record those fetches; don't
   pre-seed a cache to hide them. Any other Portal or provider traffic from an offline command is a defect.
