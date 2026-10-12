@@ -31,10 +31,69 @@ export type Journey = {
   run(stack: Stack, log: (line: string) => void): Promise<Check[]>;
 };
 
-/** A route must refuse: any 4xx. A 5xx is a failure to handle, not a refusal. */
-export function refused(name: string, status: number, body: string): Check {
-  const ok = status >= 400 && status < 500;
-  return { name, ok, detail: ok ? `HTTP ${status}` : `HTTP ${status}: ${body.slice(0, 140)}` };
+/** The exact refusal a guarded route must answer with. */
+export type Refusal = { status?: number; code?: string };
+
+/** The API-level 404 body for paths no registrar claims — not an authorization refusal. */
+const ROUTE_NOT_FOUND = "API route not found.";
+
+function bodyErrorCode(body: string): string | null {
+  try {
+    const code = (JSON.parse(body) as { error?: { code?: unknown } })?.error?.code;
+    return typeof code === "string" ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A route must refuse.
+ *
+ * With an expectation, the status AND the body error code must match exactly:
+ * a 404 from a missing object proves nothing about the guard, and neither
+ * does a 404 from a path no registrar claims. Without one (journeys that
+ * predate exact expectations keep the three-argument call) the baseline stays
+ * a 4xx that is not the API-level route-not-found error. A 5xx is a failure
+ * to handle, not a refusal, either way.
+ */
+export function refused(name: string, status: number, body: string, expected?: Refusal): Check {
+  const misses: string[] = [];
+  let ok = status >= 400 && status < 500;
+  if (status === 404 && body.includes(ROUTE_NOT_FOUND)) {
+    ok = false;
+    misses.push("route does not exist (probe targets a path no registrar claims)");
+  }
+  if (expected?.status !== undefined) {
+    const statusOk = status === expected.status;
+    ok = ok && statusOk;
+    if (!statusOk) misses.push(`status ${status}, expected ${expected.status}`);
+  }
+  if (expected?.code !== undefined) {
+    const code = bodyErrorCode(body);
+    const codeOk = code === expected.code;
+    ok = ok && codeOk;
+    if (!codeOk) misses.push(`code ${code ?? "<none>"}, expected ${expected.code}`);
+  }
+  return {
+    name,
+    ok,
+    detail: ok ? `HTTP ${status}` : `HTTP ${status}: ${misses.join("; ") || body.slice(0, 140)}`,
+  };
+}
+
+/**
+ * The positive control: the legitimate holder of the credential the guard
+ * demands performs the identical request and must succeed. Without this, an
+ * over-broad guard that refuses everyone would pass refused().
+ */
+export function allowed(name: string, status: number, body: string, want: number | number[] = 200): Check {
+  const wanted = Array.isArray(want) ? want : [want];
+  const ok = wanted.includes(status);
+  return {
+    name,
+    ok,
+    detail: ok ? `HTTP ${status}` : `HTTP ${status}: ${body.slice(0, 140)} — wanted ${wanted.join(" or ")}`,
+  };
 }
 
 export function assertEq(actual: unknown, expected: unknown, name: string, detail = ""): Check {
