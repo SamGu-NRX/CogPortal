@@ -13,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from build import analyze_pair
 from report_reader import read_report
 
 WORKBENCH = Path(__file__).resolve().parents[1]
@@ -148,3 +149,76 @@ def test_full_corpus_builds_replays_and_verifies_green(tmp_path):
         "s13-accepted-extra-fields.json",
         "s14-accepted-dirty-weights.json",
     ]
+
+
+ALL_PAIRS_RECORD = STRESS_EVIDENCE / "all-pairs-checks.json"
+
+
+def _all_pairs_record(out):
+    record_path = Path(out) / "all-pairs-checks.json"
+    done = _run_tool("all_pairs_checks.py", CANONICAL, STRESS, out=record_path)
+    assert done.returncode == 0, done.stderr
+    return json.loads(record_path.read_text(encoding="utf-8"))
+
+
+def test_every_accepted_report_pair_is_measured(tmp_path):
+    fresh = _all_pairs_record(tmp_path)
+    committed = json.loads(ALL_PAIRS_RECORD.read_text(encoding="utf-8"))
+    # (11, 55): the six canonical plus the five stress accepted reports.
+    assert (fresh["accepted"], fresh["total_pairs"]) == (11, 55)
+    assert fresh["accepted_files"] == [
+        "01-run-a.json",
+        "02-run-b.json",
+        "03-run-dirty.json",
+        "04-run-legacy-unrecorded.json",
+        "05-run-precapture-weights.json",
+        "06-run-unrecorded-command.json",
+        "s10-accepted-test-command.json",
+        "s11-accepted-weight-receipts.json",
+        "s12-accepted-benchmark-v2.json",
+        "s13-accepted-extra-fields.json",
+        "s14-accepted-dirty-weights.json",
+    ]
+    # 5 canonical refusals (07-11) plus 13 stress refusals (s80-s8c).
+    assert fresh["refused"] == 18
+    # Measured at 87cf64db: no pair satisfies all three conditions - the
+    # writer's contract records no byte-level dataset binding, so the
+    # dataset-same condition never holds. A doctrine change must move
+    # this pin and the record together.
+    assert fresh["comparable_pairs"] == 0
+    # The committed record is exactly a fresh derivation of the same
+    # fixture bytes and generator sources.
+    assert committed == fresh
+    # Every accepted file is paired; refused files are never a pair side.
+    paired = {name for pair in fresh["pairs"] for name in pair["files"]}
+    refused_names = {entry["file"] for entry in fresh["refused_files"]}
+    assert paired == set(fresh["accepted_files"])
+    assert not paired & refused_names
+
+
+def test_all_pairs_comparability_is_the_real_analysis(tmp_path):
+    record = _all_pairs_record(tmp_path)
+    reports = {}
+    for path in sorted(CANONICAL.glob("*.json")) + sorted(STRESS.glob("*.json")):
+        loaded = read_report(path)
+        if loaded.accepted:
+            reports[path.name] = loaded
+    names = sorted(reports)
+    derived = {}
+    for a_index in range(len(names)):
+        for b_index in range(a_index + 1, len(names)):
+            analysis = analyze_pair(reports[names[a_index]], reports[names[b_index]])
+            derived[(names[a_index], names[b_index])] = analysis["comparable"]
+    recorded = {
+        (pair["files"][0], pair["files"][1]): pair["comparable"]
+        for pair in record["pairs"]
+    }
+    # The comparability decision is analyze_pair's, re-derived here from
+    # the fixture bytes through the same reader the builder uses: a
+    # doctrine change must move the record and the analysis together.
+    assert recorded == derived
+    assert len(recorded) == 55
+    comparable = sorted(files for files, ok in recorded.items() if ok)
+    # Measured at 87cf64db: zero accepted pairs are comparable.
+    assert comparable == []
+    assert len(comparable) == record["comparable_pairs"]
