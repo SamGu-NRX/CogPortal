@@ -21,10 +21,15 @@ async function tabTo(page, locator, { max = 80, back = false } = {}) {
   throw new Error(`could not reach ${locator} by keyboard in ${max} stops`);
 }
 
+/**
+ * Focus lands somewhere other than the page body. After a navigation the
+ * portal moves focus to the new page's heading once it renders
+ * (lib/route-focus.ts), which on this stack is about 40ms after the address
+ * changes, so this waits up to two seconds for it rather than reading the
+ * instant the URL changed.
+ */
 async function expectFocusKept(page, what) {
-  const now = await focused(page);
-  expect(now, `focus after ${what} fell to the page body`).not.toBeNull();
-  return now;
+  await expect.poll(() => focused(page), { message: `focus after ${what} fell to the page body`, timeout: 2_000 }).not.toBeNull();
 }
 
 test("a new student signs in, joins and starts a team by keyboard alone", async ({ page }) => {
