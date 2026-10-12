@@ -200,6 +200,12 @@ function safeParse(text) {
 // never a response the Worker did not send.
 const modes = new Map(); // shapedPort -> { mode, remaining, ms }
 
+// Every request line that reaches a shaped front: method and path only, never
+// headers or bodies (device tokens travel in headers). The live-run journey
+// reads the session id the CLI posted its events under from here, since the
+// CLI does not print it. GET /__requests__?after=N on the control port.
+const shapedRequests = [];
+
 function shapeResponse(req, res, port, forwardPort, routeHost) {
   const shape = modes.get(port);
   if (!shape || shape.remaining <= 0 || shape.mode === "normal") return false;
@@ -254,8 +260,14 @@ function forward(req, res, forwardPort, routeHost) {
   req.pipe(upstream);
 }
 
-function startShaper({ forwardPort, routeHost, controlPort, shapedPort }) {
+function startShaper({ forwardPort, routeHost, controlPort, shapedPort, front: frontName }) {
   const control = createServer(async (req, res) => {
+    if (req.url?.startsWith("/__requests__") && req.method === "GET") {
+      const after = Number(new URL(req.url, "http://localhost").searchParams.get("after") ?? "-1");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(shapedRequests.filter((entry) => entry.seq > after)));
+      return;
+    }
     if (req.url?.startsWith("/__shape__") && req.method === "POST") {
       const shape = safeParse(await readBody(req));
       modes.set(shapedPort, { mode: shape.mode ?? "normal", remaining: shape.count ?? 1, ms: shape.ms ?? 5000 });
@@ -267,6 +279,7 @@ function startShaper({ forwardPort, routeHost, controlPort, shapedPort }) {
     res.end();
   });
   const front = createServer((req, res) => {
+    shapedRequests.push({ seq: shapedRequests.length, at: Date.now(), front: frontName, method: req.method, path: req.url });
     if (shapeResponse(req, res, shapedPort, forwardPort, routeHost)) return;
     forward(req, res, forwardPort, routeHost);
   });
@@ -416,8 +429,8 @@ async function main() {
     ],
   });
 
-  const shaperPortal = startShaper({ forwardPort: dispatchPort, routeHost: `portal.journey.test:${dispatchPort}`, controlPort: shaperControlPort, shapedPort: shaperPortalPort });
-  const shaperBot = startShaper({ forwardPort: dispatchPort, routeHost: `bot.journey.test:${dispatchPort}`, controlPort: shaperControlPort, shapedPort: shaperBotPort });
+  const shaperPortal = startShaper({ forwardPort: dispatchPort, routeHost: `portal.journey.test:${dispatchPort}`, controlPort: shaperControlPort, shapedPort: shaperPortalPort, front: "portal" });
+  const shaperBot = startShaper({ forwardPort: dispatchPort, routeHost: `bot.journey.test:${dispatchPort}`, controlPort: shaperControlPort, shapedPort: shaperBotPort, front: "bot" });
   await listen(shaperPortal.control, shaperControlPort);
   await listen(shaperPortal.front, shaperPortalPort);
   await listen(shaperBot.front, shaperBotPort);

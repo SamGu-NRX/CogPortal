@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { CliHome, env } from "../support/cli.ts";
 import { TeamRepository } from "../support/git-fixture.ts";
 import { Portal } from "../support/portal.ts";
-import { findLiveRunSurface, primaryMetricOf, sameMetric } from "../support/surface-binding.ts";
+import {
+  findLiveRunSurface,
+  liveSessionIds,
+  primaryMetricOf,
+  sameMetric,
+  surfaceMismatch,
+  type ShapedRequest,
+} from "../support/surface-binding.ts";
 import { readStackInfo } from "../support/stack-info.ts";
 import { Case } from "./harness.ts";
 import { SUBMISSION_PY } from "./submission.ts";
@@ -62,6 +69,19 @@ async function waitForDouble(what: string, probe: (entries: Array<Record<string,
     if (Date.now() > deadline) throw new Error(`the Discord double never showed ${what}`);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+}
+
+/** Request lines the shaper recorded in front of the Workers after `after`. */
+async function shapedRequestsAfter(after: number): Promise<ShapedRequest[]> {
+  const response = await fetch(`${info.shaperControlOrigin}/__requests__?after=${after}`);
+  if (!response.ok) throw new Error(`the shaper's request log answered ${response.status}`);
+  return (await response.json()) as ShapedRequest[];
+}
+
+/** The newest recorded request's sequence number, or -1 before any. */
+async function lastShapedRequestSeq(): Promise<number> {
+  const all = await shapedRequestsAfter(-1);
+  return all.length === 0 ? -1 : all[all.length - 1].seq;
 }
 
 let botKey: webcrypto.CryptoKey | null = null;
@@ -388,11 +408,21 @@ await cases.liveLanguage.run(async () => {
     );
 
     // The live run itself: the same shape as the refusal case, now against
-    // the active benchmark — it must complete and save a report.
+    // the active benchmark — it must complete and save a report. The shaper's
+    // request lines from here on carry the session id the CLI posts under.
+    const requestMark = await lastShapedRequestSeq();
     const run = home.start(["run", "--benchmark", WEEK3_BENCHMARK, "--live", "--json"], { cwd: repo.path });
     const exit = await run.exited(900_000);
     case_.command("cogworks run --benchmark language-search --live --json", exit, run.output());
     case_.expect(exit === 0, "the live run completed", `cogworks run exited ${exit}; output ends: ${run.output().slice(-400)}`);
+    const runRequests = await shapedRequestsAfter(requestMark);
+    const sessions = liveSessionIds(runRequests);
+    case_.expect(
+      sessions.length === 1,
+      "the live run posted its events under exactly one session",
+      `sessions on the wire: ${JSON.stringify(sessions)}; ${runRequests.filter((request) => request.path.startsWith("/api/v1/local-runs")).length} local-runs request(s)`,
+    );
+    const sessionId = sessions[0];
 
     const report = await latestReport(repo.path);
     const reportId = report.id ?? report.reportId;
@@ -413,18 +443,18 @@ await cases.liveLanguage.run(async () => {
       `${reports.length} report(s) listed; looking for ${reportId}`,
     );
 
-    // The run-surface snapshot serializes the session's commit and the synced
-    // report's metrics — never the local report id — so the surface for THIS
-    // run is bound by stage, benchmark, and the pinned HEAD, then closed
-    // against the report's own primary metric (surface → session report_id →
-    // stored metrics). Grepping the snapshot for the report id could never
-    // pass: the schema does not expose it.
+    // The snapshot never serializes the local report id, so the surface for
+    // THIS run is the one whose localRunId is the session the CLI posted
+    // under, at this benchmark and the pinned HEAD, finished with succeeded.
+    // Its primary metric must then be the synced report's own.
     const surfaces = await portal.teamRunSurfaces();
-    const surface = findLiveRunSurface(surfaces, { benchmarkId: WEEK3_BENCHMARK, sha: head });
+    const identity = { benchmarkId: WEEK3_BENCHMARK, sha: head, sessionId };
+    const surface = findLiveRunSurface(surfaces, identity);
     case_.expect(
       Boolean(surface),
-      "the run surfaces a team-scoped live-run entry",
-      `${surfaces.length} surface(s) listed; looking for stage=local benchmark=${WEEK3_BENCHMARK} sha=${head.slice(0, 7)} status=succeeded`,
+      "the run surfaces this session's team-scoped live-run entry, finished succeeded",
+      `${surfaces.length} surface(s) listed; looking for localRunId=${sessionId} stage=local benchmark=${WEEK3_BENCHMARK} sha=${head.slice(0, 7)} status=succeeded; ` +
+        surfaces.map((row: any) => `${row?.id}: ${surfaceMismatch(row, identity) ?? "match"}`).join("; "),
     );
     const reportedPrimary = primaryMetricOf(report.metrics);
     const surfacedPrimary = primaryMetricOf(surface?.metrics);

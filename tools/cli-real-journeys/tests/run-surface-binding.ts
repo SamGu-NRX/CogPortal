@@ -1,28 +1,30 @@
 /**
- * The live-run surface binding (review follow-up: "the run surfaces a
- * team-scoped live-run entry").
+ * The live-run surface binding.
  *
- * The portal's run-surface snapshot never serializes the local report id —
- * its local-stage fields are localRunId, sha, stage, status, and the synced
- * report's metrics (read through the session's report_id). The reviewed check
- * grepped the snapshot for the report id and could never pass. The binding
- * now matches what the schema promises and closes the loop on the report's
- * own primary metric.
+ * The run-surface snapshot never serializes the local report id; its
+ * local-stage fields are localRunId (the live session), sha, stage, status,
+ * and the synced report's metrics. The binding takes the session id from the
+ * CLI's own event posts (the shaper's request lines) and requires the surface
+ * to be that session's, at this benchmark and commit, finished `succeeded`.
  *
- * Demonstrated against the real snapshot shape (fields as the portal's
- * RunSurfaceSnapshotSchema serializes them):
- *   - a report id appears nowhere in the snapshot JSON, so the old
- *     report-id grep cannot bind any surface;
- *   - findLiveRunSurface binds this run's surface by stage, benchmark, the
- *     pinned commit, and an attached session — and rejects foreign surfaces
- *     (hosted stage, another commit, no session);
- *   - the surfaced primary metric equals the report's (same key and value)
- *     and differs from a foreign report's.
+ * Before this fix (c722ed79) the binding matched any surface with some
+ * localRunId at the same benchmark and commit, and the journey compared only
+ * the primary metric. So another session at the same commit with the same
+ * score, or a session still running with stored metrics, passed. Those are
+ * the counterexamples below; the pre-fix predicate is replayed inline to show
+ * it accepted them.
  *
  * Run: npx tsx tests/run-surface-binding.ts  (no network, no stack)
  */
 
-import { findLiveRunSurface, primaryMetricOf, sameMetric } from "../support/surface-binding.ts";
+import {
+  findLiveRunSurface,
+  liveSessionIds,
+  primaryMetricOf,
+  sameMetric,
+  surfaceMismatch,
+  type ShapedRequest,
+} from "../support/surface-binding.ts";
 
 let failures = 0;
 function check(name: string, ok: boolean, detail?: string): void {
@@ -34,83 +36,97 @@ function check(name: string, ok: boolean, detail?: string): void {
   console.error(`  FAIL ${name}${detail ? `: ${detail}` : ""}`);
 }
 
-// The shape the portal actually served in a live run (fields trimmed to what
-// the binding reads; no report id exists on the snapshot).
+/** The pre-fix predicate (support/surface-binding.ts:24-30 at c722ed79). */
+function preFixBinding(surfaces: readonly any[], run: { benchmarkId: string; sha: string }): any | undefined {
+  return surfaces.find(
+    (row) => row?.stage === "local" && row?.benchmark?.id === run.benchmarkId && row?.sha === run.sha && row?.localRunId != null,
+  );
+}
+
+const SESSION = "localrun_8bdc312699f9430aa50a8d35d26f4a9b";
+const SHA = "d5ca69230422ee7e449ca2b72ae9cc3c3ce2909e";
+
+// The snapshot shape the portal served in a live run (trimmed to the fields
+// the binding reads).
 const liveSnapshot = {
   id: "surface_430aa50a8d35d26f4a9b",
   benchmark: { id: "language-search", version: 1, title: "Language search" },
-  sha: "d5ca69230422ee7e449ca2b72ae9cc3c3ce2909e",
+  sha: SHA,
   stage: "local",
   status: "succeeded",
-  localRunId: "localrun_8bdc312699f9430aa50a8d35d26f4a9b",
+  localRunId: SESSION,
   metrics: [
     { key: "overall", label: "Overall", value: 0.34872834217861515, primary: true },
     { key: "text_mrr", label: "Text MRR", value: 0.677090733361776, primary: false },
   ],
 };
+const reportMetrics = liveSnapshot.metrics.map((metric) => ({ ...metric }));
+const identity = { benchmarkId: "language-search", sha: SHA, sessionId: SESSION };
 
-// The synced report the run saved locally (the report file the journey reads).
-const reportMetrics = [
-  { key: "overall", label: "Overall", value: 0.34872834217861515, primary: true },
-  { key: "text_mrr", label: "Text MRR", value: 0.677090733361776, primary: false },
+// 1. The session id comes from the CLI's own event posts.
+const requests: ShapedRequest[] = [
+  { seq: 10, method: "POST", path: "/api/v1/local-runs" },
+  { seq: 11, method: "POST", path: `/api/v1/local-runs/${SESSION}/events` },
+  { seq: 12, method: "GET", path: "/api/v1/benchmarks" },
+  { seq: 13, method: "POST", path: `/api/v1/local-runs/${SESSION}/events/batch` },
 ];
-const reportId = "local_1934ef6856a34c9b96dbd4626ec2dc34";
-
-// 1. The reviewed premise is impossible: the report id is not in the snapshot.
+check("the CLI's event posts name exactly one session", JSON.stringify(liveSessionIds(requests)) === JSON.stringify([SESSION]));
 check(
-  "the snapshot JSON nowhere carries the local report id",
-  !JSON.stringify(liveSnapshot).includes(reportId),
+  "two sessions in one window are both reported, so the journey's one-session check fails",
+  liveSessionIds([...requests, { seq: 14, method: "POST", path: "/api/v1/local-runs/localrun_other/events" }]).length === 2,
+);
+check(
+  "GET reads and the start request name no session",
+  liveSessionIds([
+    { seq: 1, method: "POST", path: "/api/v1/local-runs" },
+    { seq: 2, method: "GET", path: `/api/v1/local-runs/${SESSION}/events` },
+  ]).length === 0,
 );
 
-// 2. The old binding (grep for the report id) would find nothing.
-const oldBinding = [liveSnapshot].find((row) => JSON.stringify(row).includes(reportId));
-check("the old report-id binding matches no surface", oldBinding === undefined);
+// 2. This run's own surface binds.
+check("the binding finds this session's surface", findLiveRunSurface([liveSnapshot], identity) === liveSnapshot);
 
-// 3. The corrected binding finds this run's surface by its own fields.
-const surface = findLiveRunSurface([liveSnapshot], {
-  benchmarkId: "language-search",
-  sha: "d5ca69230422ee7e449ca2b72ae9cc3c3ce2909e",
-});
-check("the binding finds this run's surface", surface === liveSnapshot);
+// 3. Counterexamples the pre-fix predicate accepted, now rejected.
+const sameCommitOtherSession = { ...liveSnapshot, id: "surface_other", localRunId: "localrun_00000000000000000000000000000000" };
+const stillRunning = { ...liveSnapshot, status: "running" };
+const failedRun = { ...liveSnapshot, status: "failed" };
+for (const [label, row] of [
+  ["another session at the same commit with the same score", sameCommitOtherSession],
+  ["this session still running with stored metrics", stillRunning],
+  ["this session failed", failedRun],
+] as const) {
+  check(`red: the pre-fix predicate accepted ${label}`, preFixBinding([row], identity) === row);
+  check(`green: the binding rejects ${label}`, findLiveRunSurface([row], identity) === undefined, surfaceMismatch(row, identity) ?? "matched");
+}
+check(
+  "the other session's surface carries the same primary metric, so the metric check alone could not tell them apart",
+  sameMetric(primaryMetricOf(reportMetrics), primaryMetricOf(sameCommitOtherSession.metrics)),
+);
+check(
+  "listed first, the other session's surface is skipped and this run's is found",
+  findLiveRunSurface([sameCommitOtherSession, stillRunning, liveSnapshot], identity) === liveSnapshot,
+);
 
-// 4. Foreign surfaces are rejected: hosted stage, another commit, no session.
-const foreign: any[] = [
-  { ...liveSnapshot, stage: "hosted", localRunId: null },
+// 4. The rest of the identity still binds.
+for (const row of [
+  { ...liveSnapshot, stage: "hosted" },
   { ...liveSnapshot, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
   { ...liveSnapshot, localRunId: null },
   { ...liveSnapshot, benchmark: { ...liveSnapshot.benchmark, id: "vision-recognition" } },
-];
-for (const row of foreign) {
-  check(
-    `the binding rejects a foreign surface (stage=${row.stage ?? "local"} sha=${row.sha.slice(0, 7)} localRunId=${row.localRunId ?? "null"} benchmark=${row.benchmark.id})`,
-    findLiveRunSurface([row], {
-      benchmarkId: "language-search",
-      sha: "d5ca69230422ee7e449ca2b72ae9cc3c3ce2909e",
-    }) === undefined,
-  );
+]) {
+  check(`the binding rejects: ${surfaceMismatch(row, identity)}`, findLiveRunSurface([row], identity) === undefined);
 }
 
-// 5. The metrics loop-closure: the surfaced primary metric is the report's.
-const reported = primaryMetricOf(reportMetrics);
-const surfaced = primaryMetricOf(liveSnapshot.metrics);
+// 5. The metric loop-closure.
+check("the surfaced primary metric equals the reported one", sameMetric(primaryMetricOf(reportMetrics), primaryMetricOf(liveSnapshot.metrics)));
 check(
-  "the surfaced primary metric equals the reported one",
-  sameMetric(reported, surfaced) && reported !== undefined && reported.key === "overall",
+  "a different value or key does not match",
+  !sameMetric(primaryMetricOf(reportMetrics), { key: "overall", value: 0.9 }) &&
+    !sameMetric(primaryMetricOf(reportMetrics), { key: "identification_score", value: 0.34872834217861515 }),
 );
 check(
-  "a different report's primary metric does not bind",
-  !sameMetric(reported, { key: "overall", value: 0.9 }) &&
-    !sameMetric(reported, { key: "identification_score", value: 0.34872834217861515 }),
-);
-check(
-  "missing metrics on either side never bind",
-  !sameMetric(reported, undefined) && !sameMetric(undefined, surfaced) && !sameMetric(undefined, undefined),
-);
-check(
-  "a metrics array without a primary entry yields no primary metric",
-  primaryMetricOf([{ key: "overall", value: 1, primary: false }]) === undefined &&
-    primaryMetricOf(null) === undefined &&
-    primaryMetricOf(undefined) === undefined,
+  "missing metrics never match",
+  !sameMetric(primaryMetricOf(reportMetrics), undefined) && !sameMetric(undefined, undefined) && primaryMetricOf(null) === undefined,
 );
 
 if (failures > 0) {
