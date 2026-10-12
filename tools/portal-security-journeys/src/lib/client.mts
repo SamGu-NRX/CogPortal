@@ -74,11 +74,11 @@ export type Student = { api: Api; login: string; teamName: string };
  */
 export async function newStudent(stack: { baseUrl: string }, login: string, opts: { teamName: string }): Promise<Student> {
   const api = new Api(stack.baseUrl);
-  const loginRes = await api.req("POST", "/api/dev/login", { json: { login, demo: true, password: DEV_PASSWORD } });
+  const loginRes = await api.req("POST", "/api/dev/login", { json: { login, demo: false, password: DEV_PASSWORD } });
   if (loginRes.status !== 200 && loginRes.status !== 201) {
     throw new Error(`dev login failed for ${login}: ${loginRes.status} ${loginRes.text.slice(0, 200)}`);
   }
-  const join = await api.req("POST", "/api/cohorts/join", { json: { joinCode: JOIN_CODE } });
+  const join = await api.req("POST", "/api/cohorts/join", { json: { code: JOIN_CODE } });
   if (![200, 201, 409].includes(join.status)) {
     throw new Error(`cohort join failed for ${login}: ${join.status} ${join.text.slice(0, 200)}`);
   }
@@ -87,6 +87,26 @@ export async function newStudent(stack: { baseUrl: string }, login: string, opts
     throw new Error(`github connect failed for ${login}: ${connect.status} ${connect.text.slice(0, 200)}`);
   }
   return { api, login, teamName: opts.teamName };
+}
+
+/**
+ * Walk the real device flow: start (public), approve with the user's
+ * session, poll for the token. Resolves to the cog_ device token, or an
+ * Error naming the leg that failed.
+ */
+export async function linkDevice(api: Api, deviceName: string): Promise<string | Error> {
+  const start = await api.req("POST", "/api/v1/cli/device/start", { json: {} });
+  if (start.status !== 200 && start.status !== 201) return new Error(`device start: ${start.status} ${start.text.slice(0, 200)}`);
+  const { deviceCode, userCode } = start.json();
+  const approve = await api.req("POST", "/api/v1/cli/device/approve", { json: { userCode, deviceName } });
+  if (approve.status !== 200 && approve.status !== 201) return new Error(`device approve: ${approve.status} ${approve.text.slice(0, 200)}`);
+  for (let i = 0; i < 6; i++) {
+    const token = await api.req("POST", "/api/v1/cli/device/token", { json: { deviceCode } });
+    if (token.status === 200 && token.json()?.accessToken) return token.json().accessToken as string;
+    if (token.status !== 200) return new Error(`device token: ${token.status} ${token.text.slice(0, 200)}`);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return new Error("device token never granted after approval");
 }
 
 const TERMINAL_BAD = new Set(["failed", "canceled", "cancelled", "errored"]);
