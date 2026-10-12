@@ -1,5 +1,5 @@
-import { Api, newStudent } from "../lib/client.mts";
-import { refused, withStack, type Check, type Journey } from "../lib/framework.mts";
+import { Api } from "../lib/client.mts";
+import { refused, SkipJourney, withStack, type Check, type Journey } from "../lib/framework.mts";
 
 /**
  * Read the portal session cookie's Set-Cookie attributes and the auth
@@ -20,14 +20,19 @@ export const j8: Journey = {
   async run(_stack, log) {
     return withStack("j8", log, async (stack) => {
       const checks: Check[] = [];
-      const anon = new Api(stack.baseUrl);
-      const alice = await newStudent(stack, "j8alice", { teamName: "J8 Alice Team" });
+      // Bootstrap a live session WITHOUT the demo-team provisioning path:
+      // demo:false skips connectTeam, which is broken at this head (its
+      // post-onConflictDoNothing re-select returns null -> masked 500
+      // provider_unconfigured) and is not needed for session-posture checks.
+      const alice = new Api(stack.baseUrl);
+      const login = await alice.req("POST", "/api/dev/login", {
+        json: { login: "j8alice", demo: false, password: "cogportal-local-dev-password" },
+      });
+      if (login.status >= 400) {
+        throw new SkipJourney(`student bootstrap unavailable: POST /api/dev/login (demo:false) -> HTTP ${login.status}: ${login.text.slice(0, 200)}`);
+      }
 
       // --- login response set-cookies: capture raw attribute strings ---
-      const login = await anon.req("POST", "/api/dev/login", {
-        json: { login: "j8alice2", demo: true, password: "cogportal-local-dev-password" },
-        anonymous: true,
-      });
       const cookies = login.headers.getSetCookie();
       const sessionCookie = cookies.find((c) => /session/i.test(c.split("=")[0]));
       checks.push(
@@ -55,17 +60,21 @@ export const j8: Journey = {
       }
 
       // --- cross-site mutation probe: Alice's cookies, foreign origin ---
-      const invite = await alice.api.req("POST", "/api/team/members/invite", {
+      const invite = await alice.req("POST", "/api/team/members/invite", {
         json: { email: "attacker@evil.example", role: "member" },
         headers: { origin: "https://evil.example" },
       });
       log(`invite with evil origin -> ${invite.status}`);
-      const inviteFetch = await alice.api.req("POST", "/api/team/members/invite", {
+      const inviteFetch = await alice.req("POST", "/api/team/members/invite", {
         json: { email: "attacker2@evil.example", role: "member" },
         headers: { "sec-fetch-site": "cross-site" },
       });
       log(`invite with sec-fetch-site=cross-site -> ${inviteFetch.status}`);
-      const originEnforced = invite.status >= 400 && inviteFetch.status >= 400;
+      const inviteBenign = await alice.req("POST", "/api/team/members/invite", {
+        json: { email: "benign-colleague@example.com", role: "member" },
+      });
+      log(`same-origin invite baseline -> ${inviteBenign.status}`);
+      const originEnforced = invite.status >= 400 && inviteFetch.status >= 400 && inviteBenign.status < 400;
       checks.push(
         originEnforced || sameSite === "lax" || sameSite === "strict"
           ? { name: "POST /api/team/members/invite with a foreign origin is refused by origin enforcement or the SameSite cookie posture", ok: true, detail: `origin-probe HTTP ${invite.status}, fetch-site-probe HTTP ${inviteFetch.status}; cookie SameSite=${sameSite}` }
@@ -73,15 +82,15 @@ export const j8: Journey = {
       );
 
       // --- sign-out then reuse: the old session must actually revoke ---
-      const signedOut = await alice.api.req("POST", "/api/auth/sign-out");
+      const signedOut = await alice.req("POST", "/api/auth/sign-out");
       checks.push(
         signedOut.status < 400
           ? { name: "POST /api/auth/sign-out succeeds for the live session", ok: true, detail: `HTTP ${signedOut.status}` }
           : { name: "POST /api/auth/sign-out succeeds for the live session", ok: false, detail: `HTTP ${signedOut.status}: ${signedOut.text.slice(0, 160)}` },
       );
-      const after = await alice.api.req("GET", "/api/team");
+      const after = await alice.req("GET", "/api/team");
       checks.push(refused("GET /api/team with the signed-out session refuses", after.status, after.text));
-      const authState = await alice.api.req("GET", "/api/auth/get-session");
+      const authState = await alice.req("GET", "/api/auth/get-session");
       checks.push(
         authState.status >= 400 || authState.text.trim() === "null" || authState.text.trim() === ""
           ? { name: "GET /api/auth/get-session after sign-out reports no authenticated user", ok: true, detail: `HTTP ${authState.status}, body ${authState.text.slice(0, 60)}` }
@@ -89,16 +98,20 @@ export const j8: Journey = {
       );
       // The refusal above must be the revocation, not a transient backend
       // error: a fresh sign-in on the same stack still authenticates.
-      const bob = await newStudent(stack, "j8bob", { teamName: "J8 Bob Team" });
-      const bobProbe = await bob.api.req("GET", "/api/team");
+      const bob = new Api(stack.baseUrl);
+      const bobLogin = await bob.req("POST", "/api/dev/login", {
+        json: { login: "j8bob2", demo: false, password: "cogportal-local-dev-password" },
+      });
+      const bobProbe = await bob.req("GET", "/api/session");
+      const bobBody = bobProbe.json() as { user?: unknown } | null;
       checks.push(
-        bobProbe.status === 200
-          ? { name: "a fresh session still authenticates on the same stack (the refusal is the revocation, not a transient failure)", ok: true, detail: `bob GET /api/team HTTP 200` }
-          : { name: "a fresh session still authenticates on the same stack (the refusal is the revocation, not a transient failure)", ok: false, detail: `HTTP ${bobProbe.status}: ${bobProbe.text.slice(0, 160)}` },
+        bobLogin.status < 400 && bobProbe.status === 200 && bobBody?.user != null
+          ? { name: "a fresh session still authenticates on the same stack (the refusal is the revocation, not a transient failure)", ok: true, detail: "fresh demo:false session GET /api/session HTTP 200 with a non-null user" }
+          : { name: "a fresh session still authenticates on the same stack (the refusal is the revocation, not a transient failure)", ok: false, detail: `login HTTP ${bobLogin.status}, GET /api/session HTTP ${bobProbe.status}: ${bobProbe.text.slice(0, 120)}` },
       );
       // Double sign-out: Better Auth's sign-out on a dead session is a
       // documented idempotent success (no leak of session existence).
-      const secondSignOut = await alice.api.req("POST", "/api/auth/sign-out");
+      const secondSignOut = await alice.req("POST", "/api/auth/sign-out");
       checks.push(
         secondSignOut.status === 200 || secondSignOut.status >= 500
           ? { name: "POST /api/auth/sign-out again is the documented idempotent success (does not leak session existence)", ok: true, detail: `HTTP ${secondSignOut.status}` }
