@@ -25,8 +25,9 @@ function devAuthValue(vars: unknown): string | undefined {
  * (apps/portal/src/lib/auth.ts / worker routes): dev login answers only when
  * ENVIRONMENT=development AND DEV_AUTH=enabled AND GitHub OAuth is not
  * configured (both a client id and a client secret present). The committed
- * wrangler.jsonc must never enable it: its top-level vars and every named
- * environment carry DEV_AUTH=disabled, and the only tracked file that
+ * wrangler.jsonc must never enable it: every named environment carries DEV_AUTH=disabled while the top-level
+ * vars leave it unset (the gate fails closed without DEV_AUTH; local
+ * development enables it only through the untracked .dev.vars), and the only tracked file that
  * documents an enabled value is the gitignored-template .dev.vars.example.
  * The live arms boot two hardened variants: DEV_AUTH disabled, and DEV_AUTH
  * enabled but GitHub configured — /api/dev/login must refuse in both.
@@ -52,9 +53,9 @@ export const j10: Journey = {
 
     const topLevel = devAuthValue(cfg.vars);
     checks.push(
-      topLevel === "disabled"
-        ? { name: "apps/portal/wrangler.jsonc top-level vars set DEV_AUTH=disabled", ok: true, detail: `DEV_AUTH=${topLevel}` }
-        : { name: "apps/portal/wrangler.jsonc top-level vars set DEV_AUTH=disabled", ok: false, detail: `observed DEV_AUTH=${String(topLevel)}` },
+      topLevel !== "enabled"
+        ? { name: "apps/portal/wrangler.jsonc top-level vars leave DEV_AUTH disabled-or-absent (fail closed)", ok: true, detail: `DEV_AUTH=${topLevel ?? "absent (gate fails closed)"}` }
+        : { name: "apps/portal/wrangler.jsonc top-level vars leave DEV_AUTH disabled-or-absent (fail closed)", ok: false, detail: `observed DEV_AUTH=${String(topLevel)}` },
     );
 
     const envs = Object.entries(cfg.env ?? {});
