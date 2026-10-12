@@ -1,6 +1,6 @@
 import { ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useId, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import type { Metric } from "@cogworks/contracts/schema";
 import { formatMetricValue } from "@/lib/format";
 import { CornerBrackets } from "./Brackets";
@@ -296,41 +296,45 @@ function SupportingMetricRow({
     );
   }
 
+  // A row with a note is still one name-value group of the list: the label
+  // is the button, and its ::after stretches over the group so the whole
+  // row toggles the note as before. The note is a second <dd> of the same
+  // group, lifted above that stretch so reading or selecting it doesn't
+  // close it. The button used to wrap the <dt> and <dd>, which a <dl>
+  // can't hold (axe: definition-list, dlitem).
   return (
-    <div className="border-b border-rule-soft">
-      <button
-        type="button"
-        onClick={() => setOpen((wasOpen) => !wasOpen)}
-        aria-expanded={open}
-        aria-controls={panelId}
-        className={`group relative flex w-full items-baseline justify-between gap-4 text-left transition-colors duration-150 hover:bg-ink/[0.03] focus-visible:outline-offset-[-2px] ${rowPadding}`}
-      >
-        {/* The instrument's own motif: brackets mark where it is looking. They
-            fade in on hover and stay while the note is open. */}
+    <div
+      className={`group relative flex flex-wrap items-baseline justify-between gap-x-4 border-b border-rule-soft transition-colors duration-150 has-[button:hover]:bg-ink/[0.03] ${rowPadding}`}
+    >
+      {/* The instrument's own motif: brackets mark where it is looking. They
+          fade in on hover and stay while the note is open. */}
+      <dt className={`min-w-0 ${labelClass}`}>
         <CornerBrackets
           size={7}
           thickness={1}
           inset={-2}
           className={`text-detect transition-opacity duration-150 ${
-            open ? "opacity-100" : "opacity-0 group-hover:opacity-60"
+            open ? "opacity-100" : "opacity-0 group-has-[button:hover]:opacity-60"
           }`}
         />
-        {/* mr-auto, because the brackets' wrapper is an empty flex item too:
-            with justify-between alone the label floated to the middle. */}
-        <dt
-          className={`mr-auto min-w-0 underline decoration-rule-strong decoration-dotted underline-offset-[3px] group-hover:text-ink ${labelClass}`}
+        <button
+          type="button"
+          onClick={() => setOpen((wasOpen) => !wasOpen)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="text-left underline decoration-rule-strong decoration-dotted underline-offset-[3px] hover:text-ink focus-visible:outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:outline-2 focus-visible:after:outline-offset-[-2px] focus-visible:after:outline-ink focus-visible:after:outline-solid"
         >
           {metric.label}
-        </dt>
-        {value}
-      </button>
+        </button>
+      </dt>
+      {value}
       {/* Opens at once and fades in; `hidden` keeps the closed note out of
           the accessibility tree and the tab order. */}
-      <div id={panelId} hidden={!open} className="anim-reveal">
-          <p className="mb-2.5 max-w-[56ch] border-l border-detect/30 pl-3 font-serif text-[14px] leading-[1.55] text-ink-secondary">
-            {metric.help}
-          </p>
-      </div>
+      <dd id={panelId} hidden={!open} className="anim-reveal relative basis-full">
+        <p className="mt-2.5 max-w-[56ch] border-l border-detect/30 pl-3 font-serif text-[14px] leading-[1.55] text-ink-secondary">
+          {metric.help}
+        </p>
+      </dd>
     </div>
   );
 }
@@ -422,8 +426,10 @@ export function SupportingMetrics({
 
   const list = (group: Metric[]) => (
     <dl>
+      {/* Fragments, not wrappers: each row is already the <div> group a <dl>
+          allows, and a second level of <div> is one it doesn't. */}
       {group.map((metric) => (
-        <div key={metric.key}>
+        <Fragment key={metric.key}>
           <SupportingMetricRow
             metric={metric}
             floors={floors.get(metric.key)}
@@ -441,7 +447,7 @@ export function SupportingMetrics({
               compared={before !== null}
             />
           ))}
-        </div>
+        </Fragment>
       ))}
     </dl>
   );
