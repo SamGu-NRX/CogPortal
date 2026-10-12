@@ -42,10 +42,12 @@ mkdir -p "$RESULTS/receipts"
 # that names another. A dirty tree is recorded, because then the run tested
 # more than the commit.
 SUITE_HEAD=$(git -C "$REPO_ROOT" rev-parse HEAD)
+git -C "$REPO_ROOT" status --porcelain --untracked-files=no >"$RESULTS/git-status.txt"
 SUITE_DIRTY=0
-[ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] || SUITE_DIRTY=1
+[ ! -s "$RESULTS/git-status.txt" ] || SUITE_DIRTY=1
 export SUITE_HEAD SUITE_DIRTY
 echo "testing $SUITE_HEAD (dirty=$SUITE_DIRTY)"
+[ "$SUITE_DIRTY" = 0 ] || { echo "uncommitted changes to tracked files:"; cat "$RESULTS/git-status.txt"; }
 
 # Per-run scratch: CLI homes, git fixtures, virtual environments, data. Under
 # /tmp because tsx binds unix sockets under TMPDIR and a path through the
@@ -267,33 +269,41 @@ case "$WITNESS_STATUS" in
      FAILED=1 ;;
 esac
 
-echo "== [7/8] both documented staging pins, on every supported Python =="
+echo "== [7/8] both documented staging pins on every supported Python, and this commit on the week data =="
 # Staging students install the CLI pinned by COGBENCH_SOURCE, and the pin
 # differs per portal revision. Each pin is read from the portal revision that
 # bakes it (origin/beta, origin/alpha), installed the documented way
 # (python -m pip install --upgrade --force-reinstall, see
 # docs/design/student-cli-and-onboarding.md) into a fresh environment per
 # cell, and its commit asserted. Receipts carry the pin id, revision and source.
-declare -a PIN_REVISIONS=()
+# The "branch" row is this commit's CLI on the Week 2 and Week 3 public-data
+# journeys; its other cells are cli-commands.ts's, above.
+declare -a PIN_REVISIONS=("branch:HEAD")
 if git -C "$REPO_ROOT" fetch -q origin refs/heads/beta:refs/remotes/origin/beta refs/heads/alpha:refs/remotes/origin/alpha; then
-  PIN_REVISIONS=("beta:origin/beta" "alpha:origin/alpha")
+  PIN_REVISIONS+=("beta:origin/beta" "alpha:origin/alpha")
 else
   echo "could not fetch origin's beta and alpha revisions; the pin matrix cannot read the true pins" >&2
   FAILED=1
 fi
-# week1/week2/week3 are the course's Python 3.8 environments; py311 and py313
-# are the other supported versions.
 for pin_spec in "${PIN_REVISIONS[@]}"; do
   PIN_ID="${pin_spec%%:*}"
   PIN_REV="${pin_spec##*:}"
-  PIN_SOURCE=$(pinned_source "$PIN_REV")
+  if [ "$PIN_ID" = branch ]; then
+    PIN_SOURCE=$BRANCH_SOURCE
+    PIN_SPEC=$BRANCH_SOURCE
+    PIN_ENVS="week2 week3"
+  else
+    PIN_SOURCE=$(pinned_source "$PIN_REV")
+    PIN_SPEC="cogworks-benchmark @ $PIN_SOURCE"
+    PIN_ENVS="week1 week2 week3 py311 py313"
+  fi
   PIN_COMMIT=$(commit_of "$PIN_SOURCE")
   if [ -z "$PIN_SOURCE" ] || [ -z "$PIN_COMMIT" ]; then
     echo "pin $PIN_ID: could not read COGBENCH_SOURCE from $PIN_REV" >&2
     FAILED=1
     continue
   fi
-  for env_name in week1 week2 week3 py311 py313; do
+  for env_name in $PIN_ENVS; do
     case "$env_name" in
       py311) base="$PY311" ;;
       py313) base="$PY313" ;;
@@ -303,7 +313,7 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
     env_bin=$(new_env "$cell" "$base")
     pin_log="$RESULTS/$cell-install.log"
     if ./support/install-pinned.sh "$env_bin/python" "$pin_log" cogworks_benchmark "$PIN_COMMIT" \
-      --force-reinstall "cogworks-benchmark @ $PIN_SOURCE"; then
+      --force-reinstall "$PIN_SPEC"; then
       PIN_INSTALL_STATUS=ok
     else
       PIN_INSTALL_STATUS=failed
@@ -374,7 +384,7 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
     [ "${KEEP_ENVS:-0}" = "1" ] || rm -rf "$ENVS/$cell"
   done
 done
-unset PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK PIN_SMALLCASE_AUDIO_STATUS PIN_SMALLCASE_AUDIO_LOG
+unset PIN_ID PIN_REV PIN_SOURCE PIN_SPEC PIN_ENVS PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK PIN_SMALLCASE_AUDIO_STATUS PIN_SMALLCASE_AUDIO_LOG
 
 echo "== [8/8] report =="
 ORCHESTRATOR_EXIT=$FAILED

@@ -69,11 +69,17 @@ export function installedMatchesPin(
   return {
     ok:
       installed !== null &&
-      installedUrl.includes("CogPortal.git") &&
+      installedUrl === pinRepositoryUrl(pinSource) &&
       pinCommit.length === 40 &&
       installedCommit === pinCommit,
     installedCommit,
     pinCommit,
     installedUrl,
   };
+}
+
+/** The repository URL pip records in direct_url.json for a git+ source: the
+ * source without `git+`, the `@<commit>` and any `#fragment`. */
+export function pinRepositoryUrl(source: string): string {
+  return source.replace(/^git\+/, "").replace(/#.*$/, "").replace(/@[0-9a-f]{40}$/, "");
 }

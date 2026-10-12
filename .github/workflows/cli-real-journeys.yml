@@ -83,8 +83,12 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
+      # The PR's head commit itself, not the merge with alpha that
+      # pull_request checks out by default: the receipts name the commit
+      # they tested, and that has to be the one pushed to this branch.
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           submodules: recursive
       - uses: pnpm/action-setup@f68f5791346aaeb8b9d7ea636c1bcf61c15511ed # v6.0.2
@@ -115,7 +119,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: cli-real-journeys-${{ github.sha }}-pass-${{ matrix.pass }}
+          name: cli-real-journeys-${{ github.event.pull_request.head.sha || github.sha }}-pass-${{ matrix.pass }}
           path: |
             tools/cli-real-journeys/results/
             !tools/cli-real-journeys/results/**/state/**
