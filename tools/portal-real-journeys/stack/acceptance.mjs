@@ -82,6 +82,10 @@ for (let n = 1; n <= runs; n += 1) {
   fs.writeFileSync(path.join(out, `run-${n}.receipt.json`), `${JSON.stringify(receipt, null, 2)}\n`);
   fs.rmSync(report);
   console.log(`run ${n}/${runs} at ${commit.slice(0, 8)}: exit ${result.status}, ${receipt.passed}/${receipt.total} passed`);
-  if (result.status !== 0) failed = true;
+  if (result.status !== 0) {
+    // The bar is consecutive passes; a failed run ends the attempt.
+    failed = true;
+    break;
+  }
 }
 process.exit(failed ? 1 : 0);
