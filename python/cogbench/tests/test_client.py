@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import http.client
 import io
+import socket
 import sys
 import unittest
 import urllib.error
@@ -52,6 +54,33 @@ class PortalClientTests(unittest.TestCase):
         self.assertEqual(request_json("https://portal.example", "/api/test", {}, retry=True), {"ok": True})
         self.assertEqual(urlopen.call_count, 2)
         sleep.assert_called_once_with(0.25)
+
+    @patch("cogbench.client.time.sleep")
+    def test_a_dropped_connection_retries_like_any_transient_failure(self, sleep):
+        # A server or proxy that closes the connection before answering
+        # raises from getresponse(), outside urlopen's URLError wrapping. The
+        # cli-real-journeys shaper's "drop" fault showed `cogworks sync`
+        # failing on the first one with no retry.
+        for dropped in (
+            ConnectionResetError(54, "Connection reset by peer"),
+            http.client.RemoteDisconnected("Remote end closed connection without response"),
+            socket.timeout("timed out"),
+        ):
+            with self.subTest(dropped=type(dropped).__name__):
+                sleep.reset_mock()
+                with patch("cogbench.client.urllib.request.urlopen", side_effect=[dropped, _JsonResponse()]) as urlopen:
+                    self.assertEqual(request_json("https://portal.example", "/api/test", {}, retry=True), {"ok": True})
+                self.assertEqual(urlopen.call_count, 2)
+                sleep.assert_called_once_with(0.25)
+
+    @patch("cogbench.client.time.sleep")
+    def test_a_dropped_connection_on_a_non_retried_request_is_a_portal_error(self, sleep):
+        dropped = http.client.RemoteDisconnected("Remote end closed connection without response")
+        with patch("cogbench.client.urllib.request.urlopen", side_effect=dropped) as urlopen:
+            with self.assertRaisesRegex(PortalError, "Could not reach CogPortal: Remote end closed"):
+                request_json("https://portal.example", "/api/v1/cli/device/token", {})
+        urlopen.assert_called_once()
+        sleep.assert_not_called()
 
     @patch("cogbench.client.time.sleep")
     def test_authorization_errors_fail_without_retrying(self, sleep):

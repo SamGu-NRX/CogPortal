@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import http.client
 import json
 import platform
 import secrets
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -72,6 +74,14 @@ def request_json(
                 time.sleep(0.25 * (2**attempt))
                 continue
             raise PortalError("Could not reach CogPortal: {}".format(error.reason)) from error
+        except (ConnectionError, http.client.HTTPException, socket.timeout) as error:
+            # A connection closed or stalled before the answer arrives raises
+            # from getresponse(), which urlopen does not wrap in URLError. It
+            # is the same transient failure and gets the same handling.
+            if attempt < attempts - 1:
+                time.sleep(0.25 * (2**attempt))
+                continue
+            raise PortalError("Could not reach CogPortal: {}".format(error)) from error
     raise PortalError("Could not reach CogPortal after {} attempts.".format(attempts))
 
 
