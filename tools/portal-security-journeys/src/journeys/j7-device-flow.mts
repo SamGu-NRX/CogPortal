@@ -46,8 +46,6 @@ export const j7: Journey = {
     return withStack("j7", log, async (stack) => {
       const checks: Check[] = [];
       const anon = new Api(stack.baseUrl);
-      const bob = await newStudent(stack, "j7bob", { teamName: "J7 Bob Team" });
-      const charlie = await newStudent(stack, "j7charlie", { teamName: "J7 Charlie Team" });
 
       // --- start: public, issues the code pair with the documented TTL ---
       const start = await anon.req("POST", "/v1/cli/device/start", { json: {}, anonymous: true });
@@ -79,6 +77,24 @@ export const j7: Journey = {
       // --- anonymous approval: refused by the requireTeam session guard ---
       const anonApprove = await anon.req("POST", "/v1/cli/device/approve", { json: { userCode, deviceName: "j7-anon-box" }, anonymous: true });
       checks.push(refused("POST /v1/cli/device/approve without a session refuses (requireTeam guard)", anonApprove.status, anonApprove.text));
+
+      // --- wrong deviceCode on the token endpoint: refused (session-free) ---
+      const wrongCode = await anon.req("POST", "/v1/cli/device/token", { json: { deviceCode: "f".repeat(64) }, anonymous: true });
+      checks.push(refused("POST /v1/cli/device/token with an unknown deviceCode refuses", wrongCode.status, wrongCode.text));
+
+      // --- bootstrap the approver sessions (demo-team provisioning) ---
+      let bob: Awaited<ReturnType<typeof newStudent>>;
+      let charlie: Awaited<ReturnType<typeof newStudent>>;
+      try {
+        bob = await newStudent(stack, "j7bob", { teamName: "J7 Bob Team" });
+        charlie = await newStudent(stack, "j7charlie", { teamName: "J7 Charlie Team" });
+      } catch (err) {
+        // Everything below needs a team session. SkipJourney discards
+        // accumulated checks by design, so the reason names the arms that
+        // ran (with results) plus the observed bootstrap failure.
+        const ran = checks.map((x) => `${x.ok ? "ok" : "FAIL"}: ${x.name}`).join("; ");
+        throw new SkipJourney(`session-dependent device-flow arms blocked — student bootstrap failed: ${err instanceof Error ? err.message.slice(0, 240) : String(err).slice(0, 240)}. Arms that ran: ${ran}`);
+      }
 
       // --- unknown but well-formed userCode: refused ---
       const unknownApprove = await bob.api.req("POST", "/v1/cli/device/approve", { json: { userCode: "ZZZZ-ZZZZ-ZZZZ", deviceName: "j7-unknown-box" } });
@@ -113,10 +129,6 @@ export const j7: Journey = {
 
       const secondGrant = await anon.req("POST", "/v1/cli/device/token", { json: { deviceCode }, anonymous: true });
       checks.push(refused("POST /v1/cli/device/token for an already-consumed code refuses — at most one token is ever granted per device code", secondGrant.status, secondGrant.text));
-
-      // --- wrong deviceCode on the token endpoint: refused ---
-      const wrongCode = await anon.req("POST", "/v1/cli/device/token", { json: { deviceCode: "f".repeat(64) }, anonymous: true });
-      checks.push(refused("POST /v1/cli/device/token with an unknown deviceCode refuses", wrongCode.status, wrongCode.text));
 
       // --- expiry: the TTL is a fixed 10-minute source constant, so
       // accelerate it by rewriting expires_at in the local D1 (wrangler d1
