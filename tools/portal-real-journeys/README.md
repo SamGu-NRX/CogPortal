@@ -18,6 +18,7 @@ cd tools/portal-real-journeys
 npm ci
 npx playwright install chromium   # first time only
 npx playwright test               # boots the stack, runs every journey, stops it
+node stack/acceptance.mjs         # three full runs in a row, one receipt each
 ```
 
 Playwright starts `stack/stack.mjs` itself (its `webServer`). Don't start the
@@ -34,6 +35,12 @@ missing or wrong environment fails those journeys rather than skipping them.
 Each CLI process gets its own temporary HOME and config, so it never touches
 `~/.cogbench`. Week 1 is the week they score on because its public corpus is
 generated locally, so a run needs no download.
+
+`stack/acceptance.mjs` runs the suite three times in a row with zero
+retries and writes a receipt per run to `test-results/receipts/`: the commit
+and tree it ran on (it refuses uncommitted changes to tracked files), start
+and end times, Playwright's exit code, and every test's status, retries and
+duration.
 
 ## What a run can and can't touch
 
