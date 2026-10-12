@@ -9,49 +9,59 @@
 # failing loudly when an install fails - the red side is the previous script,
 # which provisioned nothing and made every fresh-bootstrap week2 cell fail
 # with the FaceNet ContractError.
+#
+# The red case is the pre-fix script itself: run-all.sh at b74237c3, the
+# parent of the commit that added the step (c722ed79), read by full SHA. It is
+# fetched from origin when a shallow checkout lacks it, and a missing revision
+# fails the test rather than skipping the red case.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "PASS: $1"; }
 
+PRE_FIX=b74237c378277bf4d03977c9f2cf9f29a960efbe
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# ---------------------------------------------------------------------------
-# 1. Wiring: the week cells' provisioning step exists (red on the old script).
-# ---------------------------------------------------------------------------
-old_script=$(git show HEAD:tools/cli-real-journeys/run-all.sh 2>/dev/null || git show HEAD:run-all.sh)
-new_script=$(cat run-all.sh)
+# The track-install body a script runs in its week cells, with the track name
+# substituted, or nothing when the script has no such step.
+track_body() {
+  sed -n '/if "\$env_bin\/python" - >"\$track_log" 2>&1 <<PY$/,/^PY$/p' "$1" \
+    | sed '1d;$d' | sed 's/\$track_name/WEEK2_TRACK/g'
+}
 
-for script_name in old new; do
-  script=$([ "$script_name" = old ] && echo "$old_script" || echo "$new_script")
-  if grep -q 'from cogbench.environment import \$track_name' <<<"$script"; then
-    echo "  $script_name script: week-cell track provisioning present"
-  else
-    if [ "$script_name" = new ]; then
-      fail "the week cells do not provision the pinned cogbench's environment track"
-    else
-      echo "  old script: no week-cell track provisioning (the defect, as expected)"
-    fi
-  fi
-done
+# Wiring: the step exists, and it runs before the week's real-data journey.
+wired() {
+  local step journey
+  step=$(grep -n 'if "\$env_bin/python" - >"\$track_log" 2>&1 <<PY$' "$1" | head -1 | cut -d: -f1)
+  journey=$(grep -n 'journeys/real-data-week\$week_num.ts' "$1" | head -1 | cut -d: -f1)
+  [ -n "$step" ] && [ -n "$journey" ] && [ "$step" -lt "$journey" ] && [ -n "$(track_body "$1")" ]
+}
 
-# Red half: the old script must NOT contain the step (proves this test can
-# detect its absence), the new script MUST.
-grep -q 'from cogbench.environment import $track_name' <<<"$old_script" \
-  && fail "the old script unexpectedly already provisions the week track"
-grep -q 'from cogbench.environment import $track_name' <<<"$new_script" \
-  || fail "the new script does not provision the week track"
-pass "wiring: the old script lacks the step, the new script has it"
+# ---------------------------------------------------------------------------
+# 1. Wiring: red on the pre-fix script, green on the current one.
+# ---------------------------------------------------------------------------
+REPO_ROOT=$(git rev-parse --show-toplevel)
+if ! git -C "$REPO_ROOT" cat-file -e "$PRE_FIX^{commit}" 2>/dev/null; then
+  git -C "$REPO_ROOT" fetch --quiet --depth=1 origin "$PRE_FIX" \
+    || fail "the pre-fix revision $PRE_FIX is not available; the red case cannot run"
+fi
+git -C "$REPO_ROOT" show "$PRE_FIX:tools/cli-real-journeys/run-all.sh" >"$WORK/run-all.pre-fix.sh" \
+  || fail "could not read run-all.sh at $PRE_FIX"
+
+wired "$WORK/run-all.pre-fix.sh" \
+  && fail "the pre-fix script ($PRE_FIX) passes the wiring check, so the check cannot detect the missing step"
+pass "red: the pre-fix script's week cells provision no track"
+wired run-all.sh || fail "the week cells do not provision the pinned cogbench's environment track before the journey"
+pass "green: the current script provisions the track before the real-data journey"
 
 # ---------------------------------------------------------------------------
 # 2. Behavior: the step's body (extracted verbatim from run-all.sh so it
 #    cannot drift) installs the shim track's packages into a fresh venv and
 #    exits non-zero when an install fails.
 # ---------------------------------------------------------------------------
-body=$(sed -n '/if "\$env_bin\/python" - >"\$track_log" 2>&1 <<PY$/,/^PY$/p' run-all.sh \
-  | sed '1d;$d' | sed 's/\$track_name/WEEK2_TRACK/g')
+body=$(track_body run-all.sh)
 [ -n "$body" ] || fail "could not extract the track-install body from run-all.sh"
 
 # A shim cogbench.environment whose WEEK2_TRACK is tiny and real.
