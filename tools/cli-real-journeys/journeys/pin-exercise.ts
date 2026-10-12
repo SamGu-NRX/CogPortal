@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { CliHome, env } from "../support/cli.ts";
 import { TeamRepository } from "../support/git-fixture.ts";
+import { readStackInfo } from "../support/stack-info.ts";
 import { Case } from "./harness.ts";
 import { SUBMISSION_PY } from "./submission.ts";
 
@@ -26,6 +27,15 @@ const PIN_SOURCE = env("PIN_SOURCE");
 const VENV_BIN = env("VENV_MATRIX");
 const python = join(VENV_BIN, "python");
 
+// Every process this journey spawns is pinned to the booted local stack's
+// loopback origin, overriding any inherited COGPORTAL_URL (readStackInfo has
+// already refused a non-loopback one). The small case's `cogworks test` gets
+// the same pin through CliHome.
+const PINNED_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  COGPORTAL_URL: (await readStackInfo()).shaperPortalOrigin,
+};
+
 /** The pip direct-url record of an installed distribution, parsed. */
 async function directUrl(distribution: string): Promise<Record<string, any> | null> {
   const script = [
@@ -37,7 +47,7 @@ async function directUrl(distribution: string): Promise<Record<string, any> | nu
     "        break",
   ].join("\n");
   try {
-    const { stdout } = await run(python, ["-c", script, distribution]);
+    const { stdout } = await run(python, ["-c", script, distribution], { env: PINNED_ENV });
     return JSON.parse(stdout);
   } catch {
     return null;
@@ -65,8 +75,8 @@ await cases.install.run(async () => {
       `pip could not install the pinned CLI for pin ${PIN_ID} — this combination is left out of the exercised matrix. Log tail: ${log.slice(-800)}`,
     );
   }
-  const version = await run(python, ["-c", "print(__import__('sys').version.split()[0])"]);
-  const cogworks = await run(join(VENV_BIN, "cogworks"), ["--version"]);
+  const version = await run(python, ["-c", "print(__import__('sys').version.split()[0])"], { env: PINNED_ENV });
+  const cogworks = await run(join(VENV_BIN, "cogworks"), ["--version"], { env: PINNED_ENV });
   case_.command(`cogworks --version (pin ${PIN_ID}, python ${version.stdout.trim()})`, 0, cogworks.stdout);
   case_.expect(
     cogworks.stdout.trim().length > 0,

@@ -1,8 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmod, mkdtemp, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireLoopbackOrigin } from "./loopback.ts";
+// Type-only: stack-info imports env/REPO_ROOT back from this module; the
+// runtime dependency must stay one-directional.
+import type { StackInfo } from "./stack-info.ts";
 
 // Runs the installed `cogworks` console script the way a student's terminal
 // does: the binary from a virtualenv's bin directory, in a HOME made fresh for
@@ -27,6 +31,18 @@ export function env(name: string): string {
  */
 export function withoutGitRedirection(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith("GIT_")));
+}
+
+/**
+ * The origin every spawned CLI is pinned to: the booted local stack's shaper
+ * front, read from the stack info file the boot wrote. Never the inherited
+ * COGPORTAL_URL — that could point a test CLI's credentials, reports or
+ * device links at external or live infrastructure — and refused outright
+ * unless it is loopback.
+ */
+async function cliPortalOrigin(): Promise<string> {
+  const info = JSON.parse(await readFile(env("STACK_INFO"), "utf8")) as StackInfo;
+  return requireLoopbackOrigin(info.shaperPortalOrigin, "the booted stack's CLI origin (STACK_INFO)");
 }
 
 export interface CliProcess {
@@ -167,11 +183,19 @@ export class CliHome {
   /** The venv's bin directory holding the installed `cogworks`. */
   private readonly venvBin: string;
   private readonly data: BenchmarkData | undefined;
+  /** Pinned into every spawned CLI as COGPORTAL_URL (see cliPortalOrigin). */
+  private readonly portalOrigin: string;
 
-  private constructor(path: string, venvBin: string, data: BenchmarkData | undefined) {
+  private constructor(
+    path: string,
+    venvBin: string,
+    data: BenchmarkData | undefined,
+    portalOrigin: string,
+  ) {
     this.path = path;
     this.venvBin = venvBin;
     this.data = data;
+    this.portalOrigin = portalOrigin;
   }
 
   static async create(venvBin: string, options: { data?: BenchmarkData } = {}): Promise<CliHome> {
@@ -180,8 +204,9 @@ export class CliHome {
       const info = await stat(join(bin, name)).then((i) => i.isFile(), () => false);
       if (!info) throw new Error(`${bin} does not look like a virtualenv bin directory (${name} missing).`);
     }
+    const portalOrigin = await cliPortalOrigin();
     const home = await mkdtemp(join(tmpdir(), "cog-journey-home-"));
-    return new CliHome(home, bin, options.data);
+    return new CliHome(home, bin, options.data, portalOrigin);
   }
 
   /**
@@ -203,6 +228,9 @@ export class CliHome {
       // as dirty.
       PYTHONDONTWRITEBYTECODE: "1",
       BROWSER: "/usr/bin/true",
+      // Overriding any inherited value: a test CLI dials the booted local
+      // stack and nothing else, no matter what the caller's environment says.
+      COGPORTAL_URL: this.portalOrigin,
     };
     delete env.COGBENCH_CONFIG;
     delete env.COGWORKS_LANGUAGE_DATA;

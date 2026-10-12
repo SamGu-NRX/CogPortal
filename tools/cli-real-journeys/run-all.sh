@@ -10,6 +10,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# No pre-boot command talks to a portal, and nothing downstream may inherit a
+# caller's COGPORTAL_URL: the real origin is resolved from the booted stack
+# after step 5, guarded, and re-exported there.
+unset COGPORTAL_URL
+
 REPO_ROOT=$(cd ../.. && pwd)
 CONDA_ROOT=${CONDA_ROOT:-/home/user/work/miniconda3}
 NODE24=${NODE24:-/home/user/work/node24}
@@ -18,7 +23,41 @@ export PATH="$NODE24/bin:$PATH"
 RUN_TAG=${RUN_TAG:-$(date -u +%Y%m%dT%H%M%SZ)}
 RESULTS="$PWD/results/$RUN_TAG"
 mkdir -p "$RESULTS"
+# This run's own persistence directory: the wrangler migrate and seed steps
+# and the booted stack keep their state here (wrangler's v3 layout), never in
+# the checkout's .wrangler state.
+SUITE_STATE="$RESULTS/state"
+# The aggregator reads exactly this run's receipts directory. Clear it BEFORE
+# the run so a reused RUN_TAG (or a crashed earlier attempt into the same
+# directory) cannot leak its leftovers into this run's summary; every other
+# run keeps its own directory untouched.
+rm -rf "$RESULTS/receipts"
+mkdir -p "$RESULTS/receipts" "$RESULTS/tmp"
+# Per-run scratch space for the helpers' mkdtemp calls (CLI homes, the git
+# fixture, the spawn probe): node's os.tmpdir() honors TMPDIR, so this run's
+# temp state stays scoped to its results directory and the EXIT trap below
+# can clean it without touching other runs' temp state.
+export TMPDIR="$RESULTS/tmp"
 export RESULTS_DIR="$RESULTS"
+# Any early exit - a failing step under set -e, or INT/TERM - must not leave
+# the booted stack or this run's scratch state behind. STACK_PID is set when
+# the stack boots; this trap is the only place that stops it. It preserves
+# the exit status it fires with.
+STACK_PID=""
+cleanup() {
+  if [ -n "$STACK_PID" ]; then
+    kill "$STACK_PID" 2>/dev/null || true
+    wait "$STACK_PID" 2>/dev/null || true
+  fi
+  if [ -n "${EGRESS_PID:-}" ]; then
+    kill "$EGRESS_PID" 2>/dev/null || true
+    wait "$EGRESS_PID" 2>/dev/null || true
+  fi
+  rm -rf "$RESULTS/tmp" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # The journeys mint dev sessions and read the setup page's check-off secret; it
 # must be the same value the booted Worker runs with.
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-local-development-only-not-a-real-secret-0000}"
@@ -47,10 +86,14 @@ fi
 "$WEEK1_ENV/bin/cogworks" --version >"$RESULTS/cli-version.txt" 2>&1
 cat "$RESULTS/cli-version.txt"
 
-echo "== [3/7] fresh local D1 (repo's own dev path) =="
-rm -rf "$REPO_ROOT/apps/portal/.wrangler/state"
-(cd "$REPO_ROOT/apps/portal" && pnpm db:migrate:local >"$RESULTS/d1-migrate.log" 2>&1)
-(cd "$REPO_ROOT/apps/portal" && pnpm db:seed:local >"$RESULTS/d1-seed.log" 2>&1)
+echo "== [3/7] fresh local D1 in this run's state directory =="
+# The repo's db:migrate:local / db:seed:local scripts with the per-run
+# persistence root appended. pnpm run swallows appended flags (probed on
+# 9.15.9: the checkout's default state was used and the probe dir stayed
+# empty), so the wrangler commands are invoked directly: the same commands
+# the scripts run, with --persist-to added.
+(cd "$REPO_ROOT/apps/portal" && pnpm exec wrangler d1 migrations apply cogportal-db --local --persist-to "$SUITE_STATE" >"$RESULTS/d1-migrate.log" 2>&1)
+(cd "$REPO_ROOT/apps/portal" && pnpm exec wrangler d1 execute cogportal-db --local --file scripts/seed-local.sql --persist-to "$SUITE_STATE" >"$RESULTS/d1-seed.log" 2>&1)
 
 echo "== [4/7] production build of the portal and the bot =="
 (cd "$REPO_ROOT" && pnpm --filter @cogworks/portal build >"$RESULTS/portal-build.log" 2>&1)
@@ -59,6 +102,7 @@ echo "== [4/7] production build of the portal and the bot =="
 
 echo "== [5/7] booting the local stack =="
 STACK_LOG="$RESULTS/stack.log" STACK_INFO="$RESULTS/stack.json" \
+  STACK_PERSIST_ROOT="$SUITE_STATE/v3" \
   node support/stack.mjs >"$RESULTS/stack-stdout.log" 2>&1 &
 STACK_PID=$!
 for _ in $(seq 1 180); do
@@ -69,11 +113,22 @@ done
 grep -q '"ready": true' "$RESULTS/stack.json" || { echo "stack never became ready" >&2; exit 1; }
 cat "$RESULTS/stack.json"
 
+# The suite dials nothing but the booted local stack. Resolve the origin every
+# CLI process will be pinned to, refuse the run unless it is loopback-only,
+# then export it, overriding anything the caller's environment had set.
+export STACK_INFO="$RESULTS/stack.json"
+SUITE_PORTAL_ORIGIN=$(node -e 'const i=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(i.shaperPortalOrigin||""))' "$RESULTS/stack.json")
+"$NODE24/bin/npx" tsx support/loopback-guard.ts "$SUITE_PORTAL_ORIGIN"
+export COGPORTAL_URL="$SUITE_PORTAL_ORIGIN"
+# Probe: a CLI subprocess spawned the way the journeys spawn them must see
+# the pinned loopback origin, not an inherited value.
+"$NODE24/bin/npx" tsx support/probe-cli-env.ts
+
 echo "== [5.5/8] egress witness for the public-data journeys =="
 # The week 2/3 real-data journeys route the CLI through this proxy: downloads
 # of the documented public assets are allowed and recorded (host, bytes), and
 # any other traffic an offline command attempts is refused and logged, which
-# is exactly the defect the journeys exist to catch.
+# is exactly the defect the journeys exist to catch. The EXIT trap stops it.
 EGRESS_LOG="$RESULTS/egress.jsonl" EGRESS_INFO="$RESULTS/egress.json" \
   node support/egress.mjs >"$RESULTS/egress-stdout.log" 2>&1 &
 EGRESS_PID=$!
@@ -85,9 +140,8 @@ done
 [ -f "$RESULTS/egress.json" ] || { echo "egress witness never became ready" >&2; exit 1; }
 cat "$RESULTS/egress.json"
 
-echo "== [6/8] journeys (retries off; every case writes a receipt) =="
+echo "== [6/7] journeys (retries off; every case writes a receipt) =="
 set +e
-export STACK_INFO="$RESULTS/stack.json"
 FAILED=0
 for journey in setup-and-link benchmark-real-run adversarial; do
   echo "--- $journey"
@@ -185,10 +239,12 @@ done
 unset PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK
 
 echo "== [8/8] report =="
-kill "$STACK_PID" 2>/dev/null || true
-kill "${EGRESS_PID:-}" 2>/dev/null || true
-wait "$STACK_PID" 2>/dev/null || true
-wait "${EGRESS_PID:-}" 2>/dev/null || true
-RESULTS_DIR="$RESULTS" node support/report.mjs || true
+# A failing report/aggregation step must fail the run, not be swallowed:
+# the summary is the operator's evidence of record.
+ORCHESTRATOR_EXIT=$FAILED
+if ! RESULTS_DIR="$RESULTS" node support/report.mjs; then
+  echo "report/aggregation failed; failing the run" >&2
+  ORCHESTRATOR_EXIT=1
+fi
 echo "results: $RESULTS"
-exit "$FAILED"
+exit "$ORCHESTRATOR_EXIT"
