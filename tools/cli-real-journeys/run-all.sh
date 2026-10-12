@@ -120,6 +120,10 @@ cp -r "$REPO_ROOT/examples/week3-language-submission/." "$WEEK3_CHECK_DIR/"
 git -C "$WEEK3_CHECK_DIR" init -q
 git -C "$WEEK3_CHECK_DIR" add -A
 git -C "$WEEK3_CHECK_DIR" -c user.name=Journey -c user.email=journey-student@dev.local commit -qm "Week 3 check fixture"
+# The check requires the repository to carry a GitHub origin (the graded
+# scenario is a student submission pushed to GitHub); without it
+# repositoryFullName is None and the check exits 2.
+git -C "$WEEK3_CHECK_DIR" remote add origin https://github.com/journey-student/week3-language-submission.git
 (cd "$WEEK3_CHECK_DIR" && COGWORKS_LANGUAGE_DATA="$WEEK3_DATA" "$WEEK3_ENV/bin/cogworks" check --benchmark language-search) \
   >"$RESULTS/week3-check.log" 2>&1
 
