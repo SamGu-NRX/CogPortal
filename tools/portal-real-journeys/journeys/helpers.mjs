@@ -35,6 +35,9 @@ export const control = {
   /** Browser-to-Worker rule; see stack.mjs for the vocabulary. */
   fault: (rule) => post(`${STACK}/__proxy/faults`, { rules: [rule] }),
   clearFaults: () => post(`${STACK}/__proxy/faults/clear`),
+  /** Answers a holdAnswer rule is keeping from the browser: [{ tag, method, path, status }]. */
+  held: async () => (await (await fetch(`${STACK}/__proxy/held`)).json()).held,
+  release: (tag) => post(`${STACK}/__proxy/release`, { tag }),
   restartWorker: () => post(`${STACK}/__control/restart-worker`),
   /** Rows of the last statement, read from the run's own D1. */
   sql: async (sql) => (await post(`${STACK}/__control/sql`, { sql })).rows,

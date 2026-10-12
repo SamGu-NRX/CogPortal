@@ -4,6 +4,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
 import {
   ACTIVE_RUN_POLL_MS,
@@ -13,6 +14,7 @@ import {
   type RunSurfaceSnapshot,
   type AdminOverview,
   type AdminStaffRoster,
+  type TeamDetail,
 } from "@cogworks/contracts/schema";
 import { useNavigate } from "react-router";
 import { api, ApiRequestError, type RunSurfaceMutationInput } from "./api";
@@ -324,13 +326,61 @@ export function useTeamProcess() {
   });
 }
 
+/**
+ * Each team write answers with the whole team as the Worker saw it when it
+ * handled that write. Two writes in flight together (a rename and a member
+ * added on the Team page) can answer in either order, and the older answer,
+ * written over the cache last, put back what the newer write had changed:
+ * the new member vanished from the page while the server kept them
+ * (real-journeys adversarial A1, reordered answers). A write that was alone
+ * applies its answer whole. A write that overlapped another applies only the
+ * fields it changed, which its own answer carries fresh, and refetches the
+ * team for the rest.
+ */
+type TeamWrite = { overlapped: boolean };
+const teamWritesInFlight = new WeakMap<QueryClient, Set<TeamWrite>>();
+
+function beginTeamWrite(qc: QueryClient): TeamWrite {
+  let writes = teamWritesInFlight.get(qc);
+  if (!writes) teamWritesInFlight.set(qc, (writes = new Set()));
+  const write = { overlapped: writes.size > 0 };
+  for (const other of writes) other.overlapped = true;
+  writes.add(write);
+  return write;
+}
+
+function endTeamWrite(qc: QueryClient, write: TeamWrite | undefined) {
+  if (write) teamWritesInFlight.get(qc)?.delete(write);
+}
+
+function applyTeamAnswer(qc: QueryClient, write: TeamWrite | undefined, team: TeamDetail, sent: readonly (keyof TeamDetail)[]) {
+  endTeamWrite(qc, write);
+  if (!write?.overlapped) {
+    qc.setQueryData(["team"], team);
+    return;
+  }
+  qc.setQueryData<TeamDetail>(["team"], (current) =>
+    current ? { ...current, ...Object.fromEntries(sent.map((key) => [key, team[key]])) } : current,
+  );
+  void qc.invalidateQueries({ queryKey: ["team"] });
+}
+
+/** Lifecycle hooks a mutation that answers with the team spreads into its options. */
+function teamWriteHooks<V>(qc: QueryClient) {
+  return {
+    onMutate: (_variables: V): TeamWrite => beginTeamWrite(qc),
+    onError: (_error: Error, _variables: V, write: TeamWrite | undefined) => endTeamWrite(qc, write),
+  };
+}
+
 export function useUpdateTeam() {
   const qc = useQueryClient();
+  type Variables = { teamId: string; name?: string; description?: string | null };
   return useMutation({
-    mutationFn: ({ teamId, ...body }: { teamId: string; name?: string; description?: string | null }) =>
-      api.updateTeam(teamId, body),
-    onSuccess: (team) => {
-      qc.setQueryData(["team"], team);
+    mutationFn: ({ teamId, ...body }: Variables) => api.updateTeam(teamId, body),
+    ...teamWriteHooks<Variables>(qc),
+    onSuccess: (team, { teamId: _teamId, ...body }, write) => {
+      applyTeamAnswer(qc, write, team, Object.keys(body) as (keyof typeof body)[]);
       void qc.invalidateQueries({ queryKey: ["session"] });
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
@@ -339,10 +389,12 @@ export function useUpdateTeam() {
 
 export function useChangeTeamRepo() {
   const qc = useQueryClient();
+  type Variables = { teamId: string; fullName: string };
   return useMutation({
-    mutationFn: ({ teamId, fullName }: { teamId: string; fullName: string }) => api.changeTeamRepo(teamId, fullName),
-    onSuccess: (team) => {
-      qc.setQueryData(["team"], team);
+    mutationFn: ({ teamId, fullName }: Variables) => api.changeTeamRepo(teamId, fullName),
+    ...teamWriteHooks<Variables>(qc),
+    onSuccess: (team, _variables, write) => {
+      applyTeamAnswer(qc, write, team, ["repo"]);
       void qc.invalidateQueries({ queryKey: ["session"] });
       // These answer relative to the connected repository: which one it is,
       // whether a run may still be promoted or published, which local reports
@@ -442,10 +494,12 @@ export function useInvitableUsers(enabled = true) {
 
 export function useAddTeamMember() {
   const qc = useQueryClient();
+  type Variables = { teamId: string; login: string };
   return useMutation({
-    mutationFn: ({ teamId, login }: { teamId: string; login: string }) => api.addTeamMember(teamId, login),
-    onSuccess: (team) => {
-      qc.setQueryData(["team"], team);
+    mutationFn: ({ teamId, login }: Variables) => api.addTeamMember(teamId, login),
+    ...teamWriteHooks<Variables>(qc),
+    onSuccess: (team, _variables, write) => {
+      applyTeamAnswer(qc, write, team, ["members"]);
       void qc.invalidateQueries({ queryKey: ["invitable"] });
       void qc.invalidateQueries({ queryKey: ["cohort-teams"] });
       void qc.invalidateQueries({ queryKey: ["admin"] });
@@ -544,10 +598,12 @@ export function useLeaveTeam() {
 
 export function useRemoveTeamMember() {
   const qc = useQueryClient();
+  type Variables = { teamId: string; login: string };
   return useMutation({
-    mutationFn: ({ teamId, login }: { teamId: string; login: string }) => api.removeTeamMember(teamId, login),
-    onSuccess: (team) => {
-      qc.setQueryData(["team"], team);
+    mutationFn: ({ teamId, login }: Variables) => api.removeTeamMember(teamId, login),
+    ...teamWriteHooks<Variables>(qc),
+    onSuccess: (team, _variables, write) => {
+      applyTeamAnswer(qc, write, team, ["members"]);
       void qc.invalidateQueries({ queryKey: ["invitable"] });
       void qc.invalidateQueries({ queryKey: ["cohort-teams"] });
       void qc.invalidateQueries({ queryKey: ["admin"] });

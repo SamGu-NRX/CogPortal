@@ -363,8 +363,12 @@ async function boot(nextProfile) {
 // (forward, then destroy the connection: a lost answer), status/body
 // (substitute the answer),
 // duplicateUpstream (send the same request n extra times; the client gets the
-// first answer), times (how many requests the rule fires on).
+// first answer), holdAnswer (a tag: forward at once, then keep the Worker's
+// answer until POST /__proxy/release {tag}; GET /__proxy/held lists what is
+// held), times (how many requests the rule fires on).
 const faultRules = [];
+/** tag -> { method, path, status, release } for answers held by holdAnswer. */
+const heldAnswers = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function matchRule(method, pathname) {
@@ -429,10 +433,17 @@ async function proxyPass(req, res, originalUrl) {
     // Buffer when a rule rewrites the answer or when extra sends follow (the
     // first answer has to be held while they go out); otherwise stream, so
     // server-sent events stay live.
-    const buffer = rule?.status !== undefined || rule?.body !== undefined || (rule?.duplicateUpstream ?? 0) > 0;
+    const buffer = rule?.status !== undefined || rule?.body !== undefined || (rule?.duplicateUpstream ?? 0) > 0 || Boolean(rule?.holdAnswer);
     const first = await upstreamOnce(req, url, headers, body, buffer || Boolean(rule?.dropResponse));
     for (let extra = 0; extra < (rule?.duplicateUpstream ?? 0); extra += 1) {
       await upstreamOnce(req, url, headers, body, true);
+    }
+    if (rule?.holdAnswer) {
+      // The Worker has handled the request; its answer waits here.
+      const tag = rule.holdAnswer;
+      say(`[proxy] holding the answer to ${req.method} ${url.pathname} (${first.statusCode}) as ${tag}`);
+      await new Promise((release) => heldAnswers.set(tag, { method: req.method, path: url.pathname, status: first.statusCode, release }));
+      heldAnswers.delete(tag);
     }
     if (rule?.dropResponse) {
       // The Worker handled the request; its answer never reaches the browser.
@@ -490,7 +501,18 @@ async function control(req, res, url) {
     }
     if (url.pathname === "/__proxy/faults/clear" && req.method === "POST") {
       faultRules.length = 0;
+      // Nothing stays held past the journey that held it.
+      for (const entry of heldAnswers.values()) entry.release();
       return reply(200, { rules: 0 });
+    }
+    if (url.pathname === "/__proxy/held" && req.method === "GET") {
+      return reply(200, { held: [...heldAnswers].map(([tag, { method, path: heldPath, status }]) => ({ tag, method, path: heldPath, status })) });
+    }
+    if (url.pathname === "/__proxy/release" && req.method === "POST") {
+      const entry = heldAnswers.get(body.tag);
+      if (!entry) return reply(404, { error: `no answer held as ${body.tag}` });
+      entry.release();
+      return reply(200, { released: body.tag });
     }
     if (url.pathname === "/__control/fresh" && req.method === "POST") {
       await withBootLock(() => boot(body.profile ?? "fixture"));

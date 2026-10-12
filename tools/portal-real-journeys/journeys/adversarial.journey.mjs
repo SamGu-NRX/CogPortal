@@ -80,22 +80,61 @@ test.describe("A1 delayed, lost and reordered traffic", () => {
     await expectNoDispatch();
   });
 
-  test("two renames that reach the Worker in the opposite order leave the page showing what was stored", async ({ page }) => {
+  test("a rename and an added member that answer in the opposite order leave the page showing what was stored", async ({ page }) => {
+    // Two saves from one page in flight together, to two routes that both
+    // answer with the whole team. (Chrome sends two writes to one URL one at
+    // a time, so two saves of /api/team never overlap in a browser.) The
+    // rename reaches the Worker and is handled, and its answer is held at
+    // the proxy; adding a member goes through and answers; then the rename's
+    // answer, the team as it stood before the member joined, arrives last.
+    // The page is read before any reload and must never lose the member.
     await fresh();
     await signIn(page, "rj-a1-reorder", { demo: true });
+    const invitee = await devLogin("rj-a1-invitee");
+    await call("POST", "/api/cohorts/join", { who: invitee, body: { code: "VISION26" } });
+    // The add route finds people by GitHub login, which dev accounts don't carry.
+    await control.sql("UPDATE users SET github_login = 'rj-a1-invitee' WHERE email = 'rj-a1-invitee@dev.local'");
     await page.goto(`${STACK}/team`);
-    // The first save is held back long enough for the second to land first.
-    await control.fault({ method: "PATCH", path: "^/api/team$", delayMs: 2500, times: 1 });
-    for (const name of ["RJ First Name", "RJ Second Name"]) {
-      await page.getByRole("button", { name: "Rename" }).click();
-      await page.getByLabel("Team name").fill(name);
-      await page.getByRole("button", { name: "Save name" }).click();
-      if (name === "RJ First Name") await expect(page.getByLabel("Team name")).toHaveCount(1);
-    }
-    await page.waitForTimeout(4000);
-    const stored = (await (await page.request.get(`${STACK}/api/team`)).json()).name;
-    await page.reload();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(stored);
+    const answer = (method, pathname) => (response) => response.request().method() === method && new URL(response.url()).pathname === pathname;
+    const logins = async (response) => (await response.json()).members.map((member) => member.login);
+    await control.fault({ method: "PATCH", path: "^/api/team$", holdAnswer: "rename", times: 1 });
+
+    await page.getByRole("button", { name: "Rename" }).click();
+    await page.getByLabel("Team name").fill("RJ Held Name");
+    await page.getByRole("button", { name: "Save name" }).click();
+    // The Worker has handled the rename: its answer is the one held.
+    await expect.poll(async () => (await control.held()).map((h) => `${h.tag} ${h.status}`)).toEqual(["rename 200"]);
+    expect((await control.sql("SELECT name FROM teams WHERE name = 'RJ Held Name'")).length).toBe(1);
+    await expect(page.getByRole("button", { name: "Save name" })).toHaveAttribute("aria-busy", "true");
+
+    // The second save, while the first is still waiting for its answer.
+    await page.getByRole("button", { name: "Add someone" }).click();
+    const added = page.waitForResponse(answer("POST", "/api/team/members"));
+    await page.getByRole("option", { name: /rj-a1-invitee/ }).click();
+    expect(await logins(await added)).toContain("rj-a1-invitee");
+    const people = page.getByRole("region").filter({ has: page.getByRole("heading", { name: "People" }) }).getByRole("listitem");
+    await expect(people.filter({ hasText: "rj-a1-invitee" })).toHaveCount(1);
+    // From here, record whether the new member ever leaves the People list.
+    await page.evaluate(() => {
+      window.__rjMemberLost = false;
+      const list = () => [...document.querySelectorAll("main section, main [role=region]")].find((el) => el.querySelector("h2")?.textContent?.trim() === "People");
+      new MutationObserver(() => {
+        if (!list()?.innerText.includes("rj-a1-invitee")) window.__rjMemberLost = true;
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+
+    const renamed = page.waitForResponse(answer("PATCH", "/api/team"));
+    await control.release("rename");
+    // The rename's answer is the older one: the team before the member joined.
+    expect(await logins(await renamed)).not.toContain("rj-a1-invitee");
+    // Before any reload: the page shows both saves, and never dropped the member.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("RJ Held Name");
+    await expect(people.filter({ hasText: "rj-a1-invitee" })).toHaveCount(1);
+    await page.waitForTimeout(1000);
+    expect(await page.evaluate(() => window.__rjMemberLost), "the new member left the page when the older answer arrived").toBe(false);
+    const stored = await (await page.request.get(`${STACK}/api/team`)).json();
+    expect(stored.name).toBe("RJ Held Name");
+    expect(stored.members.map((member) => member.login)).toContain("rj-a1-invitee");
   });
 });
 
