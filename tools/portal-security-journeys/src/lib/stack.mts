@@ -157,7 +157,11 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
         }
       : {}),
     BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+    BETTER_AUTH_URL: `http://127.0.0.1:${port}`,
+    PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
     RUNNER_SIGNING_SECRET: RUNNER_SECRET,
+    RUNNER_SIGNING_KEY_ID: "runner-v1",
+    RUN_STALE_AFTER_SECONDS: "3600",
     EXECUTION_PROVIDER: "fixture",
   };
 
