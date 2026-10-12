@@ -68,6 +68,13 @@ const serverSchema = {
    */
   PLATFORM_OWNER_LOGINS: z.string().optional(),
 
+  /**
+   * What TAs read about students: "assigned-teams" (unset means the same) or
+   * "restricted". See auth/staff-visibility.ts. Any other value fails every
+   * request here rather than quietly picking one.
+   */
+  STAFF_VISIBILITY: z.enum(["assigned-teams", "restricted"]).optional(),
+
   BETTER_AUTH_SECRET: z.string().min(32).optional(),
   /** Origin used to construct the fixed GitHub OAuth callback. */
   BETTER_AUTH_URL: z.url().optional(),

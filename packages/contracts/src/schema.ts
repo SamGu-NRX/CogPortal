@@ -1454,11 +1454,32 @@ export const StartRunResponseSchema = z.object({ runId: z.string() });
 
 /* ── Admin console (staff only, deliberately small) ───────────────────── */
 
+/**
+ * What a staff response carries about students, set by the Worker's
+ * STAFF_VISIBILITY setting (worker/auth/staff-visibility.ts).
+ *
+ * - "full": today's behaviour. A TA reads their assigned teams' member
+ *   logins, run counts, latest published score and process findings.
+ * - "restricted": a proposal awaiting the owner, never the default. For a TA,
+ *   student names, scores, metrics and findings are withheld; team-level
+ *   counts, run states and failure categories remain. Owners always read
+ *   "full".
+ *
+ * Logs, diagnostics and submissions reach no staff surface under either.
+ */
+export const STAFF_VISIBILITY_SETTINGS = ["assigned-teams", "restricted"] as const;
+export const StaffVisibilitySettingSchema = z.enum(STAFF_VISIBILITY_SETTINGS);
+export type StaffVisibilitySetting = z.infer<typeof StaffVisibilitySettingSchema>;
+export const StaffViewSchema = z.enum(["full", "restricted"]);
+export type StaffView = z.infer<typeof StaffViewSchema>;
+
 export const AdminTeamSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
   provenance: TeamProvenanceSchema,
   repoFullName: z.string(),
+  /** Always present; `members` is empty under a restricted view. */
+  memberCount: z.number().int().nonnegative(),
   members: z.array(
     z.object({
       login: z.string(),
@@ -1564,6 +1585,7 @@ export type AdminTeamSummary = z.infer<typeof AdminTeamSummarySchema>;
 /** GET /api/admin/overview */
 export const AdminOverviewSchema = z.object({
   scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
   cohort: z.object({
     slug: z.string(),
     name: z.string(),
@@ -1724,6 +1746,7 @@ export type StaffDeskTeamRow = z.infer<typeof StaffDeskTeamRowSchema>;
 /** GET /api/admin/desk/teams */
 export const StaffDeskTeamListSchema = z.object({
   scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
   teams: z.array(StaffDeskTeamRowSchema),
 });
 export type StaffDeskTeamList = z.infer<typeof StaffDeskTeamListSchema>;
@@ -1733,12 +1756,14 @@ export type StaffDeskTeamList = z.infer<typeof StaffDeskTeamListSchema>;
  *
  * `commitSignals` is the team page's own process projection — the same
  * builders (`buildProcessSignals`, `findingSentences`) over the stored
- * read — or null unless `history.forConnectedRepository`. The run-derived
+ * read — or null unless `history.forConnectedRepository`, and always null
+ * under a restricted view, as are the member logins. The run-derived
  * readings (weekLabel, firstLight, runsElsewhere) stay top level and
  * independent of commit history.
  */
 export const StaffDeskTeamDetailSchema = z.object({
   scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
   team: z.object({
     id: z.string(),
     name: z.string(),
@@ -1803,6 +1828,7 @@ export type StaffDeskRunRow = z.infer<typeof StaffDeskRunRowSchema>;
 /** GET /api/admin/desk/teams/:teamId/runs */
 export const StaffDeskRunListSchema = z.object({
   scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
   total: z.number().int().nonnegative(),

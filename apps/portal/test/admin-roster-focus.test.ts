@@ -18,7 +18,7 @@ import { AdminPage } from "../src/routes/AdminPage.tsx";
 
 function team(id: string, name: string): AdminTeamSummary {
   return {
-    id, name, provenance: "live", repoFullName: `demo/${id}`,
+    id, name, provenance: "live", repoFullName: `demo/${id}`, memberCount: 1,
     members: [{ login: `${id}-admin`, name: null, role: "admin" }], tas: [],
     practiceUsed: 0, officialUsed: 0, hostedRuns: 0, refundsGiven: 0, published: null,
     firstLight: null, lastHostedRun: null,
@@ -30,6 +30,7 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
   const window = new Window({ url: "https://portal.example/admin" });
   let overview: AdminOverview = {
     scope: "owner",
+    view: "full",
     cohort: { slug: "test", name: "Test cohort", joinCode: "CODE", active: true },
     teams: [team("team_a", "Team A"), team("team_b", "Team B")],
     unassigned: unassigned.map((login) => ({ login, name: null, joinedAt: null })),
@@ -46,7 +47,11 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
       if (added && init.method === "POST") {
         await addGate;
         const target = overview.teams.find((entry) => entry.id === added[1])!;
-        const next = { ...target, members: [...target.members, { login: body.login!, name: null, role: "write" as const }] };
+        const next = {
+          ...target,
+          memberCount: target.memberCount + 1,
+          members: [...target.members, { login: body.login!, name: null, role: "write" as const }],
+        };
         overview = {
           ...overview,
           teams: overview.teams.map((entry) => (entry.id === next.id ? next : entry)),

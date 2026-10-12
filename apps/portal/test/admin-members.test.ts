@@ -635,6 +635,7 @@ test("a TA's overview holds their assigned live teams and nothing from any other
 function overviewFixture(over: Partial<AdminOverview> = {}): AdminOverview {
   return AdminOverviewSchema.parse({
     scope: "owner",
+    view: "full",
     cohort: { slug: "bwsi-2026", name: "CogWorks 2026", joinCode: "VISION26", active: true },
     teams: [],
     unassigned: [],
@@ -647,6 +648,7 @@ const TEAM = {
   name: "Cosine Similarity Club",
   provenance: "live",
   repoFullName: "cogworks-demo/cosine-similarity-club",
+  memberCount: 0,
   members: [],
   tas: [],
   practiceUsed: 3,

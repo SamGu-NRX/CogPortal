@@ -16,6 +16,7 @@ import { getDb } from "../db/client";
 import { benchmarks, runs, teamMembers, teamProcessSignals, teamTas, teams, users } from "../db/schema";
 import type { AppEnv } from "../env";
 import type { CommitRecord } from "../github/commits";
+import { staffView } from "../auth/staff-visibility";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { buildProcessSignals, findingSentences } from "../services/process-signals";
@@ -298,6 +299,9 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
 
     return respond(c, StaffDeskTeamListSchema, {
       scope: scope.isOwner ? ("owner" as const) : ("ta" as const),
+      // The list carries no student names, scores or findings, so both views
+      // read the same rows.
+      view: staffView(c.env, scope),
       teams: body,
     });
   });
@@ -306,6 +310,7 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
   app.get("/admin/desk/teams/:teamId", async (c) => {
     const teamId = c.req.param("teamId");
     const scope = await requireTeamScope(c, teamId);
+    const view = staffView(c.env, scope);
     const db = getDb(c.env);
 
     const [team] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
@@ -335,8 +340,10 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
     // The desk reports how the stored read stands; it never re-fetches.
     const { history, commits } = readStoredHistory(historyRow[0], team, Date.now());
 
+    // Findings, stage counts and ownership name students and measure their
+    // work; a restricted view gets none of them.
     let commitSignals = null;
-    if (commits) {
+    if (commits && view === "full") {
       const roster: RosterMember[] = await teamRoster(db, teamId);
       // The team page's own builders, over the stored read: same stage maps,
       // same ownership rule, same sentences.
@@ -360,16 +367,20 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
     const light = lights[0];
     return respond(c, StaffDeskTeamDetailSchema, {
       scope: scope.isOwner ? ("owner" as const) : ("ta" as const),
+      view,
       team: {
         id: team.id,
         name: team.name,
         description: team.description,
         repo: { fullName: team.repoFullName, defaultBranch: team.defaultBranch },
         memberCount: memberCount[0]?.value ?? 0,
-        members: members.map((member) => ({
-          login: member.login ?? member.email.split("@")[0],
-          role: member.role,
-        })),
+        members:
+          view === "full"
+            ? members.map((member) => ({
+                login: member.login ?? member.email.split("@")[0],
+                role: member.role,
+              }))
+            : [],
         tas: tas.map((ta) => ({ login: ta.login ?? ta.email.split("@")[0] })),
       },
       commitSignals,
@@ -478,6 +489,9 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
     const total = totalRow[0]?.value ?? 0;
     return respond(c, StaffDeskRunListSchema, {
       scope: scope.isOwner ? ("owner" as const) : ("ta" as const),
+      // Run rows carry states, clocks and failure categories only, which both
+      // views may read.
+      view: staffView(c.env, scope),
       page,
       pageSize,
       total,

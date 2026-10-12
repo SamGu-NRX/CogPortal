@@ -30,6 +30,7 @@ import {
   teams,
   users,
 } from "../db/schema";
+import { requireMembershipEdits, staffView, summaryForView } from "../auth/staff-visibility";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";
@@ -278,13 +279,14 @@ async function readAdminTeamSummaries(
     const usage = used.get(team.id);
     const first = firstLightByTeam.get(team.id);
     const last = lastRunByTeam.get(team.id);
+    const teamMembersOf = members.filter((member) => member.teamId === team.id);
     return {
       id: team.id,
       name: team.name,
       provenance: team.provenance,
       repoFullName: team.repoFullName,
-      members: members
-        .filter((member) => member.teamId === team.id)
+      memberCount: teamMembersOf.length,
+      members: teamMembersOf
         .map((member) => ({
           login: member.login ?? member.email.split("@")[0],
           name: member.name,
@@ -483,15 +485,17 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
       name: user.name,
       joinedAt: user.joinedAt,
     }));
+    const view = staffView(c.env, scope);
     return respond(c, AdminOverviewSchema, {
       scope: scope.isOwner ? "owner" : "ta",
+      view,
       cohort: {
         slug: cohort.slug,
         name: cohort.name,
         joinCode: scope.isOwner ? cohort.joinCode : null,
         active: cohort.active,
       },
-      teams: summaries,
+      teams: summaries.map((summary) => summaryForView(summary, view)),
       unassigned: serializedUnassigned,
     });
   });
@@ -520,21 +524,21 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const body = await parseBody(c, UpdateTeamRequestSchema);
     const db = getDb(c.env);
     const teamId = c.req.param("teamId");
-    await requireTeamScope(c, teamId);
+    const view = staffView(c.env, await requireTeamScope(c, teamId));
     const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
     const updates: { name?: string; description?: string | null } = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     await db.update(teams).set(updates).where(eq(teams.id, teamId));
-    return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+    return respond(c, AdminTeamSummarySchema, summaryForView(await getAdminTeamSummary(db, teamId), view));
   });
 
   app.post("/admin/teams/:teamId/members", async (c) => {
     const body = await parseBody(c, AdminAddMemberRequestSchema);
     const db = getDb(c.env);
     const teamId = c.req.param("teamId");
-    await requireTeamScope(c, teamId);
+    requireMembershipEdits(staffView(c.env, await requireTeamScope(c, teamId)));
     const [[team], [user]] = await Promise.all([
       db
         .select({ id: teams.id, cohortId: teams.cohortId, repoFullName: teams.repoFullName })
@@ -593,7 +597,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.delete("/admin/teams/:teamId/members/:login", async (c) => {
     const db = getDb(c.env);
     const teamId = c.req.param("teamId");
-    await requireTeamScope(c, teamId);
+    requireMembershipEdits(staffView(c.env, await requireTeamScope(c, teamId)));
     const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
     const [user] = await db
