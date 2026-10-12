@@ -126,15 +126,57 @@ function cookieOptions(c: Context<AppEnv>, maxAge: number) {
   return activityCookieOptions(c.req.url, maxAge);
 }
 
-async function activityDiscordId(c: Context<AppEnv>): Promise<string> {
+/**
+ * The signed session cookie's value: the Discord user id, the expiry, and the
+ * username Discord returned, base64url-encoded so a dot in it cannot split
+ * the value. The username is what the portal's link confirmation shows the
+ * student; without it every Activity link read "Discord user". A cookie from
+ * before the third field parses with a null username.
+ */
+function toBase64Url(text: string): string {
+  const binary = String.fromCodePoint(...new TextEncoder().encode(text));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(encoded: string): string {
+  const binary = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.codePointAt(0)!));
+}
+
+export function activitySessionValue(discordUserId: string, expiresAt: number, username: string): string {
+  return `${discordUserId}.${expiresAt}.${toBase64Url(username)}`;
+}
+
+export function parseActivitySession(
+  raw: string,
+): { discordUserId: string; expires: number; username: string | null } | null {
+  const [discordUserId, expires, encoded] = raw.split(".");
+  if (!discordUserId || !expires || !Number.isFinite(Number(expires))) return null;
+  let username: string | null = null;
+  if (encoded) {
+    try {
+      username = fromBase64Url(encoded) || null;
+    } catch {
+      // A malformed third field is a session without a username, not a refusal.
+      username = null;
+    }
+  }
+  return { discordUserId, expires: Number(expires), username };
+}
+
+async function activitySession(c: Context<AppEnv>): Promise<{ discordUserId: string; username: string | null }> {
   const { sessionSecret } = configured(c);
   const raw = await getSignedCookie(c, sessionSecret, SESSION_COOKIE);
   if (!raw) throw new ApiHttpError(401, "unauthorized", "Open the Cog Activity again.");
-  const [discordUserId, expires] = raw.split(".");
-  if (!discordUserId || !expires || Number(expires) <= Date.now()) {
+  const session = parseActivitySession(raw);
+  if (!session || session.expires <= Date.now()) {
     throw new ApiHttpError(401, "unauthorized", "The Cog Activity session expired. Open it again.");
   }
-  return discordUserId;
+  return session;
+}
+
+async function activityDiscordId(c: Context<AppEnv>): Promise<string> {
+  return (await activitySession(c)).discordUserId;
 }
 
 async function activityIdentity(env: AppEnv["Bindings"], discordUserId: string) {
@@ -210,7 +252,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     await setSignedCookie(
       c,
       SESSION_COOKIE,
-      `${user.id}.${expiresAt}`,
+      activitySessionValue(user.id, expiresAt, user.username),
       config.sessionSecret,
       cookieOptions(c, SESSION_TTL_SECONDS),
     );
@@ -222,10 +264,10 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   });
 
   app.get("/activity/session", async (c) => {
-    const discordUserId = await activityDiscordId(c);
+    const { discordUserId, username } = await activitySession(c);
     const identity = await activityIdentity(c.env, discordUserId);
     if (!identity) {
-      const start = await createDiscordLink(c.env, discordUserId, "Discord user");
+      const start = await createDiscordLink(c.env, discordUserId, username ?? "Discord user");
       const linkUrl = start.url ?? new URL("/connections", c.env.PUBLIC_ORIGIN ?? c.req.url).toString();
       return respond(c, ActivitySessionSchema, { linked: false, linkUrl });
     }
