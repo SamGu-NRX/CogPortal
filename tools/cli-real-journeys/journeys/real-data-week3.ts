@@ -9,13 +9,11 @@ import {
   PIN_SOURCE,
   VENV_BIN,
   assertJourneyHomeCold,
-  allowedUndocumentedHosts,
+  assertOnlineEgress,
   cliTraffic,
   parseReport,
   placeEgressMarker,
-  refusedEvents,
   runCogworks,
-  trafficSummary,
   zeroRequestViolation,
 } from "./real-data-common.ts";
 
@@ -109,21 +107,7 @@ await cases.languageTest.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks test --benchmark language-search --json (first real run; downloads witnessed)`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the first real language-search test ran to completion", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const allowedOffenders = allowedUndocumentedHosts(events);
-    const refusedEvents_ = refusedEvents(events);
-    case_.expect(
-      allowedOffenders.length === 0,
-      "every host the first run successfully contacted is a documented public-asset host",
-      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
-    );
-    case_.claim(
-      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
-      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
-    );
-    case_.claim(
-      "witnessed downloads",
-      `${trafficSummary(events.filter((event) => event.kind === "tunnel-bytes" || event.kind === "http-response-final"))}`,
-    );
+    assertOnlineEgress(case_, events, "the first language-search test");
     const parsed = parseReport(result);
     const metrics = parsed.report?.metrics ?? [];
     case_.expect(
@@ -153,17 +137,7 @@ await cases.languageRun.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks run --benchmark language-search --json`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the real language-search run completed", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const allowedOffenders = allowedUndocumentedHosts(events);
-    const refusedEvents_ = refusedEvents(events);
-    case_.expect(
-      allowedOffenders.length === 0,
-      "every host the run successfully contacted is a documented public-asset host",
-      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
-    );
-    case_.claim(
-      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
-      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
-    );
+    assertOnlineEgress(case_, events, "the language-search run");
     const parsed = parseReport(result);
     const metrics = parsed.report?.metrics ?? [];
     case_.expect(

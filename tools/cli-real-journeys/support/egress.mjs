@@ -22,66 +22,16 @@
 import http from "node:http";
 import net from "node:net";
 import { appendFileSync, writeFileSync } from "node:fs";
+import { egressAllowed } from "./egress-hosts.mjs";
 
 const LOG = process.env.EGRESS_LOG ?? "/tmp/egress.jsonl";
 const INFO = process.env.EGRESS_INFO ?? "/tmp/egress.json";
 
-/** Hosts the course's real-data runs may fetch: the documented public assets
- * only (the week 2/3 data sources named in benchmark-packages.ts, README.md
- * and docs/design/student-cli-and-onboarding.md). Everything else is a defect
- * the journeys must catch. */
-const DOCUMENTED_HOSTS = new Set([
-  "github.com",
-  "objects.githubusercontent.com",
-  "release-assets.githubusercontent.com",
-  "codeload.github.com",
-  "huggingface.co",
-  "hf.co",
-  "cdn-lfs.huggingface.co",
-  "cdn-lfs-us-1.huggingface.co",
-  "cdn-lfs.hf.co",
-  "cdn-lfs-us-1.hf.co",
-  "cas-bridge.xethub.hf.co",
-  "cas-server.xethub.hf.co",
-  "transfer.xethub.hf.co",
-  "xet.hf.co",
-  "www.dropbox.com",
-]);
-const DOCUMENTED_SUFFIXES = [".dl.dropboxusercontent.com", ".huggingface.co", ".hf.co"];
-
-function allowedDocumentedHost(host) {
-  const name = host.toLowerCase().replace(/\.$/, "");
-  if (DOCUMENTED_HOSTS.has(name)) return true;
-  return DOCUMENTED_SUFFIXES.some((suffix) => name.endsWith(suffix));
-}
-
-/** Mirrors support/loopback.ts's definition (localhost, ::1, 127.0.0.0/8).
- * This file is plain JS run by `node` directly, so the one definition cannot
- * be imported and is repeated here; loopback-guard.ts still pins every
- * origin the suite dials. Loopback stays reachable in every mode — the
- * journeys' local stack lives there; nothing external does. */
-function isLoopbackHost(host) {
-  let name = String(host).toLowerCase().replace(/\.$/, "");
-  if (name.startsWith("[") && name.endsWith("]")) name = name.slice(1, -1);
-  if (name === "localhost" || name === "::1") return true;
-  const v4 = name.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    return (
-      v4.slice(1).every((o) => Number.isInteger(Number(o)) && Number(o) <= 255) &&
-      Number(v4[1]) === 127
-    );
-  }
-  const mapped = name.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  return mapped !== null && isLoopbackHost(mapped[1]);
-}
-
-/** The one allow rule, applied in EVERY mode: loopback and the documented
- * public-asset hosts, nothing else. The mode is still recorded on events
- * (and still flippable) because the journeys use it to mark which windows
- * are expected to be silent — it no longer changes what is allowed. */
-function allowed(host) {
-  return isLoopbackHost(host) || allowedDocumentedHost(host);
-}
+/** The one allow rule (support/egress-hosts.mjs), applied in EVERY mode:
+ * loopback and the documented public-asset hosts, nothing else. The mode is
+ * still recorded on events because the journeys use it to mark which windows
+ * must be silent; it does not change what is allowed. */
+const allowed = egressAllowed;
 
 let mode = "online";
 const events = [];

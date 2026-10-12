@@ -1,12 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readdir } from "node:fs/promises";
-import {
-  egressInfo,
-  placeEgressMarker,
-  readEgressEvents,
-  type EgressEvent,
-} from "../support/egress.ts";
+import { egressInfo, placeEgressMarker, readEgressEvents, type EgressEvent } from "../support/egress.ts";
 
 /**
  * Shared machinery for the week 2/3 public-data journeys. The contract under
@@ -28,33 +23,6 @@ function require_env(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`required environment variable ${name} is not set`);
   return value;
-}
-
-/** The documented public-asset hosts (the witness refuses everything else
- * offline; the journeys also post-check online-mode traffic against this). */
-export const DOCUMENTED_HOSTS = new Set([
-  "github.com",
-  "objects.githubusercontent.com",
-  "release-assets.githubusercontent.com",
-  "codeload.github.com",
-  "huggingface.co",
-  "hf.co",
-  "cdn-lfs.huggingface.co",
-  "cdn-lfs-us-1.huggingface.co",
-  "cdn-lfs.hf.co",
-  "cdn-lfs-us-1.hf.co",
-  "cas-bridge.xethub.hf.co",
-  "cas-server.xethub.hf.co",
-  "transfer.xethub.hf.co",
-  "xet.hf.co",
-  "www.dropbox.com",
-]);
-const DOCUMENTED_SUFFIXES = [".dl.dropboxusercontent.com", ".huggingface.co", ".hf.co"];
-
-export function documentedHost(host: string): boolean {
-  const name = host.toLowerCase().replace(/\.$/, "");
-  if (DOCUMENTED_HOSTS.has(name)) return true;
-  return DOCUMENTED_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
 /** Asserts the journey home is empty: the first-real-run contract needs cold
@@ -110,76 +78,7 @@ export async function cliTraffic(after: number): Promise<EgressEvent[]> {
   return events.filter((event) => event.kind !== "mode");
 }
 
-/** The receipt line for a window of witnessed traffic: per-host request counts
- * and bytes (tunnel totals where the CLI used https, response bytes for http). */
-export function trafficSummary(events: EgressEvent[]): string {
-  if (events.length === 0) return "no network requests";
-  const hosts = new Map<string, { requests: number; bytes: number; refused: number }>();
-  for (const event of events) {
-    const host = event.host ?? "(unknown)";
-    const entry = hosts.get(host) ?? { requests: 0, bytes: 0, refused: 0 };
-    if (event.kind === "connect" || event.kind === "http") entry.requests += 1;
-    if (event.kind === "tunnel-bytes" && typeof event.received === "number") entry.bytes += event.received;
-    if (event.kind === "http-response-final" && typeof event.bytes === "number") entry.bytes += event.bytes;
-    if (event.allowed === false) entry.refused += 1;
-    hosts.set(host, entry);
-  }
-  return [...hosts.entries()]
-    .map(([host, s]) => `${host}: ${s.requests} requests, ${s.bytes} bytes received${s.refused ? `, ${s.refused} REFUSED` : ""}`)
-    .join("; ");
-}
-
-/** Names every host in the window that the documented asset list does not
- * cover — the defect the journeys exist to catch. */
-export function undocumentedHosts(events: EgressEvent[]): string[] {
-  const offenders = new Set<string>();
-  for (const event of events) {
-    if (event.host && !documentedHost(event.host)) offenders.add(event.host);
-  }
-  return [...offenders].sort();
-}
-
-/** The zero-request claim's detector: a case that claims zero network
- * requests must see ZERO events in its window. Any event fails the claim —
- * allowed or refused. (Before the fail-closed proxy a refusal was judged
- * only after the fact; now a refusal forwards nothing, but a command that
- * claimed silence and still dialed out has still made its request, and the
- * claim "made no network requests" is false either way.) Returns the
- * violation text for the receipt, or null when the window is truly empty. */
-export function zeroRequestViolation(events: EgressEvent[]): string | null {
-  if (events.length === 0) return null;
-  const requests = events.filter((event) => event.kind === "connect" || event.kind === "http");
-  const refused = refusedEvents(events);
-  const parts = [`${events.length} witnessed event(s)`, `${requests.length} request(s)`];
-  if (refused.length > 0) parts.push(`${refused.length} refused (nothing forwarded)`);
-  return `${parts.join(", ")} — ${trafficSummary(events)}`;
-}
-
-/** Hosts of events the proxy ALLOWED that the documented asset list does not
- * cover — the online-mode assertion's offenders. Refused events never
- * forwarded anything, so they are judged separately (see refusedEvents). */
-export function allowedUndocumentedHosts(events: EgressEvent[]): string[] {
-  return undocumentedHosts(events.filter((event) => event.allowed !== false));
-}
-
-/** Every refused event in the window. Surfaced in receipts as a claim line,
- * never hidden and never silently dropped: with the fail-closed proxy a
- * refusal forwarded no bytes, but the attempt is part of the story.
- *
- * The one refusal the online runs are EXPECTED to see, root-caused
- * 2026-10-11: the huggingface `datasets` download-count beacon. datasets
- * 3.1.0 `load.py` `increase_load_count()` fires `HEAD
- * https://s3.amazonaws.com/datasets.huggingface.co/datasets/datasets/<name>/<name>.py`
- * on every `load_dataset()` call. It is best-effort (`try/except Exception:
- * pass`, 3 s timeout — read at
- * miniconda3/envs/week2/lib/python3.8/site-packages/datasets/load.py), so the
- * pre-connect refusal does not disturb the run. It is NOT exempted anywhere:
- * an online run's allowed traffic must still be a subset of the documented
- * hosts, and a zero-request window that sees the beacon (it never does —
- * only `load_dataset` paths call it, never `check`) fails on it. */
-export function refusedEvents(events: EgressEvent[]): EgressEvent[] {
-  return events.filter((event) => event.allowed === false);
-}
+export { assertOnlineEgress, trafficSummary, undocumentedHosts, zeroRequestViolation } from "../support/egress-policy.ts";
 
 export interface ParsedJsonReport {
   exit: number;

@@ -9,11 +9,10 @@ import {
   PIN_SOURCE,
   VENV_BIN,
   assertJourneyHomeCold,
-  allowedUndocumentedHosts,
+  assertOnlineEgress,
   cliTraffic,
   parseReport,
   placeEgressMarker,
-  refusedEvents,
   runCogworks,
   trafficSummary,
   undocumentedHosts,
@@ -157,21 +156,7 @@ await cases.recognitionTest.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks test --benchmark vision-recognition --json (first real run; downloads witnessed)`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the first real recognition test ran to completion", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const allowedOffenders = allowedUndocumentedHosts(events);
-    const refusedEvents_ = refusedEvents(events);
-    case_.expect(
-      allowedOffenders.length === 0,
-      "every host the first run successfully contacted is a documented public-asset host",
-      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
-    );
-    case_.claim(
-      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
-      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
-    );
-    case_.claim(
-      "witnessed downloads",
-      `${trafficSummary(events.filter((event) => event.kind === "tunnel-bytes" || event.kind === "http-response-final"))}`,
-    );
+    assertOnlineEgress(case_, events, "the first recognition run");
     const parsed = parseReport(result);
     const metrics = parsed.report?.metrics ?? [];
     const primary = metrics.find((metric: { primary?: boolean }) => metric.primary);
@@ -195,17 +180,7 @@ await cases.clusteringRun.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks run --benchmark vision-clustering --json`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the real clustering run completed", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const allowedOffenders = allowedUndocumentedHosts(events);
-    const refusedEvents_ = refusedEvents(events);
-    case_.expect(
-      allowedOffenders.length === 0,
-      "every host the clustering run successfully contacted is a documented public-asset host",
-      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
-    );
-    case_.claim(
-      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
-      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
-    );
+    assertOnlineEgress(case_, events, "the clustering run");
     const parsed = parseReport(result);
     const metrics = parsed.report?.metrics ?? [];
     const primary = metrics.find((metric: { primary?: boolean }) => metric.primary);
