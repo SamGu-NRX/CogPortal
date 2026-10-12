@@ -1176,7 +1176,27 @@ def _run_view(args: argparse.Namespace, project_root: Path, *, project=None, pro
             return json.dumps(project.describe(json.loads(report.to_json())))
 
 
+# Opt-outs for usage pings that benchmark dependencies send on their own.
+# The `datasets` library (Week 2's `[data]` extra, 2.20 to 3.x) sends a HEAD
+# request to s3.amazonaws.com on every `load_dataset()` call to count
+# downloads (datasets/load.py, increase_load_count). That host is not one of
+# the documented data sources a student's network has to allow, and the
+# request carries nothing the run needs. Both libraries read these variables
+# when they are imported, so they are set before any benchmark loads, and
+# child processes inherit them. A value the student set themselves wins.
+_TELEMETRY_OPT_OUTS = (
+    ("HF_UPDATE_DOWNLOAD_COUNTS", "0"),
+    ("HF_HUB_DISABLE_TELEMETRY", "1"),
+)
+
+
+def _opt_out_of_dependency_telemetry() -> None:
+    for name, value in _TELEMETRY_OPT_OUTS:
+        os.environ.setdefault(name, value)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    _opt_out_of_dependency_telemetry()
     # Before anything reads a repository. Discovery runs student code whose
     # answer can depend on string hashing -- one 2026 repository builds its
     # IDF table by iterating a set -- and an interpreter's seed is fixed
