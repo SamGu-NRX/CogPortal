@@ -69,6 +69,19 @@ each hop forwards to its double:
 | Discord | 8823 | 8813 | Activity OAuth with single-use codes, `/v10/users/@me`, bot routes |
 | Modal runner | 8824 | 8814 | refuses every job; under the fixture provider nothing should arrive |
 
+Two more doubles stand in for the Discord client around the Activity:
+
+- `stack/discord-client-double.html`, served by the Activity journeys at
+  `http://localhost:8810/__rj/discord-client` (a Playwright route, so the page
+  never reaches the Worker), frames the Activity with the query parameters
+  Discord adds and answers the embedded SDK's postMessage RPC: handshake,
+  READY, AUTHORIZE (with a code minted at the Discord double, so the
+  Activity's code exchange through the Worker is the real one), AUTHENTICATE,
+  SUBSCRIBE and OPEN_EXTERNAL_LINK, which it records instead of opening.
+- On the Activity's host (`localhost`), the proxy strips Discord's `/.proxy`
+  prefix the way Discord's URL mapping does, and labels the answer
+  `x-cogportal-double: discord-proxy`.
+
 Every double journals what it receives (`GET /__doubles/journal`) and labels
 its answers with `x-cogportal-double`. A hop rule
 (`POST /__hop/rules {match: {method, path}, duplicate, delayMs, times}`)
@@ -103,5 +116,6 @@ runs in CI and fails when a route or page has no policy row.
 | `s5-route-matrix` | S5 | every route the Worker registers (read from `app.routes`), called by 19 identities: signed out, revoked and expired sessions, a signed-in-only account, a cohort member with no team, team A's admin and member, team B's member, a member who moved from A to B, an assigned and an unassigned TA, the owner, live, revoked and expired CLI devices and one on team B, and linked, teamless and unlinked Activity sessions. Each answer must match `route-policy.mjs` exactly (status, error code, message); each route also has a positive control that must succeed, or a stated reason it can't here |
 | `s5-page-matrix` | S5 | every page the router registers (read from `App.tsx`), opened by the 11 portal identities; where each lands and what it shows must match `page-policy.mjs` |
 | `s5-refusals` | S5 | connect refusals and the signed-out session |
-| `s6-activity-link` | S6 (part) | a duplicated Discord code exchange and a duplicated link confirmation still make one link |
+| `s6-activity-frontend` | S6 | the Activity frontend on its own host: opened outside Discord it says where to open it; inside the Discord client double, the link gate sends the student to the portal and its check opens the team's bench, a linked student with no team meets the team gate, and the live console streams a hosted practice run to its end, promotes it through the Activity's route, and leaves for the portal through Discord's external-link command |
+| `s6-activity-link` | S6 | a duplicated Discord code exchange and a duplicated link confirmation still make one link |
 | `ops-restart-and-production` | all | sessions survive a Worker restart; a production-configured Worker refuses dev sign-in |
