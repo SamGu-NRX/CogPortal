@@ -12,6 +12,8 @@ this suite scores is `docs/plan/real-user-readiness.md` (surfaces S1 to S10).
 Node 24, from the repo root after `pnpm install`:
 
 ```sh
+git submodule update --init benchmarks/week1
+tools/portal-real-journeys/stack/setup-python.sh   # Python 3.8 env, first time only
 cd tools/portal-real-journeys
 npm ci
 npx playwright install chromium   # first time only
@@ -24,9 +26,14 @@ and 8821-8824. Logs land in `test-results/stack-logs/`, traces and videos of
 failed journeys in `test-results/artifacts/`, screenshots the journeys take on
 purpose in `test-results/evidence/`.
 
-S2 runs the real `cogworks` CLI from `python/cogbench/src` on Python 3.8
-(`~/.local/bin/python3.8`, or set `RJ_PYTHON`), with its own temporary HOME and
-config, so it never touches `~/.cogbench`.
+The CLI journeys run the real `cogworks` CLI on Python 3.8, the course's
+version, in the environment `stack/setup-python.sh` builds in `.py38/` (this
+checkout's CLI and the Week 1 benchmark, editable, and the Week 1 reference
+submission's numpy, scipy and matplotlib); `RJ_PYTHON` points elsewhere. A
+missing or wrong environment fails those journeys rather than skipping them.
+Each CLI process gets its own temporary HOME and config, so it never touches
+`~/.cogbench`. Week 1 is the week they score on because its public corpus is
+generated locally, so a run needs no download.
 
 ## What a run can and can't touch
 
@@ -84,6 +91,7 @@ as a regex, `delayMs`, `drop`, `status`, `body`, `duplicateUpstream`,
 |------|---------|----------------|
 | `s1-signed-out` | S1 | landing and leaderboard render signed out, axe-clean at 1440, 390 and 320 wide; deep links ask for sign-in; unknown routes say so; skip link works |
 | `s2-onboarding-and-cli` | S2 | sign in, join with the cohort code, start a team, link the real CLI by device code; a wrong code is refused |
+| `s3-cli-report` | S3, S7 | the real CLI scores the Week 1 reference submission on Week 1's public data (Python 3.8, offline), links by device code and syncs; the Worker stores and the Runs page shows the CLI's own report, number for number, untracked while Week 1 is closed and on its track once open; a second sync changes nothing |
 | `s3-hosted-run` | S3 | a practice run started from the Runs page reaches a scored result and stays in history; a missing-adapter run shows the neutral failure card |
 | `s4-staff-desk` | S4 | a TA's desk and admin view under both staff visibility settings; an owner still reads names |
 | `s5-refusals` | S5 (part) | connect refusals and the signed-out session |

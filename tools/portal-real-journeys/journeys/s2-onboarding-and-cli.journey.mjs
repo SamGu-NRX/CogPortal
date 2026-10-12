@@ -8,16 +8,10 @@
 // is this run's proxy.
 
 import { test, expect } from "@playwright/test";
-import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { STACK, control, expectNoDispatch, fresh } from "./helpers.mjs";
-
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const CLI_SRC = path.join(REPO_ROOT, "python", "cogbench", "src");
-const PYTHON = process.env.RJ_PYTHON ?? path.join(os.homedir(), ".local", "bin", "python3.8");
+import { makeHome, requirePython, startLink } from "./cli.mjs";
 
 /** The sign-in page's development form, opened if its fold is closed. */
 async function devSignIn(page, login) {
@@ -33,36 +27,8 @@ async function devSignIn(page, login) {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 }
 
-/** Starts `cogworks link` and resolves once it prints the approval link. */
-function startLink() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "rj-cli-"));
-  const child = spawn(PYTHON, ["-m", "cogbench", "link", "--portal", STACK, "--no-browser"], {
-    cwd: home,
-    env: {
-      PATH: process.env.PATH,
-      HOME: home,
-      COGBENCH_CONFIG: path.join(home, "config.json"),
-      PYTHONPATH: CLI_SRC,
-      PYTHONUNBUFFERED: "1",
-    },
-  });
-  let output = "";
-  const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
-  const prompt = new Promise((resolve, reject) => {
-    const onData = (chunk) => {
-      output += chunk.toString();
-      const match = output.match(/Open (\S+) and confirm code (\S+)\./);
-      if (match) resolve({ uri: match[1], code: match[2] });
-    };
-    child.stdout.on("data", onData);
-    child.stderr.on("data", (chunk) => (output += chunk.toString()));
-    exited.then((code) => reject(new Error(`cogworks link exited ${code} before prompting:\n${output}`)));
-  });
-  return { home, prompt, exited, output: () => output, kill: () => child.kill("SIGTERM") };
-}
-
 test("a new student signs in, joins, starts a team, and links the CLI", async ({ page }) => {
-  test.skip(!fs.existsSync(PYTHON), `no Python 3.8 at ${PYTHON}; set RJ_PYTHON`);
+  requirePython();
   await fresh();
 
   await devSignIn(page, "rj-onboarding-student");
@@ -81,7 +47,8 @@ test("a new student signs in, joins, starts a team, and links the CLI", async ({
   const session = await (await page.request.get(`${STACK}/api/session`)).json();
   expect(session.team?.name).toBe("RJ Parity Checkers");
 
-  const cli = startLink();
+  const home = makeHome();
+  const cli = startLink(STACK, { cwd: home, home });
   try {
     const { uri, code } = await cli.prompt;
     expect(new URL(uri).origin).toBe(STACK);
@@ -92,7 +59,7 @@ test("a new student signs in, joins, starts a team, and links the CLI", async ({
 
     expect(await cli.exited, cli.output()).toBe(0);
     expect(cli.output()).toMatch(/Linked .+\. Local commands still work offline\./);
-    const config = JSON.parse(fs.readFileSync(path.join(cli.home, "config.json"), "utf8"));
+    const config = JSON.parse(fs.readFileSync(path.join(home, "config.json"), "utf8"));
     expect(Object.keys(config.portals)).toEqual([STACK]);
 
     // The portal lists the device for this student, and only one.
@@ -102,7 +69,7 @@ test("a new student signs in, joins, starts a team, and links the CLI", async ({
     expect(devices).toEqual([{ n: 1 }]);
   } finally {
     cli.kill();
-    fs.rmSync(cli.home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
   }
   await expectNoDispatch();
 });
