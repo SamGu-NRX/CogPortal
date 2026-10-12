@@ -74,8 +74,9 @@ its answers with `x-cogportal-double`. A hop rule
 (`POST /__hop/rules {match: {method, path}, duplicate, delayMs, times}`)
 shapes the wire between the Worker and a provider. The browser-side proxy on
 8810 takes the same kind of rule at `POST /__proxy/faults` (`method`, `path`
-as a regex, `delayMs`, `drop`, `status`, `body`, `duplicateUpstream`,
-`times`).
+as a regex, `delayMs`, `drop` for a lost request, `dropResponse` for a lost
+answer, `status`, `body`, `duplicateUpstream`, `times`). WebSocket upgrades
+(the run console's live stream) pass through the proxy unshaped.
 
 ## Control routes (8810)
 
@@ -87,6 +88,11 @@ as a regex, `delayMs`, `drop`, `status`, `body`, `duplicateUpstream`,
 
 ## Journeys
 
+`RJ_MATRIX_OBSERVE=1` makes the two matrix journeys record what they see
+(`test-results/evidence/*-matrix-observed.json`) instead of asserting, for
+writing the policy after a route changes. `apps/portal/test/route-matrix-coverage.test.ts`
+runs in CI and fails when a route or page has no policy row.
+
 | File | Surface | What it proves |
 |------|---------|----------------|
 | `s1-signed-out` | S1 | landing and leaderboard render signed out, axe-clean at 1440, 390 and 320 wide; deep links ask for sign-in; unknown routes say so; skip link works |
@@ -94,6 +100,8 @@ as a regex, `delayMs`, `drop`, `status`, `body`, `duplicateUpstream`,
 | `s3-cli-report` | S3, S7 | the real CLI scores the Week 1 reference submission on Week 1's public data (Python 3.8, offline), links by device code and syncs; the Worker stores and the Runs page shows the CLI's own report, number for number, untracked while Week 1 is closed and on its track once open; a second sync changes nothing |
 | `s3-hosted-run` | S3 | a practice run started from the Runs page reaches a scored result and stays in history; a missing-adapter run shows the neutral failure card |
 | `s4-staff-desk` | S4 | a TA's desk and admin view under both staff visibility settings; an owner still reads names |
-| `s5-refusals` | S5 (part) | connect refusals and the signed-out session |
+| `s5-route-matrix` | S5 | every route the Worker registers (read from `app.routes`), called by 19 identities: signed out, revoked and expired sessions, a signed-in-only account, a cohort member with no team, team A's admin and member, team B's member, a member who moved from A to B, an assigned and an unassigned TA, the owner, live, revoked and expired CLI devices and one on team B, and linked, teamless and unlinked Activity sessions. Each answer must match `route-policy.mjs` exactly (status, error code, message); each route also has a positive control that must succeed, or a stated reason it can't here |
+| `s5-page-matrix` | S5 | every page the router registers (read from `App.tsx`), opened by the 11 portal identities; where each lands and what it shows must match `page-policy.mjs` |
+| `s5-refusals` | S5 | connect refusals and the signed-out session |
 | `s6-activity-link` | S6 (part) | a duplicated Discord code exchange and a duplicated link confirmation still make one link |
 | `ops-restart-and-production` | all | sessions survive a Worker restart; a production-configured Worker refuses dev sign-in |

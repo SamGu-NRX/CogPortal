@@ -25,6 +25,7 @@
 
 import { spawn, execFileSync } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -347,7 +348,9 @@ async function boot(nextProfile) {
 
 // ── The shaping proxy ──────────────────────────────────────────────────────
 // Real traffic only. The first matching rule applies. Actions: delayMs, drop
-// (destroy the connection), status/body (substitute the answer),
+// (destroy the connection before forwarding: a lost request), dropResponse
+// (forward, then destroy the connection: a lost answer), status/body
+// (substitute the answer),
 // duplicateUpstream (send the same request n extra times; the client gets the
 // first answer), times (how many requests the rule fires on).
 const faultRules = [];
@@ -381,7 +384,25 @@ function upstreamOnce(req, url, headers, body, buffer) {
   });
 }
 
-async function proxyPass(req, res, url) {
+// Discord's proxy double. Inside Discord an Activity reaches its own server
+// through `/.proxy/…` on its discordsays.com origin, and Discord forwards the
+// rest of the path to the app's URL mapping (`/` to the Activity host). The
+// Activity bundle calls `/.proxy/api/…` whenever it is embedded, so on the
+// Activity's host here the prefix is stripped the same way before forwarding,
+// and the answer is labelled as having passed the double.
+const DISCORD_PROXY_PREFIX = "/.proxy/";
+function discordProxyMapping(req, url) {
+  const host = (req.headers.host ?? "").split(":")[0];
+  if (host !== "localhost" || !url.pathname.startsWith(DISCORD_PROXY_PREFIX)) return null;
+  const mapped = new URL(url);
+  mapped.pathname = url.pathname.slice(DISCORD_PROXY_PREFIX.length - 1);
+  return mapped;
+}
+
+async function proxyPass(req, res, originalUrl) {
+  const mapped = discordProxyMapping(req, originalUrl);
+  const url = mapped ?? originalUrl;
+  if (mapped) res.setHeader("x-cogportal-double", "discord-proxy");
   const rule = matchRule(req.method, url.pathname);
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -398,9 +419,15 @@ async function proxyPass(req, res, url) {
     // first answer has to be held while they go out); otherwise stream, so
     // server-sent events stay live.
     const buffer = rule?.status !== undefined || rule?.body !== undefined || (rule?.duplicateUpstream ?? 0) > 0;
-    const first = await upstreamOnce(req, url, headers, body, buffer);
+    const first = await upstreamOnce(req, url, headers, body, buffer || Boolean(rule?.dropResponse));
     for (let extra = 0; extra < (rule?.duplicateUpstream ?? 0); extra += 1) {
       await upstreamOnce(req, url, headers, body, true);
+    }
+    if (rule?.dropResponse) {
+      // The Worker handled the request; its answer never reaches the browser.
+      say(`[proxy] dropping the answer to ${req.method} ${url.pathname} (${first.statusCode})`);
+      req.socket.destroy();
+      return;
     }
     const outHeaders = { ...first.headers };
     let payload = first.body;
@@ -482,6 +509,28 @@ const proxy = http.createServer((req, res) => {
     return void control(req, res, url);
   }
   void proxyPass(req, res, url);
+});
+
+// WebSocket upgrades (the run console's live stream) pass straight through:
+// the request goes to the Worker as sent, then bytes are piped both ways.
+// Fault rules don't apply to an open socket.
+proxy.on("upgrade", (req, socket, head) => {
+  const original = new URL(req.url, BASE);
+  const url = discordProxyMapping(req, original) ?? original;
+  const upstream = net.connect(PORTAL_PORT, "127.0.0.1", () => {
+    const lines = [`${req.method} ${url.pathname}${url.search} HTTP/${req.httpVersion}`];
+    for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
+    upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
+    if (head?.length) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+  });
+  const close = () => {
+    upstream.destroy();
+    socket.destroy();
+  };
+  upstream.on("error", close);
+  socket.on("error", close);
 });
 
 // ── Boot ───────────────────────────────────────────────────────────────────

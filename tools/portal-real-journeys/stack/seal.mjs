@@ -131,6 +131,9 @@ export function profileVars(profile, { base, providerUrls }) {
     DISCORD_CLIENT_SECRET: "rj-local-discord-client-secret",
     DISCORD_BOT_TOKEN: "rj-local-bot-token",
     ACTIVITY_SESSION_SECRET: "rj-local-activity-session-secret-0000000000",
+    // Set so the webhook route checks signatures instead of answering 501;
+    // the route matrix signs a ping with it.
+    GITHUB_WEBHOOK_SECRET: "rj-local-github-webhook-secret",
   };
   if (profile === "fixture" || profile === "fixture-restricted") {
     return {
