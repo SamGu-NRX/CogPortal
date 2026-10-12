@@ -154,25 +154,71 @@ class _Image:
         pass
 
 
+def _debian_slim(**kwargs):
+    """modal.Image.debian_slim through the labelled double: record the base."""
+    recorder = _Recorder()
+    recorder._step("debian_slim", kwargs={str(k): str(v) for k, v in kwargs.items()})
+    return recorder
+
+
 class _Recorder:
-    """What module import needs: something that records its installs and
-    accepts further builder calls, like image_manifest's recorder."""
+    """The labelled modal.Image double: records every builder call so the
+    controller verification can receipt the deployed image chain. Surface
+    mirrors the calls modal_app.py actually makes (the authoritative
+    caller); nothing is executed or deployed locally."""
 
     def __init__(self, *args, **kwargs):
         self.installs_ = []
+        self.steps_ = []
+
+    def _step(self, op, **fields):
+        record = {"op": op}
+        record.update(fields)
+        self.steps_.append(record)
+        return self
 
     def pip_install(self, *specs):
         self.installs_.extend(specs)
-        return self
+        return self._step("pip_install", args=[str(spec) for spec in specs])
 
-    def add_local_dir(self, remote_path, local_path):
-        return self
+    def apt_install(self, *packages, **kwargs):
+        return self._step("apt_install", args=[str(p) for p in packages])
+
+    def run_commands(self, *commands, **kwargs):
+        return self._step("run_commands", args=[str(c) for c in commands])
+
+    def run_function(self, fn, *args, **kwargs):
+        target = getattr(fn, "_fn", fn)
+        return self._step(
+            "run_function", fn=getattr(target, "__name__", repr(target))
+        )
+
+    def env(self, env_dict=None, **kwargs):
+        merged = dict(env_dict or {})
+        merged.update(kwargs)
+        return self._step("env", env={str(k): str(v) for k, v in merged.items()})
+
+    def pipe(self, fn):
+        return fn(self)
+
+    def add_local_dir(self, local_path, remote_path, copy=False, ignore=None):
+        """(local, remote) order per modal_app.py's real call site."""
+        return self._step(
+            "add_local_dir",
+            local_path=str(local_path),
+            remote_path=str(remote_path),
+            copy=bool(copy),
+            ignore=getattr(ignore, "__name__", None if ignore is None else str(ignore)),
+        )
 
     def run(self, *commands):
-        return self
+        return self._step("run", args=[str(c) for c in commands])
 
     def installs(self):
         return self.installs_
+
+    def steps(self):
+        return [dict(step) for step in self.steps_]
 
 
 class _SandboxFilesystem:
@@ -483,7 +529,7 @@ def install_shim():
     """Put the shim in sys.modules as `modal` (and `fastapi`)."""
     modal = types.ModuleType("modal")
     modal.Image = types.SimpleNamespace(
-        debian_slim=lambda **kw: _Recorder(),
+        debian_slim=_debian_slim,
         from_name=lambda name, *a, **k: _Image(name, "name"),
         from_id=lambda image_id: _Image(image_id, "id"),
     )

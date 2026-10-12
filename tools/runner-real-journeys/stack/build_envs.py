@@ -211,8 +211,15 @@ def uv_binary() -> Path:
     candidates = [
         Path(sysconfig.get_path("scripts")) / "uv",
         Path.home() / ".local" / "bin" / "uv",
+        Path("/usr/local/bin") / "uv",
+        Path("/usr/bin") / "uv",
+        Path(os.path.dirname(sys.executable)) / "uv",
     ]
     for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = Path(entry) / "uv"
         if candidate.is_file():
             return candidate
     raise FileNotFoundError("uv is not installed where pip said it would be")
@@ -225,11 +232,16 @@ def ensure_uv() -> str:
         return recorded["version"]
     log("bootstrap", "installing uv from PyPI")
     done: Optional[str] = None
-    if run_logged([sys.executable, "-m", "pip", "install", "uv"], "bootstrap") == 0:
-        done = "installed"
-    elif run_logged([sys.executable, "-m", "pip", "install", "--user", "uv"],
-                    "bootstrap") == 0:
-        done = "installed-user"
+    attempts = [
+        ("installed", [sys.executable, "-m", "pip", "install", "uv"]),
+        ("installed-user", [sys.executable, "-m", "pip", "install", "--user", "uv"]),
+        ("installed-break-system",
+         [sys.executable, "-m", "pip", "install", "--break-system-packages", "uv"]),
+    ]
+    for label, cmd in attempts:
+        if run_logged(cmd, "bootstrap") == 0:
+            done = label
+            break
     if done is None:
         raise RuntimeError("pip install uv failed; see logs/env-bootstrap.log")
     version = subprocess.run(
@@ -587,26 +599,22 @@ import json, sys
 sys.path.insert(0, "@@STACK@@")
 import sandbox_shim
 sandbox_shim.install_shim()
-# modal_app.py builds deployed-image descriptions at import time with a
-# fluent chain (apt_install / run_commands / env / pipe / add_local_dir(
-# copy=..., ignore=...)) that predates the shim's _Recorder, which only
-# knows pip_install/add_local_dir/run. Route every unrecognized builder
-# call to a no-op that returns the recorder: nothing is deployed locally,
-# so import only needs the chain to compose.
-_recorder = sandbox_shim._Recorder
-
-def _recorder_any(self, name):
-    def _builder(*args, **kwargs):
-        return self
-    return _builder
-
-_recorder.__getattr__ = _recorder_any
-_recorder.add_local_dir = lambda self, *args, **kwargs: self
-
 sys.path.insert(0, "@@RUNNER_SRC@@")
 sys.path.insert(0, "@@COGBENCH_SRC@@")
 from cogworks_runner import modal_app
 from cogbench.plugins import load_benchmark
+import hashlib
+
+# Receipt of the image chain the real modal_app builds through the
+# shim's labelled double: every recorded step, verifiable against
+# image_bake.py. modal_app.py itself is untouched; its hash proves it.
+modal_app_sha256 = hashlib.sha256(
+    open(modal_app.__file__, "rb").read()
+).hexdigest()
+image_steps = {}
+for attr_name, attr_value in vars(modal_app).items():
+    if isinstance(attr_value, sandbox_shim._Recorder):
+        image_steps[attr_name] = attr_value.steps()
 
 result = {}
 for bid in ("audio-identification", "vision-recognition",
@@ -628,6 +636,8 @@ for bid in ("audio-identification", "vision-recognition",
         }
     except Exception as error:  # recorded, never swallowed
         result[bid] = {"loaded": False, "error": repr(error)[:500]}
+result["imageSteps"] = image_steps
+result["modalAppSha256"] = modal_app_sha256
 print("@@RESULT@@" + json.dumps(result))
 """
 
@@ -667,6 +677,19 @@ def run_driver(source: str, args: List[str], use_sudo: bool) -> Dict[str, Any]:
     )
 
 
+def ensure_suite_host() -> None:
+    """The shim refuses Sandbox.create without the suite-private hosts
+    file (fix-1): run stack/setup-host.sh once, idempotently."""
+    cogbox = Path(os.environ.get("COGBOX_ROOT", "/home/user/work/cogbox"))
+    if (cogbox / "hosts").is_file():
+        return
+    log("bootstrap", "running stack/setup-host.sh (suite CA + private hosts)")
+    cmd = ["sudo", "-E", "bash", str(STACK / "setup-host.sh")]
+    if run_logged(cmd, "bootstrap") != 0:
+        raise RuntimeError("setup-host.sh failed; see logs/env-bootstrap.log")
+    log("bootstrap", "suite hosts ready: " + str(cogbox / "hosts"))
+
+
 def verify() -> Dict[str, Any]:
     """Measure the pass bar and write receipts/envs.json. Returns the receipt."""
     receipt: Dict[str, Any] = {
@@ -704,10 +727,24 @@ def verify() -> Dict[str, Any]:
         cogbench_src=str(COGBENCH_SRC),
     )
     controller = run_driver(controller_driver, [], use_sudo=False)
-    controller["pass"] = all(
-        row.get("loaded") for row in controller.values()
-        if isinstance(row, dict) and "loaded" in row
-    ) and len(controller) == len(WEEKS) + 1  # four ids plus this flag
+    loaded_rows = [row for row in controller.values()
+                   if isinstance(row, dict) and "loaded" in row]
+    steps_chains = [chain for chain in controller.get("imageSteps", {}).values()
+                    if isinstance(chain, list)]
+    controller["imageStepsRecorded"] = (
+        len(steps_chains) >= len(WEEKS)
+        and all(
+            any(step.get("op") == "pip_install" and step.get("args") for step in chain)
+            and any(step.get("op") == "add_local_dir" for step in chain)
+            for chain in steps_chains
+        )
+    )
+    controller["pass"] = (
+        all(row.get("loaded") for row in loaded_rows)
+        and len(loaded_rows) == len(WEEKS) + 1  # four benchmark ids
+        and controller["imageStepsRecorded"]
+        and bool(controller.get("modalAppSha256"))
+    )
     log("verify", "controller plugins: %s" % ("PASS" if controller["pass"] else "FAIL"))
     receipt["c_controller_plugins"] = controller
 
@@ -775,6 +812,7 @@ def main() -> int:
         log("build", "build complete in %.0fs" % (time.time() - started))
 
     if args.verify or args.verify_only:
+        ensure_suite_host()
         receipt = verify()
         RECEIPTS.mkdir(parents=True, exist_ok=True)
         path = RECEIPTS / "envs.json"
