@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 const run = promisify(execFile);
 
@@ -27,22 +28,19 @@ export async function pinnedSource(repoRoot: string, rev: string): Promise<strin
   throw new Error(`${rev}:apps/portal/src/lib/benchmark-packages.ts declares no git+ source`);
 }
 
-/** The pip direct-url record of an installed distribution, parsed. */
+const READER = fileURLToPath(new URL("./installed_commit.py", import.meta.url));
+
+/** The pip direct-url record of an installed distribution, parsed, or null
+ * when the distribution is absent or did not come from a URL. Read by the
+ * selected interpreter through importlib.metadata (support/installed_commit.py),
+ * so any site-packages layout works, native Windows included. */
 export async function readDirectUrl(
   pythonBin: string,
   distribution: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, any> | null> {
-  const script = [
-    "import json, glob, os, sys",
-    "names = glob.glob(os.path.join(sys.prefix, 'lib', f'python{sys.version_info[0]}.{sys.version_info[1]}', 'site-packages', '*.dist-info', 'direct_url.json'))",
-    "for path in names:",
-    "    if sys.argv[1] in path:",
-    "        print(open(path).read())",
-    "        break",
-  ].join("\n");
   try {
-    const { stdout } = await run(pythonBin, ["-c", script, distribution], { env });
+    const { stdout } = await run(pythonBin, [READER, distribution], { env });
     return JSON.parse(stdout);
   } catch {
     return null;

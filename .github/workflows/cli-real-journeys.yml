@@ -1,0 +1,47 @@
+name: CLI real journeys
+
+on:
+  pull_request:
+    paths:
+      - "tools/cli-real-journeys/**"
+      - "python/cogbench/**"
+      - ".github/workflows/cli-real-journeys.yml"
+  push:
+    branches: [alpha]
+    paths:
+      - "tools/cli-real-journeys/**"
+      - "python/cogbench/**"
+      - ".github/workflows/cli-real-journeys.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-real-journeys-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The suite's Python helpers on every interpreter the course supports,
+  # including native Windows, whose site-packages layout (Lib/site-packages)
+  # the installed-commit reader must handle.
+  helpers:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.8"
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.8"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m unittest discover -v -s tools/cli-real-journeys/tests -p "test_*.py"

@@ -21,4 +21,11 @@ for test_script in tests/*.sh; do
     fail=1
   fi
 done
+# Python helpers (support/*.py) run under the course's interpreters; PYTHON
+# picks one (default python3).
+echo "=== tests/test_*.py (${PYTHON:-python3})"
+if ! "${PYTHON:-python3}" -m unittest discover -s tests -p 'test_*.py'; then
+  echo "=== tests/test_*.py FAILED"
+  fail=1
+fi
 exit "$fail"

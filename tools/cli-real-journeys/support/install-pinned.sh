@@ -31,20 +31,15 @@ if ! "$PYTHON_BIN" -m pip install --quiet $FORCE "$SPEC" >"$LOG_FILE" 2>&1; then
 fi
 
 # pip records a git install's resolved commit under vcs_info (the url loses
-# the #subdirectory fragment). Read the record the installed dist ships.
-PYSCRIPT='import glob, json, os, sys
-names = glob.glob(os.path.join(sys.prefix, "lib", f"python{sys.version_info[0]}.{sys.version_info[1]}", "site-packages", "*.dist-info", "direct_url.json"))
-for path in names:
-    if sys.argv[1] in path:
-        record = json.load(open(path))
-        info = record.get("vcs_info") or {}
-        print(info.get("commit_id", ""))
-        print(record.get("url", ""))
-        break
-'
-readarray -t PARTS < <("$PYTHON_BIN" -c "$PYSCRIPT" "$DIST_NAME")
-INSTALLED_COMMIT=${PARTS[0]:-}
-INSTALLED_URL=${PARTS[1]:-}
+# the #subdirectory fragment). The selected interpreter reads the record
+# through importlib.metadata, so any site-packages layout works (native
+# Windows keeps it under Lib/site-packages).
+HERE=$(cd "$(dirname "$0")" && pwd)
+# No readarray: macOS ships bash 3.2. A reader failure leaves both empty and
+# is reported below.
+PARTS=$("$PYTHON_BIN" "$HERE/installed_commit.py" "$DIST_NAME" --lines) || PARTS=""
+INSTALLED_COMMIT=$(printf '%s\n' "$PARTS" | sed -n 1p)
+INSTALLED_URL=$(printf '%s\n' "$PARTS" | sed -n 2p)
 
 if [ -z "$INSTALLED_COMMIT" ]; then
   echo "install-pinned: $DIST_NAME recorded no vcs commit in its direct_url.json (url: ${INSTALLED_URL:-none}); this is not the pinned install" >&2
