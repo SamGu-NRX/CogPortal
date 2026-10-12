@@ -413,8 +413,17 @@ await cases.liveLanguage.run(async () => {
     );
 
     const surfaces = await portal.teamRunSurfaces();
-    const surface = surfaces.find((row: any) => JSON.stringify(row).includes(String(reportId)));
-    case_.expect(Boolean(surface), "the run surfaces a team-scoped live-run entry", `${surfaces.length} surface(s) listed`);
+    // A run surface references the live run by id, not the report: the
+    // snapshot carries localRunId (and no report field), so match the
+    // benchmark plus an attached local run.
+    const surface = surfaces.find(
+      (row: any) => row.benchmark?.id === WEEK3_BENCHMARK && typeof row.localRunId === "string" && row.localRunId.startsWith("localrun_"),
+    );
+    case_.expect(
+      Boolean(surface),
+      "the run surfaces a team-scoped live-run entry",
+      `${surfaces.length} surface(s) listed: ${surfaces.map((row: any) => `${row.benchmark?.id ?? "?"}/run=${row.localRunId ?? "none"}`).join("; ")}`,
+    );
 
     // The receipts: the bound channel actually received the live bubble — a
     // message create and at least one edit, recorded by the double after the
