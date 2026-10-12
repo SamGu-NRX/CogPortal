@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import http from "node:http";
 
 const run = promisify(execFile);
@@ -17,7 +18,7 @@ const run = promisify(execFile);
 const dir = mkdtempSync(join(tmpdir(), "egress-probe-"));
 const LOG = join(dir, "egress.jsonl");
 const INFO = join(dir, "egress.json");
-const here = new URL(".", import.meta.url).pathname;
+const here = fileURLToPath(new URL(".", import.meta.url));
 
 const child = spawn(process.execPath, [join(here, "egress.mjs")], {
   env: { ...process.env, EGRESS_LOG: LOG, EGRESS_INFO: INFO },

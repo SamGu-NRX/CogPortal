@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * The run bar's required-case contract, against the real report.mjs:
@@ -43,7 +44,7 @@ async function runReport(receipts: Row[]): Promise<{ exit: number; summary: stri
       index += 1;
     }
     const result = spawnSync(process.execPath, ["support/report.mjs"], {
-      cwd: new URL("..", import.meta.url).pathname,
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
       env: { ...process.env, RESULTS_DIR: dir },
       encoding: "utf8",
     });
