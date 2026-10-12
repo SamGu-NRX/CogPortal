@@ -33,12 +33,15 @@ echo "results directory: $RESULTS"
 # the checkout's .wrangler state. Exported: the device-name witness reads the
 # stack's D1 through the same persistence root.
 export SUITE_STATE="$RESULTS/state"
-mkdir -p "$RESULTS/receipts" "$RESULTS/tmp"
+mkdir -p "$RESULTS/receipts"
 # Per-run scratch space for the helpers' mkdtemp calls (CLI homes, the git
-# fixture, the spawn probe): node's os.tmpdir() honors TMPDIR, so this run's
-# temp state stays scoped to its results directory and the EXIT trap below
-# can clean it without touching other runs' temp state.
-export TMPDIR="$RESULTS/tmp"
+# fixture, the spawn probe). It cannot live under RESULTS: tsx binds its IPC
+# pipes as unix sockets under TMPDIR with the pid in the name, and a path
+# through this checkout's results directory passes the 108-byte unix-socket
+# limit and dies with EADDRINUSE. /tmp keeps the path short; the run-unique
+# suffix keeps it scoped to this run, and the EXIT trap below removes it.
+export TMPDIR="/tmp/cli-real-journeys-${RUN_TAG}-$(date -u +%H%M%SZ)-$$"
+mkdir -p "$TMPDIR"
 export RESULTS_DIR="$RESULTS"
 # Any early exit - a failing step under set -e, or INT/TERM - must not leave
 # the booted stack or this run's scratch state behind. STACK_PID is set when
@@ -54,7 +57,7 @@ cleanup() {
     kill "$EGRESS_PID" 2>/dev/null || true
     wait "$EGRESS_PID" 2>/dev/null || true
   fi
-  rm -rf "$RESULTS/tmp" 2>/dev/null || true
+  rm -rf "${TMPDIR:-}" 2>/dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT
