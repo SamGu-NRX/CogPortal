@@ -101,14 +101,22 @@ echo "== [2b/8] Week 3 environment and pinned data for the live-run journey =="
 # suite's own ignored directory, and proves `cogworks check` passes against
 # them before any journey depends on that.
 if [ "${SKIP_INSTALL:-0}" != "1" ]; then
-  "$WEEK3_ENV/bin/python" -m pip install --quiet "numpy==1.24.4" platformdirs \
-    >"$RESULTS/pip-week3-deps.log" 2>&1
-  # The checked-in Week 3 reference submission loads GloVe vectors through
-  # resources.load_glove(), which needs gensim.
-  "$WEEK3_ENV/bin/python" -m pip install --quiet gensim \
-    >>"$RESULTS/pip-week3-deps.log" 2>&1
+  # The CLI's own WEEK3_TRACK (cogbench/environment.py, citing the course's
+  # docs) is the authoritative stack for this environment - the check step
+  # below verifies every module on it. Install from that spec rather than a
+  # hand-picked subset, so the suite cannot drift from what the check
+  # requires. cogbench goes in first so its track list can be read here.
   "$WEEK3_ENV/bin/python" -m pip install --quiet -e "$REPO_ROOT/python/cogbench" \
     >"$RESULTS/pip-week3-cli.log" 2>&1
+  "$WEEK3_ENV/bin/python" - <<'PY' >"$RESULTS/pip-week3-deps.log" 2>&1
+import subprocess
+import sys
+
+from cogbench.environment import WEEK3_TRACK
+
+for package, _module in WEEK3_TRACK:
+    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", package], check=True)
+PY
   "$WEEK3_ENV/bin/python" -m pip install --quiet -e "$REPO_ROOT/benchmarks/week3" \
     >"$RESULTS/pip-week3-bench.log" 2>&1
 fi
@@ -121,6 +129,11 @@ WEEK3_CHECK_DIR="$RESULTS/week3-check-repo"
 rm -rf "$WEEK3_CHECK_DIR" && mkdir -p "$WEEK3_CHECK_DIR"
 cp -r "$REPO_ROOT/examples/week3-language-submission/." "$WEEK3_CHECK_DIR/"
 git -C "$WEEK3_CHECK_DIR" init -q
+# The check requires repositoryFullName (cli.py's required list): a fixture
+# without an `origin` remote always exits 2. repository_state parses the URL
+# offline - never contacts it - so a synthetic course-repo URL keeps the
+# fixture hermetic while satisfying the check's metadata requirement.
+git -C "$WEEK3_CHECK_DIR" remote add origin https://github.com/cogworks-journeys/week3-language-submission.git
 git -C "$WEEK3_CHECK_DIR" add -A
 git -C "$WEEK3_CHECK_DIR" -c user.name=Journey -c user.email=journey-student@dev.local commit -qm "Week 3 check fixture"
 (cd "$WEEK3_CHECK_DIR" && COGWORKS_LANGUAGE_DATA="$WEEK3_DATA" "$WEEK3_ENV/bin/cogworks" check --benchmark language-search) \
