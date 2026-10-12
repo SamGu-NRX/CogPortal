@@ -69,7 +69,23 @@ done
 grep -q '"ready": true' "$RESULTS/stack.json" || { echo "stack never became ready" >&2; exit 1; }
 cat "$RESULTS/stack.json"
 
-echo "== [6/7] journeys (retries off; every case writes a receipt) =="
+echo "== [5.5/8] egress witness for the public-data journeys =="
+# The week 2/3 real-data journeys route the CLI through this proxy: downloads
+# of the documented public assets are allowed and recorded (host, bytes), and
+# any other traffic an offline command attempts is refused and logged, which
+# is exactly the defect the journeys exist to catch.
+EGRESS_LOG="$RESULTS/egress.jsonl" EGRESS_INFO="$RESULTS/egress.json" \
+  node support/egress.mjs >"$RESULTS/egress-stdout.log" 2>&1 &
+EGRESS_PID=$!
+for _ in $(seq 1 50); do
+  [ -f "$RESULTS/egress.json" ] && break
+  kill -0 "$EGRESS_PID" 2>/dev/null || { echo "egress witness died at boot; see $RESULTS/egress-stdout.log" >&2; exit 1; }
+  sleep 0.2
+done
+[ -f "$RESULTS/egress.json" ] || { echo "egress witness never became ready" >&2; exit 1; }
+cat "$RESULTS/egress.json"
+
+echo "== [6/8] journeys (retries off; every case writes a receipt) =="
 set +e
 export STACK_INFO="$RESULTS/stack.json"
 FAILED=0
@@ -130,13 +146,49 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
       >"$RESULTS/journey-pin-$PIN_ID-$env_name.log" 2>&1; then
       FAILED=1
     fi
+    # The week 2/3 public-data journeys run against the pinned CLI too, with
+    # the week's benchmark distribution installed from the same pinned copy
+    # of benchmark-packages.ts, so a receipt's pin label is the whole story.
+    case "$env_name" in
+      week2|week3)
+        week_num=${env_name#week}
+        case "$week_num" in
+          2) bench_dist="cogworks-week2-vision-benchmark"; bench_extra="[data]"; bench_fn="WEEK2_VISION" ;;
+          3) bench_dist="cogworks-week3-language-benchmark"; bench_extra=""; bench_fn="WEEK3_LANGUAGE" ;;
+        esac
+        bench_source=$(git -C "$REPO_ROOT" show "$PIN_REV:apps/portal/src/lib/benchmark-packages.ts" \
+          | awk -v fn="const $bench_fn" '$0 ~ fn, /^};/' \
+          | sed -n 's/^.*"git+\([^"]*\)".*$/\1/p' | head -1)
+        bench_log="$RESULTS/pin-$PIN_ID-$env_name-benchmark-install.log"
+        bench_status=missing
+        if [ -n "$bench_source" ] && "$env_bin/python" -m pip install --quiet \
+          "$bench_dist$bench_extra @ $bench_source" >"$bench_log" 2>&1; then
+          bench_status=ok
+        else
+          tail -5 "$bench_log" >&2
+        fi
+        echo "--- pin $PIN_ID on $env_name: benchmark install $bench_status"
+        journey_home="$RESULTS/journey-home-$PIN_ID-$env_name"
+        rm -rf "$journey_home"
+        mkdir -p "$journey_home"
+        export JOURNEY_HOME="$journey_home"
+        export EGRESS_INFO="$RESULTS/egress.json"
+        if ! "$NODE24/bin/npx" tsx "journeys/real-data-week$week_num.ts" \
+          >"$RESULTS/journey-real-$PIN_ID-$env_name.log" 2>&1; then
+          FAILED=1
+        fi
+        unset JOURNEY_HOME EGRESS_INFO
+        ;;
+    esac
   done
 done
 unset PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK
 
 echo "== [8/8] report =="
 kill "$STACK_PID" 2>/dev/null || true
+kill "${EGRESS_PID:-}" 2>/dev/null || true
 wait "$STACK_PID" 2>/dev/null || true
+wait "${EGRESS_PID:-}" 2>/dev/null || true
 RESULTS_DIR="$RESULTS" node support/report.mjs || true
 echo "results: $RESULTS"
 exit "$FAILED"
