@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { Api, newStudent } from "../lib/client.mts";
+import { Api } from "../lib/client.mts";
 import { refused, SkipJourney, withStack, type Check, type Journey } from "../lib/framework.mts";
 
 type TokenGrant = { ok: true; token: string } | { ok: false; status: number; body: string };
@@ -15,7 +15,7 @@ type TokenResponse = { status?: string; token?: string; retryAfterSeconds?: numb
  */
 async function pollForToken(api: Api, deviceCode: string, tries = 6): Promise<TokenGrant> {
   for (let i = 0; i < tries; i++) {
-    const res = await api.req("POST", "/v1/cli/device/token", { json: { deviceCode }, anonymous: true });
+    const res = await api.req("POST", "/api/v1/cli/device/token", { json: { deviceCode }, anonymous: true });
     const body = res.json() as TokenResponse | null;
     if (res.status === 200 && body?.status === "authorized" && typeof body.token === "string") {
       return { ok: true, token: body.token };
@@ -24,6 +24,26 @@ async function pollForToken(api: Api, deviceCode: string, tries = 6): Promise<To
     await new Promise((r) => setTimeout(r, 1000));
   }
   return { ok: false, status: 200, body: "token never granted within the poll window" };
+}
+
+/**
+ * Verified bootstrap shape (PR #112 evidence): a demo:false dev login
+ * establishes a session without team provisioning; the student then joins
+ * the VISION26 cohort and connects the fixture repo to obtain a team —
+ * the approve guard (requireTeam) needs that team session. Each observed
+ * status is carried in the thrown message for the skip reason.
+ */
+async function bootstrapStudent(stack: { baseUrl: string }, login: string, teamName: string): Promise<Api> {
+  const api = new Api(stack.baseUrl);
+  const steps: string[] = [];
+  const step = async (label: string, res: { status: number }): Promise<void> => {
+    steps.push(`${label} -> ${res.status}`);
+    if (res.status < 200 || res.status >= 300) throw new Error(steps.join("; "));
+  };
+  await step("POST /api/dev/login (demo:false)", await api.req("POST", "/api/dev/login", { json: { login, demo: false, password: "cogportal-local-dev-password" } }));
+  await step("POST /api/cohorts/join (code:VISION26)", await api.req("POST", "/api/cohorts/join", { json: { code: "VISION26" } }));
+  await step("POST /api/github/connect", await api.req("POST", "/api/github/connect", { json: { fullName: "cogworks-demo/face-finder", teamName } }));
+  return api;
 }
 
 /**
@@ -48,12 +68,12 @@ export const j7: Journey = {
       const anon = new Api(stack.baseUrl);
 
       // --- start: public, issues the code pair with the documented TTL ---
-      const start = await anon.req("POST", "/v1/cli/device/start", { json: {}, anonymous: true });
+      const start = await anon.req("POST", "/api/v1/cli/device/start", { json: {}, anonymous: true });
       const startBody = start.json() as StartResponse | null;
       checks.push(
         (start.status === 200 || start.status === 201) && typeof startBody?.deviceCode === "string" && typeof startBody?.userCode === "string"
-          ? { name: "POST /v1/cli/device/start issues a deviceCode + userCode without any session", ok: true, detail: `HTTP ${start.status}` }
-          : { name: "POST /v1/cli/device/start issues a deviceCode + userCode without any session", ok: false, detail: `HTTP ${start.status}: ${start.text.slice(0, 160)}` },
+          ? { name: "POST /api/v1/cli/device/start issues a deviceCode + userCode without any session", ok: true, detail: `HTTP ${start.status}` }
+          : { name: "POST /api/v1/cli/device/start issues a deviceCode + userCode without any session", ok: false, detail: `HTTP ${start.status}: ${start.text.slice(0, 160)}` },
       );
       const deviceCode = startBody?.deviceCode ?? "";
       const userCode = startBody?.userCode ?? "";
@@ -62,32 +82,33 @@ export const j7: Journey = {
       const ttlSeconds = Math.round(((startBody?.expiresAt ?? 0) - Date.now()) / 1000);
       checks.push(
         ttlSeconds >= 540 && ttlSeconds <= 660
-          ? { name: "POST /v1/cli/device/start declares the source-documented 10-minute code TTL (DEVICE_AUTH_TTL_MS)", ok: true, detail: `TTL ${ttlSeconds}s` }
-          : { name: "POST /v1/cli/device/start declares the source-documented 10-minute code TTL (DEVICE_AUTH_TTL_MS)", ok: false, detail: `TTL ${ttlSeconds}s, expected ~600s per connections.ts DEVICE_AUTH_TTL_MS` },
+          ? { name: "POST /api/v1/cli/device/start declares the source-documented 10-minute code TTL (DEVICE_AUTH_TTL_MS)", ok: true, detail: `TTL ${ttlSeconds}s` }
+          : { name: "POST /api/v1/cli/device/start declares the source-documented 10-minute code TTL (DEVICE_AUTH_TTL_MS)", ok: false, detail: `TTL ${ttlSeconds}s, expected ~600s per connections.ts DEVICE_AUTH_TTL_MS` },
       );
 
       // --- token poll BEFORE approval: pending, no token material ---
-      const pending = await anon.req("POST", "/v1/cli/device/token", { json: { deviceCode }, anonymous: true });
+      const pending = await anon.req("POST", "/api/v1/cli/device/token", { json: { deviceCode }, anonymous: true });
       checks.push(
         pending.status === 200 && (pending.json() as TokenResponse | null)?.status === "pending" && !pending.text.includes("cog_")
-          ? { name: "POST /v1/cli/device/token before approval returns status=pending and leaks no token", ok: true, detail: pending.text.slice(0, 80) }
-          : { name: "POST /v1/cli/device/token before approval returns status=pending and leaks no token", ok: false, detail: `HTTP ${pending.status}: ${pending.text.slice(0, 160)}` },
+          ? { name: "POST /api/v1/cli/device/token before approval returns status=pending and leaks no token", ok: true, detail: pending.text.slice(0, 80) }
+          : { name: "POST /api/v1/cli/device/token before approval returns status=pending and leaks no token", ok: false, detail: `HTTP ${pending.status}: ${pending.text.slice(0, 160)}` },
       );
 
       // --- anonymous approval: refused by the requireTeam session guard ---
-      const anonApprove = await anon.req("POST", "/v1/cli/device/approve", { json: { userCode, deviceName: "j7-anon-box" }, anonymous: true });
-      checks.push(refused("POST /v1/cli/device/approve without a session refuses (requireTeam guard)", anonApprove.status, anonApprove.text));
+      const anonApprove = await anon.req("POST", "/api/v1/cli/device/approve", { json: { userCode, deviceName: "j7-anon-box" }, anonymous: true });
+      checks.push(refused("POST /api/v1/cli/device/approve without a session refuses (requireTeam guard)", anonApprove.status, anonApprove.text));
 
       // --- wrong deviceCode on the token endpoint: refused (session-free) ---
-      const wrongCode = await anon.req("POST", "/v1/cli/device/token", { json: { deviceCode: "f".repeat(64) }, anonymous: true });
-      checks.push(refused("POST /v1/cli/device/token with an unknown deviceCode refuses", wrongCode.status, wrongCode.text));
+      const wrongCode = await anon.req("POST", "/api/v1/cli/device/token", { json: { deviceCode: "f".repeat(64) }, anonymous: true });
+      checks.push(refused("POST /api/v1/cli/device/token with an unknown deviceCode refuses", wrongCode.status, wrongCode.text));
 
-      // --- bootstrap the approver sessions (demo-team provisioning) ---
-      let bob: Awaited<ReturnType<typeof newStudent>>;
-      let charlie: Awaited<ReturnType<typeof newStudent>>;
+      // --- bootstrap the approver sessions (verified shape: demo:false
+      // dev login, VISION26 cohort join, fixture repo connect) ---
+      let bob: Api;
+      let charlie: Api;
       try {
-        bob = await newStudent(stack, "j7bob", { teamName: "J7 Bob Team" });
-        charlie = await newStudent(stack, "j7charlie", { teamName: "J7 Charlie Team" });
+        bob = await bootstrapStudent(stack, "j7bob", "J7 Bob Team");
+        charlie = await bootstrapStudent(stack, "j7charlie", "J7 Charlie Team");
       } catch (err) {
         // Everything below needs a team session. SkipJourney discards
         // accumulated checks by design, so the reason names the arms that
@@ -97,49 +118,49 @@ export const j7: Journey = {
       }
 
       // --- unknown but well-formed userCode: refused ---
-      const unknownApprove = await bob.api.req("POST", "/v1/cli/device/approve", { json: { userCode: "ZZZZ-ZZZZ-ZZZZ", deviceName: "j7-unknown-box" } });
-      checks.push(refused("POST /v1/cli/device/approve with an unknown userCode refuses", unknownApprove.status, unknownApprove.text));
+      const unknownApprove = await bob.req("POST", "/api/v1/cli/device/approve", { json: { userCode: "ZZZZ-ZZZZ-ZZZZ", deviceName: "j7-unknown-box" } });
+      checks.push(refused("POST /api/v1/cli/device/approve with an unknown userCode refuses", unknownApprove.status, unknownApprove.text));
 
       // --- happy path: the approver's own session approves; the CLI polls the token ---
-      const approve = await bob.api.req("POST", "/v1/cli/device/approve", { json: { userCode, deviceName: "j7-bob-box" } });
+      const approve = await bob.req("POST", "/api/v1/cli/device/approve", { json: { userCode, deviceName: "j7-bob-box" } });
       checks.push(
         approve.status === 200 || approve.status === 201
-          ? { name: "POST /v1/cli/device/approve with the approver's own session succeeds", ok: true, detail: `HTTP ${approve.status}` }
-          : { name: "POST /v1/cli/device/approve with the approver's own session succeeds", ok: false, detail: `HTTP ${approve.status}: ${approve.text.slice(0, 160)}` },
+          ? { name: "POST /api/v1/cli/device/approve with the approver's own session succeeds", ok: true, detail: `HTTP ${approve.status}` }
+          : { name: "POST /api/v1/cli/device/approve with the approver's own session succeeds", ok: false, detail: `HTTP ${approve.status}: ${approve.text.slice(0, 160)}` },
       );
       const granted = await pollForToken(anon, deviceCode);
       checks.push(
         granted.ok && granted.token.startsWith("cog_")
-          ? { name: "POST /v1/cli/device/token after approval grants a cog_ device token to the CLI", ok: true, detail: "token carries the cog_ prefix per the wire contract" }
-          : { name: "POST /v1/cli/device/token after approval grants a cog_ device token to the CLI", ok: false, detail: granted.ok ? "token missing cog_ prefix" : `HTTP ${granted.status}: ${granted.body.slice(0, 160)}` },
+          ? { name: "POST /api/v1/cli/device/token after approval grants a cog_ device token to the CLI", ok: true, detail: "token carries the cog_ prefix per the wire contract" }
+          : { name: "POST /api/v1/cli/device/token after approval grants a cog_ device token to the CLI", ok: false, detail: granted.ok ? "token missing cog_ prefix" : `HTTP ${granted.status}: ${granted.body.slice(0, 160)}` },
       );
 
       // --- double approval: a second user cannot re-approve; the same
       // approver's repeat is the documented idempotent success (reload case);
       // and at most one token is ever granted for the code ---
-      const charlieApprove = await charlie.api.req("POST", "/v1/cli/device/approve", { json: { userCode, deviceName: "j7-charlie-box" } });
-      checks.push(refused("POST /v1/cli/device/approve of an already-approved code by a second user (charlie) refuses", charlieApprove.status, charlieApprove.text));
+      const charlieApprove = await charlie.req("POST", "/api/v1/cli/device/approve", { json: { userCode, deviceName: "j7-charlie-box" } });
+      checks.push(refused("POST /api/v1/cli/device/approve of an already-approved code by a second user (charlie) refuses", charlieApprove.status, charlieApprove.text));
 
-      const bobReApprove = await bob.api.req("POST", "/v1/cli/device/approve", { json: { userCode, deviceName: "j7-bob-box" } });
+      const bobReApprove = await bob.req("POST", "/api/v1/cli/device/approve", { json: { userCode, deviceName: "j7-bob-box" } });
       checks.push(
         bobReApprove.status === 200 || bobReApprove.status === 201
-          ? { name: "POST /v1/cli/device/approve of a consumed code by the SAME approver is the documented idempotent success", ok: true, detail: `HTTP ${bobReApprove.status}` }
-          : { name: "POST /v1/cli/device/approve of a consumed code by the SAME approver is the documented idempotent success", ok: false, detail: `HTTP ${bobReApprove.status}: ${bobReApprove.text.slice(0, 160)}` },
+          ? { name: "POST /api/v1/cli/device/approve of a consumed code by the SAME approver is the documented idempotent success", ok: true, detail: `HTTP ${bobReApprove.status}` }
+          : { name: "POST /api/v1/cli/device/approve of a consumed code by the SAME approver is the documented idempotent success", ok: false, detail: `HTTP ${bobReApprove.status}: ${bobReApprove.text.slice(0, 160)}` },
       );
 
-      const secondGrant = await anon.req("POST", "/v1/cli/device/token", { json: { deviceCode }, anonymous: true });
-      checks.push(refused("POST /v1/cli/device/token for an already-consumed code refuses — at most one token is ever granted per device code", secondGrant.status, secondGrant.text));
+      const secondGrant = await anon.req("POST", "/api/v1/cli/device/token", { json: { deviceCode }, anonymous: true });
+      checks.push(refused("POST /api/v1/cli/device/token for an already-consumed code refuses — at most one token is ever granted per device code", secondGrant.status, secondGrant.text));
 
       // --- expiry: the TTL is a fixed 10-minute source constant, so
       // accelerate it by rewriting expires_at in the local D1 (wrangler d1
       // execute --local, the same channel the harness seed uses) rather than
       // sleeping through it. ---
-      const start2 = await anon.req("POST", "/v1/cli/device/start", { json: {}, anonymous: true });
+      const start2 = await anon.req("POST", "/api/v1/cli/device/start", { json: {}, anonymous: true });
       const start2Body = start2.json() as StartResponse | null;
       const code2 = start2Body?.deviceCode ?? "";
       const user2 = start2Body?.userCode ?? "";
       if (!code2 || !user2) {
-        throw new SkipJourney("expiry arm unexercisable: POST /v1/cli/device/start stopped issuing codes");
+        throw new SkipJourney("expiry arm unexercisable: POST /api/v1/cli/device/start stopped issuing codes");
       }
       let accelerated = true;
       let accelDetail = "";
@@ -159,16 +180,16 @@ export const j7: Journey = {
         // instead of a fabricated pass. The checks above stay in the log.
         throw new SkipJourney(`expiry arm unexercisable: local D1 write failed — ${accelDetail}. Observed TTL from source: 10 minutes (connections.ts DEVICE_AUTH_TTL_MS).`);
       }
-      const expiredApprove = await bob.api.req("POST", "/v1/cli/device/approve", { json: { userCode: user2, deviceName: "j7-expired-box" } });
-      checks.push(refused("POST /v1/cli/device/approve of an expired code refuses (D1-accelerated expiry)", expiredApprove.status, expiredApprove.text));
-      const expiredToken = await anon.req("POST", "/v1/cli/device/token", { json: { deviceCode: code2 }, anonymous: true });
-      checks.push(refused("POST /v1/cli/device/token for an expired code refuses (D1-accelerated expiry)", expiredToken.status, expiredToken.text));
-      const expiredStatus = await bob.api.req("GET", `/v1/cli/device/status?user_code=${encodeURIComponent(user2)}`);
+      const expiredApprove = await bob.req("POST", "/api/v1/cli/device/approve", { json: { userCode: user2, deviceName: "j7-expired-box" } });
+      checks.push(refused("POST /api/v1/cli/device/approve of an expired code refuses (D1-accelerated expiry)", expiredApprove.status, expiredApprove.text));
+      const expiredToken = await anon.req("POST", "/api/v1/cli/device/token", { json: { deviceCode: code2 }, anonymous: true });
+      checks.push(refused("POST /api/v1/cli/device/token for an expired code refuses (D1-accelerated expiry)", expiredToken.status, expiredToken.text));
+      const expiredStatus = await bob.req("GET", `/api/v1/cli/device/status?user_code=${encodeURIComponent(user2)}`);
       const statusBody = expiredStatus.json() as { valid?: boolean } | null;
       checks.push(
         expiredStatus.status === 200 && statusBody?.valid === false
-          ? { name: "GET /v1/cli/device/status reports an expired userCode as valid:false", ok: true, detail: "HTTP 200 valid=false" }
-          : { name: "GET /v1/cli/device/status reports an expired userCode as valid:false", ok: false, detail: `HTTP ${expiredStatus.status}: ${expiredStatus.text.slice(0, 160)}` },
+          ? { name: "GET /api/v1/cli/device/status reports an expired userCode as valid:false", ok: true, detail: "HTTP 200 valid=false" }
+          : { name: "GET /api/v1/cli/device/status reports an expired userCode as valid:false", ok: false, detail: `HTTP ${expiredStatus.status}: ${expiredStatus.text.slice(0, 160)}` },
       );
 
       return checks;
