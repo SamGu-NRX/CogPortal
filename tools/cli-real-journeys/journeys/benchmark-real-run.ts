@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { CliHome, env } from "../support/cli.ts";
 import { TeamRepository } from "../support/git-fixture.ts";
 import { Portal } from "../support/portal.ts";
+import { findLiveRunSurface, primaryMetricOf, sameMetric } from "../support/surface-binding.ts";
 import { readStackInfo } from "../support/stack-info.ts";
 import { Case } from "./harness.ts";
 import { SUBMISSION_PY } from "./submission.ts";
@@ -412,9 +413,26 @@ await cases.liveLanguage.run(async () => {
       `${reports.length} report(s) listed; looking for ${reportId}`,
     );
 
+    // The run-surface snapshot serializes the session's commit and the synced
+    // report's metrics — never the local report id — so the surface for THIS
+    // run is bound by stage, benchmark, and the pinned HEAD, then closed
+    // against the report's own primary metric (surface → session report_id →
+    // stored metrics). Grepping the snapshot for the report id could never
+    // pass: the schema does not expose it.
     const surfaces = await portal.teamRunSurfaces();
-    const surface = surfaces.find((row: any) => JSON.stringify(row).includes(String(reportId)));
-    case_.expect(Boolean(surface), "the run surfaces a team-scoped live-run entry", `${surfaces.length} surface(s) listed`);
+    const surface = findLiveRunSurface(surfaces, { benchmarkId: WEEK3_BENCHMARK, sha: head });
+    case_.expect(
+      Boolean(surface),
+      "the run surfaces a team-scoped live-run entry",
+      `${surfaces.length} surface(s) listed; looking for stage=local benchmark=${WEEK3_BENCHMARK} sha=${head.slice(0, 7)} status=succeeded`,
+    );
+    const reportedPrimary = primaryMetricOf(report.metrics);
+    const surfacedPrimary = primaryMetricOf(surface?.metrics);
+    case_.expect(
+      sameMetric(reportedPrimary, surfacedPrimary),
+      "the surfaced live run carries the synced report's primary metric",
+      `reported ${reportedPrimary?.key}=${reportedPrimary?.value}; surfaced ${surfacedPrimary?.key}=${surfacedPrimary?.value}`,
+    );
 
     // The receipts: the bound channel actually received the live bubble — a
     // message create and at least one edit, recorded by the double after the
