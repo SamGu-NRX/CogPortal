@@ -369,3 +369,75 @@ def test_floor_identity_metadata_is_caught_after_a_full_rebind(tmp_path):
     assert verify.returncode == 1
     assert "misrendered" in verify.stderr
     assert "scoring floors" in verify.stderr
+
+
+def test_visible_verdict_text_is_bound_after_a_full_rebind(tmp_path):
+    # verify.py used to trust the data-verdict attributes alone; the chip
+    # text a reader actually sees was unchecked. Rewrite the rendered
+    # scorer chip ("same") to claim "unknown" with every attribute left
+    # intact, rebind every digest that covers the view (receipt html
+    # digest, replay html, rebuilt and receipt digests), and require
+    # verify.py to fail naming the scorer cell. A digest-mismatch
+    # failure would prove nothing - every hash must be self-consistent.
+    import hashlib
+
+    out = tmp_path / "evidence"
+    build_result = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "build.py"),
+            "--fixtures",
+            str(FIXTURES),
+            "--out",
+            str(out),
+            "--replay",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert build_result.returncode == 0, build_result.stdout + build_result.stderr
+
+    html_path = out / "view-{}.html".format(PAIR_STEM)
+    html_bytes = html_path.read_bytes()
+    target = b'<td><span class="chip chip-same">same</span></td>'
+    assert html_bytes.count(target) == 1, "expected exactly one same-verdict axis chip cell"
+    tampered = html_bytes.replace(
+        target, b'<td><span class="chip chip-same">unknown</span></td>'
+    )
+    html_path.write_bytes(tampered)
+    html_sha = hashlib.sha256(tampered).hexdigest()
+
+    receipt_path = out / "view-receipts-{}.json".format(PAIR_STEM)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["html_sha256"] = html_sha
+    receipt_bytes = (
+        json.dumps(receipt, indent=2, sort_keys=True) + chr(10)
+    ).encode("utf-8")
+    receipt_path.write_bytes(receipt_bytes)
+
+    replay_path = out / "replay-{}.json".format(PAIR_STEM)
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    replay["html_sha256"] = html_sha
+    replay["rebuilt_html_sha256"] = html_sha
+    replay["receipt_sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    replay_path.write_text(
+        json.dumps(replay, indent=2, sort_keys=True) + chr(10), encoding="utf-8"
+    )
+
+    verify = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "verify.py"),
+            "--fixtures",
+            str(FIXTURES),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert verify.returncode == 1
+    assert "scorer" in verify.stderr
+    assert "visible verdict" in verify.stderr

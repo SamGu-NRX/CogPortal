@@ -990,22 +990,47 @@ def main() -> int:
                     axis, row["attrs"].get("data-verdict"), expected
                 ),
             )
+        visible_chip = row["cells"][1] if len(row["cells"]) > 1 else ""
+        if visible_chip != expected:
+            _fail(
+                failures,
+                "conditions row {} visible verdict chip reads {!r} != derived {!r}".format(
+                    axis, visible_chip, expected
+                ),
+            )
 
-    field_items = {
-        item["attrs"].get("data-field"): item["attrs"].get("data-verdict")
+    rendered_field_items = {
+        item["attrs"].get("data-field"): item
         for item in page.items
         if item["attrs"].get("data-field") is not None
     }
     for field_name, expected in expected_field_verdicts.items():
         binding = "dataset." + field_name
-        actual = field_items.get(binding)
-        if actual is None:
+        item = rendered_field_items.get(binding)
+        if item is None:
             _fail(failures, "no rendered <li> is bound to data-field={!r}".format(binding))
-        elif actual != expected:
+            continue
+        actual = item["attrs"].get("data-verdict")
+        if actual != expected:
             _fail(
                 failures,
                 "dataset field <li> {} carries verdict {!r} != derived {!r}".format(
                     binding, actual, expected
+                ),
+            )
+        # The chip text is what a reader sees; bind it to the derived
+        # verdict too, not just the data-verdict attribute.
+        visible = item["text"]
+        visible_chip = (
+            visible[len(field_name) + 1:].split(" ", 1)[0]
+            if visible.startswith(field_name + " ")
+            else ""
+        )
+        if visible_chip != expected:
+            _fail(
+                failures,
+                "dataset field <li> {} visible verdict reads {!r} != derived {!r}".format(
+                    binding, visible_chip, expected
                 ),
             )
 
