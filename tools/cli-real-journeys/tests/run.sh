@@ -13,4 +13,12 @@ for test_script in tests/*.ts; do
     fail=1
   fi
 done
+for test_script in tests/*.sh; do
+  [ "$(basename "$test_script")" = "run.sh" ] && continue
+  echo "=== $test_script"
+  if ! bash "$test_script"; then
+    echo "=== $test_script FAILED"
+    fail=1
+  fi
+done
 exit "$fail"

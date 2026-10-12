@@ -180,7 +180,8 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
   PIN_REV="${pin_spec##*:}"
   PIN_SOURCE=$(git -C "$REPO_ROOT" show "$PIN_REV:apps/portal/src/lib/benchmark-packages.ts" \
     | sed -n 's/^[[:space:]]*"git+\([^"]*\)".*$/git+\1/p' | head -1)
-  if [ -z "$PIN_SOURCE" ]; then
+  PIN_COMMIT=$(printf '%s' "$PIN_SOURCE" | sed -n 's/.*@\([0-9a-f]\{40\}\).*/\1/p')
+  if [ -z "$PIN_SOURCE" ] || [ -z "$PIN_COMMIT" ]; then
     echo "pin $PIN_ID: could not read COGBENCH_SOURCE from $PIN_REV" >&2
     FAILED=1
     continue
@@ -191,12 +192,11 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
     if [ ! -x "$env_bin/python" ]; then
       PIN_INSTALL_STATUS=missing
       : >"$pin_log"
-    elif "$env_bin/python" -m pip install --quiet --upgrade --force-reinstall \
-      "cogworks-benchmark @ $PIN_SOURCE" >"$pin_log" 2>&1; then
+    elif ./support/install-pinned.sh "$env_bin/python" "$pin_log" "cogworks_benchmark" "$PIN_COMMIT" \
+      --force-reinstall "cogworks-benchmark @ $PIN_SOURCE"; then
       PIN_INSTALL_STATUS=ok
     else
       PIN_INSTALL_STATUS=failed
-      tail -5 "$pin_log" >&2
     fi
     export PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS
     export VENV_MATRIX="$env_bin" PIN_ENV="$env_name" PIN_INSTALL_LOG="$pin_log"
@@ -220,18 +220,34 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
           2) bench_dist="cogworks-week2-vision-benchmark"; bench_extra="[data]"; bench_fn="WEEK2_VISION" ;;
           3) bench_dist="cogworks-week3-language-benchmark"; bench_extra=""; bench_fn="WEEK3_LANGUAGE" ;;
         esac
+        # Keep git+ intact: pip can only follow the pinned repository through
+        # a git+ direct reference — a bare https URL is treated as an archive
+        # download and fails (the stripped form once made every one of these
+        # installs fail silently). install-pinned.sh asserts the installed
+        # dist's commit is the pinned one, and any install failure fails the
+        # run here — never a swallowed exit code.
         bench_source=$(git -C "$REPO_ROOT" show "$PIN_REV:apps/portal/src/lib/benchmark-packages.ts" \
           | awk -v fn="const $bench_fn" '$0 ~ fn, /^};/' \
-          | sed -n 's/^.*"git+\([^"]*\)".*$/\1/p' | head -1)
+          | sed -n 's/^[[:space:]]*"git+\([^"]*\)".*$/git+\1/p' | head -1)
+        bench_commit=$(printf '%s' "$bench_source" | sed -n 's/.*@\([0-9a-f]\{40\}\).*/\1/p')
+        bench_dist_name=${bench_dist//-/_}
         bench_log="$RESULTS/pin-$PIN_ID-$env_name-benchmark-install.log"
-        bench_status=missing
-        if [ -n "$bench_source" ] && "$env_bin/python" -m pip install --quiet \
-          "$bench_dist$bench_extra @ $bench_source" >"$bench_log" 2>&1; then
+        bench_status=failed
+        if [ -z "$bench_source" ] || [ -z "$bench_commit" ]; then
+          echo "pin $PIN_ID on $env_name: could not read $bench_fn's git+ source from $PIN_REV" >&2
+          FAILED=1
+        elif ./support/install-pinned.sh "$env_bin/python" "$bench_log" "$bench_dist_name" "$bench_commit" \
+          --force-reinstall "$bench_dist$bench_extra @ $bench_source"; then
           bench_status=ok
         else
-          tail -5 "$bench_log" >&2
+          echo "pin $PIN_ID on $env_name: the week $week_num benchmark install failed; failing the run (log: $bench_log)" >&2
+          FAILED=1
         fi
         echo "--- pin $PIN_ID on $env_name: benchmark install $bench_status"
+        if [ "$bench_status" != "ok" ]; then
+          echo "--- pin $PIN_ID on $env_name: skipping the week $week_num real-data journey; the week's benchmark did not install (the run already fails)" >&2
+          continue
+        fi
         journey_home="$RESULTS/journey-home-$PIN_ID-$env_name"
         rm -rf "$journey_home"
         mkdir -p "$journey_home"
