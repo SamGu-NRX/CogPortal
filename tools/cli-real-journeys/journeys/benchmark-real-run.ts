@@ -280,23 +280,31 @@ await cases.discordBind.run(async () => {
   const discordUser = { id: "9001000000000000001", username: "journey-student-discord" };
   const channelId = "9002000000000000001";
   const post = await interactionPoster(discordUser, channelId);
+  // Cases share the double's accumulated log, and earlier cases' links are
+  // spent; judge only entries this case's own /cog minted.
+  const logBefore = (await doubleLog()).length;
 
   const cogStatus = await post({ type: 2, data: { id: "1", name: "cog", type: 1 } });
   case_.expect(cogStatus === 200, "the bot accepted the /cog interaction", `status ${cogStatus}`);
   const linkEntries = await waitForDouble(
     "the bot's connect view with a portal link token",
     (entries) =>
-      entries.some(
-        (entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("#discord="),
-      ),
+      entries
+        .slice(logBefore)
+        .some(
+          (entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("#discord="),
+        ),
   );
-  const token = [...JSON.stringify(linkEntries.map((entry) => entry.body ?? {})).matchAll(/#discord=([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
+  const token = [...JSON.stringify(linkEntries.slice(logBefore).map((entry) => entry.body ?? {})).matchAll(/#discord=([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
   case_.expect(Boolean(token), "the bot's connect view carried a portal link token", "no #discord= token in any view edit");
   if (!token) throw new Error("the connect view never carried a #discord= token");
 
   const confirmed = await portal.confirmDiscordLink(token);
+  // The bot's discordIdentity mints the display form ("@username" without a
+  // global name) and the portal stores what the bot sent; match the userId
+  // and that form, not the raw interaction username.
   case_.expect(
-    confirmed.discord !== null && confirmed.discord.username === discordUser.username,
+    confirmed.discord !== null && confirmed.discord.userId === discordUser.id && confirmed.discord.username === `@${discordUser.username}`,
     "the portal session confirmed the Discord link",
     JSON.stringify(confirmed).slice(0, 300),
   );
@@ -321,7 +329,7 @@ await cases.discordBind.run(async () => {
 
   const summary = await portal.connectionSummary();
   case_.expect(
-    summary.discord !== null && summary.discord.username === discordUser.username,
+    summary.discord !== null && summary.discord.userId === discordUser.id && summary.discord.username === `@${discordUser.username}`,
     "the portal session lists the linked Discord account",
     JSON.stringify(summary).slice(0, 300),
   );
@@ -353,14 +361,24 @@ await cases.liveLanguage.run(async () => {
     const discordUser = { id: "9003000000000000001", username: "journey-student-discord" };
     const channelId = "9004000000000000001";
     const post = await interactionPoster(discordUser, channelId);
+    // The channel-bind case's spent token is still in the double's
+    // accumulated log; without the snapshot this probe answers instantly
+    // with that token and the confirm dies with link_expired.
+    const logBefore = (await doubleLog()).length;
     await post({ type: 2, data: { id: "1", name: "cog", type: 1 } });
     const linkEntries = await waitForDouble("the live journey's connect view token", (entries) =>
-      entries.some((entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("#discord=")),
+      entries
+        .slice(logBefore)
+        .some((entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("#discord=")),
     );
-    const token = [...JSON.stringify(linkEntries.map((entry) => entry.body ?? {})).matchAll(/#discord=([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
+    const token = [...JSON.stringify(linkEntries.slice(logBefore).map((entry) => entry.body ?? {})).matchAll(/#discord=([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
     if (!token) throw new Error("the connect view never carried a #discord= token");
     const confirmed = await portal.confirmDiscordLink(token);
-    case_.expect(confirmed.discord !== null, "the live journey's Discord link confirmed", JSON.stringify(confirmed).slice(0, 300));
+    case_.expect(
+      confirmed.discord !== null && confirmed.discord.userId === discordUser.id,
+      "the live journey's Discord link confirmed",
+      JSON.stringify(confirmed).slice(0, 300),
+    );
     await post({ type: 2, data: { id: "2", name: "cog", type: 1 } });
     await post({ type: 3, data: { custom_id: "cog:bind-channel" }, message: { id: "m-live", channel_id: channelId } });
     await post({ type: 3, data: { custom_id: "cog:bind-channel:confirm" }, message: { id: "m-live", channel_id: channelId } });
@@ -402,15 +420,27 @@ await cases.liveLanguage.run(async () => {
     // message create and at least one edit, recorded by the double after the
     // bind. The bubble carries the benchmark's name, not just any traffic.
     const bubble = await waitForDouble("the live bubble's channel messages", (entries) => {
-      const sent = entries.filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
-      const edited = entries.filter((entry) => entry.method === "PATCH" && /^\/api\/v10\/channels\/[^/]+\/messages(\/[^/]+)?$/.test(entry.path ?? ""));
+      const fresh = entries.slice(logBefore);
+      const sent = fresh.filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
+      const edited = fresh.filter((entry) => entry.method === "PATCH" && /^\/api\/v10\/channels\/[^/]+\/messages(\/[^/]+)?$/.test(entry.path ?? ""));
       return sent.length > 0 && edited.length > 0;
     });
-    const sent = bubble.filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
+    const sent = bubble
+      .slice(logBefore)
+      .filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
     case_.claim("the live bubble's channel-message receipts", JSON.stringify(sent.map((entry) => ({ path: entry.path, body: entry.body }))).slice(0, 600));
 
     await portal.revokeDiscordLink();
   } finally {
+    // Best-effort: a mid-case failure must not leak this session's Discord
+    // link into the later journeys' link_conflict. The happy path already
+    // revoked above; this only runs when the case died between link and
+    // revoke, or the stack is already gone.
+    try {
+      await portal.revokeDiscordLink();
+    } catch {
+      // Nothing to revoke, or the portal is unreachable at teardown.
+    }
     await home.close();
     await repo.dispose();
   }

@@ -236,7 +236,7 @@ echo "== [7/8] both documented staging pins, on every supported Python =="
 # the pin id, the revision and the resolved source, so a matrix cell can never
 # be mistaken for another's.
 declare -a PIN_REVISIONS=()
-if git -C "$REPO_ROOT" fetch origin beta alpha; then
+if git -C "$REPO_ROOT" fetch origin refs/heads/beta:refs/remotes/origin/beta refs/heads/alpha:refs/remotes/origin/alpha; then
   PIN_REVISIONS=("beta:origin/beta" "alpha:origin/alpha")
 else
   echo "could not fetch origin's beta and alpha revisions; the pin matrix cannot read the true pins" >&2
