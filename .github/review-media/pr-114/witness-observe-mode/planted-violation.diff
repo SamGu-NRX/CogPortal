@@ -1,0 +1,13 @@
+diff --git a/apps/portal/worker/routes/admin.ts b/apps/portal/worker/routes/admin.ts
+index 9943a9c..80595bc 100644
+--- a/apps/portal/worker/routes/admin.ts
++++ b/apps/portal/worker/routes/admin.ts
+@@ -671,7 +671,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
+    */
+ 
+   app.get("/admin/staff", async (c) => {
+-    await requireOwner(c);
++    await requireStaff(c);
+     return respond(c, AdminStaffRosterSchema, await getStaffRoster(getDb(c.env), c.env));
+   });
+ 

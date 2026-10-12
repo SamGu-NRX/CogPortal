@@ -1,0 +1,49 @@
+{
+  "run": 1,
+  "of": 1,
+  "commit": "b1192aeec15f89688ebdd3d0f72eb779eef5140b",
+  "tree": "aebf27121c984838e8497eed5940120d3c370bf6",
+  "worktreeClean": true,
+  "full": false,
+  "grep": "every Worker route",
+  "matrixMode": "enforce",
+  "suiteEnv": {
+    "RJ_ACCEPTANCE": "1",
+    "RJ_MATRIX_OBSERVE": null
+  },
+  "matrixTestsNotEnforced": [],
+  "startedAt": "2026-10-12T13:57:45.656Z",
+  "finishedAt": "2026-10-12T13:59:26.751Z",
+  "exitCode": 1,
+  "retries": 0,
+  "stats": {
+    "startTime": "2026-10-12T13:57:46.228Z",
+    "duration": 100508.076,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "passed": 0,
+  "total": 1,
+  "tests": [
+    {
+      "file": "s5-route-matrix.journey.mjs",
+      "title": "every Worker route answers every identity exactly as the policy says",
+      "status": "unexpected",
+      "annotations": [
+        {
+          "type": "matrix-mode",
+          "description": "enforce"
+        }
+      ],
+      "results": [
+        {
+          "status": "failed",
+          "retry": 0,
+          "durationMs": 91214
+        }
+      ]
+    }
+  ]
+}
