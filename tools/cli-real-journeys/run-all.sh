@@ -154,13 +154,23 @@ set -e
 
 echo "== [7/8] both documented staging pins, on every supported Python =="
 # Staging students install the CLI pinned by COGBENCH_SOURCE, and the pin
-# differs per environment: each staging copy of benchmark-packages.ts names
-# its own CLI commit. Read every pin from the revision that bakes it — never
-# from the working tree — then install it the documented way (python -m pip
+# differs per portal revision: the beta revision's copy of benchmark-packages.ts
+# and the alpha revision's each name their own CLI commit. Read every pin from
+# the portal revision that bakes it — the branch tip, fetched fresh, never a
+# CLI commit reused as a revision (that wiring once resolved the beta label to
+# 71e4767 and the alpha label to 064400e9, so alpha's real pin ecae6171521d
+# was never installed) — then install it the documented way (python -m pip
 # install --upgrade --force-reinstall, docs/design/student-cli-and-onboarding.md)
 # into every supported environment and exercise it there. The receipts carry
-# the pin id, so a matrix cell can never be mistaken for another's.
-declare -a PIN_REVISIONS=("beta:064400e9cf65874b87fe888fc6fd14a564095c5e" "alpha:ecae6171521d")
+# the pin id, the revision and the resolved source, so a matrix cell can never
+# be mistaken for another's.
+declare -a PIN_REVISIONS=()
+if git -C "$REPO_ROOT" fetch origin beta alpha; then
+  PIN_REVISIONS=("beta:origin/beta" "alpha:origin/alpha")
+else
+  echo "could not fetch origin's beta and alpha revisions; the pin matrix cannot read the true pins" >&2
+  FAILED=1
+fi
 # week1/week2/week3 are the course's Python 3.8 environments; py311 and py313
 # are the other supported versions the course documents (the hosted runner's
 # shared image is 3.11; the 3.8 runners are baked venvs).

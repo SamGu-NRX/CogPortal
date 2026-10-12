@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { CliHome, env } from "../support/cli.ts";
+import { installedMatchesPin, readDirectUrl } from "../support/installed-commit.ts";
 import { TeamRepository } from "../support/git-fixture.ts";
 import { readStackInfo } from "../support/stack-info.ts";
 import { Case } from "./harness.ts";
@@ -36,24 +37,6 @@ const PINNED_ENV: NodeJS.ProcessEnv = {
   COGPORTAL_URL: (await readStackInfo()).shaperPortalOrigin,
 };
 
-/** The pip direct-url record of an installed distribution, parsed. */
-async function directUrl(distribution: string): Promise<Record<string, any> | null> {
-  const script = [
-    "import json, glob, os, sys",
-    "names = glob.glob(os.path.join(sys.prefix, 'lib', f'python{sys.version_info[0]}.{sys.version_info[1]}', 'site-packages', '*.dist-info', 'direct_url.json'))",
-    "for path in names:",
-    "    if sys.argv[1] in path:",
-    "        print(open(path).read())",
-    "        break",
-  ].join("\n");
-  try {
-    const { stdout } = await run(python, ["-c", script, distribution], { env: PINNED_ENV });
-    return JSON.parse(stdout);
-  } catch {
-    return null;
-  }
-}
-
 function pinLabel(suffix: string): string {
   return `${suffix}-${PIN_ID}-${process.env.PIN_ENV ?? "env"}`;
 }
@@ -83,14 +66,15 @@ await cases.install.run(async () => {
     `the pinned CLI runs on python ${version.stdout.trim()}`,
     `--version printed: ${cogworks.stdout.trim().slice(0, 120)}`,
   );
-  const installed = await directUrl("cogworks_benchmark");
+  const installed = await readDirectUrl(python, "cogworks_benchmark", PINNED_ENV);
   // pip records a git install's commit under vcs_info, not in the url; the
-  // pin's identity is the commit its COGBENCH_SOURCE names, so compare that.
-  const commit = PIN_SOURCE.match(/@([0-9a-f]{40})/)?.[1] ?? "";
-  const vcsCommit = typeof installed?.vcs_info?.commit_id === "string" ? installed.vcs_info.commit_id : "";
+  // pin's identity is the commit its portal revision's COGBENCH_SOURCE names,
+  // so compare that — the installed-commit assertion holds only when the
+  // environment got exactly what the revision's file declares.
+  const verified = installedMatchesPin(installed, PIN_SOURCE);
   case_.expect(
-    installed !== null && typeof installed.url === "string" && installed.url.includes("CogPortal.git") && commit.length === 40 && vcsCommit === commit,
-    `the installed cogworks-benchmark is the pin ${PIN_ID} source (CLI commit ${commit.slice(0, 10)})`,
+    verified.ok,
+    `the installed cogworks-benchmark is the pin ${PIN_ID} source (CLI commit ${verified.pinCommit.slice(0, 10)})`,
     `direct_url.json: ${JSON.stringify(installed)}; pin source: ${PIN_SOURCE}`,
   );
   case_.claim("the source the pin resolves to", PIN_SOURCE);

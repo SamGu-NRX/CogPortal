@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "journeys": "bash run-all.sh",
+    "test": "bash tests/run.sh",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
