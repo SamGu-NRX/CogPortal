@@ -22,7 +22,13 @@ export class Case {
     readonly journey: string,
     readonly name: string,
     readonly touched: string[],
+    private readonly options: { required?: boolean } = {},
   ) {}
+
+  /** Whether the run bar treats this case as required (default: yes). */
+  get required(): boolean {
+    return this.options.required !== false;
+  }
 
   /** Records an observation without judging it. */
   claim(claim: string, evidence: string): void {
@@ -80,6 +86,7 @@ export class Case {
       // came from; outside it the variables are unset and the field is
       // omitted, as the plan's cases run against this checkout's source.
       ...(pinFromEnvironment() ? { pin: pinFromEnvironment() } : {}),
+      required: this.required,
     };
     await writeReceipt(receipt);
     if (status !== "PASS") process.exitCode = 1;
