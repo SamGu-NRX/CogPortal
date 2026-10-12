@@ -577,3 +577,104 @@ def test_one_sided_floor_renders_honestly_and_verifies(tmp_path):
         cwd=str(REPO_ROOT),
     )
     assert verify.returncode == 0, verify.stderr
+
+
+def _build_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "run_comparison_build", str(WORKBENCH / "build.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_findings_derived_from_verdicts(monkeypatch):
+    # The all-match finding must never be claimed while any axis is not
+    # same. Comparability is deliberately broader (a changed source is
+    # a legitimate A/B pairing), so deriving the finding from it claimed
+    # "All recorded conditions match: source..." while source was
+    # changed. Stub the verdict functions to isolate the derivation.
+    build = _build_module()
+    a = _load("01-run-a.json")
+    b = _load("02-run-b.json")
+    same = lambda x, y: {"verdict": "same", "detail": ""}
+    changed = lambda x, y: {"verdict": "changed", "detail": ""}
+
+    monkeypatch.setattr(build, "source_verdict", changed)
+    monkeypatch.setattr(build, "dataset_verdict", same)
+    monkeypatch.setattr(build, "scorer_verdict", same)
+    analysis = build.analyze_pair(a, b)
+    assert analysis["comparable"] is True
+    joined = " ".join(analysis["findings"])
+    assert "All recorded conditions match" not in joined
+    assert any("source differs between the runs" in line for line in analysis["findings"])
+
+    monkeypatch.setattr(build, "source_verdict", same)
+    monkeypatch.setattr(build, "dataset_verdict", same)
+    monkeypatch.setattr(build, "scorer_verdict", same)
+    analysis = build.analyze_pair(a, b)
+    assert "All recorded conditions match" in " ".join(analysis["findings"])
+
+    # The real canonical pair (stubs undone): dataset provenance is
+    # unknown, so the findings carry blockers and never all-match.
+    monkeypatch.undo()
+    analysis = build.analyze_pair(a, b)
+    joined = " ".join(analysis["findings"])
+    assert "All recorded conditions match" not in joined
+    assert any("dataset conditions" in line for line in analysis["findings"])
+
+
+def test_builder_excludes_refused_reports(tmp_path):
+    # The reader refuses 07; the builder must exclude it from pairing
+    # and record it with its reason - not just the reader rejecting the
+    # file in isolation.
+    import shutil
+
+    work = tmp_path / "fixtures"
+    work.mkdir()
+    for name in (
+        "01-run-a.json",
+        "02-run-b.json",
+        "07-refused-future-contract.json",
+    ):
+        shutil.copy(FIXTURES / name, work / name)
+    out = tmp_path / "evidence"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "build.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+            "--replay",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    receipt = json.loads(
+        (out / "view-receipts-01-run-a-vs-02-run-b.json").read_text(encoding="utf-8")
+    )
+    excluded = {item["file"]: item["reasons"] for item in receipt["excluded"]}
+    assert "07-refused-future-contract.json" in excluded
+    assert any(
+        r.startswith("unsupported_contract")
+        for r in excluded["07-refused-future-contract.json"]
+    )
+    assert [i["file"] for i in receipt["inputs"]] == [
+        "01-run-a.json",
+        "02-run-b.json",
+        "07-refused-future-contract.json",
+    ]
+    # The builder paired only the accepted reports: exactly one view.
+    assert sorted(p.name for p in out.glob("view-*.html")) == [
+        "view-01-run-a-vs-02-run-b.html"
+    ]
+    html_text = (out / "view-01-run-a-vs-02-run-b.html").read_text(encoding="utf-8")
+    assert "07-refused-future-contract.json" in html_text
+    assert "The reader refused these fixture files" in html_text

@@ -5,7 +5,7 @@
   ],
   "fixtures_root": "tools/run-comparison/fixtures-stress",
   "generator": "tools/run-comparison/build.py --replay",
-  "html_sha256": "f533317c5bec63e1d00813788f953a285fb28df96e204f53c44225b695af4daa",
+  "html_sha256": "aef20706d24eda6180c67a05740fc8cb9384f1bb12d011c32b50cfd667c94148",
   "identical": true,
   "inputs": [
     {
@@ -81,11 +81,11 @@
       "sha256": "a86a1f7fde7e0f2e21ffc4ebcedb8bae32fe8febe3be0441623bc5e29bebc91c"
     }
   ],
-  "rebuilt_html_sha256": "f533317c5bec63e1d00813788f953a285fb28df96e204f53c44225b695af4daa",
-  "receipt_sha256": "52c15c634e1f694e4c04dc9d08626f6d59500c1c954112ad2d324671826a2ce1",
+  "rebuilt_html_sha256": "aef20706d24eda6180c67a05740fc8cb9384f1bb12d011c32b50cfd667c94148",
+  "receipt_sha256": "e0f2e4bb6893f20c77ef91d3973c82326512ee3a8b81358a7aa7b18ea9961d78",
   "tool_source": {
     "files": {
-      "build.py": "4ac26ac287339d05abe8280892f57691d894913e624a209df056a72766d0964f",
+      "build.py": "8e05dc24ddaa7de777367177e8a04e6ec80cdf8bd413dcc37c1db5cdadfbc6bc",
       "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
     }
   }

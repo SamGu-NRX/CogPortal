@@ -628,8 +628,16 @@ def analyze_pair(a: Report, b: Report) -> Dict[str, Any]:
             + scorer["detail"]
         )
     sections = metric_sections(a, b, comparable)
+    # Findings are derived from the verdicts themselves: comparability
+    # is deliberately broader (a changed source is a legitimate A/B
+    # pairing), so it must never feed an all-match claim.
     findings: List[str] = []
-    if comparable:
+    axes_same = (
+        source["verdict"] == "same"
+        and dataset["verdict"] == "same"
+        and scorer["verdict"] == "same"
+    )
+    if axes_same:
         findings.append(
             "All recorded conditions match: source, dataset (benchmark, case "
             "set, weight bytes, scoring floors) and scorer identity."
@@ -639,11 +647,17 @@ def analyze_pair(a: Report, b: Report) -> Dict[str, Any]:
             "no cause for any difference."
         )
     else:
+        if source["verdict"] == "changed":
+            findings.append(
+                "source differs between the runs; the metric deltas below "
+                "are observations only and state no cause"
+            )
         findings.extend(blockers)
-        findings.append(
-            "While any blocker stands, a metric difference is not evidence "
-            "of a source effect."
-        )
+        if blockers:
+            findings.append(
+                "While any blocker stands, a metric difference is not evidence "
+                "of a source effect."
+            )
     return {
         "comparable": comparable,
         "conditions": {"source": source, "dataset": dataset, "scorer": scorer},

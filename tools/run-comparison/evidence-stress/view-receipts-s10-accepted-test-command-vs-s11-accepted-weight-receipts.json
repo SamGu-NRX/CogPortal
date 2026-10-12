@@ -123,12 +123,13 @@
     }
   ],
   "findings": [
+    "source differs between the runs; the metric deltas below are observations only and state no cause",
     "dataset conditions changed: see the field verdicts",
     "While any blocker stands, a metric difference is not evidence of a source effect."
   ],
   "fixtures_root": "tools/run-comparison/fixtures-stress",
   "generator": "tools/run-comparison/build.py",
-  "html_sha256": "f533317c5bec63e1d00813788f953a285fb28df96e204f53c44225b695af4daa",
+  "html_sha256": "aef20706d24eda6180c67a05740fc8cb9384f1bb12d011c32b50cfd667c94148",
   "inputs": [
     {
       "file": "s10-accepted-test-command.json",
@@ -301,7 +302,7 @@
   },
   "tool_source": {
     "files": {
-      "build.py": "4ac26ac287339d05abe8280892f57691d894913e624a209df056a72766d0964f",
+      "build.py": "8e05dc24ddaa7de777367177e8a04e6ec80cdf8bd413dcc37c1db5cdadfbc6bc",
       "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
     }
   }

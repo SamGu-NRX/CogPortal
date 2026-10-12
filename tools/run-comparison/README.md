@@ -141,8 +141,11 @@ python tools/run-comparison/build.py \
    and the HTML from raw JSON (a tampered receipt fails it).
 3. `--replay` plus a browser walk. Done: the view has zero focusable
    elements and zero CSS animations (nothing to keyboard-operate, no
-   motion to reduce); axe-core reports zero WCAG 2.x A/AA violations
-   with 10 passes; cold-load layout shift is 0.000 (no entries);
+   motion to reduce); the inherited records describe an axe-core run
+   (zero WCAG 2.x A/AA violations, 10 passes) from the original
+   writer's environment — not re-run here; the m3 browser notes record
+   why (no vendored axe build, offline rule); cold-load layout shift
+   is 0.000 (no entries);
    1440x900 and 390x844 screenshots plus the reduced-motion capture
    are committed under `evidence/browser/` with the measurement record
    `m3-browser-evidence.json`.
