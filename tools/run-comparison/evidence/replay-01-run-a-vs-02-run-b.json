@@ -54,10 +54,10 @@
     }
   ],
   "rebuilt_html_sha256": "a690983923489413c8f9ef99e16be6f0824712ac39065e1273c1cc895957d4e3",
-  "receipt_sha256": "2f5a616f303810e3e117f3940086ece76355b350f7c933fb347a669c939af54f",
+  "receipt_sha256": "1a14c67ee594490e55bdb741d49f5ebc40d281fdafa2e6f83ab7ac71d710b2de",
   "tool_source": {
     "files": {
-      "build.py": "ad22c4bb0fa0c680e86fc44a89684981c83135078c2489992e496620f78922e8",
+      "build.py": "2aeb992806e96030358f64e19611518bc2e0dc953ecc9132aa8121c89cf2fdaa",
       "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
     }
   }

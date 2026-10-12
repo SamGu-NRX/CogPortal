@@ -263,3 +263,109 @@ def test_label_only_dataset_same_claim_is_caught_after_a_full_rebind(tmp_path):
     assert verify.returncode == 1
     assert "misrendered" in verify.stderr
     assert "dataset" in verify.stderr
+
+
+def test_floor_identity_metadata_is_caught_after_a_full_rebind(tmp_path):
+    # Floor identity is semantic, not just bytes. Tamper one report's
+    # floor unit AND reference, rebuild (which rebinds every digest
+    # around the tampered report) and require the floor verdict to read
+    # changed with both differences rendered honestly. Then forge the
+    # receipt a value-only builder would have written - floors "same",
+    # pair comparable - rebind every digest until the evidence triple is
+    # hash-self-consistent, and require verify.py to fail naming the
+    # scoring-floors disagreement. A digest-mismatch failure would
+    # prove nothing.
+    import hashlib
+    import shutil
+
+    work = tmp_path / "fixtures"
+    shutil.copytree(FIXTURES, work)
+    report_path = work / "02-run-b.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    floors = [m for m in report["metrics"] if m.get("role") == "floor"]
+    assert len(floors) == 1
+    floors[0]["unit"] = "ratio"
+    floors[0]["relatesTo"] = "ranking_failure_rate"
+    report_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + chr(10), encoding="utf-8"
+    )
+
+    out = tmp_path / "evidence"
+    build_result = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "build.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+            "--replay",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert build_result.returncode == 0, build_result.stdout + build_result.stderr
+
+    receipt_path = out / "view-receipts-{}.json".format(PAIR_STEM)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    floors_field = {
+        field["field"]: field
+        for field in receipt["conditions"]["dataset"]["fields"]
+    }["scoring floors"]
+    assert floors_field["verdict"] == "changed"
+    assert "identity (unit, direction, reference)" in floors_field["detail"]
+    assert receipt["pair_comparable"] is False
+
+    html_text = (out / "view-{}.html".format(PAIR_STEM)).read_text(encoding="utf-8")
+    assert "floor identity differs between the runs" in html_text
+    assert "unit differs: run A" in html_text
+    assert "run A floor of identification_score" in html_text
+    assert "run B floor of ranking_failure_rate" in html_text
+
+    verify_ok = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "verify.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert verify_ok.returncode == 0, verify_ok.stderr
+
+    # Forge the value-only claim and rebind every digest that covers it.
+    floors_field["verdict"] = "same"
+    receipt["conditions"]["dataset"]["verdict"] = "same"
+    receipt["pair_comparable"] = True
+    receipt_bytes = (
+        json.dumps(receipt, indent=2, sort_keys=True) + chr(10)
+    ).encode("utf-8")
+    receipt_path.write_bytes(receipt_bytes)
+    replay_path = out / "replay-{}.json".format(PAIR_STEM)
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    replay["receipt_sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    replay_path.write_text(
+        json.dumps(replay, indent=2, sort_keys=True) + chr(10), encoding="utf-8"
+    )
+
+    verify = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "verify.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert verify.returncode == 1
+    assert "misrendered" in verify.stderr
+    assert "scoring floors" in verify.stderr

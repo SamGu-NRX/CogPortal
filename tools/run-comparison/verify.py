@@ -466,6 +466,16 @@ def _dataset_fields(
                 metric_b["precision"],
             ):
                 floors_verdict = "changed"
+            elif (
+                metric_a["unit"],
+                metric_a["higher_is_better"],
+                metric_a["relates_to"],
+            ) != (
+                metric_b["unit"],
+                metric_b["higher_is_better"],
+                metric_b["relates_to"],
+            ):
+                floors_verdict = "changed"
         fields.append({"field": "scoring floors", "verdict": floors_verdict})
     return fields
 
@@ -511,15 +521,32 @@ def _derive_analysis(
     for key in sorted(set(a_by_key) & set(b_by_key)):
         metric_a, metric_b = a_by_key[key], b_by_key[key]
         if metric_a["role"] == "floor" and metric_b["role"] == "floor":
+            value_differs = (metric_a["value"], metric_a["precision"]) != (
+                metric_b["value"],
+                metric_b["precision"],
+            )
+            identity_differs = (
+                metric_a["unit"],
+                metric_a["higher_is_better"],
+                metric_a["relates_to"],
+            ) != (
+                metric_b["unit"],
+                metric_b["higher_is_better"],
+                metric_b["relates_to"],
+            )
             floors.append(
                 {
                     "key": key,
                     "label": metric_a["label"] or key,
                     "value_a": _fmt(metric_a["value"], metric_a["precision"]),
                     "value_b": _fmt(metric_b["value"], metric_b["precision"]),
-                    "differs": (metric_a["value"], metric_a["precision"])
-                    != (metric_b["value"], metric_b["precision"]),
-                    "relates_to": metric_a["relates_to"],
+                    "differs": value_differs or identity_differs,
+                    "value_differs": value_differs,
+                    "identity_differs": identity_differs,
+                    "unit_a": metric_a["unit"] or "",
+                    "unit_b": metric_b["unit"] or "",
+                    "relates_to_a": metric_a["relates_to"] or "",
+                    "relates_to_b": metric_b["relates_to"] or "",
                 }
             )
             continue
@@ -906,7 +933,18 @@ def main() -> int:
             ),
         )
     for derived_row, receipt_row in zip(derived["floors"], receipt_floors):
-        for field in ("key", "value_a", "value_b", "differs"):
+        for field in (
+            "key",
+            "value_a",
+            "value_b",
+            "differs",
+            "value_differs",
+            "identity_differs",
+            "unit_a",
+            "unit_b",
+            "relates_to_a",
+            "relates_to_b",
+        ):
             if receipt_row.get(field) != derived_row[field]:
                 _fail(
                     failures,
@@ -1073,14 +1111,24 @@ def main() -> int:
                     derived_row["key"], cells[2], derived_row["value_b"]
                 ),
             )
-        has_chip = "differs between the runs" in cells[3]
-        if has_chip is not derived_row["differs"]:
+        has_value_chip = "value differs between the runs" in cells[3]
+        if has_value_chip is not derived_row["value_differs"]:
             _fail(
                 failures,
-                "floor row {} differs chip is {} but the values {}".format(
+                "floor row {} value-differs chip is {} but the values {}".format(
                     derived_row["key"],
-                    "shown" if has_chip else "absent",
-                    "differ" if derived_row["differs"] else "match",
+                    "shown" if has_value_chip else "absent",
+                    "differ" if derived_row["value_differs"] else "match",
+                ),
+            )
+        has_identity_chip = "floor identity differs between the runs" in cells[3]
+        if has_identity_chip is not derived_row["identity_differs"]:
+            _fail(
+                failures,
+                "floor row {} identity-differs chip is {} but the floor identities {}".format(
+                    derived_row["key"],
+                    "shown" if has_identity_chip else "absent",
+                    "differ" if derived_row["identity_differs"] else "match",
                 ),
             )
 

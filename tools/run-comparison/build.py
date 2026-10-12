@@ -397,6 +397,22 @@ def dataset_verdict(a: Report, b: Report) -> Dict[str, Any]:
                     )
                 )
                 floors_verdict = "changed"
+            elif (
+                metric_a.unit,
+                metric_a.higher_is_better,
+                metric_a.relates_to,
+            ) != (
+                metric_b.unit,
+                metric_b.higher_is_better,
+                metric_b.relates_to,
+            ):
+                floor_parts.append(
+                    "{}: same value {} but the floor's identity (unit, "
+                    "direction, reference) differs between the runs".format(
+                        key, _fmt(metric_a.value, metric_a.precision)
+                    )
+                )
+                floors_verdict = "changed"
             else:
                 floor_parts.append(
                     "{}: {} on both runs".format(
@@ -442,6 +458,27 @@ def _metric_identity(metric: Any) -> Tuple[Any, ...]:
     )
 
 
+def _floor_unit_suffix(item: Dict[str, Any]) -> str:
+    # The unit is part of a floor's identity: when the two runs recorded
+    # different units, the view says so instead of silently showing one.
+    a, b = item["unit_a"], item["unit_b"]
+    if a != b:
+        return " · unit differs: run A {} vs run B {}".format(
+            a or "unrecorded", b or "unrecorded"
+        )
+    return " · " + a if a else ""
+
+
+def _floor_relates_text(item: Dict[str, Any]) -> str:
+    a = item["relates_to_a"]
+    b = item["relates_to_b"]
+    if a == b:
+        return "floor of " + a if a else ""
+    return "run A floor of {} / run B floor of {}".format(
+        a or "nothing", b or "nothing"
+    )
+
+
 def metric_sections(
     a: Report, b: Report, comparable: bool
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -452,16 +489,32 @@ def metric_sections(
     for key in sorted(set(a_by_key) & set(b_by_key)):
         ma, mb = a_by_key[key], b_by_key[key]
         if ma.role == "floor" and mb.role == "floor":
+            # A floor is not "the same floor" unless its identity - unit,
+            # direction, and the metric it references - matches too;
+            # comparing values alone hides a changed floor wearing the
+            # same number.
+            value_differs = (ma.value, ma.precision) != (
+                mb.value,
+                mb.precision,
+            )
+            identity_differs = (
+                ma.unit,
+                ma.higher_is_better,
+                ma.relates_to,
+            ) != (mb.unit, mb.higher_is_better, mb.relates_to)
             context.append(
                 {
                     "key": key,
                     "label": ma.label or key,
                     "value_a": _fmt(ma.value, ma.precision),
                     "value_b": _fmt(mb.value, mb.precision),
-                    "unit": ma.unit,
-                    "relates_to": ma.relates_to,
-                    "differs": (ma.value, ma.precision)
-                    != (mb.value, mb.precision),
+                    "unit_a": ma.unit or "",
+                    "unit_b": mb.unit or "",
+                    "relates_to_a": ma.relates_to or "",
+                    "relates_to_b": mb.relates_to or "",
+                    "differs": value_differs or identity_differs,
+                    "value_differs": value_differs,
+                    "identity_differs": identity_differs,
                 }
             )
             continue
@@ -743,21 +796,25 @@ def render(
             '<span class="muted">{key_sub}</span></td><td>{value_a}</td><td>{value_b}</td><td>{relates}{diff_chip}</td></tr>'.format(
                 key=_esc(item["key"]),
                 label=_esc(item["label"]),
-                key_sub=_esc(
-                    item["key"]
-                    + ((" · " + item["unit"]) if item["unit"] else "")
-                ),
+                key_sub=_esc(item["key"] + _floor_unit_suffix(item)),
                 value_a=_esc(item["value_a"]),
                 value_b=_esc(item["value_b"]),
                 relates=(
-                    _esc("floor of " + item["relates_to"])
-                    if item["relates_to"]
+                    _esc(_floor_relates_text(item))
+                    if _floor_relates_text(item)
                     else '<span class="muted">floor reference</span>'
                 ),
                 diff_chip=(
-                    ' <span class="chip chip-changed">differs between the runs</span>'
-                    if item["differs"]
-                    else ""
+                    (
+                        ' <span class="chip chip-changed">value differs between the runs</span>'
+                        if item["value_differs"]
+                        else ""
+                    )
+                    + (
+                        ' <span class="chip chip-changed">floor identity differs between the runs</span>'
+                        if item["identity_differs"]
+                        else ""
+                    )
                 ),
             )
             for item in analysis["context"]
@@ -985,9 +1042,10 @@ def build_sections(
             )
     for item in analysis["context"]:
         lines["floor_context"].append(
-            "{} (floor of {}): run A {} vs run B {}{}".format(
+            "{} (floor reference: run A {} / run B {}): run A {} vs run B {}{}".format(
                 item["key"],
-                item["relates_to"] or "unspecified",
+                item["relates_to_a"] or "unspecified",
+                item["relates_to_b"] or "unspecified",
                 item["value_a"],
                 item["value_b"],
                 " — differs between the runs" if item["differs"] else "",

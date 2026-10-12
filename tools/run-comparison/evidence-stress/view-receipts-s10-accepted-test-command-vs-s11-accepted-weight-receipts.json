@@ -207,12 +207,16 @@
     "floors": [
       {
         "differs": false,
+        "identity_differs": false,
         "key": "chance_top1",
         "label": "Chance",
-        "relates_to": "identification_score",
-        "unit": null,
+        "relates_to_a": "identification_score",
+        "relates_to_b": "identification_score",
+        "unit_a": "",
+        "unit_b": "",
         "value_a": "0.033",
-        "value_b": "0.033"
+        "value_b": "0.033",
+        "value_differs": false
       }
     ],
     "only_in_a": [],
@@ -284,7 +288,7 @@
       "s8c-refused-old-contract.json: unsupported_contract: cogworks.submissions.v1 cannot be interpreted by this reader; supported: cogworks.submissions.v2"
     ],
     "floor_context": [
-      "chance_top1 (floor of identification_score): run A 0.033 vs run B 0.033"
+      "chance_top1 (floor reference: run A identification_score / run B identification_score): run A 0.033 vs run B 0.033"
     ],
     "metric_comparison": [
       "identification_score: 0.5375 vs 0.5875 \u2014 not compared \u2014 the runs' conditions do not line up",
@@ -297,7 +301,7 @@
   },
   "tool_source": {
     "files": {
-      "build.py": "ad22c4bb0fa0c680e86fc44a89684981c83135078c2489992e496620f78922e8",
+      "build.py": "2aeb992806e96030358f64e19611518bc2e0dc953ecc9132aa8121c89cf2fdaa",
       "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
     }
   }
