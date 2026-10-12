@@ -200,11 +200,40 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
     fi
     export PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS
     export VENV_MATRIX="$env_bin" PIN_ENV="$env_name" PIN_INSTALL_LOG="$pin_log"
-    if [ "$env_name" = "week1" ]; then
-      export PIN_TEST_BENCHMARK="audio-identification"
-    else
-      export PIN_TEST_BENCHMARK=""
-    fi
+    # Small cases per environment: week 1 runs its pre-baked audio benchmark;
+    # the version-matrix environments (py311, py313) first get that benchmark
+    # installed from the pinned CLI's own declared source (BENCHMARK_INSTALLS
+    # in the installed dist), so their cells exercise a real scored run on
+    # their real Python too. Week 2/3 cells export no benchmark: their
+    # real-data journey scores the week's benchmark under this same pinned
+    # CLI and those receipts carry the pin — a separate small case would only
+    # repeat that scored run, so no receipt is written for it here.
+    case "$env_name" in
+      week2|week3)
+        unset PIN_TEST_BENCHMARK PIN_SMALLCASE_AUDIO_STATUS PIN_SMALLCASE_AUDIO_LOG
+        ;;
+      week1)
+        export PIN_TEST_BENCHMARK="audio-identification"
+        export PIN_SMALLCASE_AUDIO_STATUS=prebaked
+        ;;
+      *)
+        export PIN_TEST_BENCHMARK="audio-identification"
+        audio_install_log="$RESULTS/pin-$PIN_ID-$env_name-audio-install.log"
+        export PIN_SMALLCASE_AUDIO_LOG="$audio_install_log"
+        if "$env_bin/python" -c "import importlib.metadata as m; m.version('cogworks-week1-audio-benchmark')" 2>/dev/null; then
+          export PIN_SMALLCASE_AUDIO_STATUS=prebaked
+        else
+          audio_spec=$("$env_bin/python" -c "from cogbench.plugins import BENCHMARK_INSTALLS; install = BENCHMARK_INSTALLS['audio-identification']; print(install.distribution + install.extras + ' @ ' + install.source)")
+          audio_commit=$(printf '%s' "$audio_spec" | sed -n 's/.*@\([0-9a-f]\{40\}\).*/\1/p')
+          if [ -n "$audio_commit" ] && ./support/install-pinned.sh "$env_bin/python" "$audio_install_log" \
+            "cogworks_week1_audio_benchmark" "$audio_commit" "$audio_spec"; then
+            export PIN_SMALLCASE_AUDIO_STATUS=ok
+          else
+            export PIN_SMALLCASE_AUDIO_STATUS=failed
+          fi
+        fi
+        ;;
+    esac
     echo "--- pin $PIN_ID on $env_name: install $PIN_INSTALL_STATUS"
     if ! "$NODE24/bin/npx" tsx journeys/pin-exercise.ts \
       >"$RESULTS/journey-pin-$PIN_ID-$env_name.log" 2>&1; then
@@ -262,7 +291,7 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
     esac
   done
 done
-unset PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK
+unset PIN_ID PIN_REV PIN_SOURCE PIN_INSTALL_STATUS VENV_MATRIX PIN_ENV PIN_INSTALL_LOG PIN_TEST_BENCHMARK PIN_SMALLCASE_AUDIO_STATUS PIN_SMALLCASE_AUDIO_LOG
 
 echo "== [8/8] report =="
 # A failing report/aggregation step must fail the run, not be swallowed:

@@ -59,6 +59,15 @@ export class Case {
         this.claims.push({ claim: "case failed", evidence: clip(detail) });
       }
     }
+    // A case that ran no command and asserted nothing cannot be judged PASS:
+    // a PASS receipt without bound evidence of a real executed command is
+    // exactly the phantom the receipts exist to prevent, so it records
+    // BLOCKED with the reason instead. A claims-only case stays PASS — its
+    // claims carry the evidence.
+    if (status === "PASS" && this.commands.length === 0 && this.claims.length === 0) {
+      status = "BLOCKED";
+      this.blockedReason = "the case ran no command and asserted nothing; it cannot be judged PASS";
+    }
     const receipt: Receipt = {
       journey: this.journey,
       case: this.name,

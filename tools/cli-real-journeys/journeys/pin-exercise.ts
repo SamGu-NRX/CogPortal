@@ -43,7 +43,6 @@ function pinLabel(suffix: string): string {
 
 const cases = {
   install: new Case("pin-exercise", pinLabel("install"), ["installed CLI"]),
-  smallCase: new Case("pin-exercise", pinLabel("small-case"), ["installed CLI", "benchmark package", "team repo"]),
 };
 
 await cases.install.run(async () => {
@@ -80,38 +79,55 @@ await cases.install.run(async () => {
   case_.claim("the source the pin resolves to", PIN_SOURCE);
 });
 
-await cases.smallCase.run(async () => {
-  const case_ = cases.smallCase;
-  const benchmark = process.env.PIN_TEST_BENCHMARK ?? "";
-  if (!benchmark) {
-    // Version-matrix cells (py311, py313) hold no course benchmark by
-    // design — their exercise is the install-and-run case above.
-    return;
-  }
-  const home = await CliHome.create(VENV_BIN);
-  const repo = await TeamRepository.create({
-    originFullName: "cogworks-demo/face-finder",
-    files: { "submission.py": SUBMISSION_PY },
-  });
-  try {
-    const test = home.start(["test", "--benchmark", benchmark, "--json"], { cwd: repo.path });
-    const exit = await test.exited(600_000);
-    case_.command(`cogworks test --benchmark ${benchmark} --json (pin ${PIN_ID})`, exit, test.output());
-    if (/not installed|ImportError|ModuleNotFoundError/.test(test.output()) && exit !== 0) {
-      case_.blocked(`pin ${PIN_ID} environment missing a course dependency; CLI output ends: ${test.output().slice(-600)}`);
-    }
-    case_.expect(exit === 0, `the pinned CLI (pin ${PIN_ID}) scored the week 1 small case`, `cogworks test exited ${exit}`);
-    const reportsDir = join(repo.path, ".cogbench", "reports");
-    const reports = (await readdir(reportsDir).catch(() => [] as string[])).filter((name) => name.endsWith(".json")).sort();
-    for (const name of reports) {
-      const report = JSON.parse(await readFile(join(reportsDir, name), "utf8"));
-      case_.claim(
-        "the scored report the pinned CLI saved",
-        `benchmark=${report.benchmarkId} metrics=${(report.metrics ?? []).map((metric: any) => metric.key).join(",")}`,
+// The small case exists only where run-all.sh exports a benchmark to run:
+// week 1 exercises its pre-baked audio benchmark, and the version-matrix
+// environments install that benchmark from the pinned CLI's own declared
+// source first, so every one of their cells runs a real scored case on its
+// real Python. Week 2/3 cells export none — their real-data journey scores
+// the week's benchmark under this same pinned CLI, with receipts carrying
+// the pin — so no small-case receipt is written here at all. The old shape
+// wrote a PASS receipt with no command behind it in that slot; a receipt
+// must not exist without bound evidence.
+const smallCaseBenchmark = process.env.PIN_TEST_BENCHMARK ?? "";
+if (smallCaseBenchmark) {
+  const smallCase = new Case("pin-exercise", pinLabel("small-case"), ["installed CLI", "benchmark package", "team repo"]);
+  await smallCase.run(async () => {
+    const audioStatus = process.env.PIN_SMALLCASE_AUDIO_STATUS ?? "";
+    if (audioStatus === "failed") {
+      const log = await readFile(process.env.PIN_SMALLCASE_AUDIO_LOG ?? "", "utf8").catch(() => "");
+      smallCase.blocked(
+        `the week 1 audio benchmark could not be installed from the pinned CLI's declared source for ${process.env.PIN_ENV ?? "this environment"}. Log tail: ${log.slice(-600)}`,
       );
     }
-  } finally {
-    await home.close();
-    await repo.dispose();
-  }
-});
+    const home = await CliHome.create(VENV_BIN);
+    const repo = await TeamRepository.create({
+      originFullName: "cogworks-demo/face-finder",
+      files: { "submission.py": SUBMISSION_PY },
+    });
+    try {
+      const test = home.start(["test", "--benchmark", smallCaseBenchmark, "--json"], { cwd: repo.path });
+      const exit = await test.exited(600_000);
+      smallCase.command(`cogworks test --benchmark ${smallCaseBenchmark} --json (pin ${PIN_ID})`, exit, test.output());
+      if (/not installed|ImportError|ModuleNotFoundError/.test(test.output()) && exit !== 0) {
+        smallCase.blocked(`pin ${PIN_ID} environment missing a course dependency; CLI output ends: ${test.output().slice(-600)}`);
+      }
+      smallCase.expect(
+        exit === 0,
+        `the pinned CLI (pin ${PIN_ID}) scored the ${smallCaseBenchmark} small case on ${process.env.PIN_ENV ?? "this environment"}`,
+        `cogworks test exited ${exit}`,
+      );
+      const reportsDir = join(repo.path, ".cogbench", "reports");
+      const reports = (await readdir(reportsDir).catch(() => [] as string[])).filter((name) => name.endsWith(".json")).sort();
+      for (const name of reports) {
+        const report = JSON.parse(await readFile(join(reportsDir, name), "utf8"));
+        smallCase.claim(
+          "the scored report the pinned CLI saved",
+          `benchmark=${report.benchmarkId} metrics=${(report.metrics ?? []).map((metric: any) => metric.key).join(",")}`,
+        );
+      }
+    } finally {
+      await home.close();
+      await repo.dispose();
+    }
+  });
+}
