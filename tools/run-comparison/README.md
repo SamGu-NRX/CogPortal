@@ -141,14 +141,17 @@ python tools/run-comparison/build.py \
    and the HTML from raw JSON (a tampered receipt fails it).
 3. `--replay` plus a browser walk. Done: the view has zero focusable
    elements and zero CSS animations (nothing to keyboard-operate, no
-   motion to reduce); the inherited records describe an axe-core run
-   (zero WCAG 2.x A/AA violations, 10 passes) from the original
-   writer's environment — not re-run here; the m3 browser notes record
-   why (no vendored axe build, offline rule); cold-load layout shift
-   is 0.000 (no entries);
-   1440x900 and 390x844 screenshots plus the reduced-motion capture
-   are committed under `evidence/browser/` with the measurement record
-   `m3-browser-evidence.json`.
+   motion to reduce); at the rework head an axe-core sweep (npm
+   package install, build-time only) ran after content load on the
+   committed canonical and stress views and reported zero WCAG 2.x
+   A/AA violations with 23 passes and 0 incomplete; the reworked
+   tables fit a 390px viewport with measured scrollWidth 390 = 390
+   (the pre-rework generator at 92a5f0e1 overflows at 877, measured
+   for the before/after comparison); cold-load layout shift is 0.000
+   (no entries); 1440x900 and 390x844 screenshots plus the
+   reduced-motion capture are committed under `evidence/browser/`
+   with the measurement records `m3-browser-evidence.json` (M3) and
+   `rework-browser-record.json` + `rework-browser-notes.md` (rework).
 4. Replay gate and immutable evidence. Done: `build.py --replay`
    validates the existing evidence against a fresh derivation before
    writing anything and preserves disagreeing evidence (`--force` is the
