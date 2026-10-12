@@ -78,7 +78,7 @@
   ],
   "fixtures_root": "tools/run-comparison/fixtures",
   "generator": "tools/run-comparison/build.py",
-  "html_sha256": "a51809b87447c764ce1f488fae7112dacb073cf27bef4e70575db8d86223b01e",
+  "html_sha256": "87dd91ab30f5e238c2a323d2ed235a2f8e4bc2631ebc2dd509ef758658237387",
   "inputs": [
     {
       "file": "01-run-a.json",
@@ -219,7 +219,7 @@
   },
   "tool_source": {
     "files": {
-      "build.py": "8e05dc24ddaa7de777367177e8a04e6ec80cdf8bd413dcc37c1db5cdadfbc6bc",
+      "build.py": "90dbb23a245152cd4a37b2cf2b043eca524b56e414dee61923470382b9bf7c37",
       "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
     }
   }

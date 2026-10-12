@@ -682,9 +682,9 @@ h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
 h2 { font-size: 1.125rem; margin-top: 2rem; padding-bottom: .25rem; border-bottom: 1px solid #d0d7de; }
 h3 { font-size: 1rem; margin: 1rem 0 .25rem; }
 p, li { font-size: .95rem; }
-table { width: 100%; margin: .75rem 0; border-collapse: collapse; }
-th, td { padding: .5rem .6rem; border-bottom: 1px solid #d0d7de; text-align: left; vertical-align: top; font-size: .9rem; }
-th[scope=row] { white-space: nowrap; font-weight: 600; }
+table { width: 100%; margin: .75rem 0; border-collapse: collapse; table-layout: fixed; }
+th, td { padding: .5rem .6rem; border-bottom: 1px solid #d0d7de; text-align: left; vertical-align: top; font-size: .9rem; overflow-wrap: anywhere; }
+th[scope=row] { font-weight: 600; }
 thead th { font-weight: 600; }
 .chip { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: .8125rem; font-weight: 600; }
 .chip-same { color: #116329; background: #d7f5dd; }
@@ -692,7 +692,7 @@ thead th { font-weight: 600; }
 .chip-unknown { color: #444d56; background: #e2e8f0; }
 .muted { color: #57606a; }
 footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #d0d7de; }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .875em; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .875em; overflow-wrap: anywhere; }
 @media (max-width: 48rem) { body { padding: 1rem .75rem; } th, td { padding: .4rem .45rem; } }"""
 
 _TEMPLATE = """<!doctype html>
@@ -818,8 +818,8 @@ def render(
                 _esc(row["delta"]), _esc(row["delta_note"])
             )
         metric_rows.append(
-            '<tr data-metric-key="{key}"><td><strong>{label}</strong>{marker}<br>'
-            '<span class="muted">{sub}</span></td>'
+            '<tr data-metric-key="{key}"><th scope="row"><strong>{label}</strong>{marker}<br>'
+            '<span class="muted">{sub}</span></th>'
             "<td>{va}</td><td>{vb}</td><td>{delta}</td></tr>".format(
                 key=_esc(row["key"]),
                 label=_esc(row["label"]),
@@ -836,8 +836,8 @@ def render(
 
     if analysis["context"]:
         context_rows = "\n".join(
-            '<tr data-floor-key="{key}"><td><strong>{label}</strong><br>'
-            '<span class="muted">{key_sub}</span></td><td>{value_a}</td><td>{value_b}</td><td>{relates}{diff_chip}</td></tr>'.format(
+            '<tr data-floor-key="{key}"><th scope="row"><strong>{label}</strong><br>'
+            '<span class="muted">{key_sub}</span></th><td>{value_a}</td><td>{value_b}</td><td>{relates}{diff_chip}</td></tr>'.format(
                 key=_esc(item["key"]),
                 label=_esc(item["label"]),
                 key_sub=_esc(item["key"] + _floor_unit_suffix(item)),

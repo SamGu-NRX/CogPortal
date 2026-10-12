@@ -16,9 +16,9 @@ h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
 h2 { font-size: 1.125rem; margin-top: 2rem; padding-bottom: .25rem; border-bottom: 1px solid #d0d7de; }
 h3 { font-size: 1rem; margin: 1rem 0 .25rem; }
 p, li { font-size: .95rem; }
-table { width: 100%; margin: .75rem 0; border-collapse: collapse; }
-th, td { padding: .5rem .6rem; border-bottom: 1px solid #d0d7de; text-align: left; vertical-align: top; font-size: .9rem; }
-th[scope=row] { white-space: nowrap; font-weight: 600; }
+table { width: 100%; margin: .75rem 0; border-collapse: collapse; table-layout: fixed; }
+th, td { padding: .5rem .6rem; border-bottom: 1px solid #d0d7de; text-align: left; vertical-align: top; font-size: .9rem; overflow-wrap: anywhere; }
+th[scope=row] { font-weight: 600; }
 thead th { font-weight: 600; }
 .chip { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: .8125rem; font-weight: 600; }
 .chip-same { color: #116329; background: #d7f5dd; }
@@ -26,7 +26,7 @@ thead th { font-weight: 600; }
 .chip-unknown { color: #444d56; background: #e2e8f0; }
 .muted { color: #57606a; }
 footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #d0d7de; }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .875em; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .875em; overflow-wrap: anywhere; }
 @media (max-width: 48rem) { body { padding: 1rem .75rem; } th, td { padding: .4rem .45rem; } }
 </style>
 </head>
@@ -47,14 +47,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 <table>
 <thead><tr><th scope="col">Metric</th><th scope="col">Run A (01-run-a.json)</th><th scope="col">Run B (02-run-b.json)</th><th scope="col">Difference</th></tr></thead>
 <tbody>
-<tr data-metric-key="identification_score"><td><strong>Identification score</strong> <span class="muted">(primary)</span><br><span class="muted">identification_score</span></td><td>0.5375</td><td>0.6125</td><td><span class="muted">— not compared</span><br> <span class="muted">not compared — the runs&#x27; conditions do not line up</span></td></tr>
-<tr data-metric-key="ranking_failure_rate"><td><strong>Wrong song ranked first</strong><br><span class="muted">ranking_failure_rate</span></td><td>0.212</td><td>0.150</td><td><span class="muted">— not compared</span><br> <span class="muted">not compared — the runs&#x27; conditions do not line up</span></td></tr>
+<tr data-metric-key="identification_score"><th scope="row"><strong>Identification score</strong> <span class="muted">(primary)</span><br><span class="muted">identification_score</span></th><td>0.5375</td><td>0.6125</td><td><span class="muted">— not compared</span><br> <span class="muted">not compared — the runs&#x27; conditions do not line up</span></td></tr>
+<tr data-metric-key="ranking_failure_rate"><th scope="row"><strong>Wrong song ranked first</strong><br><span class="muted">ranking_failure_rate</span></th><td>0.212</td><td>0.150</td><td><span class="muted">— not compared</span><br> <span class="muted">not compared — the runs&#x27; conditions do not line up</span></td></tr>
 </tbody>
 </table>
 <h2>Floor context</h2>
 <p>Floors are reference values, not findings, so they carry no difference column; both runs' values are shown.</p>
 <table><thead><tr><th scope="col">Metric</th><th scope="col">Run A (01-run-a.json)</th><th scope="col">Run B (02-run-b.json)</th><th scope="col">Reference for</th></tr></thead><tbody>
-<tr data-floor-key="chance_top1"><td><strong>Chance</strong><br><span class="muted">chance_top1</span></td><td>0.033</td><td>0.033</td><td>floor of identification_score</td></tr>
+<tr data-floor-key="chance_top1"><th scope="row"><strong>Chance</strong><br><span class="muted">chance_top1</span></th><td>0.033</td><td>0.033</td><td>floor of identification_score</td></tr>
 </tbody></table>
 <h2>Metrics without a counterpart</h2>
 <h3>Only in 01-run-a.json</h3><p class="muted">None.</p><h3>Only in 02-run-b.json</h3><p class="muted">None.</p>
