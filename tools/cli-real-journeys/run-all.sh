@@ -294,7 +294,7 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
         if "$env_bin/python" -c "import importlib.metadata as m; m.version('cogworks-week1-audio-benchmark')" 2>/dev/null; then
           export PIN_SMALLCASE_AUDIO_STATUS=prebaked
         else
-          audio_spec=$("$env_bin/python" -c "from cogbench.plugins import BENCHMARK_INSTALLS; install = BENCHMARK_INSTALLS['audio-identification']; print(install.distribution + install.extras + ' @ ' + install.source)")
+          audio_spec=$("$env_bin/python" -c "from cogbench.plugins import BENCHMARK_INSTALLS; install = BENCHMARK_INSTALLS['audio-identification']; print(install.distribution + getattr(install, 'extras', '') + ' @ ' + install.source)")
           audio_commit=$(printf '%s' "$audio_spec" | sed -n 's/.*@\([0-9a-f]\{40\}\).*/\1/p')
           if [ -n "$audio_commit" ] && ./support/install-pinned.sh "$env_bin/python" "$audio_install_log" \
             "cogworks_week1_audio_benchmark" "$audio_commit" "$audio_spec"; then
