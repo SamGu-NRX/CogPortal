@@ -70,7 +70,7 @@ const serverSchema = {
 
   /**
    * What TAs read about students: "assigned-teams" (unset means the same) or
-   * "restricted". See auth/staff-visibility.ts. Any other value fails every
+   * "restricted". See services/staff-visibility.ts. Any other value fails every
    * request here rather than quietly picking one.
    */
   STAFF_VISIBILITY: z.enum(["assigned-teams", "restricted"]).optional(),

@@ -134,7 +134,7 @@ export function profileVars(profile, { base, providerUrls }) {
   };
   if (profile === "fixture" || profile === "fixture-restricted") {
     return {
-      // The staff visibility setting under test (apps/portal/worker/auth/staff-visibility.ts).
+      // The staff visibility setting under test (apps/portal/worker/services/staff-visibility.ts).
       ...(profile === "fixture-restricted" ? { STAFF_VISIBILITY: "restricted" } : {}),
       ...common,
       ENVIRONMENT: "development",

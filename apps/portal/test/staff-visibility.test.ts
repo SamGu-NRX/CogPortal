@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { createAuth } from "../worker/auth/better-auth.ts";
-import { staffVisibilitySetting } from "../worker/auth/staff-visibility.ts";
+import { staffVisibilitySetting } from "../worker/services/staff-visibility.ts";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
@@ -30,7 +30,7 @@ import { registerRunRoutes } from "../worker/routes/runs.ts";
 import { registerStaffDeskRoutes } from "../worker/routes/staff-desk.ts";
 
 /**
- * The staff visibility switch (worker/auth/staff-visibility.ts), measured on
+ * The staff visibility switch (worker/services/staff-visibility.ts), measured on
  * the real admin, desk and run routes over in-memory migrations. Each
  * property is checked under both settings: "assigned-teams" (today's TA view,
  * the default) and "restricted" (the proposal). What may differ between them

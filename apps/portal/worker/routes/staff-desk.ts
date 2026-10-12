@@ -16,7 +16,7 @@ import { getDb } from "../db/client";
 import { benchmarks, runs, teamMembers, teamProcessSignals, teamTas, teams, users } from "../db/schema";
 import type { AppEnv } from "../env";
 import type { CommitRecord } from "../github/commits";
-import { staffView } from "../auth/staff-visibility";
+import { staffView } from "../services/staff-visibility";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { buildProcessSignals, findingSentences } from "../services/process-signals";

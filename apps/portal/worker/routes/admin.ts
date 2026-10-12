@@ -30,7 +30,7 @@ import {
   teams,
   users,
 } from "../db/schema";
-import { requireMembershipEdits, staffView, summaryForView } from "../auth/staff-visibility";
+import { requireMembershipEdits, staffView, summaryForView } from "../services/staff-visibility";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";

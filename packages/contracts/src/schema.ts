@@ -1456,7 +1456,7 @@ export const StartRunResponseSchema = z.object({ runId: z.string() });
 
 /**
  * What a staff response carries about students, set by the Worker's
- * STAFF_VISIBILITY setting (worker/auth/staff-visibility.ts).
+ * STAFF_VISIBILITY setting (apps/portal/worker/services/staff-visibility.ts).
  *
  * - "full": today's behaviour. A TA reads their assigned teams' member
  *   logins, run counts, latest published score and process findings.
