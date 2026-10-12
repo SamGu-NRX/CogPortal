@@ -139,25 +139,46 @@ export function undocumentedHosts(events: EgressEvent[]): string[] {
   return [...offenders].sort();
 }
 
-/**
- * Provider telemetry the online real-data runs cannot avoid without editing
- * the course CLI or its dependency pins (out of scope for the journeys).
- * Root-caused 2026-10-11: huggingface `datasets` 3.1.0 `load.py`
- * `increase_load_count()` fires `HEAD
- * https://s3.amazonaws.com/datasets.huggingface.co/datasets/datasets/<name>/<name>.py`
- * on every `load_dataset()` call to count downloads. The beacon is
- * best-effort (try/except, 3 s timeout): the offline witness refuses the
- * host and the runs still complete with filled caches, while the offline
- * `check` commands make zero requests. Every receipt still records the
- * beacon's bytes via trafficSummary — this list only keeps a root-caused
- * library beacon from permanently failing the online cases. Anything else
- * undocumented still fails the case.
- */
-export const KNOWN_PROVIDER_TELEMETRY = new Set(["s3.amazonaws.com"]);
+/** The zero-request claim's detector: a case that claims zero network
+ * requests must see ZERO events in its window. Any event fails the claim —
+ * allowed or refused. (Before the fail-closed proxy a refusal was judged
+ * only after the fact; now a refusal forwards nothing, but a command that
+ * claimed silence and still dialed out has still made its request, and the
+ * claim "made no network requests" is false either way.) Returns the
+ * violation text for the receipt, or null when the window is truly empty. */
+export function zeroRequestViolation(events: EgressEvent[]): string | null {
+  if (events.length === 0) return null;
+  const requests = events.filter((event) => event.kind === "connect" || event.kind === "http");
+  const refused = refusedEvents(events);
+  const parts = [`${events.length} witnessed event(s)`, `${requests.length} request(s)`];
+  if (refused.length > 0) parts.push(`${refused.length} refused (nothing forwarded)`);
+  return `${parts.join(", ")} — ${trafficSummary(events)}`;
+}
 
-/** The undocumented hosts that are NOT the known provider telemetry above. */
-export function unexplainedUndocumentedHosts(events: EgressEvent[]): string[] {
-  return undocumentedHosts(events).filter((host) => !KNOWN_PROVIDER_TELEMETRY.has(host));
+/** Hosts of events the proxy ALLOWED that the documented asset list does not
+ * cover — the online-mode assertion's offenders. Refused events never
+ * forwarded anything, so they are judged separately (see refusedEvents). */
+export function allowedUndocumentedHosts(events: EgressEvent[]): string[] {
+  return undocumentedHosts(events.filter((event) => event.allowed !== false));
+}
+
+/** Every refused event in the window. Surfaced in receipts as a claim line,
+ * never hidden and never silently dropped: with the fail-closed proxy a
+ * refusal forwarded no bytes, but the attempt is part of the story.
+ *
+ * The one refusal the online runs are EXPECTED to see, root-caused
+ * 2026-10-11: the huggingface `datasets` download-count beacon. datasets
+ * 3.1.0 `load.py` `increase_load_count()` fires `HEAD
+ * https://s3.amazonaws.com/datasets.huggingface.co/datasets/datasets/<name>/<name>.py`
+ * on every `load_dataset()` call. It is best-effort (`try/except Exception:
+ * pass`, 3 s timeout — read at
+ * miniconda3/envs/week2/lib/python3.8/site-packages/datasets/load.py), so the
+ * pre-connect refusal does not disturb the run. It is NOT exempted anywhere:
+ * an online run's allowed traffic must still be a subset of the documented
+ * hosts, and a zero-request window that sees the beacon (it never does —
+ * only `load_dataset` paths call it, never `check`) fails on it. */
+export function refusedEvents(events: EgressEvent[]): EgressEvent[] {
+  return events.filter((event) => event.allowed === false);
 }
 
 export interface ParsedJsonReport {

@@ -9,13 +9,14 @@ import {
   PIN_SOURCE,
   VENV_BIN,
   assertJourneyHomeCold,
+  allowedUndocumentedHosts,
   cliTraffic,
   parseReport,
   placeEgressMarker,
+  refusedEvents,
   runCogworks,
   trafficSummary,
-  undocumentedHosts,
-  unexplainedUndocumentedHosts,
+  zeroRequestViolation,
 } from "./real-data-common.ts";
 
 /**
@@ -24,7 +25,8 @@ import {
  * identity; the receipts carry it). Same contract as week 2:
  *
  *   - `cogworks check` with cold caches reports every cache missing and
- *     touches nothing.
+ *     touches nothing — zero witnessed network events (any event, allowed or
+ *     refused, fails the claim).
  *   - the first real-data run downloads the benchmark's documented public
  *     assets — the caption/descriptor release artifacts and the GloVe
  *     vectors, SHA-256-pinned, GitHub with a Dropbox fallback — through the
@@ -73,10 +75,11 @@ await cases.coldCheck.run(async () => {
     const result = await runCogworks(["check", "--benchmark", "language-search", "--json"], { cwd: repo.path });
     const events = await cliTraffic(marker);
     case_.command(`cogworks check --benchmark language-search --json (offline, cold caches)`, result.exit, result.output.slice(-1200));
+    const violation = zeroRequestViolation(events);
     case_.expect(
-      undocumentedHosts(events).length === 0,
-      "the offline check made no network requests at all",
-      trafficSummary(events),
+      violation === null,
+      "the offline check made zero network requests — any witnessed event, allowed or refused, fails the claim",
+      violation ?? "the witness saw no events at all",
     );
     const parsed = parseReport(result);
     case_.expect(parsed.report !== null, "the check printed a JSON report", result.output.slice(0, 400));
@@ -106,19 +109,17 @@ await cases.languageTest.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks test --benchmark language-search --json (first real run; downloads witnessed)`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the first real language-search test ran to completion", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const offenders = undocumentedHosts(events);
-    const unexplained = unexplainedUndocumentedHosts(events);
+    const allowedOffenders = allowedUndocumentedHosts(events);
+    const refusedEvents_ = refusedEvents(events);
     case_.expect(
-      unexplained.length === 0,
-      "every host the first run contacted is a documented public-asset host, except the known datasets download-count beacon",
-      `${trafficSummary(events)}${offenders.length ? ` — UNDOCUMENTED: ${offenders.join(", ")}` : ""}`,
+      allowedOffenders.length === 0,
+      "every host the first run successfully contacted is a documented public-asset host",
+      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
     );
-    if (offenders.length > 0) {
-      case_.claim(
-        "known provider telemetry witnessed (not a documented asset fetch)",
-        `${offenders.join(", ")} — datasets 3.1.0 load.py increase_load_count() HEAD beacon, refused offline with no impact on the run`,
-      );
-    }
+    case_.claim(
+      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
+      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
+    );
     case_.claim(
       "witnessed downloads",
       `${trafficSummary(events.filter((event) => event.kind === "tunnel-bytes" || event.kind === "http-response-final"))}`,
@@ -152,19 +153,17 @@ await cases.languageRun.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks run --benchmark language-search --json`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the real language-search run completed", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const offenders = undocumentedHosts(events);
-    const unexplained = unexplainedUndocumentedHosts(events);
+    const allowedOffenders = allowedUndocumentedHosts(events);
+    const refusedEvents_ = refusedEvents(events);
     case_.expect(
-      unexplained.length === 0,
-      "the run contacted only documented public-asset hosts, except the known datasets download-count beacon",
-      `${trafficSummary(events)}${offenders.length ? ` — UNDOCUMENTED: ${offenders.join(", ")}` : ""}`,
+      allowedOffenders.length === 0,
+      "every host the run successfully contacted is a documented public-asset host",
+      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
     );
-    if (offenders.length > 0) {
-      case_.claim(
-        "known provider telemetry witnessed (not a documented asset fetch)",
-        `${offenders.join(", ")} — datasets 3.1.0 load.py increase_load_count() HEAD beacon, refused offline with no impact on the run`,
-      );
-    }
+    case_.claim(
+      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
+      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
+    );
     const parsed = parseReport(result);
     const metrics = parsed.report?.metrics ?? [];
     case_.expect(
@@ -190,10 +189,11 @@ await cases.warmCheck.run(async () => {
     const result = await runCogworks(["check", "--benchmark", "language-search", "--json"], { cwd: repo.path });
     const events = await cliTraffic(marker);
     case_.command(`cogworks check --benchmark language-search --json (offline, warm caches)`, result.exit, result.output.slice(-1200));
+    const violation = zeroRequestViolation(events);
     case_.expect(
-      undocumentedHosts(events).length === 0,
-      "the offline check on warm caches made no network requests at all",
-      trafficSummary(events),
+      violation === null,
+      "the offline check on warm caches made zero network requests — any witnessed event, allowed or refused, fails the claim",
+      violation ?? "the witness saw no events at all",
     );
     const parsed = parseReport(result);
     const caches = cacheEntries(parsed.report);

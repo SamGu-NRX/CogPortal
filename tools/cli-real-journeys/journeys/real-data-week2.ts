@@ -9,13 +9,15 @@ import {
   PIN_SOURCE,
   VENV_BIN,
   assertJourneyHomeCold,
+  allowedUndocumentedHosts,
   cliTraffic,
   parseReport,
   placeEgressMarker,
+  refusedEvents,
   runCogworks,
   trafficSummary,
   undocumentedHosts,
-  unexplainedUndocumentedHosts,
+  zeroRequestViolation,
 } from "./real-data-common.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -26,7 +28,8 @@ import { promisify } from "node:util";
  * identity; the receipts carry it). The contract under test:
  *
  *   - `cogworks check` with cold caches reports them missing and touches
- *     nothing — zero network traffic from an offline command.
+ *     nothing — zero witnessed network events from an offline command (any
+ *     event, allowed or refused, fails the claim).
  *   - the FIRST real-data run downloads the documented public assets (the
  *     CelebA test data through Hugging Face, the FaceNet checkpoint from its
  *     GitHub release) through the witness, which records every host and byte
@@ -35,12 +38,15 @@ import { promisify } from "node:util";
  *     end-to-end on the real data, with the fixture submission binding the
  *     benchmark's packaged entry-point protocol.
  *   - afterwards, with warm caches, `check` reports ready — again with zero
- *     traffic, proving the offline path never phones the Portal or any
- *     provider.
+ *     witnessed events, proving the offline path never phones the Portal or
+ *     any provider.
  *
- * The planted-probe case proves the detector itself works: with the witness
- * offline, a deliberate request to a non-documented host is refused and the
- * refusal is visible in the log the journeys assert against.
+ * The planted-probe case proves the detectors themselves work: with the
+ * witness offline, a deliberate request to a non-documented host is refused
+ * pre-connect and the refusal is visible in the log the journeys assert
+ * against; and a deliberate request to a DOCUMENTED public-asset host — the
+ * mutation the old undocumented-host check was blind to — fails the
+ * zero-request claim.
  */
 const run = promisify(execFile);
 
@@ -85,6 +91,30 @@ await cases.witnessWorks.run(async () => {
     "the offline witness refuses a non-documented host and records the refusal",
     `curl exit ${curlExit}; witness saw: ${trafficSummary(events)}`,
   );
+
+  // Planted probe 2 (the mutation): a request to a DOCUMENTED public-asset
+  // host during a window a silent command would claim is zero-traffic. The
+  // request succeeds (the host is documented), the old undocumented-host
+  // check passes the window — that blindness was the defect — and the
+  // zero-request claim's detector must fail it.
+  const mutationMarker = await placeEgressMarker("planted-documented-host");
+  let mutationExit = 0;
+  try {
+    await run("curl", ["-sS", "-o", "/dev/null", "--max-time", "20", "https://github.com/"], {
+      env: { ...process.env, https_proxy: proxy },
+      timeout: 30_000,
+    });
+  } catch (error) {
+    mutationExit = (error as { code?: number }).code ?? -1;
+  }
+  const mutationEvents = await cliTraffic(mutationMarker);
+  const oldCheckBlind = undocumentedHosts(mutationEvents).length === 0;
+  const mutationVerdict = zeroRequestViolation(mutationEvents);
+  case_.expect(
+    mutationVerdict !== null,
+    "a planted request to a DOCUMENTED host fails the zero-request claim — the old undocumented-host check alone passed this window, which was the defect",
+    `curl exit ${mutationExit}; old check (undocumentedHosts): ${oldCheckBlind ? "PASSED (blind)" : "failed"}; zero-request detector: ${mutationVerdict}`,
+  );
 });
 
 await cases.coldCheck.run(async () => {
@@ -97,10 +127,11 @@ await cases.coldCheck.run(async () => {
     const result = await runCogworks(["check", "--benchmark", "vision-recognition", "--json"], { cwd: repo.path });
     const events = await cliTraffic(marker);
     case_.command(`cogworks check --benchmark vision-recognition --json (offline, cold caches)`, result.exit, result.output.slice(-1200));
+    const violation = zeroRequestViolation(events);
     case_.expect(
-      undocumentedHosts(events).length === 0,
-      "the offline check made no network requests at all",
-      trafficSummary(events),
+      violation === null,
+      "the offline check made zero network requests — any witnessed event, allowed or refused, fails the claim",
+      violation ?? "the witness saw no events at all",
     );
     const parsed = parseReport(result);
     case_.expect(parsed.report !== null, "the check printed a JSON report", result.output.slice(0, 400));
@@ -126,19 +157,17 @@ await cases.recognitionTest.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks test --benchmark vision-recognition --json (first real run; downloads witnessed)`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the first real recognition test ran to completion", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const offenders = undocumentedHosts(events);
-    const unexplained = unexplainedUndocumentedHosts(events);
+    const allowedOffenders = allowedUndocumentedHosts(events);
+    const refusedEvents_ = refusedEvents(events);
     case_.expect(
-      unexplained.length === 0,
-      "every host the first run contacted is a documented public-asset host, except the known datasets download-count beacon",
-      `${trafficSummary(events)}${offenders.length ? ` — UNDOCUMENTED: ${offenders.join(", ")}` : ""}`,
+      allowedOffenders.length === 0,
+      "every host the first run successfully contacted is a documented public-asset host",
+      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
     );
-    if (offenders.length > 0) {
-      case_.claim(
-        "known provider telemetry witnessed (not a documented asset fetch)",
-        `${offenders.join(", ")} — datasets 3.1.0 load.py increase_load_count() HEAD beacon, refused offline with no impact on the run`,
-      );
-    }
+    case_.claim(
+      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
+      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
+    );
     case_.claim(
       "witnessed downloads",
       `${trafficSummary(events.filter((event) => event.kind === "tunnel-bytes" || event.kind === "http-response-final"))}`,
@@ -166,19 +195,17 @@ await cases.clusteringRun.run(async () => {
     const events = await cliTraffic(marker);
     case_.command(`cogworks run --benchmark vision-clustering --json`, result.exit, result.output.slice(-1200));
     case_.expect(result.exit === 0, "the real clustering run completed", `exit ${result.exit}; ${result.output.slice(-400)}`);
-    const offenders = undocumentedHosts(events);
-    const unexplained = unexplainedUndocumentedHosts(events);
+    const allowedOffenders = allowedUndocumentedHosts(events);
+    const refusedEvents_ = refusedEvents(events);
     case_.expect(
-      unexplained.length === 0,
-      "the clustering run contacted only documented public-asset hosts, except the known datasets download-count beacon",
-      `${trafficSummary(events)}${offenders.length ? ` — UNDOCUMENTED: ${offenders.join(", ")}` : ""}`,
+      allowedOffenders.length === 0,
+      "every host the clustering run successfully contacted is a documented public-asset host",
+      `${trafficSummary(events)}${allowedOffenders.length ? ` — ALLOWED BUT UNDOCUMENTED: ${allowedOffenders.join(", ")}` : ""}`,
     );
-    if (offenders.length > 0) {
-      case_.claim(
-        "known provider telemetry witnessed (not a documented asset fetch)",
-        `${offenders.join(", ")} — datasets 3.1.0 load.py increase_load_count() HEAD beacon, refused offline with no impact on the run`,
-      );
-    }
+    case_.claim(
+      "refused egress (fail-closed proxy: refused pre-connect, nothing forwarded)",
+      refusedEvents_.length > 0 ? `${trafficSummary(refusedEvents_)} — root cause: the datasets download-count beacon and any other non-documented attempt` : "none",
+    );
     const parsed = parseReport(result);
     const metrics = parsed.report?.metrics ?? [];
     const primary = metrics.find((metric: { primary?: boolean }) => metric.primary);
@@ -201,10 +228,11 @@ await cases.warmCheck.run(async () => {
     const result = await runCogworks(["check", "--benchmark", "vision-recognition", "--json"], { cwd: repo.path });
     const events = await cliTraffic(marker);
     case_.command(`cogworks check --benchmark vision-recognition --json (offline, warm caches)`, result.exit, result.output.slice(-1200));
+    const violation = zeroRequestViolation(events);
     case_.expect(
-      undocumentedHosts(events).length === 0,
-      "the offline check on warm caches made no network requests at all",
-      trafficSummary(events),
+      violation === null,
+      "the offline check on warm caches made zero network requests — any witnessed event, allowed or refused, fails the claim",
+      violation ?? "the witness saw no events at all",
     );
     const parsed = parseReport(result);
     const modelCache = parsed.report?.modelCache ?? {};
