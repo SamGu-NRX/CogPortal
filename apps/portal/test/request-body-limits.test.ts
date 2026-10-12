@@ -349,6 +349,33 @@ test("the limit counts bytes, accepts a body exactly at it and refuses one byte 
   assert.equal((await send("é".repeat(max / 2) + "a")).status, 413);
 });
 
+test("a body a guard already read through Hono is still held to the limit, and stays readable after", async () => {
+  // A route guard may read one field with c.req.json() before the body is
+  // validated (PR #114's guardField does). That read used to leave nothing
+  // for a raw-stream reader, and must not let a large body past the limit.
+  const app = new Hono<AppEnv>();
+  app.post("/guarded", async (c) => {
+    await c.req.json().catch(() => undefined);
+    return c.text(String((await readBodyText(c, "control")).length));
+  });
+  app.post("/unguarded", async (c) => {
+    const text = await readBodyText(c, "control");
+    const again = (await c.req.json()) as { a: string };
+    return c.text(`${text.length} ${again.a.length}`);
+  });
+  app.onError(handleError);
+  const env = { ENVIRONMENT: "development" } as Env;
+  const body = (size: number) => JSON.stringify({ a: "x".repeat(size) });
+
+  const guarded = await app.fetch(request("/guarded", body(10), "streamed"), env);
+  assert.equal(guarded.status, 200);
+  assert.equal(await guarded.text(), String(body(10).length));
+  assert.equal((await app.fetch(request("/guarded", body(BODY_LIMITS.control), "streamed"), env)).status, 413);
+
+  const unguarded = await app.fetch(request("/unguarded", body(10), "streamed"), env);
+  assert.equal(await unguarded.text(), `${body(10).length} 10`);
+});
+
 /* ── Unknown fields ────────────────────────────────────────────────────── */
 
 test("a report with a field the portal does not declare is refused by name and not stored", async (t) => {

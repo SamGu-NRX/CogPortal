@@ -68,6 +68,12 @@ function formatBytes(bytes: number): string {
  * The bytes are counted as they arrive. A declared Content-Length over the
  * limit is refused before anything is read; a missing or understated one
  * can't get past the count, and reading stops at the first byte over.
+ *
+ * The text goes into Hono's body cache, so a later `c.req.json()` or
+ * `c.req.text()` reads this bounded copy rather than a stream that is
+ * already used up. If something read the body through Hono first, that
+ * copy is measured instead: it was buffered whole, but the limit still
+ * decides whether the route goes on.
  */
 export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promise<string> {
   const max = BODY_LIMITS[limit];
@@ -75,6 +81,11 @@ export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promis
     new ApiHttpError(413, "invalid_request", `The request body is over the ${formatBytes(max)} this endpoint accepts.`);
   if (Number(c.req.header("Content-Length")) > max) throw tooLarge();
 
+  if (Object.keys(c.req.bodyCache).length > 0) {
+    const text = await c.req.text();
+    if (new TextEncoder().encode(text).byteLength > max) throw tooLarge();
+    return text;
+  }
   const stream = c.req.raw.body;
   if (!stream) return "";
   const reader = stream.getReader();
@@ -97,7 +108,11 @@ export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promis
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(bytes);
+  const text = new TextDecoder().decode(bytes);
+  // SAFETY: Hono types the cache as plain values, but its runtime stores the
+  // promise and calls .then on it (hono/dist/request.js, #cachedBody).
+  (c.req.bodyCache as { text?: Promise<string> }).text = Promise.resolve(text);
+  return text;
 }
 
 /** A 400 names at most this many unknown fields, each cut to this many
