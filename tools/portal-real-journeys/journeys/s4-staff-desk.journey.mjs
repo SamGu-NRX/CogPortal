@@ -9,12 +9,10 @@
 // carry) and nothing else.
 
 import { test, expect } from "@playwright/test";
-import fs from "node:fs";
-import { STACK, control, expectNoDispatch, fresh, signIn } from "./helpers.mjs";
+import { STACK, control, evidence, expectNoDispatch, fresh, signIn } from "./helpers.mjs";
 
 const STUDENTS = ["rj-desk-student-one", "rj-desk-student-two"];
 const TA = "rj-desk-ta";
-const EVIDENCE = "test-results/evidence";
 
 async function setUp(browser, profile) {
   await fresh(profile);
@@ -43,8 +41,6 @@ async function openDesk(page) {
   await expect(page.getByRole("heading", { level: 1, name: "Demo Team" })).toBeVisible();
 }
 
-test.beforeAll(() => fs.mkdirSync(EVIDENCE, { recursive: true }));
-
 test("by default a TA's desk shows their team's members, history state and runs", async ({ browser }) => {
   const { context, page } = await setUp(browser, "fixture");
   try {
@@ -54,11 +50,11 @@ test("by default a TA's desk shows their team's members, history state and runs"
     // desk says that rather than presenting an empty history.
     await expect(page.getByText("Nobody on this team has opened their Team page yet")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Runs" })).toBeVisible();
-    await page.screenshot({ path: `${EVIDENCE}/staff-desk-team-default.png`, fullPage: true });
+    await evidence(page, "staff-desk-team-default");
 
     await page.goto(`${STACK}/desk`);
     await expect(page.getByText("History not read yet")).toBeVisible();
-    await page.screenshot({ path: `${EVIDENCE}/staff-desk-list.png`, fullPage: true });
+    await evidence(page, "staff-desk-list");
 
     // /admin, under the same setting, still lists member logins for the TA.
     await page.goto(`${STACK}/admin`);
@@ -79,7 +75,7 @@ test("under the restricted setting a TA's pages name no student and say what was
     await expect(page.getByText("Process findings are withheld under the restricted staff setting.")).toBeVisible();
     const deskText = await page.locator("main").innerText();
     for (const login of STUDENTS) expect(deskText).not.toContain(login);
-    await page.screenshot({ path: `${EVIDENCE}/staff-desk-team-restricted.png`, fullPage: true });
+    await evidence(page, "staff-desk-team-restricted");
 
     await page.goto(`${STACK}/admin`);
     await expect(page.getByText("This portal runs the restricted staff setting")).toBeVisible();

@@ -9,7 +9,7 @@
 // shows the adapter_missing failure card a student would read.
 
 import { test, expect } from "@playwright/test";
-import { STACK, expectNoDispatch, fresh, signIn } from "./helpers.mjs";
+import { STACK, evidence, expectNoDispatch, fresh, signIn } from "./helpers.mjs";
 
 async function startFromRunsPage(page, branch) {
   await page.goto(`${STACK}/dashboard`);
@@ -67,10 +67,11 @@ test("a run that finds no adapter fails with the neutral card and the raw line f
   // until opened (components/Veil.tsx).
   const veiled = raw.locator('xpath=ancestor::*[@aria-hidden="true"]');
   await expect(veiled).toHaveCount(1);
+  await evidence(page, "failure-card-adapter-missing");
   await page.getByRole("button", { name: "Show details" }).click();
   await expect(veiled).toHaveCount(0);
   await expect(raw).toBeVisible();
-  await page.screenshot({ path: "test-results/evidence/failure-card-adapter-missing.png", fullPage: true });
+  await evidence(page, "failure-card-adapter-missing-details");
 
   // Failed runs don't use the hosted budget.
   const failed = (await (await page.request.get(`${STACK}/api/runs`)).json()).find((r) => r.id === run.id);

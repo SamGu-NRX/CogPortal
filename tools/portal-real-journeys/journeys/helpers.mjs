@@ -65,3 +65,9 @@ export async function signIn(page, login, { demo = false } = {}) {
 export async function expectNoDispatch() {
   expect(await doubles.journal("modalRunner"), "nothing may be dispatched to a runner").toEqual([]);
 }
+
+/** A screenshot for review: taken once every running animation has finished. */
+export async function evidence(page, name) {
+  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {}))));
+  await page.screenshot({ path: `test-results/evidence/${name}.png`, fullPage: true });
+}
