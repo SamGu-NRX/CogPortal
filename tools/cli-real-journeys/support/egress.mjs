@@ -34,6 +34,10 @@ const INFO = process.env.EGRESS_INFO ?? "/tmp/egress.json";
 const allowed = egressAllowed;
 
 let mode = "online";
+// Follow-up events (tunnel byte counts, responses, errors) carry `opened`, the
+// seq of the request that opened their connection, because a tunnel's byte
+// count is only logged when its socket closes, possibly after a later case's
+// marker. support/egress-policy.ts attributes them to that request's window.
 const events = [];
 
 function record(event) {
@@ -62,7 +66,7 @@ const server = http.createServer((req, res) => {
   const hostName = host.split(":")[0];
   const target = new URL(req.url ?? "/", "http://localhost");
   const ok = allowed(hostName || target.hostname);
-  record({
+  const opened = record({
     kind: "http",
     method: req.method,
     host: hostName || target.hostname,
@@ -83,15 +87,15 @@ const server = http.createServer((req, res) => {
       upRes.on("data", (chunk) => {
         bytes += chunk.length;
       });
-      record({ kind: "http-response", host: hostName, status: upRes.statusCode, bytesHint: "see response_bytes_final" });
+      record({ kind: "http-response", host: hostName, opened: opened.seq, status: upRes.statusCode, bytesHint: "see response_bytes_final" });
       res.writeHead(upRes.statusCode ?? 502, upRes.headers);
       upRes.pipe(res);
-      upRes.on("end", () => record({ kind: "http-response-final", host: hostName, status: upRes.statusCode, bytes }));
+      upRes.on("end", () => record({ kind: "http-response-final", host: hostName, opened: opened.seq, status: upRes.statusCode, bytes }));
     },
   );
   req.pipe(up);
   up.on("error", (error) => {
-    record({ kind: "http-error", host: hostName, error: String(error) });
+    record({ kind: "http-error", host: hostName, opened: opened.seq, error: String(error) });
     if (!res.headersSent) res.writeHead(502);
     res.end();
   });
@@ -103,7 +107,7 @@ server.on("connect", (req, socket, head) => {
   const host = (req.url ?? "").slice(0, separator);
   const port = Number((req.url ?? "").slice(separator + 1)) || 443;
   const ok = allowed(host);
-  record({
+  const opened = record({
     kind: "connect",
     method: "CONNECT",
     host,
@@ -121,7 +125,7 @@ server.on("connect", (req, socket, head) => {
     if (head && head.length) up.write(head);
     let sent = 0;
     let received = 0;
-    const note = () => record({ kind: "tunnel-bytes", host, sent, received });
+    const note = () => record({ kind: "tunnel-bytes", host, opened: opened.seq, sent, received });
     counted(socket, up, (total) => {
       sent = total;
     });
@@ -131,7 +135,7 @@ server.on("connect", (req, socket, head) => {
     socket.on("close", note);
   });
   up.on("error", (error) => {
-    record({ kind: "tunnel-error", host, error: String(error) });
+    record({ kind: "tunnel-error", host, opened: opened.seq, error: String(error) });
     socket.destroy();
   });
   socket.on("error", () => up.destroy());

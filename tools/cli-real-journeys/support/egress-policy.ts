@@ -19,6 +19,16 @@ interface Judged {
   claim(claim: string, evidence: string): void;
 }
 
+/**
+ * The events that belong to a window opened at marker `after`: every request
+ * made after it, and follow-ups of those requests only. A tunnel's byte count
+ * is logged when its socket closes, so a connection opened before the marker
+ * can report after it; that report belongs to the earlier window.
+ */
+export function windowEvents<E extends { seq: number; kind: string; opened?: number }>(events: readonly E[], after: number): E[] {
+  return events.filter((event) => event.seq > after && event.kind !== "mode" && (event.opened === undefined || event.opened > after));
+}
+
 /** The receipt line for a window of witnessed traffic: per-host request counts
  * and bytes (tunnel totals where the CLI used https, response bytes for http). */
 export function trafficSummary(events: readonly EgressEvent[]): string {

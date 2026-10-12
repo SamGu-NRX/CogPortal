@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readdir } from "node:fs/promises";
 import { egressInfo, placeEgressMarker, readEgressEvents, type EgressEvent } from "../support/egress.ts";
+import { windowEvents } from "../support/egress-policy.ts";
 
 /**
  * Shared machinery for the week 2/3 public-data journeys. The contract under
@@ -71,11 +72,11 @@ export async function runCogworks(
   }
 }
 
-/** Every request the witness saw after the marker, minus control-plane noise
- * (mode flips are logged as events but are not the CLI's traffic). */
+/** The witness's events for the window opened at the marker: requests made
+ * after it and their follow-ups, without mode flips (support/egress-policy.ts
+ * windowEvents). */
 export async function cliTraffic(after: number): Promise<EgressEvent[]> {
-  const events = await readEgressEvents(after);
-  return events.filter((event) => event.kind !== "mode");
+  return windowEvents(await readEgressEvents(after), after);
 }
 
 export { assertOnlineEgress, trafficSummary, undocumentedHosts, zeroRequestViolation } from "../support/egress-policy.ts";

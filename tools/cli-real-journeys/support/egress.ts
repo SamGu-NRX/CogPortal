@@ -18,6 +18,8 @@ export interface EgressEvent {
   sent?: number;
   received?: number;
   error?: string;
+  /** On follow-up events: the seq of the request that opened the connection. */
+  opened?: number;
 }
 
 export interface EgressInfo {

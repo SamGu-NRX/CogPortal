@@ -33,7 +33,7 @@ process.env.RESULTS_DIR = scratch;
 process.env.EGRESS_INFO = join(scratch, "egress.json");
 
 const { Case } = await import("../journeys/harness.ts");
-const { assertOnlineEgress, undocumentedHosts } = await import("../support/egress-policy.ts");
+const { assertOnlineEgress, undocumentedHosts, windowEvents, zeroRequestViolation } = await import("../support/egress-policy.ts");
 const { placeEgressMarker, readEgressEvents, setEgressMode, egressInfo } = await import("../support/egress.ts");
 
 let failures = 0;
@@ -120,6 +120,28 @@ try {
     "an allowed attempt to an undocumented host fails",
     foreign.status === "FAIL" && foreign.evidence.includes("telemetry.example (ALLOWED)"),
     `status ${foreign.status}`,
+  );
+  // Window attribution: a tunnel's byte count is logged when its socket
+  // closes. In CI pass 3 at d11c584 the previous case's planted github.com
+  // tunnel closed after the Week 2 cold check's marker, and the cold check
+  // failed on bytes it never asked for. Follow-ups now carry `opened`.
+  const marker2 = 7;
+  const straddling: EgressEvent[] = [
+    { seq: 6, at: "t", mode: "offline", kind: "connect", method: "CONNECT", host: "github.com", port: 443, allowed: true },
+    { seq: 8, at: "t", mode: "offline", kind: "tunnel-bytes", host: "github.com", opened: 6, sent: 900, received: 595_610 },
+  ];
+  const preFixWindow = straddling.filter((event) => event.seq > marker2 && event.kind !== "mode");
+  check("red: the pre-fix window counts an earlier connection's late byte count", zeroRequestViolation(preFixWindow) !== null, `${preFixWindow.length} event(s)`);
+  check("green: windowEvents leaves it with the window that opened it", windowEvents(straddling, marker2).length === 0, JSON.stringify(windowEvents(straddling, marker2)));
+  const inWindow: EgressEvent[] = [
+    ...straddling,
+    { seq: 9, at: "t", mode: "offline", kind: "connect", method: "CONNECT", host: "github.com", port: 443, allowed: true },
+    { seq: 10, at: "t", mode: "offline", kind: "tunnel-bytes", host: "github.com", opened: 9, sent: 900, received: 1_000 },
+  ];
+  check(
+    "a connection opened inside the window still counts, with its byte count",
+    JSON.stringify(windowEvents(inWindow, marker2).map((event) => event.seq)) === "[9,10]" && zeroRequestViolation(windowEvents(inWindow, marker2)) !== null,
+    JSON.stringify(windowEvents(inWindow, marker2).map((event) => event.seq)),
   );
 } finally {
   proxy.kill("SIGTERM");
