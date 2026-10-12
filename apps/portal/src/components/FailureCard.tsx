@@ -68,8 +68,11 @@ export function FailureCard({
   const stage = failure ? PHASE_LABELS[failure.phase] : null;
   // The detail is the runner's account of this execution. For an exception or
   // a failure in the submission it is the evidence, and it is shown; for one
-  // on our side it is machinery, and it waits in the details.
-  const openDetail = !refusal && !ours && failure?.detail ? failure.detail : null;
+  // on our side it is machinery, and it waits in the details. A category can
+  // also mark its own detail as machinery (detailOpen: false) when the raw
+  // line is packaging jargon the card must not lead with.
+  const foldDetail = copy?.detailOpen === false;
+  const openDetail = !refusal && !ours && !foldDetail && failure?.detail ? failure.detail : null;
   // An "either" card already shows its explanation and actions, so without
   // recorded evidence there is nothing to fold.
   const hasDetails = Boolean(copy && !refusal && copy.remedy !== "either") || Boolean(children);
@@ -141,7 +144,7 @@ export function FailureCard({
                     {copy.explanation}
                   </p>
                 )}
-                {ours && failure?.detail && (
+                {(ours || foldDetail) && failure?.detail && (
                   <pre className="max-h-80 overflow-auto rounded-control border border-rule bg-paper-sunken px-3 py-2 font-mono text-[12.5px] leading-relaxed break-words whitespace-pre-wrap text-ink">
                     {failure.detail}
                   </pre>

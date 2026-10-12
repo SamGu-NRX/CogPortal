@@ -11,6 +11,14 @@ export interface FailureCopy {
   action: string;
   reproCommand: string | null;
   /**
+   * Whether the runner's raw detail line may render open on the card.
+   * Default true: for an exception or an invalid output the raw line is the
+   * evidence a student debugs from. Set false when the raw line is packaging
+   * machinery (entry-point groups and the like); the card then leads with the
+   * course-terms copy and keeps the raw line under "Show details".
+   */
+  detailOpen?: boolean;
+  /**
    * What can change the outcome, which decides the run page's next step.
    *
    * - "fix": only a new commit can. The runner observed the cause in what the
@@ -71,19 +79,22 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   },
   adapter_missing: {
     code: "E-ADAPTER",
-    title: "Nothing here could be scored",
+    title: "This benchmark couldn't find a submission to run",
     // Says nothing about pyproject.toml entry points: that is packaging
     // metadata none of the thirteen 2026 capstones has, and the platform no
-    // longer needs it now that it finds a team's code by running it.
-    // This code also covers a search that stopped partway, after the team's
-    // own installation ran, when nobody can say whose code stopped it. The
-    // explanation therefore claims only that scoring was not reached.
+    // longer needs it now that it finds a team's code by running it. The
+    // runner's raw line for this class is exactly that machinery ("Entry-point
+    // group ... has no registration"), so the card leads with the course-terms
+    // sentence and the raw line waits under "Show details" (detailOpen:
+    // false). This code also covers a search that stopped partway, after the
+    // team's own installation ran, when nobody can say whose code stopped it.
     explanation:
-      "This run did not reach scoring. The available details are below.",
+      "The run couldn't start: the submission set up in your project doesn't match what this benchmark expects to find.",
     action:
-      "Run the check below. It says how far your code was followed and what the next step was given, in your own function names.",
+      "Run the check below. It shows how far your project gets and what to set up next.",
     reproCommand: "cogworks check --benchmark {benchmark}",
     remedy: "fix",
+    detailOpen: false,
   },
   contract_invalid: {
     code: "E-CONTRACT",
