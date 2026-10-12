@@ -39,7 +39,8 @@ test("a published official result shows on the leaderboard for a signed-out visi
   await page.getByRole("button", { name: "Promote to official" }).first().click();
   await page.getByRole("button", { name: /Confirm, uses attempt 1 of/ }).click();
   const official = await waitForRun(page, (run) => run.mode === "official");
-  expect((await (await page.request.get(`${STACK}/api/runs/${practice.id}`)).json()).promotedTo?.runId ?? official.id).toBe(official.id);
+  // The practice run records the official run it became.
+  expect((await (await page.request.get(`${STACK}/api/runs/${practice.id}`)).json()).promotedTo).toMatchObject({ runId: official.id });
 
   // Publish from the official run's console.
   const detail = await (await page.request.get(`${STACK}/api/runs/${official.id}`)).json();
