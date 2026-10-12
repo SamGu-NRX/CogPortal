@@ -87,6 +87,7 @@ export class Case {
       // omitted, as the plan's cases run against this checkout's source.
       ...(pinFromEnvironment() ? { pin: pinFromEnvironment() } : {}),
       required: this.required,
+      ...(process.env.SUITE_HEAD ? { head: { sha: process.env.SUITE_HEAD, dirty: process.env.SUITE_DIRTY === "1" } } : {}),
     };
     await writeReceipt(receipt);
     if (status !== "PASS") process.exitCode = 1;

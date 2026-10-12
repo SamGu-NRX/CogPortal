@@ -29,9 +29,10 @@ interface Row {
   status: "PASS" | "FAIL" | "BLOCKED" | "NOT_RUN";
   blockedReason?: string;
   required?: boolean;
+  head?: { sha: string; dirty: boolean };
 }
 
-async function runReport(receipts: Row[]): Promise<{ exit: number; summary: string }> {
+async function runReport(receipts: Row[], extraEnv: Record<string, string> = {}): Promise<{ exit: number; summary: string }> {
   const dir = await mkdtemp(join(tmpdir(), "blocked-required-"));
   try {
     await mkdir(join(dir, "receipts"), { recursive: true });
@@ -45,7 +46,7 @@ async function runReport(receipts: Row[]): Promise<{ exit: number; summary: stri
     }
     const result = spawnSync(process.execPath, ["support/report.mjs"], {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
-      env: { ...process.env, RESULTS_DIR: dir },
+      env: { ...process.env, SUITE_HEAD: "", ...extraEnv, RESULTS_DIR: dir },
       encoding: "utf8",
     });
     const exit = result.status ?? 1;
@@ -146,6 +147,18 @@ const failedWitness: Row = {
 {
   const { exit } = await runReport([pass]);
   check("a run whose cases all passed stays green", exit === 0, `report exited ${exit}; expected 0`);
+}
+
+// Receipts are bound to the commit under test (run-all.sh exports SUITE_HEAD).
+{
+  const head = "a".repeat(40);
+  const bound: Row = { ...pass, head: { sha: head, dirty: false } };
+  const ok = await runReport([bound], { SUITE_HEAD: head });
+  check("receipts bound to the commit under test pass", ok.exit === 0 && ok.summary.includes(`Commit under test: ${head}`), `report exited ${ok.exit}`);
+  const other = await runReport([bound, { ...pass, case: "stale-case", head: { sha: "b".repeat(40), dirty: false } }], { SUITE_HEAD: head });
+  check("a receipt from another commit fails the verdict", other.exit === 1 && other.summary.includes("stale-case"), `report exited ${other.exit}`);
+  const unbound = await runReport([bound, { ...pass, case: "unbound-case" }], { SUITE_HEAD: head });
+  check("a receipt naming no commit fails the verdict when one is under test", unbound.exit === 1, `report exited ${unbound.exit}`);
 }
 
 if (failures > 0) {

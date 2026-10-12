@@ -24,17 +24,17 @@ PRE_FIX=b74237c378277bf4d03977c9f2cf9f29a960efbe
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# The track-install body a script runs in its week cells, with the track name
-# substituted, or nothing when the script has no such step.
+# The track-install body a script runs in its week cells (install_track's
+# heredoc), with the track name substituted, or nothing when it has none.
 track_body() {
-  sed -n '/if "\$env_bin\/python" - >"\$track_log" 2>&1 <<PY$/,/^PY$/p' "$1" \
-    | sed '1d;$d' | sed 's/\$track_name/WEEK2_TRACK/g'
+  sed -n '/^install_track() {/,/^}/p' "$1" \
+    | sed -n '/<<PY$/,/^PY$/p' | sed '1d;$d' | sed 's/\$3/WEEK2_TRACK/g'
 }
 
-# Wiring: the step exists, and it runs before the week's real-data journey.
+# Wiring: the week cells call the step, and before the week's real-data journey.
 wired() {
   local step journey
-  step=$(grep -n 'if "\$env_bin/python" - >"\$track_log" 2>&1 <<PY$' "$1" | head -1 | cut -d: -f1)
+  step=$(grep -n 'install_track "\$env_bin" "\$cell" "\$track_name"' "$1" | head -1 | cut -d: -f1)
   journey=$(grep -n 'journeys/real-data-week\$week_num.ts' "$1" | head -1 | cut -d: -f1)
   [ -n "$step" ] && [ -n "$journey" ] && [ "$step" -lt "$journey" ] && [ -n "$(track_body "$1")" ]
 }

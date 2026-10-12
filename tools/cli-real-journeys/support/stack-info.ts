@@ -87,6 +87,9 @@ export interface Receipt {
    * is exempt.
    */
   required?: boolean;
+  /** The commit the run tested (run-all.sh's SUITE_HEAD), and whether the
+   * tree had uncommitted changes. report.mjs fails a receipt naming another. */
+  head?: { sha: string; dirty: boolean };
 }
 
 export async function writeReceipt(receipt: Receipt): Promise<void> {

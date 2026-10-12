@@ -24,8 +24,17 @@ for (const name of files) {
   rows.push(receipt);
 }
 
+// Receipts are bound to the commit the run tested. With SUITE_HEAD set (as
+// run-all.sh sets it), a receipt that names no head or another head fails
+// the verdict: it is evidence about some other code.
+const suiteHead = process.env.SUITE_HEAD ?? "";
+const foreignHead = suiteHead ? rows.filter((r) => r.head?.sha !== suiteHead) : [];
+const dirty = rows.some((r) => r.head?.dirty === true);
+
 const counts = { PASS: 0, FAIL: 0, BLOCKED: 0, NOT_RUN: 0 };
-const lines = ["# CLI real-journeys run", "", "| journey | case | status |", "| --- | --- | --- |"];
+const lines = ["# CLI real-journeys run", ""];
+if (suiteHead) lines.push(`Commit under test: ${suiteHead}${dirty ? " (with uncommitted changes)" : ""}`, "");
+lines.push("| journey | case | status |", "| --- | --- | --- |");
 for (const row of rows) {
   counts[row.status] = (counts[row.status] ?? 0) + 1;
   lines.push(`| ${row.journey} | ${row.case} | ${row.status}${row.blockedReason ? ` — ${row.blockedReason}` : ""} |`);
@@ -41,6 +50,11 @@ const requiredFailed = rows.filter((r) => r.status === "FAIL" && r.required !== 
 const requiredBlocked = rows.filter((r) => r.status === "BLOCKED" && r.required !== false);
 const witnessesFailing = rows.filter((r) => r.status === "FAIL" && r.required === false);
 
+if (foreignHead.length > 0) {
+  lines.push(`${foreignHead.length} receipt(s) are not bound to ${suiteHead} - they fail the run:`, "");
+  for (const row of foreignHead) lines.push(`- ${row.journey} / ${row.case}: head ${row.head?.sha ?? "none"}`);
+  lines.push("");
+}
 if (requiredBlocked.length > 0) {
   lines.push(`${requiredBlocked.length} required case(s) are BLOCKED - a blocked required case fails the run:`, "");
   for (const row of requiredBlocked) {
@@ -67,4 +81,4 @@ const summary = lines.join("\n");
 await (await import("node:fs/promises")).writeFile(join(resultsDir, "summary.md"), summary);
 console.log(summary);
 
-if (requiredFailed.length > 0 || requiredBlocked.length > 0 || counts.PASS === 0) process.exit(1);
+if (requiredFailed.length > 0 || requiredBlocked.length > 0 || foreignHead.length > 0 || counts.PASS === 0) process.exit(1);

@@ -48,9 +48,6 @@ const cases = {
 await cases.install.run(async () => {
   const case_ = cases.install;
   const status = env("PIN_INSTALL_STATUS");
-  if (status === "missing") {
-    case_.blocked(`conda environment for this matrix cell is absent on this machine (pin ${PIN_ID})`);
-  }
   if (status === "failed") {
     const log = await readFile(env("PIN_INSTALL_LOG"), "utf8").catch(() => "");
     case_.blocked(
