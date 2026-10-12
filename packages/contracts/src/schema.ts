@@ -1651,13 +1651,35 @@ export const AdminAddStaffRequestSchema = AdminAddMemberRequestSchema;
  * sweep or diagnostics payload leaves the maintenance surfaces.
  */
 
+/**
+ * Where a team's stored commit-history read stands.
+ *
+ * - `never_read`: no stored read; nobody on the team has opened the Team page.
+ * - `unreadable`: a stored row that is not a valid history read (malformed
+ *   JSON, an older format, a stored failure). Nothing in it is used.
+ * - `other_repository` / `other_branch`: a valid read of a repository or
+ *   branch the team is no longer connected to. Never served as this team's.
+ * - `fresh` / `stale`: a valid read of the connected repository and branch,
+ *   younger or older than the Team page's cache window.
+ */
+export const StaffDeskHistoryStatusSchema = z.enum([
+  "never_read",
+  "unreadable",
+  "other_repository",
+  "other_branch",
+  "fresh",
+  "stale",
+]);
+export type StaffDeskHistoryStatus = z.infer<typeof StaffDeskHistoryStatusSchema>;
+
 /** How a team's stored commit-history read stands, as the desk reports it. */
 export const StaffDeskHistoryStateSchema = z.object({
-  /** When the portal last read this team's history; null = never read. */
+  status: StaffDeskHistoryStatusSchema,
+  /** When the stored read was taken; null when there is no valid read. */
   checkedAt: z.number().nullable(),
-  /** True when the stored read is older than the team page's cache window. */
+  /** status === "stale". */
   stale: z.boolean(),
-  /** False when the stored read belongs to a repository the team has left. */
+  /** status is "fresh" or "stale": the read is of the connected repository and branch. */
   forConnectedRepository: z.boolean(),
 });
 export type StaffDeskHistoryState = z.infer<typeof StaffDeskHistoryStateSchema>;
@@ -1670,18 +1692,13 @@ export const StaffDeskFirstLightSchema = z.object({
 });
 export type StaffDeskFirstLight = z.infer<typeof StaffDeskFirstLightSchema>;
 
-const StaffDeskStageActivitySchema = z.object({
-  /** null when the history's quality makes the stage unknowable. */
-  commitCount: z.number().int().nonnegative().nullable(),
-  /** Stage-wide: how many people touched the stage, never who did how much. */
-  distinctAuthorCount: z.number().int().nonnegative(),
-  firstTouchAt: z.number().nullable(),
-  lastTouchAt: z.number().nullable(),
-  available: z.boolean(),
-  unavailableReason: z.string().nullable(),
-});
+// The desk serves the Team page's own projection, so it uses the Team page's
+// own stage schema. A separate copy here once required distinctAuthorCount,
+// and every team whose history is a single bulk upload (where the builder
+// reports null for an unknowable stage) answered 500.
+const StaffDeskStageActivitySchema = StageActivitySchema;
 
-const StaffDeskHistoryQualitySchema = z.enum(["usable", "bulk_upload", "empty", "fetch_failed"]);
+const StaffDeskHistoryQualitySchema = HistoryQualitySchema;
 const StaffDeskWeekLabelSchema = z.enum(["week1", "week2", "week3"]);
 
 /** One scoped team on the desk list. */
@@ -1692,10 +1709,9 @@ export const StaffDeskTeamRowSchema = z.object({
   repo: z.object({ fullName: z.string(), defaultBranch: z.string() }),
   memberCount: z.number().int().nonnegative(),
   taLogins: z.array(z.string()),
+  /** The stored read's quality; null unless `history.forConnectedRepository`. */
   historyQuality: StaffDeskHistoryQualitySchema.nullable(),
-  historyCheckedAt: z.number().nullable(),
-  historyStale: z.boolean(),
-  historyForConnectedRepository: z.boolean(),
+  history: StaffDeskHistoryStateSchema,
   weekLabel: StaffDeskWeekLabelSchema.nullable(),
   firstLight: StaffDeskFirstLightSchema.nullable(),
   /** Scored runs from the connected repository only. */
@@ -1717,8 +1733,7 @@ export type StaffDeskTeamList = z.infer<typeof StaffDeskTeamListSchema>;
  *
  * `commitSignals` is the team page's own process projection — the same
  * builders (`buildProcessSignals`, `findingSentences`) over the stored
- * read — or null when nothing servable is stored: never read, a failed
- * read, or a read for a repository the team has left. The run-derived
+ * read — or null unless `history.forConnectedRepository`. The run-derived
  * readings (weekLabel, firstLight, runsElsewhere) stay top level and
  * independent of commit history.
  */

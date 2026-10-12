@@ -288,7 +288,7 @@ const MAX_STORED_HISTORY_BYTES = 1_000_000;
  * as a complete response, so a rolled-back Worker would have failed the team
  * panel on these rows; with 0 it treats them as expired and recomputes.
  */
-const StoredCommitHistorySchema = z.object({
+export const StoredCommitHistorySchema = z.object({
   kind: z.literal("commit-history.v1"),
   repository: z.string(),
   branch: z.string(),

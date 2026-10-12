@@ -95,6 +95,8 @@ interface Harness {
       commits: { sha: string; authorLogin: string; authoredAt: number; filesChanged: string[]; coAuthors?: { name: string; email: string }[] }[];
     },
   ): Promise<void>;
+  /** A stored row with arbitrary contents, for rows the Team page would refuse. */
+  seedRawHistory(teamId: string, signalsJson: string): Promise<void>;
   call(method: string, path: string, options?: { cookie?: string }): Promise<{ status: number; body: any }>;
 }
 
@@ -221,6 +223,9 @@ function harness(): Harness {
         historyQuality: "usable",
       });
     },
+    async seedRawHistory(teamId, signalsJson) {
+      await db.insert(teamProcessSignals).values({ teamId, computedAt: 0, signalsJson, historyQuality: "usable" });
+    },
     async call(method, path, options = {}) {
       const response = await app.fetch(
         new Request(`http://localhost:5173${path}`, {
@@ -234,10 +239,16 @@ function harness(): Harness {
   };
 }
 
-/** Two members on a team, so ownership readings have people to name. */
+/**
+ * Two members on a team, so ownership readings have people to name. Each
+ * member gets a real account through the session layer first (signIn sets
+ * its github_login); a login with no account behind it is not a member.
+ */
 async function seedTwoMembers(h: Harness, teamId: string, logins: [string, string]) {
   const idFor = async (login: string) => {
+    await h.signIn(login);
     const [row] = await h.db.select().from(users).where(eq(users.githubLogin, login));
+    assert.ok(row, `account for ${login} was created`);
     return row.id;
   };
   await h.db.insert(teamMembers).values([
@@ -385,13 +396,16 @@ test("the desk serves the stored history through the team page's own signal buil
   await h.seedTeam("team_a", "Team A", { repoId: 101, fullName: "course/audio" });
   await h.seedBenchmark("audio-identification", "audio");
   await h.seedRun("run_first", "team_a", { repositoryId: 101, status: "succeeded", finishedAt: 1_789_000_100_000 });
+  // Read a minute ago, inside the Team page's 30-minute window: "fresh" is
+  // measured against the clock, so a fixed past timestamp would read stale.
+  const checkedAt = Date.now() - 60_000;
   await h.seedHistory("team_a", {
     repository: "course/audio",
-    checkedAt: CHECKED_AT,
+    checkedAt,
     commits: [
-      commit("1".repeat(40), "ada", CHECKED_AT - 500, ["src/spectrogram.py"]),
-      commit("2".repeat(40), "grace", CHECKED_AT - 400, ["src/peak_finding.py"]),
-      commit("3".repeat(40), "ada", CHECKED_AT - 300, ["src/fingerprint.py", "src/query.py"]),
+      commit("1".repeat(40), "ada", checkedAt - 500, ["src/spectrogram.py"]),
+      commit("2".repeat(40), "grace", checkedAt - 400, ["src/peak_finding.py"]),
+      commit("3".repeat(40), "ada", checkedAt - 300, ["src/fingerprint.py", "src/query.py"]),
     ],
   });
   await seedTwoMembers(h, "team_a", ["Ada", "Grace"]);
@@ -421,9 +435,12 @@ test("the desk serves the stored history through the team page's own signal buil
     benchmarkTitle: "audio-identification",
     at: 1_789_000_100_000,
   });
-  assert.equal(detail.body.history.checkedAt, CHECKED_AT);
-  assert.equal(detail.body.history.stale, false);
-  assert.equal(detail.body.history.forConnectedRepository, true);
+  assert.deepEqual(detail.body.history, {
+    status: "fresh",
+    checkedAt,
+    stale: false,
+    forConnectedRepository: true,
+  });
   assert.equal(detail.body.runsElsewhere, false);
 });
 
@@ -443,6 +460,7 @@ test("a stored read older than the window is served stale, never refetched", asy
   assert.equal(detail.status, 200);
   // The stored read is still what the desk shows -- stale is a state the
   // desk reports, not a repair it performs.
+  assert.equal(detail.body.history.status, "stale");
   assert.equal(detail.body.history.checkedAt, CHECKED_AT - 45 * 60 * 1000);
   assert.equal(detail.body.history.stale, true);
   assert.ok(detail.body.commitSignals, "the stale read is still served");
@@ -458,10 +476,15 @@ test("a team whose history was never read is not a team without work", async () 
 
   const detail = await h.call("GET", "/admin/desk/teams/team_a", { cookie: owner });
   assert.equal(detail.status, 200);
-  // No row: the desk says the portal has not read this team's history.
+  // No row: the desk says the portal has not read this team's history,
+  // rather than vouching for a read that never happened.
   assert.equal(detail.body.commitSignals, null);
-  assert.equal(detail.body.history.checkedAt, null);
-  assert.equal(detail.body.history.forConnectedRepository, true);
+  assert.deepEqual(detail.body.history, {
+    status: "never_read",
+    checkedAt: null,
+    stale: false,
+    forConnectedRepository: false,
+  });
   // And the run-derived readings, which need no commit history, still hold:
   // a first light is recorded even though the desk cannot say anything
   // about stages yet.
@@ -489,6 +512,7 @@ test("a stored read for a repository the team has left is not served against thi
   const detail = await h.call("GET", "/admin/desk/teams/team_a", { cookie: owner });
   assert.equal(detail.status, 200);
   // The read happened; it is just not about this repository.
+  assert.equal(detail.body.history.status, "other_repository");
   assert.equal(detail.body.history.checkedAt, CHECKED_AT);
   assert.equal(detail.body.history.forConnectedRepository, false);
   assert.equal(detail.body.commitSignals, null);
@@ -499,11 +523,92 @@ test("a stored read for a repository the team has left is not served against thi
   assert.equal(detail.body.runsElsewhere, true);
 });
 
+test("a stored read of another branch is reported as such and never counts as the current branch", async () => {
+  const h = harness();
+  await h.seedCohort();
+  // seedTeam connects branch "main"; the stored read is of "dev".
+  await h.seedTeam("team_a", "Team A", { repoId: 101, fullName: "course/audio" });
+  await h.seedBenchmark("audio-identification", "audio");
+  await h.seedRun("run_first", "team_a", { repositoryId: 101, status: "succeeded", finishedAt: 1_789_000_100_000 });
+  await h.seedHistory("team_a", {
+    repository: "course/audio",
+    branch: "dev",
+    checkedAt: CHECKED_AT,
+    commits: [
+      commit("1".repeat(40), "ada", CHECKED_AT - 200, ["src/spectrogram.py"]),
+      commit("2".repeat(40), "grace", CHECKED_AT - 100, ["src/peaks.py"]),
+    ],
+  });
+  const owner = await h.signIn(OWNER);
+
+  const detail = await h.call("GET", "/admin/desk/teams/team_a", { cookie: owner });
+  assert.equal(detail.status, 200);
+  assert.deepEqual(detail.body.history, {
+    status: "other_branch",
+    checkedAt: CHECKED_AT,
+    stale: false,
+    forConnectedRepository: false,
+  });
+  assert.equal(detail.body.commitSignals, null, "another branch's commits are not this branch's signals");
+
+  const list = await h.call("GET", "/admin/desk/teams", { cookie: owner });
+  assert.equal(list.body.teams[0].history.status, "other_branch");
+  assert.equal(list.body.teams[0].historyQuality, null, "the stored quality describes the other branch");
+});
+
+test("a malformed stored row reads as unreadable on every desk route and never crashes", async () => {
+  const rows: [string, string][] = [
+    ["not JSON", "{"],
+    ["JSON null", "null"],
+    ["no result", JSON.stringify({ kind: "commit-history.v1", repository: "course/audio", branch: "main", checkedAt: CHECKED_AT })],
+    [
+      "a stored failure",
+      JSON.stringify({ kind: "commit-history.v1", repository: "course/audio", branch: "main", checkedAt: CHECKED_AT, result: { ok: false, reason: "fetch_failed" } }),
+    ],
+    [
+      "commits of the wrong shape",
+      JSON.stringify({ kind: "commit-history.v1", repository: "course/audio", branch: "main", checkedAt: CHECKED_AT, result: { ok: true, commits: [{ sha: 1 }], truncated: false } }),
+    ],
+    [
+      "no branch recorded",
+      JSON.stringify({ kind: "commit-history.v1", repository: "course/audio", checkedAt: CHECKED_AT, result: { ok: true, commits: [], truncated: false } }),
+    ],
+    [
+      "a string clock",
+      JSON.stringify({ kind: "commit-history.v1", repository: "course/audio", branch: "main", checkedAt: "yesterday", result: { ok: true, commits: [], truncated: false } }),
+    ],
+  ];
+  for (const [label, signalsJson] of rows) {
+    const h = harness();
+    await h.seedCohort();
+    await h.seedTeam("team_a", "Team A", { repoId: 101, fullName: "course/audio" });
+    await h.seedRawHistory("team_a", signalsJson);
+    const owner = await h.signIn(OWNER);
+
+    const detail = await h.call("GET", "/admin/desk/teams/team_a", { cookie: owner });
+    assert.equal(detail.status, 200, label);
+    assert.deepEqual(
+      detail.body.history,
+      { status: "unreadable", checkedAt: null, stale: false, forConnectedRepository: false },
+      label,
+    );
+    assert.equal(detail.body.commitSignals, null, label);
+
+    const list = await h.call("GET", "/admin/desk/teams", { cookie: owner });
+    assert.equal(list.status, 200, label);
+    assert.equal(list.body.teams[0].history.status, "unreadable", label);
+    assert.equal(list.body.teams[0].historyQuality, null, label);
+  }
+});
+
 test("a single-commit history degrades stage signals with the exact reason", async () => {
   const h = harness();
   await h.seedCohort();
   await h.seedTeam("team_a", "Team A", { repoId: 101, fullName: "course/audio" });
   await h.seedBenchmark("audio-identification", "audio");
+  // A run for the connected repository names the week (audio -> week1);
+  // without one there is no stage map to degrade (see the next test).
+  await h.seedRun("run_first", "team_a", { repositoryId: 101, status: "failed", finishedAt: null });
   await h.seedHistory("team_a", {
     repository: "course/audio",
     checkedAt: CHECKED_AT,
@@ -513,8 +618,14 @@ test("a single-commit history degrades stage signals with the exact reason", asy
 
   const detail = await h.call("GET", "/admin/desk/teams/team_a", { cookie: owner });
   assert.equal(detail.status, 200);
+  assert.equal(detail.body.weekLabel, "week1");
   assert.equal(detail.body.commitSignals.historyQuality, "bulk_upload");
-  const [spectrogram] = Object.values(detail.body.commitSignals.stageFootprint);
+  const [spectrogram] = Object.values(detail.body.commitSignals.stageFootprint) as {
+    available: boolean;
+    unavailableReason: string | null;
+    commitCount: number | null;
+  }[];
+  assert.ok(spectrogram, "week1 has stages to report");
   assert.equal(spectrogram.available, false);
   assert.equal(spectrogram.unavailableReason, "the entire history is a single commit");
   assert.equal(spectrogram.commitCount, null, "no count is invented for a degraded stage");
@@ -570,9 +681,12 @@ test("the desk list reads stored state: quality, freshness, week and first light
   assert.equal(list.status, 200);
   const [a, b] = list.body.teams;
   assert.equal(a.historyQuality, "usable");
-  assert.equal(a.historyCheckedAt, CHECKED_AT - 45 * 60 * 1000);
-  assert.equal(a.historyStale, true);
-  assert.equal(a.historyForConnectedRepository, true);
+  assert.deepEqual(a.history, {
+    status: "stale",
+    checkedAt: CHECKED_AT - 45 * 60 * 1000,
+    stale: true,
+    forConnectedRepository: true,
+  });
   assert.equal(a.weekLabel, "week1");
   assert.deepEqual(a.firstLight, {
     benchmarkId: "audio-identification",
@@ -582,7 +696,8 @@ test("the desk list reads stored state: quality, freshness, week and first light
   assert.equal(a.scoredRunCount, 1);
 
   assert.equal(b.historyQuality, null);
-  assert.equal(b.historyCheckedAt, null);
+  assert.equal(b.history.status, "never_read");
+  assert.equal(b.history.checkedAt, null);
   assert.equal(b.scoredRunCount, 0, "a run from another repository is not this repository's count");
 });
 

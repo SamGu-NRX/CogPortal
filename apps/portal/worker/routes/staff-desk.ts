@@ -11,7 +11,7 @@ import {
   TERMINAL_STATUSES,
   isTerminal,
 } from "@cogworks/contracts/schema";
-import type { RunStatus } from "@cogworks/contracts/schema";
+import type { RunStatus, StaffDeskHistoryState } from "@cogworks/contracts/schema";
 import { getDb } from "../db/client";
 import { benchmarks, runs, teamMembers, teamProcessSignals, teamTas, teams, users } from "../db/schema";
 import type { AppEnv } from "../env";
@@ -31,6 +31,7 @@ import {
 import {
   COMMIT_HISTORY_CACHE_MS,
   MODULE_WEEK_LABELS,
+  StoredCommitHistorySchema,
   hasRunsElsewhere,
   resolveWeekLabel,
   scoredRunRecords,
@@ -73,28 +74,57 @@ function staleAfterMs(env: AppEnv["Bindings"]): number {
     : DEFAULT_STALE_AFTER_SECONDS * 1_000;
 }
 
-type StoredCommitHistory = {
-  kind: "commit-history.v1";
-  repository: string;
-  branch: string;
-  checkedAt: number;
-  result:
-    | { ok: true; commits: CommitRecord[]; truncated: boolean }
-    | { ok: false; reason: string };
+type StoredHistoryReading = {
+  history: StaffDeskHistoryState;
+  /** The stored commits, only when the read is of the connected repository and branch. */
+  commits: { ok: true; commits: CommitRecord[]; truncated: boolean } | null;
 };
 
-/** Reads a stored `team_process_signals` row, or null when unusable. */
-function parseStoredHistory(row: { signalsJson: string }): StoredCommitHistory | null {
+/**
+ * Where a team's stored history row stands against the team as it is now.
+ *
+ * The row is validated with the Team page's own schema
+ * (`StoredCommitHistorySchema`), so anything that page would refuse to serve
+ * (malformed JSON, another format, a stored failure) reads as "unreadable"
+ * here and is never dereferenced. A valid read of another repository or
+ * branch is reported as such and never stands in for the current one.
+ */
+function readStoredHistory(
+  row: { signalsJson: string } | undefined,
+  team: { repoFullName: string; defaultBranch: string },
+  now: number,
+): StoredHistoryReading {
+  const none = (status: "never_read" | "unreadable"): StoredHistoryReading => ({
+    history: { status, checkedAt: null, stale: false, forConnectedRepository: false },
+    commits: null,
+  });
+  if (!row) return none("never_read");
+  let json: unknown = null;
   try {
-    const parsed = JSON.parse(row.signalsJson) as StoredCommitHistory | null;
-    if (parsed && parsed.kind === "commit-history.v1" && typeof parsed.checkedAt === "number") {
-      return parsed;
-    }
-    return null;
+    json = JSON.parse(row.signalsJson);
   } catch {
-    // A malformed row is a miss like any other (routes/team.ts).
-    return null;
+    return none("unreadable");
   }
+  const parsed = StoredCommitHistorySchema.safeParse(json);
+  if (!parsed.success) return none("unreadable");
+  const stored = parsed.data;
+  const elsewhere =
+    stored.repository !== team.repoFullName
+      ? ("other_repository" as const)
+      : stored.branch !== team.defaultBranch
+        ? ("other_branch" as const)
+        : null;
+  if (elsewhere) {
+    return {
+      history: { status: elsewhere, checkedAt: stored.checkedAt, stale: false, forConnectedRepository: false },
+      commits: null,
+    };
+  }
+  const stale = now - stored.checkedAt >= COMMIT_HISTORY_CACHE_MS;
+  return {
+    history: { status: stale ? "stale" : "fresh", checkedAt: stored.checkedAt, stale, forConnectedRepository: true },
+    commits: stored.result,
+  };
 }
 
 /**
@@ -243,11 +273,8 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
     const now = Date.now();
 
     const body = rows.map((team) => {
-      const stored = historyByTeam.has(team.id)
-        ? parseStoredHistory(historyByTeam.get(team.id)!)
-        : null;
-      const checkedAt = stored?.checkedAt ?? null;
-      const forConnectedRepository = stored !== null && stored.repository === team.repoFullName;
+      const row = historyByTeam.get(team.id);
+      const { history } = readStoredHistory(row, team, now);
       const light = lightByTeam.get(team.id);
       return {
         id: team.id,
@@ -256,10 +283,10 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
         repo: { fullName: team.repoFullName, defaultBranch: team.defaultBranch },
         memberCount: membersByTeam.get(team.id) ?? 0,
         taLogins: tasByTeam.get(team.id) ?? [],
-        historyQuality: historyByTeam.has(team.id) ? (historyByTeam.get(team.id)!.historyQuality as typeof teamProcessSignals.$inferSelect["historyQuality"]) : null,
-        historyCheckedAt: checkedAt,
-        historyStale: checkedAt !== null && now - checkedAt >= COMMIT_HISTORY_CACHE_MS,
-        historyForConnectedRepository: forConnectedRepository,
+        // The column describes whatever read is stored; it is this team's
+        // quality only when that read is of the connected repository.
+        historyQuality: history.forConnectedRepository && row ? row.historyQuality : null,
+        history,
         weekLabel: weekByTeam.get(team.id) ?? null,
         firstLight: light
           ? { benchmarkId: light.benchmarkId, benchmarkTitle: light.benchmarkTitle, at: light.at }
@@ -306,18 +333,15 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
       ]);
 
     // The desk reports how the stored read stands; it never re-fetches.
-    const stored = historyRow[0] ? parseStoredHistory(historyRow[0]) : null;
-    const checkedAt = stored?.checkedAt ?? null;
-    const forConnectedRepository = stored !== null && stored.repository === team.repoFullName;
-    const stale = checkedAt !== null && Date.now() - checkedAt >= COMMIT_HISTORY_CACHE_MS;
+    const { history, commits } = readStoredHistory(historyRow[0], team, Date.now());
 
     let commitSignals = null;
-    if (stored && forConnectedRepository && stored.result.ok) {
+    if (commits) {
       const roster: RosterMember[] = await teamRoster(db, teamId);
       // The team page's own builders, over the stored read: same stage maps,
       // same ownership rule, same sentences.
       const signals = buildProcessSignals({
-        commitsResult: stored.result,
+        commitsResult: commits,
         runs: scoredRuns,
         weekLabel,
         roster,
@@ -349,11 +373,7 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
         tas: tas.map((ta) => ({ login: ta.login ?? ta.email.split("@")[0] })),
       },
       commitSignals,
-      history: {
-        checkedAt,
-        stale,
-        forConnectedRepository,
-      },
+      history,
       weekLabel,
       firstLight: light
         ? { benchmarkId: light.benchmarkId, benchmarkTitle: light.benchmarkTitle, at: light.at }
