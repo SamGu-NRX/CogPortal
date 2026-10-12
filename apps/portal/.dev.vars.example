@@ -95,11 +95,11 @@ RUN_STALE_AFTER_SECONDS="3600"
 #
 # ALLOW_MODAL_EXECUTION_IN_DEV
 # Read only by the predev dev-boot guard (scripts/dev-execution-provider-guard.mjs),
-# never by the Worker. `pnpm dev` refuses to start when EXECUTION_PROVIDER
-# resolves to "modal" — from your own .dev.vars, or with no .dev.vars at all
-# from wrangler.jsonc's top-level vars — unless your own .dev.vars also sets
-# ALLOW_MODAL_EXECUTION_IN_DEV="1" (or "true"). An empty value opts in to
-# nothing, and it is not a Worker binding.
+# never by the Worker. `pnpm dev` asks wrangler which EXECUTION_PROVIDER the
+# Worker will get (wrangler.jsonc, then .dev.vars, or .env when there is no
+# .dev.vars, for the CLOUDFLARE_ENV in effect) and refuses to start unless it
+# is exactly "fixture", or "modal" with ALLOW_MODAL_EXECUTION_IN_DEV="1" (or
+# "true") beside it. An empty value opts in to nothing.
 #
 # EXECUTION_PROVIDER
 #   "fixture" or "modal". With "fixture", dispatch() in
