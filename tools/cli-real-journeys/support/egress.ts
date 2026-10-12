@@ -48,8 +48,10 @@ async function control(request: { path: string; body?: unknown }): Promise<any> 
   return response.json();
 }
 
-/** Flip the witness between online (pass everything) and offline (refuse
- * everything but the documented public-asset hosts). */
+/** Flip the witness between online and offline. The mode is recorded on
+ * events (the journeys use it to mark which windows must be silent); the
+ * enforcement is fail closed in both modes: loopback and the documented
+ * public-asset hosts only, refused pre-connect everywhere else. */
 export async function setEgressMode(mode: "online" | "offline"): Promise<void> {
   await control({ path: "/__egress__/mode", body: { mode } });
 }

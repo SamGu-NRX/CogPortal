@@ -1,7 +1,8 @@
-// Egress witness: a local HTTP/CONNECT proxy with two modes and a full
-// request log. Real-data journeys run the CLI through it so the receipts can
-// record every public-asset download (allowed, with sizes) and FAIL the case
-// if an offline command touches anything else — portal or provider.
+// Egress witness: a local HTTP/CONNECT proxy that FAILS CLOSED in every mode,
+// with a full request log. Real-data journeys run the CLI through it so the
+// receipts can record every public-asset download (allowed, with sizes) and
+// FAIL the case if the command attempts anything else — portal, provider,
+// chat, a deployed Worker, anything.
 //
 //   EGRESS_LOG    where the request log (jsonl) is appended
 //   EGRESS_INFO   where {proxy, control, log} is written once listening
@@ -11,10 +12,13 @@
 //   POST /__egress__/marker {"label":"..."}             — returns {"seq":N}
 //   GET  /__egress__/events?after=N                     — log entries > N
 //
-// Offline mode refuses everything not on the documented public-asset
-// allowlist (the week 2/3 data sources named in benchmark-packages.ts,
-// README.md and docs/design/student-cli-and-onboarding.md). Refusals are
-// recorded, not silent — a journey asserting "no other traffic" sees them.
+// Every destination that is neither loopback nor a documented public-asset
+// host (the week 2/3 data sources named in benchmark-packages.ts, README.md
+// and docs/design/student-cli-and-onboarding.md) is refused BEFORE any
+// upstream socket is opened — in online and offline mode alike, so an
+// accidental Discord or deployed-Worker request can never reach live
+// infrastructure and only be judged after the fact. Refusals are recorded,
+// not silent — a journey asserting "no other traffic" sees them.
 import http from "node:http";
 import net from "node:net";
 import { appendFileSync, writeFileSync } from "node:fs";
@@ -22,9 +26,11 @@ import { appendFileSync, writeFileSync } from "node:fs";
 const LOG = process.env.EGRESS_LOG ?? "/tmp/egress.jsonl";
 const INFO = process.env.EGRESS_INFO ?? "/tmp/egress.json";
 
-/** Hosts the course's real-data runs may fetch offline: the documented
- * public assets only. Everything else is a defect the journeys must catch. */
-const OFFLINE_ALLOW_HOSTS = new Set([
+/** Hosts the course's real-data runs may fetch: the documented public assets
+ * only (the week 2/3 data sources named in benchmark-packages.ts, README.md
+ * and docs/design/student-cli-and-onboarding.md). Everything else is a defect
+ * the journeys must catch. */
+const DOCUMENTED_HOSTS = new Set([
   "github.com",
   "objects.githubusercontent.com",
   "release-assets.githubusercontent.com",
@@ -41,12 +47,40 @@ const OFFLINE_ALLOW_HOSTS = new Set([
   "xet.hf.co",
   "www.dropbox.com",
 ]);
-const OFFLINE_ALLOW_SUFFIXES = [".dl.dropboxusercontent.com", ".huggingface.co", ".hf.co"];
+const DOCUMENTED_SUFFIXES = [".dl.dropboxusercontent.com", ".huggingface.co", ".hf.co"];
 
-function allowedOffline(host) {
+function allowedDocumentedHost(host) {
   const name = host.toLowerCase().replace(/\.$/, "");
-  if (OFFLINE_ALLOW_HOSTS.has(name)) return true;
-  return OFFLINE_ALLOW_SUFFIXES.some((suffix) => name.endsWith(suffix));
+  if (DOCUMENTED_HOSTS.has(name)) return true;
+  return DOCUMENTED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+}
+
+/** Mirrors support/loopback.ts's definition (localhost, ::1, 127.0.0.0/8).
+ * This file is plain JS run by `node` directly, so the one definition cannot
+ * be imported and is repeated here; loopback-guard.ts still pins every
+ * origin the suite dials. Loopback stays reachable in every mode — the
+ * journeys' local stack lives there; nothing external does. */
+function isLoopbackHost(host) {
+  let name = String(host).toLowerCase().replace(/\.$/, "");
+  if (name.startsWith("[") && name.endsWith("]")) name = name.slice(1, -1);
+  if (name === "localhost" || name === "::1") return true;
+  const v4 = name.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    return (
+      v4.slice(1).every((o) => Number.isInteger(Number(o)) && Number(o) <= 255) &&
+      Number(v4[1]) === 127
+    );
+  }
+  const mapped = name.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  return mapped !== null && isLoopbackHost(mapped[1]);
+}
+
+/** The one allow rule, applied in EVERY mode: loopback and the documented
+ * public-asset hosts, nothing else. The mode is still recorded on events
+ * (and still flippable) because the journeys use it to mark which windows
+ * are expected to be silent — it no longer changes what is allowed. */
+function allowed(host) {
+  return isLoopbackHost(host) || allowedDocumentedHost(host);
 }
 
 let mode = "online";
@@ -77,7 +111,7 @@ const server = http.createServer((req, res) => {
   const host = req.headers.host ?? "";
   const hostName = host.split(":")[0];
   const target = new URL(req.url ?? "/", "http://localhost");
-  const ok = mode === "online" || allowedOffline(hostName || target.hostname);
+  const ok = allowed(hostName || target.hostname);
   record({
     kind: "http",
     method: req.method,
@@ -85,7 +119,7 @@ const server = http.createServer((req, res) => {
     port: target.port || 80,
     path: target.pathname + target.search,
     allowed: ok,
-    refused: ok ? undefined : "offline mode only allows the documented public-asset hosts",
+    refused: ok ? undefined : "not a loopback or documented public-asset host",
   });
   if (!ok) {
     res.writeHead(403, { "content-type": "text/plain" });
@@ -118,14 +152,14 @@ server.on("connect", (req, socket, head) => {
   const separator = req.url?.lastIndexOf(":") ?? -1;
   const host = (req.url ?? "").slice(0, separator);
   const port = Number((req.url ?? "").slice(separator + 1)) || 443;
-  const ok = mode === "online" || allowedOffline(host);
+  const ok = allowed(host);
   record({
     kind: "connect",
     method: "CONNECT",
     host,
     port,
     allowed: ok,
-    refused: ok ? undefined : "offline mode only allows the documented public-asset hosts",
+    refused: ok ? undefined : "not a loopback or documented public-asset host",
   });
   if (!ok) {
     socket.write("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
