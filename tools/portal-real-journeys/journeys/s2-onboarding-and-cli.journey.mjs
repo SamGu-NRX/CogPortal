@@ -22,8 +22,13 @@ const PYTHON = process.env.RJ_PYTHON ?? path.join(os.homedir(), ".local", "bin",
 /** The sign-in page's development form, opened if its fold is closed. */
 async function devSignIn(page, login) {
   await page.goto(`${STACK}/signin`);
+  // The fold renders once the session says dev sign-in is on, open by
+  // default when GitHub isn't configured. Wait for it before deciding,
+  // or a click meant to open it closes it.
+  const fold = page.getByText("Development sign-in");
+  await expect(fold).toBeVisible();
   const field = page.getByLabel("Sign in as");
-  if (!(await field.isVisible())) await page.getByText("Development sign-in").click();
+  if (!(await field.isVisible())) await fold.click();
   await field.fill(login);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 }

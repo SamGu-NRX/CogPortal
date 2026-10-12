@@ -25,12 +25,13 @@ for (const viewport of [
 
     await page.goto(`${STACK}/leaderboard`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    // The default view (Vision Overall) has no team with both components,
-    // and says so; the seeded cohort's published recognition results are one
-    // tab away.
+    // The local seed's published rows are on vision-recognition v1, which is
+    // not the active version, so the signed-out board has no rows to show.
+    // What's measured here is that each tab says so instead of rendering an
+    // empty table or failing.
     await expect(page.getByText("No team has published both yet.")).toBeVisible();
     await page.getByRole("tab", { name: "Recognition" }).click();
-    await expect(page.getByText("Vector Voyagers").first()).toBeVisible();
+    await expect(page.getByText("No results published yet.")).toBeVisible();
     const board = await new AxeBuilder({ page }).analyze();
     expect(board.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
     // Nothing on the page is wider than the screen.
