@@ -470,6 +470,11 @@ def _floor_unit_suffix(item: Dict[str, Any]) -> str:
 
 
 def _floor_relates_text(item: Dict[str, Any]) -> str:
+    if item.get("one_sided"):
+        return (
+            "{} records this metric as a scoring floor; "
+            "the other run does not".format(item["one_sided"])
+        )
     a = item["relates_to_a"]
     b = item["relates_to_b"]
     if a == b:
@@ -488,6 +493,31 @@ def metric_sections(
     context: List[Dict[str, Any]] = []
     for key in sorted(set(a_by_key) & set(b_by_key)):
         ma, mb = a_by_key[key], b_by_key[key]
+        if (ma.role == "floor") != (mb.role == "floor"):
+            # One side records this metric as a scoring floor and the
+            # other does not: state that per side instead of comparing
+            # the two as if they were the same kind of entry.
+            value_differs = (ma.value, ma.precision) != (
+                mb.value,
+                mb.precision,
+            )
+            context.append(
+                {
+                    "key": key,
+                    "label": (ma if ma.role == "floor" else mb).label or key,
+                    "value_a": _fmt(ma.value, ma.precision),
+                    "value_b": _fmt(mb.value, mb.precision),
+                    "unit_a": ma.unit or "",
+                    "unit_b": mb.unit or "",
+                    "relates_to_a": ma.relates_to or "",
+                    "relates_to_b": mb.relates_to or "",
+                    "differs": True,
+                    "value_differs": value_differs,
+                    "identity_differs": True,
+                    "one_sided": "run A" if ma.role == "floor" else "run B",
+                }
+            )
+            continue
         if ma.role == "floor" and mb.role == "floor":
             # A floor is not "the same floor" unless its identity - unit,
             # direction, and the metric it references - matches too;

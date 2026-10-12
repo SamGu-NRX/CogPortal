@@ -82,10 +82,10 @@
     }
   ],
   "rebuilt_html_sha256": "f533317c5bec63e1d00813788f953a285fb28df96e204f53c44225b695af4daa",
-  "receipt_sha256": "93a1eca5e15f51dee27f386b6d0297cb170d765054e7bd8fe6abd25aa803ca8e",
+  "receipt_sha256": "52c15c634e1f694e4c04dc9d08626f6d59500c1c954112ad2d324671826a2ce1",
   "tool_source": {
     "files": {
-      "build.py": "2aeb992806e96030358f64e19611518bc2e0dc953ecc9132aa8121c89cf2fdaa",
+      "build.py": "4ac26ac287339d05abe8280892f57691d894913e624a209df056a72766d0964f",
       "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
     }
   }

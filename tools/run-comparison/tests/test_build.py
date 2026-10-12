@@ -441,3 +441,139 @@ def test_visible_verdict_text_is_bound_after_a_full_rebind(tmp_path):
     assert verify.returncode == 1
     assert "scorer" in verify.stderr
     assert "visible verdict" in verify.stderr
+
+
+def test_no_floor_pair_builds_and_verifies(tmp_path):
+    # Accepted current-contract reports without floors build but used to
+    # fail verification, because verify.py demanded a floor table
+    # unconditionally. Strip the floor metrics from both reports and
+    # require the pair to build AND verify.
+    import shutil
+
+    work = tmp_path / "fixtures"
+    shutil.copytree(FIXTURES, work)
+    for name in ("01-run-a.json", "02-run-b.json"):
+        p = work / name
+        report = json.loads(p.read_text(encoding="utf-8"))
+        report["metrics"] = [m for m in report["metrics"] if m.get("role") != "floor"]
+        p.write_text(
+            json.dumps(report, indent=2, sort_keys=True) + chr(10), encoding="utf-8"
+        )
+
+    out = tmp_path / "evidence"
+    build_result = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "build.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+            "--replay",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert build_result.returncode == 0, build_result.stdout + build_result.stderr
+    receipt = json.loads(
+        (out / "view-receipts-{}.json".format(PAIR_STEM)).read_text(encoding="utf-8")
+    )
+    assert receipt.get("metrics", {}).get("floors", []) == []
+    html_text = (out / "view-{}.html".format(PAIR_STEM)).read_text(encoding="utf-8")
+    assert "No floor metrics recorded." in html_text
+
+    verify = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "verify.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert verify.returncode == 0, verify.stderr
+
+
+def test_one_sided_floor_renders_honestly_and_verifies(tmp_path):
+    # A floor recorded on one side only must render as per-side truth -
+    # which run records the floor - never as a false same, and the
+    # scoring-floors field must read unknown, blocking comparability.
+    # Demote run B's floor to a regular metric (the metric stays on both
+    # sides; only its role changes).
+    import shutil
+
+    work = tmp_path / "fixtures"
+    shutil.copytree(FIXTURES, work)
+    p = work / "02-run-b.json"
+    report = json.loads(p.read_text(encoding="utf-8"))
+    regular_role = next(
+        (
+            m.get("role")
+            for m in report["metrics"]
+            if m.get("key") == "identification_score"
+        ),
+        None,
+    )
+    demoted = 0
+    for m in report["metrics"]:
+        if m.get("role") == "floor":
+            if regular_role is None:
+                m.pop("role", None)
+            else:
+                m["role"] = regular_role
+            demoted += 1
+    assert demoted == 1
+    p.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + chr(10), encoding="utf-8"
+    )
+
+    out = tmp_path / "evidence"
+    build_result = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "build.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+            "--replay",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert build_result.returncode == 0, build_result.stdout + build_result.stderr
+
+    receipt = json.loads(
+        (out / "view-receipts-{}.json".format(PAIR_STEM)).read_text(encoding="utf-8")
+    )
+    floors_field = {
+        field["field"]: field
+        for field in receipt["conditions"]["dataset"]["fields"]
+    }["scoring floors"]
+    assert floors_field["verdict"] == "unknown"
+    assert receipt["pair_comparable"] is False
+
+    html_text = (out / "view-{}.html".format(PAIR_STEM)).read_text(encoding="utf-8")
+    assert "run A records this metric as a scoring floor; the other run does not" in html_text
+    assert "floor identity differs between the runs" in html_text
+
+    verify = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "verify.py"),
+            "--fixtures",
+            str(work),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert verify.returncode == 0, verify.stderr

@@ -520,6 +520,30 @@ def _derive_analysis(
     floors: List[Dict[str, Any]] = []
     for key in sorted(set(a_by_key) & set(b_by_key)):
         metric_a, metric_b = a_by_key[key], b_by_key[key]
+        if (metric_a["role"] == "floor") != (metric_b["role"] == "floor"):
+            value_differs = (metric_a["value"], metric_a["precision"]) != (
+                metric_b["value"],
+                metric_b["precision"],
+            )
+            floors.append(
+                {
+                    "key": key,
+                    "label": (
+                        metric_a if metric_a["role"] == "floor" else metric_b
+                    )["label"]
+                    or key,
+                    "value_a": _fmt(metric_a["value"], metric_a["precision"]),
+                    "value_b": _fmt(metric_b["value"], metric_b["precision"]),
+                    "unit_a": metric_a["unit"] or "",
+                    "unit_b": metric_b["unit"] or "",
+                    "relates_to_a": metric_a["relates_to"] or "",
+                    "relates_to_b": metric_b["relates_to"] or "",
+                    "differs": True,
+                    "value_differs": value_differs,
+                    "identity_differs": True,
+                }
+            )
+            continue
         if metric_a["role"] == "floor" and metric_b["role"] == "floor":
             value_differs = (metric_a["value"], metric_a["precision"]) != (
                 metric_b["value"],
@@ -1093,8 +1117,16 @@ def main() -> int:
 
     floor_table = _table_by_header(page.tables, "Metric", "Reference for")
     if floor_table is None:
-        _fail(failures, "the floor table (Metric..Reference for) is not rendered")
+        if derived["floors"]:
+            _fail(failures, "the floor table (Metric..Reference for) is not rendered")
         floor_table = {"rows": []}
+    elif not derived["floors"] and floor_table["rows"]:
+        _fail(
+            failures,
+            "the floor table renders {} rows but no floors are derived".format(
+                len(floor_table["rows"])
+            ),
+        )
     rendered_floors = {
         row["attrs"].get("data-floor-key"): row for row in floor_table["rows"]
     }
