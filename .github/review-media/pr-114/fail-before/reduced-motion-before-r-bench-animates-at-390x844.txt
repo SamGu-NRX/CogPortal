@@ -1,0 +1,80 @@
+# Error details
+
+```
+Error: animations under reduced motion on Activity bench at 390
+
+expect(received).toEqual(expected) // deep equality
+
+- Expected  -  1
++ Received  + 74
+
+- Array []
++ Array [
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.mt-1.inline-flex.min-h-11",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 52,
++     "kind": "css-transition",
++     "target": "button.u-link.mt-1.inline-flex.min-h-11",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 52,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 86,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 139,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,

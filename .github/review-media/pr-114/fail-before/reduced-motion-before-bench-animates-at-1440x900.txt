@@ -1,0 +1,80 @@
+# Error details
+
+```
+Error: animations under reduced motion on Activity bench at 1440
+
+expect(received).toEqual(expected) // deep equality
+
+- Expected  -  1
++ Received  + 50
+
+- Array []
++ Array [
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.mt-1.inline-flex.min-h-11",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 52,
++     "kind": "css-transition",
++     "target": "button.u-link.mt-1.inline-flex.min-h-11",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 52,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++   Object {
++     "durationMs": 150,
++     "kind": "css-transition",
++     "target": "button.u-link.inline-flex.min-h-11.items-center",
++     "what": "text-decoration-color",
++   },
++ ]
+```
+
+# Test source
+
+```ts
+  193 |  * made by script (Element.animate, which Motion uses), and inline styles a
+  194 |  * script rewrites frame after frame (a JavaScript-driven tween). Read with
+  195 |  * `motionSeen`. Under reduced motion nothing may appear here: an animation of
+  196 |  * 1ms or less counts as none, since it changes nothing a person can see.
+  197 |  */
+  198 | export async function recordMotion(context) {
+  199 |   await context.addInitScript(() => {
+  200 |     const seen = [];
+  201 |     window.__rjMotion = seen;
+  202 |     const name = (el) => {
+  203 |       if (!el || !el.tagName) return "?";
+  204 |       const cls = String(el.className?.baseVal ?? el.className ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 4).join(".");
+  205 |       return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${cls ? `.${cls}` : ""}`;
+  206 |     };

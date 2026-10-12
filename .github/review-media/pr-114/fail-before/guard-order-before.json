@@ -1,0 +1,288 @@
+{
+ "what": "s5-route-matrix malformed-request cells before the guard-order fix: each identity here was refused for who they are on the route's main request, and got a validation error instead for a malformed one",
+ "mismatches": [
+  {
+   "route": "POST /api/runs/practice",
+   "variant": "team A with a benchmark that isn't text",
+   "want": "401 unauthorized: Sign in to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "signedOut",
+    "revoked",
+    "expired",
+    "deviceA",
+    "deviceRevoked",
+    "deviceExpired",
+    "deviceB",
+    "activityA",
+    "activityNoTeam",
+    "activityUnlinked"
+   ]
+  },
+  {
+   "route": "POST /api/runs/practice",
+   "variant": "team A with a benchmark that isn't text",
+   "want": "403 no_team: Connect a repository to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "joiner",
+    "outsider",
+    "taAssigned",
+    "taUnassigned",
+    "owner"
+   ]
+  },
+  {
+   "route": "POST /api/runs/practice",
+   "variant": "team A with a benchmark that isn't text",
+   "want": "409 already_on_team: You're on Eigenfaces United now, not the team this page showed. Reload to see it.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "studentB",
+    "changedTeam"
+   ]
+  },
+  {
+   "route": "PUT /api/leaderboard-selection",
+   "variant": "a run id that isn't text",
+   "want": "403 forbidden: Sign in to GitHub on Cog*Portal before changing a run.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "studentB",
+    "changedTeam"
+   ]
+  },
+  {
+   "route": "PATCH /api/team",
+   "variant": "team A with a name that isn't text",
+   "want": "401 unauthorized: Sign in to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "signedOut",
+    "revoked",
+    "expired",
+    "deviceA",
+    "deviceRevoked",
+    "deviceExpired",
+    "deviceB",
+    "activityA",
+    "activityNoTeam",
+    "activityUnlinked"
+   ]
+  },
+  {
+   "route": "PATCH /api/team",
+   "variant": "team A with a name that isn't text",
+   "want": "403 no_team: Connect a repository to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "joiner",
+    "outsider",
+    "taAssigned",
+    "taUnassigned",
+    "owner"
+   ]
+  },
+  {
+   "route": "PATCH /api/team",
+   "variant": "team A with a name that isn't text",
+   "want": "403 forbidden: Only a team admin can change team settings.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "teammateA"
+   ]
+  },
+  {
+   "route": "PATCH /api/team",
+   "variant": "team A with a name that isn't text",
+   "want": "409 already_on_team: You're on Eigenfaces United now, not the team this page showed. Reload to see it.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "studentB",
+    "changedTeam"
+   ]
+  },
+  {
+   "route": "POST /api/team/repository",
+   "variant": "team A with a repository that isn't text",
+   "want": "401 unauthorized: Sign in to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "signedOut",
+    "revoked",
+    "expired",
+    "deviceA",
+    "deviceRevoked",
+    "deviceExpired",
+    "deviceB",
+    "activityA",
+    "activityNoTeam",
+    "activityUnlinked"
+   ]
+  },
+  {
+   "route": "POST /api/team/repository",
+   "variant": "team A with a repository that isn't text",
+   "want": "403 no_team: Connect a repository to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "joiner",
+    "outsider",
+    "taAssigned",
+    "taUnassigned",
+    "owner"
+   ]
+  },
+  {
+   "route": "POST /api/team/repository",
+   "variant": "team A with a repository that isn't text",
+   "want": "403 forbidden: Only a team admin can change team settings.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "teammateA"
+   ]
+  },
+  {
+   "route": "POST /api/team/repository",
+   "variant": "team A with a repository that isn't text",
+   "want": "409 already_on_team: You're on Eigenfaces United now, not the team this page showed. Reload to see it.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "studentB",
+    "changedTeam"
+   ]
+  },
+  {
+   "route": "POST /api/team/members",
+   "variant": "team A with a login that isn't text",
+   "want": "401 unauthorized: Sign in to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "signedOut",
+    "revoked",
+    "expired",
+    "deviceA",
+    "deviceRevoked",
+    "deviceExpired",
+    "deviceB",
+    "activityA",
+    "activityNoTeam",
+    "activityUnlinked"
+   ]
+  },
+  {
+   "route": "POST /api/team/members",
+   "variant": "team A with a login that isn't text",
+   "want": "403 no_team: Connect a repository to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "joiner",
+    "outsider",
+    "taAssigned",
+    "taUnassigned",
+    "owner"
+   ]
+  },
+  {
+   "route": "POST /api/team/members",
+   "variant": "team A with a login that isn't text",
+   "want": "403 forbidden: Only a team admin can change team settings.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "teammateA"
+   ]
+  },
+  {
+   "route": "POST /api/team/members",
+   "variant": "team A with a login that isn't text",
+   "want": "409 already_on_team: You're on Eigenfaces United now, not the team this page showed. Reload to see it.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "studentB",
+    "changedTeam"
+   ]
+  },
+  {
+   "route": "PATCH /api/admin/teams/:teamId",
+   "variant": "team A with a name that isn't text",
+   "want": "401 unauthorized: Sign in to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "signedOut",
+    "revoked",
+    "expired",
+    "deviceA",
+    "deviceRevoked",
+    "deviceExpired",
+    "deviceB",
+    "activityA",
+    "activityNoTeam",
+    "activityUnlinked"
+   ]
+  },
+  {
+   "route": "PATCH /api/admin/teams/:teamId",
+   "variant": "team A with a name that isn't text",
+   "want": "403 forbidden: Staff access required.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "joiner",
+    "outsider",
+    "studentA",
+    "teammateA",
+    "studentB",
+    "changedTeam"
+   ]
+  },
+  {
+   "route": "PATCH /api/admin/teams/:teamId",
+   "variant": "team A with a name that isn't text",
+   "want": "403 forbidden: This team is not assigned to you.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "taUnassigned"
+   ]
+  },
+  {
+   "route": "POST /api/admin/teams/:teamId/members",
+   "variant": "team A with a login that isn't text",
+   "want": "401 unauthorized: Sign in to continue.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "signedOut",
+    "revoked",
+    "expired",
+    "deviceA",
+    "deviceRevoked",
+    "deviceExpired",
+    "deviceB",
+    "activityA",
+    "activityNoTeam",
+    "activityUnlinked"
+   ]
+  },
+  {
+   "route": "POST /api/admin/teams/:teamId/members",
+   "variant": "team A with a login that isn't text",
+   "want": "403 forbidden: Staff access required.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "joiner",
+    "outsider",
+    "studentA",
+    "teammateA",
+    "studentB",
+    "changedTeam"
+   ]
+  },
+  {
+   "route": "POST /api/admin/teams/:teamId/members",
+   "variant": "team A with a login that isn't text",
+   "want": "403 forbidden: This team is not assigned to you.",
+   "got": "400 invalid_request: The request body is invalid.",
+   "identities": [
+    "taUnassigned"
+   ]
+  }
+ ]
+}
