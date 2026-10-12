@@ -13,6 +13,7 @@ import {
   type ShapedRequest,
 } from "../support/surface-binding.ts";
 import { readStackInfo } from "../support/stack-info.ts";
+import { linkThroughBrowser } from "../support/link.ts";
 import { bindLiveBubble, type DoubleEntry } from "../support/live-bubble.ts";
 import { Case } from "./harness.ts";
 import { SUBMISSION_PY } from "./submission.ts";
@@ -115,25 +116,13 @@ async function interactionPoster(discordUser: { id: string; username: string }, 
   };
 }
 
-/** Links a fresh CLI HOME and approves it from the browser session. */
+/** Links a fresh CLI HOME through a real browser approval, once, no retries. */
 async function link(case_: Case, home: CliHome, deviceName: string): Promise<void> {
-  const link = home.start(["link", "--portal", info.shaperPortalOrigin, "--no-browser"]);
-  const printed = await link.waitFor(/user_code=([A-Za-z0-9-]+)/, 30_000);
-  let approved = await portal.approveDevice(printed[1], deviceName);
-  if (approved >= 500) {
-    // One boot-settling retry: the first proxied request after the stack
-    // comes up has once died with a 502 (socket hang up). The approve route
-    // is idempotent for the same user, so a retry cannot double-approve.
-    approved = await portal.approveDevice(printed[1], deviceName);
-  }
-  case_.expect(
-    approved === 200,
-    `the browser session approved device ${deviceName}`,
-    `approve answered ${approved}`,
-  );
-  const exit = await link.exited(60_000);
-  case_.expect(exit === 0, "the CLI linked", `cogworks link exited ${exit}; output: ${link.output().slice(-400)}`);
-  case_.command("cogworks link --portal <shaper> --no-browser", exit, link.output());
+  await linkThroughBrowser(case_, home, {
+    portalOrigin: info.shaperPortalOrigin,
+    browsableOrigin: info.browsableOrigin,
+    deviceName,
+  });
 }
 
 /** The newest saved local report in the team repository, parsed. */

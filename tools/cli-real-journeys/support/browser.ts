@@ -44,7 +44,7 @@ async function newContext(): Promise<{ browser: Browser; context: BrowserContext
 }
 
 /** The SPA's development sign-in: fill the real form and press its Sign in button; resolve where the SPA landed. */
-async function devSignIn(context: BrowserContext, browsableOrigin: string, login: string): Promise<string> {
+async function devSignIn(context: BrowserContext, browsableOrigin: string, login: string, shots: string): Promise<string> {
   const page = await context.newPage();
   await page.goto(`${browsableOrigin}/signin`);
   await page.waitForSelector("#dev-login", { state: "visible", timeout: 15_000 });
@@ -52,7 +52,7 @@ async function devSignIn(context: BrowserContext, browsableOrigin: string, login
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL((signedIn) => !signedIn.pathname.endsWith("/signin"), { timeout: 15_000 });
   const signedInAt = page.url();
-  await page.screenshot({ path: `${env("RESULTS_DIR")}/browser/dev-signin.png`, fullPage: true });
+  await page.screenshot({ path: `${env("RESULTS_DIR")}/browser/${shots}dev-signin.png`, fullPage: true });
   pushDiagnostic("signed in as", `${login} at ${signedInAt}`);
   return signedInAt;
 }
@@ -69,11 +69,12 @@ async function approveDevice(
   verificationUri: string,
   deviceName: string,
   userCode: string,
+  shots: string,
 ): Promise<DeviceApproval> {
   const page = await context.newPage();
   await page.goto(verificationUri);
   await page.waitForSelector("#device-name", { state: "visible", timeout: 15_000 });
-  await page.screenshot({ path: `${env("RESULTS_DIR")}/browser/approval-page.png`, fullPage: true });
+  await page.screenshot({ path: `${env("RESULTS_DIR")}/browser/${shots}approval-page.png`, fullPage: true });
   const field = await page.locator("#device-name").getAttribute("value");
   pushDiagnostic("approval page", `code ${userCode}, device-name field prefilled ${field}`);
   // The page ships a default device name; a student replaces it with their
@@ -94,7 +95,7 @@ async function approveDevice(
   const statusLine = (await outcome.textContent()) ?? "";
   await page.waitForURL((arrived) => arrived.pathname.endsWith("/setup"), { timeout: 15_000 });
   const url = page.url();
-  await page.screenshot({ path: `${env("RESULTS_DIR")}/browser/approved.png`, fullPage: true });
+  await page.screenshot({ path: `${env("RESULTS_DIR")}/browser/${shots}approved.png`, fullPage: true });
   pushDiagnostic("approved", `at ${url}: ${statusLine.slice(0, 120)}`);
   return { url, shownCode, statusLine };
 }
@@ -105,21 +106,23 @@ export class BrowserSession {
     private readonly browser: Browser,
     private readonly context: BrowserContext,
     private readonly browsableOrigin: string,
+    private readonly shots: string,
   ) {}
 
-  static async start(browsableOrigin: string): Promise<BrowserSession> {
+  /** `label` prefixes this session's screenshots so cases do not overwrite each other's. */
+  static async start(browsableOrigin: string, label = ""): Promise<BrowserSession> {
     const { browser, context } = await newContext();
-    return new BrowserSession(browser, context, browsableOrigin);
+    return new BrowserSession(browser, context, browsableOrigin, label ? `${label.replace(/[^a-z0-9-]+/gi, "-")}-` : "");
   }
 
   /** Sign in through the SPA's development sign-in form; returns where the SPA landed. */
   async devSignIn(login: string): Promise<string> {
-    return devSignIn(this.context, this.browsableOrigin, login);
+    return devSignIn(this.context, this.browsableOrigin, login, this.shots);
   }
 
   /** Name and approve the pending device on the page the CLI printed, the way a student would. */
   async approveDevice(verificationUri: string, deviceName: string, userCode: string): Promise<DeviceApproval> {
-    return approveDevice(this.context, verificationUri, deviceName, userCode);
+    return approveDevice(this.context, verificationUri, deviceName, userCode, this.shots);
   }
 
   async close(): Promise<void> {

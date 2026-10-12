@@ -5,6 +5,7 @@ import { CliHome, env } from "../support/cli.ts";
 import { TeamRepository } from "../support/git-fixture.ts";
 import { Portal } from "../support/portal.ts";
 import { readStackInfo } from "../support/stack-info.ts";
+import { linkThroughBrowser } from "../support/link.ts";
 import { Case } from "./harness.ts";
 import { SUBMISSION_PY } from "./submission.ts";
 
@@ -42,19 +43,14 @@ async function latestReport(repoPath: string): Promise<Record<string, any>> {
   return JSON.parse(await readFile(join(dir, names[names.length - 1]), "utf8"));
 }
 
-/** Links a fresh CLI HOME exactly as the student does. */
+/** Links a fresh CLI HOME exactly as the student does: a real browser
+ * approval, once, no retries. */
 async function link(case_: Case, home: CliHome): Promise<void> {
-  const link = home.start(["link", "--portal", info.shaperPortalOrigin, "--no-browser"]);
-  const printed = await link.waitFor(/user_code=([A-Za-z0-9-]+)/, 30_000);
-  let approved = await portal.approveDevice(printed[1], "journey-adversarial");
-  if (approved >= 500) {
-    // Same boot-settling retry as the benchmark journey; approve is
-    // idempotent for the same user.
-    approved = await portal.approveDevice(printed[1], "journey-adversarial");
-  }
-  case_.expect(approved === 200, "the device linked", `approve answered ${approved}`);
-  const exit = await link.exited(60_000);
-  case_.expect(exit === 0, "cogworks link exited cleanly", `exit ${exit}; output: ${link.output().slice(-400)}`);
+  await linkThroughBrowser(case_, home, {
+    portalOrigin: info.shaperPortalOrigin,
+    browsableOrigin: info.browsableOrigin,
+    deviceName: "journey-adversarial",
+  });
 }
 
 /** The discord double's request log, parsed. The double records its own

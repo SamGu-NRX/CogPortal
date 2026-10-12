@@ -90,15 +90,6 @@ export class Portal {
     return parsed.cliDevices ?? [];
   }
 
-  /** Approves a printed device code as the signed-in student. */
-  async approveDevice(userCode: string, deviceName: string): Promise<number> {
-    const response = await this.request("/api/v1/cli/device/approve", {
-      method: "POST",
-      body: { userCode, deviceName },
-    });
-    return response.status;
-  }
-
   /** Revokes one of the signed-in student's devices; the CLI's token dies with it. */
   async revokeDevice(deviceId: string): Promise<number> {
     const response = await this.request("/api/v1/cli/devices", {
