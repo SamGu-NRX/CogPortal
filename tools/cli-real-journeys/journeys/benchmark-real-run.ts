@@ -13,6 +13,7 @@ import {
   type ShapedRequest,
 } from "../support/surface-binding.ts";
 import { readStackInfo } from "../support/stack-info.ts";
+import { bindLiveBubble, type DoubleEntry } from "../support/live-bubble.ts";
 import { Case } from "./harness.ts";
 import { SUBMISSION_PY } from "./submission.ts";
 import { LANGUAGE_SUBMISSION_PY } from "./submission-week3.ts";
@@ -464,19 +465,31 @@ await cases.liveLanguage.run(async () => {
       `reported ${reportedPrimary?.key}=${reportedPrimary?.value}; surfaced ${surfacedPrimary?.key}=${surfacedPrimary?.value}`,
     );
 
-    // The receipts: the bound channel actually received the live bubble — a
-    // message create and at least one edit, recorded by the double after the
-    // bind. The bubble carries the benchmark's name, not just any traffic.
-    const bubble = await waitForDouble("the live bubble's channel messages", (entries) => {
-      const fresh = entries.slice(logBefore);
-      const sent = fresh.filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
-      const edited = fresh.filter((entry) => entry.method === "PATCH" && /^\/api\/v10\/channels\/[^/]+\/messages(\/[^/]+)?$/.test(entry.path ?? ""));
-      return sent.length > 0 && edited.length > 0;
-    });
-    const sent = bubble
-      .slice(logBefore)
-      .filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
-    case_.claim("the live bubble's channel-message receipts", JSON.stringify(sent.map((entry) => ({ path: entry.path, body: entry.body }))).slice(0, 600));
+    // The bound channel received THIS run's bubble: one create carrying this
+    // surface's nonce, naming the benchmark and commit, then edits of that
+    // same message ending on the finished view, and no traffic to any other
+    // channel or message (support/live-bubble.ts). The portal publishes edits
+    // in the background, so the newest edit can land after the CLI exits;
+    // this waits up to 20 s for it and then judges the window it has.
+    const expectation = {
+      channelId,
+      surfaceId: String(surface?.id ?? ""),
+      benchmarkTitle: String(surface?.benchmark?.title ?? ""),
+      shortSha: head.slice(0, 7),
+    };
+    let bubbleWindow: DoubleEntry[] = [];
+    await waitForDouble("this run's finished bubble", (entries) => {
+      bubbleWindow = entries.slice(logBefore);
+      return bindLiveBubble(bubbleWindow, expectation).ok;
+    }).catch(() => undefined);
+    const bubble = bindLiveBubble(bubbleWindow, expectation);
+    case_.expect(
+      bubble.ok,
+      `the bound channel ${channelId} received this run's bubble and its edits, and nothing else`,
+      bubble.ok
+        ? `create ${bubble.create?.path} -> message ${bubble.create?.messageId}; ${bubble.edits.length} edit(s) of it; newest shows Bench clear for ${expectation.shortSha}`
+        : bubble.problems.join("; "),
+    );
 
     await portal.revokeDiscordLink();
   } finally {

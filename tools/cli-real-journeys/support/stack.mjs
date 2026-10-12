@@ -88,6 +88,11 @@ function startDiscordDouble(logPath, guildId) {
       // Named at every use, per the README's double table.
       via: "discord-api-double",
     };
+    // A channel-message create is answered with this id; the log carries it so
+    // a journey can tie later edits to the message this create made.
+    if (req.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(req.url ?? "")) {
+      record.messageId = String(1758000000000000000n + BigInt(requests.length + 1));
+    }
     requests.push(record);
     await appendFile(logPath, `${JSON.stringify(record)}\n`).catch(() => {});
 
@@ -100,7 +105,7 @@ function startDiscordDouble(logPath, guildId) {
     if (req.url.startsWith("/api/v10/") && !req.url.endsWith("/messages/@original")) {
       const msgMatch = req.url.match(/^\/api\/v10\/channels\/([^/]+)\/messages(\/[^/]+)?$/);
       if (msgMatch) {
-        const messageId = String(1758000000000000000n + BigInt(requests.length));
+        const messageId = record.messageId ?? String(1758000000000000000n + BigInt(requests.length));
         if (req.method === "POST") {
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify({ id: messageId, channel_id: msgMatch[1], ...(record.body ?? {}) }));
