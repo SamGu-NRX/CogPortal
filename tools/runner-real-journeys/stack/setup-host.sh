@@ -20,7 +20,8 @@ set -euo pipefail
 
 COGBOX="${COGBOX_ROOT:-/home/user/work/cogbox}"
 SSL="$COGBOX/tls"
-mkdir -p "$SSL" /workspace
+mkdir -p "$SSL"
+[ -d /workspace ] || sudo -n mkdir -p /workspace
 
 if [[ ! -f "$SSL/ca.crt" ]]; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \

@@ -39,6 +39,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 import tarfile
 import threading
 import time
@@ -47,6 +48,11 @@ import uuid
 
 BOX = os.environ.get("COGBOX_ROOT", "/home/user/work/cogbox")
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+#: The delegated parent cgroup (see stack/setup_host_cgroups.sh). Child
+#: cgroups are created under it, one per sandbox, so limits and kills never
+#: collide across sandboxes or execs.
+CG_PARENT = os.environ.get("COGBOX_CG_PARENT", "/sys/fs/cgroup/cogbox")
 
 
 def _repo_root() -> str:
@@ -256,17 +262,36 @@ class _SandboxFilesystem:
 
 
 class _Process:
-    """Modal exec handle. Output is captured fully; `wait` enforces the
-    sandbox's remaining wall clock and reports OOM as an exception."""
+    """Modal exec handle. Output is captured to files (no pipe capacity
+    ceiling, so children that emit megabytes cannot deadlock mid-write);
+    `wait` enforces the sandbox's remaining wall clock and reports OOM as
+    an exception."""
 
-    def __init__(self, popen, sandbox):
+    def __init__(self, popen, sandbox, out_path, err_path):
         self._popen = popen
         self._sandbox = sandbox
+        self._out_path = out_path
+        self._err_path = err_path
+        self._waited = False
         self.returncode = None
         self.stdout = io.BytesIO()
         self.stderr = io.BytesIO()
 
+    def _readback(self, attr, path):
+        buf = getattr(self, attr)
+        try:
+            with open(path, "rb") as fh:
+                buf.write(fh.read() or b"")
+        except OSError as exc:
+            raise RuntimeError(
+                "lost sandbox output capture %s: %s" % (path, exc)
+            ) from exc
+        buf.seek(0)
+
     def wait(self, timeout=None):
+        if self._waited:
+            return self.returncode
+        self._waited = True
         deadline = time.time() + (timeout if timeout is not None else 1e18)
         remaining = max(0.0, min(deadline - time.time(), self._sandbox.deadline - time.time()))
         try:
@@ -275,17 +300,14 @@ class _Process:
             self._sandbox.kill()
             self._popen.wait(timeout=30)
             self.returncode = self._popen.returncode or 137
-        self.stdout.write(self._popen.stdout.read() or b"")
-        self.stderr.write(self._popen.stderr.read() or b"")
-        self.stdout.seek(0)
-        self.stderr.seek(0)
+        self._readback("stdout", self._out_path)
+        self._readback("stderr", self._err_path)
         if self._sandbox.oom_check():
             raise RuntimeError(
                 "local sandbox process was killed: out of memory (oom) — "
                 "cgroup memory.events recorded oom_kill"
             )
         return self.returncode
-
 
 class Sandbox:
     def __init__(self, dirs, limits, deadline):
@@ -318,6 +340,7 @@ class Sandbox:
         sandbox._id = sandbox_id
         sandbox._root = root
         sandbox._cg_dir = cg_dir
+        sandbox._cg_name = sandbox_id
         sandbox._hosts_path = os.path.join(BOX, "hosts")
         if not os.path.isfile(sandbox._hosts_path):
             raise ShimError(
@@ -336,8 +359,9 @@ class Sandbox:
 
         Environment is exported in the script because `sudo` strips the
         caller's env before `unshare` runs. The timeout wrapper enforces the
-        sandbox's remaining wall clock from inside (the cgroup view is
-        namespace-private, so the runner cannot reach in to kill); on exit the
+        sandbox's remaining wall clock from inside; the delegated parent
+        cgroup is host-visible, so kill() can also reach the child's
+        cgroup.kill directly; on exit the
         cgroup's memory.events is copied to the private /tmp, which IS visible
         to the runner, for the OOM check.
         """
@@ -355,22 +379,23 @@ class Sandbox:
             "mount --bind {tmp} /tmp",
             "mount --bind {ws} /workspace",
             "mount --bind {hosts} /etc/hosts",
-            "mount -t cgroup2 none {cg}",
-            "mkdir {cg}/sb",
-            "echo {hi} > {cg}/sb/memory.high",
-            "echo {mx} > {cg}/sb/memory.max",
-            "echo 512 > {cg}/sb/pids.max",
-            "echo {cpu} > {cg}/sb/cpu.max",
-            'printf "%s\\n" "$BASHPID" > {cg}/sb/cgroup.procs',
+            "mount --bind {cgparent} {cg}",
+            "mkdir {cg}/{cgid}",
+            "echo {hi} > {cg}/{cgid}/memory.high",
+            "echo {mx} > {cg}/{cgid}/memory.max",
+            "echo 512 > {cg}/{cgid}/pids.max",
+            "echo {cpu} > {cg}/{cgid}/cpu.max",
+            'printf "%s\\n" "$BASHPID" > {cg}/{cgid}/cgroup.procs',
             "{exports}",
             "set +e",
             "timeout --kill-after=10 {remaining} \"$@\"",
             "rc=$?",
             "set -e",
-            "cp {cg}/sb/memory.events /tmp/.cog-cg-events 2>/dev/null || true",
+            "cp {cg}/{cgid}/memory.events /tmp/.cog-cg-events 2>/dev/null || true",
             "exit $rc",
         ]).format(
             tmp=self.dirs["tmp"], ws=self.dirs["ws"], cg=cg,
+            cgparent=CG_PARENT, cgid=self._cg_name,
             hosts=self._hosts_path,
             hi=self.limits["memoryHigh"] * 1024 * 1024,
             mx=self.limits["memoryMax"] * 1024 * 1024,
@@ -406,20 +431,42 @@ class Sandbox:
         if self.limits["blockNetwork"]:
             cmd.append("--net")
         cmd += ["bash", "-c", inner, "_", *inner_argv]
-        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out_fd, out_path = tempfile.mkstemp(
+            dir=self.dirs["tmp"], prefix="exec-", suffix=".out"
+        )
+        err_fd, err_path = tempfile.mkstemp(
+            dir=self.dirs["tmp"], prefix="exec-", suffix=".err"
+        )
+        popen = subprocess.Popen(cmd, stdout=out_fd, stderr=err_fd)
+        os.close(out_fd)
+        os.close(err_fd)
         self._popen = popen
-        return _Process(popen, self)
+        return _Process(popen, self, out_path, err_path)
 
-    def oom_check(self) -> bool:
-        try:
-            with open(os.path.join(self.dirs["tmp"], ".cog-cg-events")) as fh:
-                for line in fh:
-                    if line.startswith("oom_kill ") and line.split()[1] != "0":
-                        return True
-        except OSError:
-            pass
+    def oom_check(self):
+        """True when this sandbox's cgroup counters record an oom_kill.
+
+        Reads the host-visible delegated parent first: the OOM kill can take
+        the namespace holder with it, destroying the sandbox-private tmpfs
+        (and the .cog-cg-events copy inside it) before the inner script's
+        final cp ever runs. The cgroup directory itself survives.
+        """
+        paths = []
+        if getattr(self, "_cg_name", None) and os.path.isdir(CG_PARENT):
+            paths.append(os.path.join(CG_PARENT, self._cg_name, "memory.events"))
+        tmp = (getattr(self, "dirs", {}) or {}).get("tmp", "")
+        if tmp:
+            paths.append(os.path.join(tmp, ".cog-cg-events"))
+        for path in paths:
+            try:
+                with open(path) as fh:
+                    for line in fh:
+                        parts = line.split()
+                        if len(parts) == 2 and parts[0] == "oom_kill" and int(parts[1]) > 0:
+                            return True
+            except (OSError, ValueError):
+                continue
         return False
-
     def _wall_clock_kill(self):
         self.kill()
 
@@ -427,7 +474,7 @@ class Sandbox:
         try:
             subprocess.run(
                 ["sudo", "sh", "-c",
-                 "echo 1 > " + os.path.join(self._cg_dir, "sb", "cgroup.kill")],
+                 "echo 1 > " + os.path.join(CG_PARENT, self._cg_name, "cgroup.kill")],
                 capture_output=True, timeout=30,
             )
         except Exception:
