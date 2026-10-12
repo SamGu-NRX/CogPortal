@@ -12,7 +12,7 @@ import { parseBody, respond } from "../http/respond";
 import { discordApiRoot } from "../services/discord-api";
 import { createDiscordLink } from "../services/identity";
 import { getRunSurfaceRow, listTeamRunSurfaceSnapshots } from "../services/run-surfaces";
-import { discordRunActor, performRunSurfaceMutation } from "../services/run-actions";
+import { discordRunActor, performRunSurfaceMutation, runSurfaceMutation } from "../services/run-actions";
 import { randomHex } from "../util/id";
 
 const STATE_COOKIE = "cog_activity_oauth_state";
@@ -35,13 +35,6 @@ const ActivitySessionSchema = z.discriminatedUnion("linked", [
     githubLogin: z.string(),
     team: z.object({ id: z.string(), name: z.string(), discordChannelId: z.string().nullable() }),
   }),
-]);
-const ActivityMutationSchema = z.enum([
-  "verify_hosted",
-  "promote_official",
-  "publish_result",
-  "rerun_hosted",
-  "retry",
 ]);
 
 /**
@@ -303,7 +296,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     if (surface.teamId !== identity.team.id) {
       throw new ApiHttpError(404, "not_found", "Run surface not found.");
     }
-    const action = ActivityMutationSchema.parse(c.req.param("action"));
+    const action = runSurfaceMutation(c.req.param("action"));
     const snapshot = await performRunSurfaceMutation(
       c.env,
       await discordRunActor(c.env, discordUserId),
