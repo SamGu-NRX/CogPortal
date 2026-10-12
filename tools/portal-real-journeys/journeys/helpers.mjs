@@ -61,6 +61,29 @@ export async function signIn(page, login, { demo = false } = {}) {
   return response.json();
 }
 
+/**
+ * How the two policy matrices (s5-route-matrix, s5-page-matrix) run, recorded
+ * on the test as a `matrix-mode` annotation so a receipt can show it.
+ * "enforce" compares every cell with the policy. "observe"
+ * (RJ_MATRIX_OBSERVE=1) records what the Worker answers, for rewriting the
+ * policy after a route changes, and then fails the test: a run that checked
+ * nothing must never read as a pass. Under the acceptance runner
+ * (RJ_ACCEPTANCE=1) observe mode is refused before anything runs.
+ */
+export function matrixMode(testInfo) {
+  const mode = process.env.RJ_MATRIX_OBSERVE ? "observe" : "enforce";
+  if (mode === "observe" && process.env.RJ_ACCEPTANCE) {
+    throw new Error("RJ_MATRIX_OBSERVE is set under the acceptance runner; refusing to record instead of checking the policy");
+  }
+  testInfo.annotations.push({ type: "matrix-mode", description: mode });
+  return mode;
+}
+
+/** Ends an observe-mode matrix run: what was recorded is written, and the test fails. */
+export function failObserved(out) {
+  throw new Error(`observe mode (RJ_MATRIX_OBSERVE) recorded the answers to ${out} and did not check them against the policy; this run is not a pass`);
+}
+
 /** Any journey that ends must leave the Modal double untouched under the fixture provider. */
 export async function expectNoDispatch() {
   expect(await doubles.journal("modalRunner"), "nothing may be dispatched to a runner").toEqual([]);

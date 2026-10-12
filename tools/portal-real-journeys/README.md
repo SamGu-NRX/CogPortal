@@ -39,8 +39,12 @@ generated locally, so a run needs no download.
 `stack/acceptance.mjs` runs the suite three times in a row with zero
 retries and writes a receipt per run to `test-results/receipts/`: the commit
 and tree it ran on (it refuses uncommitted changes to tracked files), start
-and end times, Playwright's exit code, and every test's status, retries and
-duration.
+and end times, Playwright's exit code, the policy matrices' mode, and every
+test's status, retries, duration and annotations. It refuses to start when
+`RJ_MATRIX_OBSERVE` is set, runs the suite with `RJ_ACCEPTANCE=1` (under
+which the matrices refuse observe mode themselves), and fails a run whose
+matrix tests didn't report `matrix-mode: enforce`. `--grep` narrows a run for
+a witness; its receipt says `full: false`.
 
 ## What a run can and can't touch
 
@@ -110,7 +114,8 @@ answer, `status`, `body`, `duplicateUpstream`, `times`). WebSocket upgrades
 
 `RJ_MATRIX_OBSERVE=1` makes the two matrix journeys record what they see
 (`test-results/evidence/*-matrix-observed.json`) instead of asserting, for
-writing the policy after a route changes. `apps/portal/test/route-matrix-coverage.test.ts`
+writing the policy after a route changes. They then fail, so a run that
+checked nothing never reads as a pass. `apps/portal/test/route-matrix-coverage.test.ts`
 runs in CI and fails when a route or page has no policy row.
 
 | File | Surface | What it proves |

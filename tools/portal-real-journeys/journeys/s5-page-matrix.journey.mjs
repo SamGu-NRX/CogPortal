@@ -7,13 +7,13 @@
 // and the page's main heading, which is what a person sees. The policy
 // (page-policy.mjs) groups people by that outcome.
 //
-// RJ_MATRIX_OBSERVE=1 records instead of asserting, to
-// test-results/evidence/page-matrix-observed.json.
+// RJ_MATRIX_OBSERVE=1 records to test-results/evidence/page-matrix-observed.json
+// instead of asserting, and then fails (helpers.mjs matrixMode).
 
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { STACK, fresh } from "./helpers.mjs";
+import { STACK, failObserved, fresh, matrixMode } from "./helpers.mjs";
 import { REPO_ROOT } from "./cli.mjs";
 import { buildWorld } from "./world.mjs";
 import { PAGE_IDENTITIES, PAGE_POLICY } from "./page-policy.mjs";
@@ -79,8 +79,9 @@ async function outcome(page, w) {
   return `${where} | ${text.replace(/\d+ (minutes?|seconds?|hours?) ago/g, "<time> ago")}`;
 }
 
-test("every SPA page lands each person where the policy says", async ({ browser }) => {
+test("every SPA page lands each person where the policy says", async ({ browser }, testInfo) => {
   test.setTimeout(600_000);
+  const mode = matrixMode(testInfo);
   const registered = spaRoutes();
   expect(registered.filter((route) => !OPEN[route]), "pages the router registers with no row here").toEqual([]);
   expect(Object.keys(OPEN).filter((route) => !registered.includes(route)), "rows for pages the router no longer registers").toEqual([]);
@@ -101,7 +102,7 @@ test("every SPA page lands each person where the policy says", async ({ browser 
   }
   const out = path.join("test-results", "evidence", "page-matrix-observed.json");
   fs.writeFileSync(out, `${JSON.stringify(observed, null, 2)}\n`);
-  if (process.env.RJ_MATRIX_OBSERVE) return;
+  if (mode === "observe") failObserved(out);
   const sort = (table = {}) =>
     Object.fromEntries(Object.entries(table).map(([k, v]) => [k, [...v].sort()]).sort(([a], [b]) => a.localeCompare(b)));
   const mismatches = registered

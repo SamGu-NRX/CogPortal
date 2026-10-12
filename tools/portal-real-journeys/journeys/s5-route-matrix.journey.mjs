@@ -13,14 +13,15 @@
 //
 // RJ_MATRIX_OBSERVE=1 records what the Worker answers instead of asserting,
 // to test-results/evidence/route-matrix-observed.json, for writing the policy
-// after a route change. The policy is reviewed, not regenerated blindly.
+// after a route change, and then fails (helpers.mjs matrixMode). The policy
+// is reviewed, not regenerated blindly.
 
 import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { ACTIVITY, STACK, control, expectNoDispatch, fresh } from "./helpers.mjs";
+import { ACTIVITY, STACK, control, expectNoDispatch, failObserved, fresh, matrixMode } from "./helpers.mjs";
 import { REPO_ROOT } from "./cli.mjs";
 import { activitySession, buildWorld, call, devLogin } from "./world.mjs";
 import { IDENTITIES, NO_POSITIVE, POLICY } from "./route-policy.mjs";
@@ -418,13 +419,14 @@ async function send(w, key, spec, who) {
   return call(method === "ALL" ? "GET" : method, request.path, { who, body: request.body, base: request.base ?? STACK, headers: request.headers });
 }
 
-test("every Worker route answers every identity exactly as the policy says", async () => {
+test("every Worker route answers every identity exactly as the policy says", async ({}, testInfo) => {
   test.setTimeout(600_000);
+  const mode = matrixMode(testInfo);
   const registered = workerRoutes();
   const covered = Object.keys(REQUESTS);
   expect(covered.filter((key) => !registered.includes(key)), "requests for routes the Worker no longer registers").toEqual([]);
   expect(registered.filter((key) => !covered.includes(key)), "registered routes with no request in the matrix").toEqual([]);
-  if (!process.env.RJ_MATRIX_OBSERVE) {
+  if (mode === "enforce") {
     expect(Object.keys(POLICY).sort(), "policy rows").toEqual([...registered].sort());
   }
 
@@ -460,7 +462,7 @@ test("every Worker route answers every identity exactly as the policy says", asy
   const out = path.join("test-results", "evidence", "route-matrix-observed.json");
   fs.writeFileSync(out, `${JSON.stringify(observed, null, 2)}\n`);
   fs.writeFileSync(path.join("test-results", "evidence", "route-matrix-positive.json"), `${JSON.stringify(positives, null, 2)}\n`);
-  if (process.env.RJ_MATRIX_OBSERVE) return;
+  if (mode === "observe") failObserved(out);
 
   const mismatches = [];
   for (const key of registered) {
