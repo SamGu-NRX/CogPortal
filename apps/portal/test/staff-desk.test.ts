@@ -21,6 +21,7 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
+import { staleAfterMs } from "../worker/execution/maintenance.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerStaffDeskRoutes } from "../worker/routes/staff-desk.ts";
 
@@ -100,7 +101,7 @@ interface Harness {
   call(method: string, path: string, options?: { cookie?: string }): Promise<{ status: number; body: any }>;
 }
 
-function harness(): Harness {
+function harness(overrides: Partial<Record<keyof Env, string>> = {}): Harness {
   const binding = freshBinding();
   const env = {
     DB: binding,
@@ -110,6 +111,7 @@ function harness(): Harness {
     BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
     BETTER_AUTH_URL: "http://localhost:5173",
     PLATFORM_OWNER_LOGINS: OWNER,
+    ...overrides,
   } as unknown as Env;
   const db = drizzle(binding as never) as unknown as Database;
 
@@ -880,6 +882,39 @@ test("the runner-activity clock on the desk mirrors the maintenance sweep", asyn
   assert.equal(activity.get("run_busy"), "active");
   assert.equal(activity.get("run_legacy"), "active");
   assert.equal(activity.get("run_done"), "terminal");
+});
+
+/**
+ * The desk and the sweep read one clock (execution/maintenance.ts
+ * staleAfterMs). The desk used to accept any positive RUN_STALE_AFTER_SECONDS
+ * while the sweep falls back to an hour below 900 seconds, so at 60 the desk
+ * called a run stale that the sweep would leave running for an hour.
+ */
+test("the desk's stale clock takes RUN_STALE_AFTER_SECONDS exactly as the sweep does", async () => {
+  for (const [configured, silentMinutes, want] of [
+    ["60", 5, "active"],
+    ["899", 16, "active"],
+    ["900", 16, "stale"],
+    ["900", 14, "active"],
+  ] as const) {
+    const h = harness({ RUN_STALE_AFTER_SECONDS: configured });
+    await h.seedCohort();
+    await h.seedTeam("team_a", "Team A", { repoId: 101 });
+    await h.seedBenchmark("audio-identification", "audio");
+    await h.seedRun("run_live", "team_a", {
+      repositoryId: 101,
+      status: "evaluating",
+      finishedAt: null,
+      benchmarkId: "audio-identification",
+      acceptedActivityAt: Date.now() - silentMinutes * 60 * 1000,
+    });
+    const runs = await h.call("GET", "/admin/desk/teams/team_a/runs", { cookie: await h.signIn(OWNER) });
+    assert.equal(runs.body.runs[0].activity, want, `RUN_STALE_AFTER_SECONDS=${configured}, silent ${silentMinutes} min`);
+    assert.equal(
+      staleAfterMs({ RUN_STALE_AFTER_SECONDS: configured }),
+      Number(configured) >= 900 ? Number(configured) * 1000 : 60 * 60 * 1000,
+    );
+  }
 });
 
 test("run rows say which repository they stand for, including 'nobody recorded one'", async () => {

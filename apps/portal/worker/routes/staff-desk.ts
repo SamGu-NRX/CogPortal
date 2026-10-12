@@ -17,6 +17,7 @@ import { benchmarks, runs, teamMembers, teamProcessSignals, teamTas, teams, user
 import type { AppEnv } from "../env";
 import type { CommitRecord } from "../github/commits";
 import { staffView } from "../services/staff-visibility";
+import { staleAfterMs } from "../execution/maintenance";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { buildProcessSignals, findingSentences } from "../services/process-signals";
@@ -64,16 +65,8 @@ import {
  *    payload leaves the maintenance surfaces here.
  */
 
-/** Mirrors `execution/maintenance.ts`, which fails silent live runs. */
-const DEFAULT_STALE_AFTER_SECONDS = 60 * 60;
+/** Mirrors `execution/maintenance.ts`, which fails silent queued runs. */
 const QUEUED_STALE_AFTER_MS = 10 * 60 * 1000;
-
-function staleAfterMs(env: AppEnv["Bindings"]): number {
-  const configured = Number(env.RUN_STALE_AFTER_SECONDS ?? DEFAULT_STALE_AFTER_SECONDS);
-  return Number.isFinite(configured) && configured > 0
-    ? configured * 1_000
-    : DEFAULT_STALE_AFTER_SECONDS * 1_000;
-}
 
 type StoredHistoryReading = {
   history: StaffDeskHistoryState;
