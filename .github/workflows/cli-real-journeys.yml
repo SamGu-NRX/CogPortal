@@ -103,6 +103,17 @@ jobs:
             3.13
             3.8
       - run: pnpm install --frozen-lockfile
+      # pnpm rewrote pnpm-lock.yaml during this frozen install in every pass
+      # at 8bca6f6 (results/git-status.txt: " M pnpm-lock.yaml"), so each run
+      # reported a dirty tree. A frozen install fails rather than resolve
+      # differently, so the rewrite cannot change what was installed. Print
+      # it for the record, then restore the committed file so the run tests
+      # exactly the pushed commit; run-all.sh still records anything else.
+      - name: Show and undo the lockfile rewrite
+        run: |
+          git diff --stat
+          git diff -- pnpm-lock.yaml | head -60
+          git checkout -- pnpm-lock.yaml
       - run: npm ci --no-audit --no-fund
         working-directory: tools/cli-real-journeys
       - run: npx playwright-core install --with-deps chromium-headless-shell
