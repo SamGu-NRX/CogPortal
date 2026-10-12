@@ -80,6 +80,13 @@ export interface Receipt {
   blockedReason?: string;
   /** The staging pin the CLI came from, when the case ran under the pin matrix. */
   pin?: PinLabel;
+  /**
+   * Whether the run bar treats this case as required: a required case that
+   * FAILs or is BLOCKED fails the run's verdict (report.mjs). Absent means
+   * required - fail-closed - so only a deliberate `required: false` witness
+   * is exempt.
+   */
+  required?: boolean;
 }
 
 export async function writeReceipt(receipt: Receipt): Promise<void> {

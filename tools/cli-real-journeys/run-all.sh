@@ -3,7 +3,8 @@
 # Three consecutive invocations from clean state are the plan's M1 bar.
 #
 # Optional environment:
-#   RUN_TAG     label for this run's results directory (default: timestamp)
+#   RUN_TAG     label grouping this run's results directory (default: run);
+#               the directory itself gains a run-unique suffix per invocation
 #   CONDA_ROOT  where the course environments live (default: /home/user/work/miniconda3)
 #   NODE24      a Node >= 22 prefix for build tools (default: /home/user/work/node24)
 #   SKIP_INSTALL=1  reuse the previously installed CLI and benchmark package
@@ -21,18 +22,17 @@ NODE24=${NODE24:-/home/user/work/node24}
 WEEK1_ENV="$CONDA_ROOT/envs/week1"
 WEEK3_ENV="$CONDA_ROOT/envs/week3"
 export PATH="$NODE24/bin:$PATH"
-RUN_TAG=${RUN_TAG:-$(date -u +%Y%m%dT%H%M%SZ)}
-RESULTS="$PWD/results/$RUN_TAG"
-mkdir -p "$RESULTS"
+RUN_TAG=${RUN_TAG:-run}
+# Unique per invocation (support/state-dir.sh): the results directory - and
+# with it the D1 state root below - is fresh even when RUN_TAG repeats, so a
+# reused tag can never re-migrate over, or judge against, another run's D1.
+RESULTS=$(bash support/state-dir.sh "$PWD/results" "$RUN_TAG")
+echo "results directory: $RESULTS"
 # This run's own persistence directory: the wrangler migrate and seed steps
 # and the booted stack keep their state here (wrangler's v3 layout), never in
-# the checkout's .wrangler state.
-SUITE_STATE="$RESULTS/state"
-# The aggregator reads exactly this run's receipts directory. Clear it BEFORE
-# the run so a reused RUN_TAG (or a crashed earlier attempt into the same
-# directory) cannot leak its leftovers into this run's summary; every other
-# run keeps its own directory untouched.
-rm -rf "$RESULTS/receipts"
+# the checkout's .wrangler state. Exported: the device-name witness reads the
+# stack's D1 through the same persistence root.
+export SUITE_STATE="$RESULTS/state"
 mkdir -p "$RESULTS/receipts" "$RESULTS/tmp"
 # Per-run scratch space for the helpers' mkdtemp calls (CLI homes, the git
 # fixture, the spawn probe): node's os.tmpdir() honors TMPDIR, so this run's
@@ -188,6 +188,24 @@ for journey in setup-and-link benchmark-real-run adversarial; do
   [ "$STATUS" -eq 0 ] || FAILED=1
 done
 set -e
+
+echo "== [6.5/8] device-name witness (expected failing; tracked in the PR handoff) =="
+# python/cogbench's client sends {"deviceName": ...} to /api/v1/cli/device/start
+# so the registration payload proposes the device's name (client.py's
+# start_device_link). The portal's start endpoint never reads that body and
+# stores device_name as null - the proposal is dropped. This suite owns no
+# portal files, so the witness proves the drop with the stack's own D1 row
+# and is deliberately non-required: while the portal drops the name, its
+# receipt stays FAIL (visible in the report's witness line) but the run bar
+# stays green and the PR handoff carries the portal-side item for the web
+# owner. If this witness ever passes, the portal records the proposal and
+# the handoff item can be closed.
+if ! "$NODE24/bin/npx" tsx journeys/device-name-witness.ts \
+  >"$RESULTS/journey-device-name-witness.log" 2>&1; then
+  echo "--- device-name witness FAILS as expected (the portal's start endpoint ignores the proposed device name; tracked for the web owner)"
+else
+  echo "--- device-name witness PASSED: the portal now records the proposed device name; update the PR handoff"
+fi
 
 echo "== [7/8] both documented staging pins, on every supported Python =="
 # Staging students install the CLI pinned by COGBENCH_SOURCE, and the pin
