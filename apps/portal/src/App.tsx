@@ -20,6 +20,7 @@ import { RunDetailPage } from "@/routes/RunDetailPage";
 import { RunSurfacePage } from "@/routes/RunSurfacePage";
 import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
+import { StaffDeskPage, StaffDeskTeamPage } from "@/routes/StaffDeskPage";
 import { TeamPage } from "@/routes/TeamPage";
 import { clearPendingReturn, rememberDroppedDeviceLink, rememberReturn } from "@/lib/pending-return";
 import { holdDeviceLink } from "@/lib/held-device-link";
@@ -195,6 +196,22 @@ export function App() {
                 element={
                   <RequireStaff>
                     <AdminPage />
+                  </RequireStaff>
+                }
+              />
+              <Route
+                path="desk"
+                element={
+                  <RequireStaff>
+                    <StaffDeskPage />
+                  </RequireStaff>
+                }
+              />
+              <Route
+                path="desk/:teamId"
+                element={
+                  <RequireStaff>
+                    <StaffDeskTeamPage />
                   </RequireStaff>
                 }
               />

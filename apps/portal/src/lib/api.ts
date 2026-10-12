@@ -7,29 +7,32 @@ import {
   AdminOverviewSchema,
   AdminStaffRosterSchema,
   AdminTeamSummarySchema,
+  type ApiErrorCode,
   ApiErrorSchema,
   BenchmarkSchema,
   CohortTeamListSchema,
   ConnectionSummarySchema,
-  InvitableUserListSchema,
-  LeaveTeamResponseSchema,
   DashboardSchema,
   DiscordLinkPreviewSchema,
   FamilyLeaderboardSchema,
   GithubInstallationSchema,
   GithubRepoSchema,
+  InvitableUserListSchema,
   LeaderboardSchema,
+  LeaveTeamResponseSchema,
   LocalReportListSchema,
-  RunDetailSchema,
   type RetryRunRequest,
-  RunSurfaceSnapshotSchema,
+  RunDetailSchema,
   RunSummarySchema,
+  RunSurfaceSnapshotSchema,
   SessionSchema,
   SetupStateSchema,
+  StaffDeskRunListSchema,
+  StaffDeskTeamDetailSchema,
+  StaffDeskTeamListSchema,
   StartRunResponseSchema,
   TeamDetailSchema,
   TeamProcessSignalsSchema,
-  type ApiErrorCode,
 } from "@cogworks/contracts/schema";
 
 type ExistingRunSurfaceMutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
@@ -198,6 +201,11 @@ export const api = {
     ),
 
   adminOverview: () => request("/api/admin/overview", AdminOverviewSchema),
+  staffDeskTeams: () => request("/api/admin/desk/teams", StaffDeskTeamListSchema),
+  staffDeskTeam: (teamId: string) =>
+    request(`/api/admin/desk/teams/${encodeURIComponent(teamId)}`, StaffDeskTeamDetailSchema),
+  staffDeskRuns: (teamId: string, page: number) =>
+    request(`/api/admin/desk/teams/${encodeURIComponent(teamId)}/runs?page=${page}`, StaffDeskRunListSchema),
   adminPatchCohort: (body: { rotateJoinCode?: boolean; active?: boolean }) =>
     request("/api/admin/cohort", AdminCohortSchema, { method: "PATCH", body }),
   adminPatchTeam: (

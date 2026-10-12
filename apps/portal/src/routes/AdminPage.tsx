@@ -11,7 +11,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { MemberAvatar } from "@/components/MemberAvatar";
-import { PageHeader } from "@/components/Note";
+import { Note, PageHeader } from "@/components/Note";
 import { PageSection } from "@/components/PageSection";
 import { RemoveButton } from "@/components/RemoveButton";
 import { ApiRequestError } from "@/lib/api";
@@ -57,6 +57,9 @@ export function AdminPage() {
 
   const { cohort, teams, unassigned } = overview.data;
   const isOwner = overview.data.scope === "owner";
+  // Absent from a Worker older than the staff visibility setting, which
+  // served the full view.
+  const restricted = overview.data.view === "restricted";
 
   return (
     <div className="page anim-rise">
@@ -64,6 +67,12 @@ export function AdminPage() {
           portal couldn't approve; this says so before the console does. */}
       <DroppedLinkNotice teamOptional className="mb-8 max-w-[34rem]" />
       <PageHeader eyebrow={isOwner ? "Instructor console" : "TA workspace"} title={cohort.name} />
+      {restricted ? (
+        <Note className="mt-6 max-w-[38rem]">
+          This portal runs the restricted staff setting, so student names and published scores are withheld here, and
+          owners manage team membership. Run counts and run states stay.
+        </Note>
+      ) : null}
 
       {isOwner && cohort.joinCode ? (
         <Enrollment cohort={{ ...cohort, joinCode: cohort.joinCode }} />
@@ -81,6 +90,7 @@ export function AdminPage() {
                 <TeamRow
                   key={team.id}
                   team={team}
+                  restricted={restricted}
                   canAssignTas={isOwner}
                   suggestions={unassigned.map((student) => student.login)}
                 />
@@ -422,10 +432,13 @@ function errorText(errors: unknown[], fallback: string): string | null {
 
 function TeamRow({
   team,
+  restricted,
   canAssignTas,
   suggestions,
 }: {
   team: AdminTeamSummary;
+  /** Names and scores were withheld from this response; say so instead of "nobody". */
+  restricted: boolean;
   canAssignTas: boolean;
   suggestions: string[];
 }) {
@@ -552,7 +565,11 @@ function TeamRow({
 
                 <div className="min-w-0">
                   <h3 className="u-label">Members</h3>
-                  {team.members.length === 0 ? (
+                  {restricted ? (
+                    <p className="mt-1.5 text-[14px] text-ink-secondary">
+                      {team.memberCount} {team.memberCount === 1 ? "student" : "students"}. Names are withheld.
+                    </p>
+                  ) : team.members.length === 0 ? (
                     <p className="mt-1.5 text-[14px] text-ink-secondary">Nobody is on this team.</p>
                   ) : (
                     <ul className="mt-1 divide-y divide-rule-soft">
@@ -583,18 +600,20 @@ function TeamRow({
                       ))}
                     </ul>
                   )}
-                  <LoginForm
-                    id={`add-${team.id}`}
-                    label="Add a student"
-                    submit="Add"
-                    busy={addMember.isPending}
-                    suggestions={suggestions}
-                    onSubmit={(login) =>
-                      addMember
-                        .mutateAsync({ teamId: team.id, login })
-                        .then(() => true, () => false)
-                    }
-                  />
+                  {restricted ? null : (
+                    <LoginForm
+                      id={`add-${team.id}`}
+                      label="Add a student"
+                      submit="Add"
+                      busy={addMember.isPending}
+                      suggestions={suggestions}
+                      onSubmit={(login) =>
+                        addMember
+                          .mutateAsync({ teamId: team.id, login })
+                          .then(() => true, () => false)
+                      }
+                    />
+                  )}
                   {memberError && (
                     <p role="alert" className="mt-2 text-[13.5px] text-detect-deep">
                       {memberError}
@@ -654,7 +673,9 @@ function TeamRow({
                     row's widest column to say it. Down here it is a footnote on
                     the team already being read. */}
                 <p className="u-tnum border-t border-rule-soft pt-3 font-mono text-[12.5px] text-ink-faint sm:col-span-2">
-                  {team.published
+                  {restricted
+                    ? "Published scores are withheld under the restricted staff setting."
+                    : team.published
                     ? `Latest published score ${team.published.score.toFixed(3)} · ${team.published.benchmarkName ?? "benchmark not in the catalog"} v${team.published.benchmarkVersion}`
                     : "Nothing published yet"}
                 </p>

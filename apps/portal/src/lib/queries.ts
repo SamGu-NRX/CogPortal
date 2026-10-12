@@ -557,6 +557,24 @@ export function useRemoveTeamMember() {
 
 /* ── Admin console (staff) ────────────────────────────────────────────── */
 
+/** The staff process desk: read-only, so nothing here invalidates anything. */
+export function useStaffDeskTeams() {
+  return useQuery({ queryKey: ["admin", "desk", "teams"], queryFn: api.staffDeskTeams });
+}
+
+export function useStaffDeskTeam(teamId: string) {
+  return useQuery({ queryKey: ["admin", "desk", "team", teamId], queryFn: () => api.staffDeskTeam(teamId) });
+}
+
+export function useStaffDeskRuns(teamId: string, page: number) {
+  return useQuery({
+    queryKey: ["admin", "desk", "runs", teamId, page],
+    queryFn: () => api.staffDeskRuns(teamId, page),
+    // Paging keeps the current rows on screen until the next page arrives.
+    placeholderData: (previous) => previous,
+  });
+}
+
 export function useAdminOverview(enabled = true) {
   return useQuery({
     queryKey: ["admin", "overview"],
