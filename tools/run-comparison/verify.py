@@ -402,7 +402,10 @@ def _dataset_fields(
     ):
         fields.append({"field": "benchmark", "verdict": "changed"})
     else:
-        fields.append({"field": "benchmark", "verdict": "same"})
+        # The same rule the builder applies: matching id and version
+        # labels are not a byte-level binding, and the writer's contract
+        # records no dataset digest or benchmark commit to bind them.
+        fields.append({"field": "benchmark", "verdict": "unknown"})
 
     ca, cb = da["command"], db["command"]
     if ca is None or cb is None:

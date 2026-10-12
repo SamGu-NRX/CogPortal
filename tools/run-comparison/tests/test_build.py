@@ -19,17 +19,19 @@ def _load(name):
     return read_report(FIXTURES / name)
 
 
-def test_same_conditions_and_different_clean_commit_is_comparable():
+def test_matching_labels_and_a_clean_commit_stay_unknown_and_blocked():
     analysis = analyze_pair(_load("01-run-a.json"), _load("02-run-b.json"))
-    assert analysis["comparable"] is True
+    assert analysis["comparable"] is False
     assert analysis["conditions"]["source"]["verdict"] == "changed"
-    assert analysis["conditions"]["dataset"]["verdict"] == "same"
+    assert analysis["conditions"]["dataset"]["verdict"] == "unknown"
+    benchmark = {
+        field["field"]: field
+        for field in analysis["conditions"]["dataset"]["fields"]
+    }["benchmark"]
+    assert benchmark["verdict"] == "unknown"
+    assert "byte-level" in benchmark["detail"]
     assert analysis["conditions"]["scorer"]["verdict"] == "same"
-    rows = {row["key"]: row for row in analysis["shared"]}
-    assert rows["identification_score"]["delta"] == "+0.0750"
-    assert rows["identification_score"]["direction"] == "higher is better"
-    assert rows["ranking_failure_rate"]["delta"] == "-0.062"
-    assert rows["ranking_failure_rate"]["direction"] == "lower is better"
+    assert all(row["delta"] is None for row in analysis["shared"])
 
 
 def test_unknown_conditions_block_every_difference():
@@ -89,7 +91,7 @@ def test_end_to_end_build_replay_and_verify(tmp_path):
     assert replay_path.exists()
 
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    assert receipt["pair_comparable"] is True
+    assert receipt["pair_comparable"] is False
     assert receipt["compared"] == ["01-run-a.json", "02-run-b.json"]
     assert [entry["file"] for entry in receipt["excluded"]] == [
         "07-refused-future-contract.json",
@@ -111,8 +113,11 @@ def test_end_to_end_build_replay_and_verify(tmp_path):
     html_text = html_path.read_text(encoding="utf-8")
     assert "<script" not in html_text.lower()
     assert "http://" not in html_text and "https://" not in html_text
-    assert "+0.0750" in html_text  # the one honest difference the pair supports
-    assert "Not comparable" not in html_text
+    # No byte-level dataset binding is recorded, so the deltas are not
+    # compared and the banner states the pair is not comparable.
+    assert "+0.0750" not in html_text
+    assert "Not comparable" in html_text
+    assert "unknown provenance blocks a conclusion" in html_text
 
     verify = subprocess.run(
         [
@@ -191,3 +196,70 @@ def test_verify_rejects_a_tampered_value(tmp_path):
     )
     assert verify.returncode == 1
     assert "misrendered" in verify.stderr
+
+
+def test_label_only_dataset_same_claim_is_caught_after_a_full_rebind(tmp_path):
+    # The dataset verdict is a semantic check, not a digest check. A
+    # receipt edited to claim the dataset "same" from matching labels -
+    # with every digest rebound until the evidence triple is
+    # hash-self-consistent - must still fail verification naming the
+    # dataset disagreement. A digest-mismatch failure would prove
+    # nothing.
+    import hashlib
+
+    out = tmp_path / "evidence"
+    build_result = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "build.py"),
+            "--fixtures",
+            str(FIXTURES),
+            "--out",
+            str(out),
+            "--replay",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert build_result.returncode == 0, build_result.stdout + build_result.stderr
+
+    receipt_path = out / "view-receipts-{}.json".format(PAIR_STEM)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["conditions"]["dataset"]["verdict"] == "unknown"
+    receipt["conditions"]["dataset"]["verdict"] = "same"
+    for field in receipt["conditions"]["dataset"]["fields"]:
+        if field["field"] == "benchmark":
+            field["verdict"] = "same"
+            field["detail"] = "both runs used the same benchmark (label match)"
+    receipt_bytes = (
+        json.dumps(receipt, indent=2, sort_keys=True) + chr(10)
+    ).encode("utf-8")
+    receipt_path.write_bytes(receipt_bytes)
+
+    # Rebind the one digest that covers the receipt's own bytes. Every
+    # other binding is untouched and still valid: the view bytes,
+    # fixture bytes and generator sources did not change.
+    replay_path = out / "replay-{}.json".format(PAIR_STEM)
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    replay["receipt_sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    replay_path.write_text(
+        json.dumps(replay, indent=2, sort_keys=True) + chr(10), encoding="utf-8"
+    )
+
+    verify = subprocess.run(
+        [
+            sys.executable,
+            str(WORKBENCH / "verify.py"),
+            "--fixtures",
+            str(FIXTURES),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert verify.returncode == 1
+    assert "misrendered" in verify.stderr
+    assert "dataset" in verify.stderr

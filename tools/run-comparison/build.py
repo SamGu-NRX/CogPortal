@@ -179,12 +179,23 @@ def dataset_verdict(a: Report, b: Report) -> Dict[str, Any]:
             }
         )
     else:
+        # Matching id and version are labels, not bytes. The writer's
+        # contract records no dataset digest and no benchmark commit, so
+        # nothing in a report binds the scored case set to bytes; until a
+        # report actually records such a binding, matching labels stay
+        # unknown and the pair stays incomparable.
         fields.append(
             {
                 "field": "benchmark",
-                "verdict": "same",
-                "detail": "both runs used {} (id {!r})".format(
-                    _benchmark_text(a.dataset), a.dataset.benchmark_id
+                "verdict": "unknown",
+                "detail": (
+                    "both runs record the same benchmark label ({}, id "
+                    "{!r}), but neither report records a byte-level "
+                    "binding of the dataset itself - no dataset digest "
+                    "and no pinned benchmark commit - so matching labels "
+                    "alone cannot show the runs scored the same case set".format(
+                        _benchmark_text(a.dataset), a.dataset.benchmark_id
+                    )
                 ),
             }
         )
@@ -414,8 +425,8 @@ def dataset_verdict(a: Report, b: Report) -> Dict[str, Any]:
         "same": "benchmark, case set, weight bytes and scoring floors line up on every recorded axis",
         "changed": "at least one dataset axis changed — see the field verdicts",
         "unknown": (
-            "at least one dataset axis is unrecorded — the runs cannot be "
-            "shown to share conditions"
+            "at least one dataset axis is unrecorded or unproven — the runs "
+            "cannot be shown to share conditions"
         ),
     }[verdict]
     return {"verdict": verdict, "detail": summary, "fields": fields}

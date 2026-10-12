@@ -5,12 +5,12 @@
   ],
   "conditions": {
     "dataset": {
-      "detail": "benchmark, case set, weight bytes and scoring floors line up on every recorded axis",
+      "detail": "at least one dataset axis is unrecorded or unproven \u2014 the runs cannot be shown to share conditions",
       "fields": [
         {
-          "detail": "both runs used 'audio-identification' v1 (id 'audio-identification')",
+          "detail": "both runs record the same benchmark label ('audio-identification' v1, id 'audio-identification'), but neither report records a byte-level binding of the dataset itself - no dataset digest and no pinned benchmark commit - so matching labels alone cannot show the runs scored the same case set",
           "field": "benchmark",
-          "verdict": "same"
+          "verdict": "unknown"
         },
         {
           "detail": "both runs were produced by `run`",
@@ -28,7 +28,7 @@
           "verdict": "same"
         }
       ],
-      "verdict": "same"
+      "verdict": "unknown"
     },
     "scorer": {
       "detail": "contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)",
@@ -72,12 +72,12 @@
     }
   ],
   "findings": [
-    "All recorded conditions match: source, dataset (benchmark, case set, weight bytes, scoring floors) and scorer identity.",
-    "The metric deltas below are observations only; this view states no cause for any difference."
+    "dataset conditions cannot be shown to match: see the field verdicts",
+    "While any blocker stands, a metric difference is not evidence of a source effect."
   ],
   "fixtures_root": "tools/run-comparison/fixtures",
   "generator": "tools/run-comparison/build.py",
-  "html_sha256": "7f747aaae68b09f1488552b6081721999e087838db9255f8a9a0b4ebf7ec3ce7",
+  "html_sha256": "a690983923489413c8f9ef99e16be6f0824712ac39065e1273c1cc895957d4e3",
   "inputs": [
     {
       "file": "01-run-a.json",
@@ -140,8 +140,8 @@
     "only_in_b": [],
     "shared": [
       {
-        "delta": "+0.0750",
-        "delta_note": "higher is better",
+        "delta": null,
+        "delta_note": "not compared \u2014 the runs' conditions do not line up",
         "direction": "higher is better",
         "key": "identification_score",
         "label": "Identification score",
@@ -151,8 +151,8 @@
         "unit": null
       },
       {
-        "delta": "-0.062",
-        "delta_note": "lower is better",
+        "delta": null,
+        "delta_note": "not compared \u2014 the runs' conditions do not line up",
         "direction": "lower is better",
         "key": "ranking_failure_rate",
         "label": "Wrong song ranked first",
@@ -181,17 +181,17 @@
       "note": "accepted; only the first two accepted reports form the compared pair"
     }
   ],
-  "pair_comparable": true,
+  "pair_comparable": false,
   "sections": {
     "conditions": [
       "source: changed \u2014 different commits: 111111111111 vs 222222222222",
-      "dataset: same \u2014 benchmark, case set, weight bytes and scoring floors line up on every recorded axis",
-      "  dataset.benchmark: same \u2014 both runs used 'audio-identification' v1 (id 'audio-identification')",
+      "dataset: unknown \u2014 at least one dataset axis is unrecorded or unproven \u2014 the runs cannot be shown to share conditions",
+      "  dataset.benchmark: unknown \u2014 both runs record the same benchmark label ('audio-identification' v1, id 'audio-identification'), but neither report records a byte-level binding of the dataset itself - no dataset digest and no pinned benchmark commit - so matching labels alone cannot show the runs scored the same case set",
       "  dataset.case set (command): same \u2014 both runs were produced by `run`",
       "  dataset.weights: same \u2014 neither run used recorded weights",
       "  dataset.scoring floors: same \u2014 chance_top1: 0.033 on both runs",
       "scorer: same \u2014 contract, sdk and plugin versions all match (cogworks.submissions.v2, 0.2.0, 0.1.0)",
-      "pair comparable: yes"
+      "pair comparable: no \u2014 dataset conditions cannot be shown to match: see the field verdicts"
     ],
     "excluded": [
       "07-refused-future-contract.json: unsupported_contract: cogworks.submissions.v9 cannot be interpreted by this reader; supported: cogworks.submissions.v2",
@@ -204,8 +204,8 @@
       "chance_top1 (floor of identification_score): run A 0.033 vs run B 0.033"
     ],
     "metric_comparison": [
-      "identification_score: 0.5375 vs 0.6125 (+0.0750 \u2014 higher is better)",
-      "ranking_failure_rate: 0.212 vs 0.150 (-0.062 \u2014 lower is better)"
+      "identification_score: 0.5375 vs 0.6125 \u2014 not compared \u2014 the runs' conditions do not line up",
+      "ranking_failure_rate: 0.212 vs 0.150 \u2014 not compared \u2014 the runs' conditions do not line up"
     ],
     "pair": [
       "Compared: 01-run-a.json and 02-run-b.json \u2014 the first two accepted reports in sorted order (6 of 11 fixture files accepted)."
@@ -214,7 +214,7 @@
   },
   "tool_source": {
     "files": {
-      "build.py": "074c07fe31ea2207aa6028bc55b9dda1945b288faf03abe78ee5f3d1acd1d2c5",
+      "build.py": "ad22c4bb0fa0c680e86fc44a89684981c83135078c2489992e496620f78922e8",
       "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
     }
   }
