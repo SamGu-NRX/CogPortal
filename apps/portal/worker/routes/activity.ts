@@ -9,6 +9,7 @@ import { getDb } from "../db/client";
 import { discordAccounts, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
+import { discordApiRoot } from "../services/discord-api";
 import { createDiscordLink } from "../services/identity";
 import { getRunSurfaceRow, listTeamRunSurfaceSnapshots } from "../services/run-surfaces";
 import { discordRunActor, performRunSurfaceMutation } from "../services/run-actions";
@@ -159,14 +160,6 @@ async function requireActivityTeam(c: Context<AppEnv>) {
   return { ...identity, team: identity.team };
 }
 
-// Test seam (see env.ts): the Discord Activity token exchange routes its
-// token and identity fetches through the labelled Discord double when the
-// harness overrides the base URL in local bindings. The default is
-// unchanged in every real environment.
-function discordActivityBase(env: { DISCORD_API_BASE_URL?: string } | undefined): string {
-  return env?.DISCORD_API_BASE_URL?.length ? env.DISCORD_API_BASE_URL : "https://discord.com/api";
-}
-
 export function registerActivityRoutes(app: Hono<AppEnv>): void {
   app.get("/activity/oauth/state", async (c) => {
     const { sessionSecret } = configured(c);
@@ -182,7 +175,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     if (!expected || expected !== body.state) {
       throw new ApiHttpError(400, "invalid_request", "The Discord Activity authorization state expired.");
     }
-    const tokenResponse = await fetch(`${discordActivityBase(c.env)}/oauth2/token`, {
+    const tokenResponse = await fetch(`${discordApiRoot(c.env)}/oauth2/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -201,7 +194,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(401, "unauthorized", rejection.message);
     }
     const token = z.object({ access_token: z.string().min(1) }).parse(await tokenResponse.json());
-    const userResponse = await fetch(`${discordActivityBase(c.env)}/v10/users/@me`, {
+    const userResponse = await fetch(`${discordApiRoot(c.env)}/v10/users/@me`, {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
     if (!userResponse.ok) {

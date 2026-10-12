@@ -11,13 +11,11 @@ import { ApiHttpError } from "../http/errors";
 import { discordAccounts, teamMembers, teams, users } from "../db/schema";
 import { syncTeamRuns } from "../execution/sync";
 import { serializeRunSummary, serializeTeam } from "../http/serializers";
+import { discordApiRoot } from "./discord-api";
 import { listTeamLocalReports } from "./local-reports";
 
-// Test seam (see env.ts): the real-journeys harness overrides the Discord
-// base URL in local bindings so this real client code talks to the labelled
-// Discord double. The default is unchanged in every real environment.
 function discordApi(env: Env): string {
-  return env.DISCORD_API_BASE_URL?.length ? env.DISCORD_API_BASE_URL : "https://discord.com/api/v10";
+  return `${discordApiRoot(env)}/v10`;
 }
 const ADMINISTRATOR = 1n << 3n;
 const VIEW_CHANNEL = 1n << 10n;

@@ -23,16 +23,12 @@ import { stageRail } from "@cogworks/discord-kit/rails";
 import { effectivePhase, failureTrace, loaderLine, loaderSteps } from "@cogworks/discord-kit/steps";
 import type { Env } from "../env";
 import { eq } from "drizzle-orm";
+import { discordApiRoot } from "./discord-api";
 import { getDb } from "../db/client";
 import { runSurfaces } from "../db/schema";
 
-// Test seam (see env.ts): same override as services/discord.ts, for the
-// message-posting client.
-// Test seam (see env.ts): the real-journeys harness overrides the Discord
-// base URL in local bindings so this real client code talks to the labelled
-// Discord double. The default is unchanged in every real environment.
 function discordApi(env: Env): string {
-  return env.DISCORD_API_BASE_URL?.length ? env.DISCORD_API_BASE_URL : "https://discord.com/api/v10";
+  return `${discordApiRoot(env)}/v10`;
 }
 
 interface DiscordMessage {
