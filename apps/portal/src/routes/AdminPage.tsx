@@ -189,9 +189,11 @@ function Enrollment({
             onClick={copy}
             title="Copy join code"
             aria-label={`Copy join code ${cohort.joinCode}`}
-            className="u-pressable group relative mt-3 inline-flex items-center gap-4 rounded-control px-3 py-2"
+            className="u-pressable group relative mt-3 inline-flex max-w-full flex-wrap items-center gap-x-4 gap-y-1.5 rounded-control px-3 py-2"
           >
-            {/* The detection bracket: the one thing on this page to look at. */}
+            {/* The detection bracket: the one thing on this page to look at.
+                Wraps, so on a 320px phone Copy drops under the code instead of
+                pushing the card wider than the screen. */}
             <CornerBrackets size={12} thickness={1.5} className="text-ink/45 transition-colors duration-150 group-hover:text-ink" />
             <span className="select-text font-mono text-[clamp(2.25rem,1.5rem+3vw,3.25rem)] leading-none font-medium tracking-[0.12em] text-ink">
               {cohort.joinCode}
