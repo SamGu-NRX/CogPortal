@@ -35,7 +35,7 @@ import { fixtureRepository } from "../github/team";
 import type { ConnectRepository } from "../github/team";
 import { validateTemplateRepository } from "../github/template";
 import { ApiHttpError } from "../http/errors";
-import { parseBody, respond } from "../http/respond";
+import { guardField, parseBody, respond } from "../http/respond";
 import {
   buildProcessSignals,
   classifyHistoryQuality,
@@ -539,8 +539,8 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/team", async (c) => {
+    const auth = await requireAdminOfShownTeam(c, await guardField(c, "teamId"));
     const body = await parseBody(c, UpdateTeamRequestSchema);
-    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     const updates: { name?: string; description?: string | null } = {};
     if (body.name !== undefined) updates.name = body.name;
@@ -556,8 +556,8 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/team/repository", async (c) => {
+    const auth = await requireAdminOfShownTeam(c, await guardField(c, "teamId"));
     const body = await parseBody(c, ChangeTeamRepoRequestSchema);
-    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     if (body.fullName === auth.team.repoFullName) {
       return respond(

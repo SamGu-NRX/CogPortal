@@ -130,6 +130,18 @@ async function harness(t: TestContext) {
   return { db, hubs, start, moveToB, rows };
 }
 
+test("a start naming a team the caller left is refused for that, whatever else its body says", async (t) => {
+  // The guard runs before the body is validated: someone no longer on team A
+  // learns they aren't on it, not what a valid request for it looks like.
+  const h = await harness(t);
+  await h.moveToB();
+  const result = await h.start({ teamId: "team_a", benchmarkId: 42 });
+  assert.deepEqual(result, { status: 409, body: { error: {
+    code: "already_on_team", message: "You're on Difference Engines now, not the team this page showed. Reload to see it.",
+  } } });
+  assert.deepEqual(h.rows("runs"), []);
+});
+
 test("a start without the shown team is refused before any run or console exists", async (t) => {
   const h = await harness(t);
   const result = await h.start({});

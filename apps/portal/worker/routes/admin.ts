@@ -521,10 +521,10 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/admin/teams/:teamId", async (c) => {
-    const body = await parseBody(c, UpdateTeamRequestSchema);
-    const db = getDb(c.env);
     const teamId = c.req.param("teamId");
     const view = staffView(c.env, await requireTeamScope(c, teamId));
+    const body = await parseBody(c, UpdateTeamRequestSchema);
+    const db = getDb(c.env);
     const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
     const updates: { name?: string; description?: string | null } = {};
@@ -535,10 +535,10 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/admin/teams/:teamId/members", async (c) => {
-    const body = await parseBody(c, AdminAddMemberRequestSchema);
-    const db = getDb(c.env);
     const teamId = c.req.param("teamId");
     requireMembershipEdits(staffView(c.env, await requireTeamScope(c, teamId)));
+    const body = await parseBody(c, AdminAddMemberRequestSchema);
+    const db = getDb(c.env);
     const [[team], [user]] = await Promise.all([
       db
         .select({ id: teams.id, cohortId: teams.cohortId, repoFullName: teams.repoFullName })

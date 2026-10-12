@@ -600,9 +600,11 @@ export async function promotePracticeRun(
   return { runId, surfaceId: parent.surfaceId };
 }
 
-export async function publishOfficialRun(env: Env, actor: RunActor, runId: string) {
+/** `runId` undefined is a request that named no run (routes/leaderboard.ts reads it unvalidated). */
+export async function publishOfficialRun(env: Env, actor: RunActor, runId: string | undefined) {
   actor = await withCurrentTeam(env, actor);
   await requireCurrentRepositoryPermission(env, actor);
+  if (runId === undefined) throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
   const db = getDb(env);
   const [row] = await db
     .select()
