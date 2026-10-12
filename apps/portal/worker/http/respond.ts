@@ -100,16 +100,57 @@ export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promis
   return new TextDecoder().decode(bytes);
 }
 
-/** Reads, size-checks and validates a JSON body. */
+/** A 400 names at most this many unknown fields, each cut to this many
+ *  characters. The names come from the client, so the answer stays small
+ *  whatever it sent. */
+const NAMED_FIELDS = 5;
+const FIELD_NAME_CHARS = 120;
+
+function fieldName(path: readonly PropertyKey[]): string {
+  return path.reduce<string>((name, part) => {
+    if (typeof part === "number") return `${name}[${part}]`;
+    return name ? `${name}.${String(part)}` : String(part);
+  }, "");
+}
+
+/** Every key a strict schema refused, by its full path in the body. */
+function unknownFields(error: z.ZodError): string[] {
+  return error.issues.flatMap((issue) =>
+    issue.code === "unrecognized_keys"
+      ? issue.keys.map((key) => fieldName([...issue.path, key]))
+      : [],
+  );
+}
+
+/**
+ * Reads, size-checks and validates a JSON body.
+ *
+ * Request schemas are strict, so a field the endpoint doesn't declare is a
+ * 400 that names it. It used to be dropped, so a client sending a field the
+ * portal never stored got a success.
+ */
 export async function parseBody<T>(
   c: Context<AppEnv>,
   schema: z.ZodType<T>,
   limit: BodyLimit = "control",
 ): Promise<T> {
   const text = await readBodyText(c, limit);
+  let parsed: ReturnType<typeof schema.safeParse>;
   try {
-    return schema.parse(JSON.parse(text));
+    parsed = schema.safeParse(JSON.parse(text));
   } catch {
     throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
   }
+  if (parsed.success) return parsed.data;
+  const unknown = unknownFields(parsed.error);
+  if (unknown.length > 0) {
+    const named = unknown.slice(0, NAMED_FIELDS).map((name) => name.slice(0, FIELD_NAME_CHARS)).join(", ");
+    const more = unknown.length > NAMED_FIELDS ? ` and ${unknown.length - NAMED_FIELDS} more` : "";
+    throw new ApiHttpError(
+      400,
+      "invalid_request",
+      `The request body has ${unknown.length === 1 ? "a field" : "fields"} this endpoint does not accept: ${named}${more}.`,
+    );
+  }
+  throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
 }

@@ -6,7 +6,29 @@ import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
+import type { z } from "zod";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import {
+  AddTeamMemberRequestSchema,
+  AdminAddMemberRequestSchema,
+  AdminAddStaffRequestSchema,
+  AdminAssignTaRequestSchema,
+  AdminCohortPatchSchema,
+  ApproveDeviceRequestSchema,
+  ChangeTeamRepoRequestSchema,
+  ConfirmDiscordLinkRequestSchema,
+  ConnectRepoRequestSchema,
+  DevLoginRequestSchema,
+  JoinCohortRequestSchema,
+  JoinTeamRequestSchema,
+  LeaveTeamRequestSchema,
+  RetryRunRequestSchema,
+  RevokeDeviceRequestSchema,
+  SelectResultRequestSchema,
+  StartPracticeRequestSchema,
+  UpdateTeamRequestSchema,
+} from "@cogworks/contracts/schema";
+import { api } from "../src/lib/api.ts";
 import { COGBENCH_SOURCE } from "../src/lib/benchmark-packages.ts";
 import type { Database } from "../worker/db/client.ts";
 import { benchmarks, cliDevices, cohorts, teamMembers, teams, users } from "../worker/db/schema.ts";
@@ -22,12 +44,14 @@ import { sha256Hex } from "../worker/util/crypto.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 
 /**
- * Request bodies are counted against a size limit. A real-user test synced a
- * 4 MB report, which the portal stored.
+ * Request bodies are counted against a size limit and checked against strict
+ * schemas. A real-user test synced a 4 MB report, which the portal stored, and
+ * the portal silently dropped fields it didn't declare.
  *
- * The limit must never refuse what a real client sends, so the CLI cases
- * replay bodies recorded from each pinned cogbench's own code
- * (fixtures/cli-wire/generate.py).
+ * Strictness is only safe if every field a real client sends is declared, so
+ * the CLI cases replay bodies recorded from each pinned cogbench's own code
+ * (fixtures/cli-wire/generate.py) and the SPA cases record what
+ * src/lib/api.ts puts on the wire.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -323,4 +347,136 @@ test("the limit counts bytes, accepts a body exactly at it and refuses one byte 
   // Two bytes each in UTF-8: half as many characters already fill the limit.
   assert.equal((await send("é".repeat(max / 2))).status, 200);
   assert.equal((await send("é".repeat(max / 2) + "a")).status, 413);
+});
+
+/* ── Unknown fields ────────────────────────────────────────────────────── */
+
+test("a report with a field the portal does not declare is refused by name and not stored", async (t) => {
+  const { send, count } = await world(t);
+  const cases: Array<[string, (report: Record<string, unknown>) => void]> = [
+    ["notes", (report) => { report.notes = "kept nowhere"; }],
+    ["metrics[0].stderr", (report) => { (report.metrics as Array<Record<string, unknown>>)[0]!.stderr = "x"; }],
+    ["weightsUploaded[0].mtime", (report) => { (report.weightsUploaded as Array<Record<string, unknown>>)[0]!.mtime = 1; }],
+  ];
+  for (const [field, add] of cases) {
+    const report = structuredClone(reportSync(wires[0]!));
+    add(report);
+    const response = await send(request("/api/v1/local-reports", JSON.stringify(report)));
+    assert.equal(response.status, 400, field);
+    assert.deepEqual(await errorOf(response), {
+      code: "invalid_request",
+      message: `The request body has a field this endpoint does not accept: ${field}.`,
+    });
+  }
+  assert.equal(count("local_reports"), 0);
+});
+
+test("a live-run event with an undeclared field is refused by name and records nothing", async (t) => {
+  const { send, count } = await world(t);
+  const wire = wires[0]!;
+  const start = wireRequest(wire, (path) => path === "/api/v1/local-runs");
+  assert.equal((await send(request(start.path, JSON.stringify(start.body)))).status, 201);
+  const before = count("run_stream_events");
+
+  const single = structuredClone(wireRequest(wire, (path) => path.startsWith(`${start.path}/`) && path.endsWith("/events")));
+  (single.body as Record<string, unknown>).cpu = 0.5;
+  const one = await send(request(single.path, JSON.stringify(single.body)));
+  assert.equal(one.status, 400);
+  assert.equal((await errorOf(one)).message, "The request body has a field this endpoint does not accept: cpu.");
+
+  const batch = structuredClone(wireRequest(wire, (path) => path.endsWith("/events/batch")));
+  const events = (batch.body as { events: Array<Record<string, unknown>> }).events;
+  (events.at(-1)!.report as Record<string, unknown>).hostname = "laptop";
+  const many = await send(request(batch.path, JSON.stringify(batch.body)));
+  assert.equal(many.status, 400);
+  assert.equal(
+    (await errorOf(many)).message,
+    `The request body has a field this endpoint does not accept: events[${events.length - 1}].report.hostname.`,
+  );
+
+  assert.equal(count("run_stream_events"), before);
+  assert.equal(count("local_reports"), 0);
+});
+
+test("a refused caller still gets the refusal, not a 400 or 413 about its body", async (t) => {
+  const { send } = await world(t);
+  const report = structuredClone(reportSync(wires[0]!));
+  report.notes = "unknown";
+  const unknown = await send(request("/api/v1/local-reports", JSON.stringify(report), "content-length", "cog_wrong"));
+  assert.equal(unknown.status, 401);
+  (report.metrics as Array<Record<string, unknown>>)[0]!.help = "x".repeat(BODY_LIMITS.report);
+  const large = await send(request("/api/v1/local-reports", JSON.stringify(report), "streamed", "cog_wrong"));
+  assert.equal(large.status, 401);
+});
+
+/* ── The SPA's real requests still pass ────────────────────────────────── */
+
+/** The schema each SPA route reads its body with (worker/routes). */
+const SPA_ROUTES: Record<string, z.ZodType> = {
+  "POST /api/dev/login": DevLoginRequestSchema,
+  "POST /api/cohorts/join": JoinCohortRequestSchema,
+  // github.ts wraps this to read a blank teamName as absent.
+  "POST /api/github/connect": ConnectRepoRequestSchema,
+  "POST /api/v1/connections/discord/preview": ConfirmDiscordLinkRequestSchema,
+  "POST /api/v1/connections/discord/confirm": ConfirmDiscordLinkRequestSchema,
+  "POST /api/v1/cli/device/approve": ApproveDeviceRequestSchema,
+  "DELETE /api/v1/cli/devices": RevokeDeviceRequestSchema,
+  "PATCH /api/team": UpdateTeamRequestSchema,
+  "POST /api/team/repository": ChangeTeamRepoRequestSchema,
+  "POST /api/team/join": JoinTeamRequestSchema,
+  "POST /api/team/members": AddTeamMemberRequestSchema,
+  "POST /api/team/leave": LeaveTeamRequestSchema,
+  "PATCH /api/admin/cohort": AdminCohortPatchSchema,
+  "PATCH /api/admin/teams/team_1": UpdateTeamRequestSchema,
+  "POST /api/admin/teams/team_1/members": AdminAddMemberRequestSchema,
+  "POST /api/admin/teams/team_1/tas": AdminAssignTaRequestSchema,
+  "POST /api/admin/staff": AdminAddStaffRequestSchema,
+  "POST /api/runs/practice": StartPracticeRequestSchema,
+  "POST /api/run-surfaces/surface_1/actions/retry": RetryRunRequestSchema,
+  "PUT /api/leaderboard-selection": SelectResultRequestSchema,
+};
+
+test("every body the SPA's API client sends passes its route's strict schema", async (t) => {
+  const sent: Array<{ route: string; body: string }> = [];
+  t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (typeof init?.body === "string") sent.push({ route: `${init.method} ${String(input)}`, body: init.body });
+    return new Response(JSON.stringify({ error: { code: "not_found", message: "recorded" } }), { status: 404 });
+  });
+  // Each mutation the SPA has, with arguments shaped like its call sites'.
+  const calls = [
+    () => api.devLogin({ login: "ada" }),
+    () => api.devLogin({ login: "demo", demo: true }),
+    () => api.joinCohort("JOINCODE1"),
+    () => api.connectRepo({ fullName: "cogworks-demo/face-finder", teamName: "Engines" }),
+    () => api.connectRepo({ fullName: "cogworks-demo/face-finder", teamName: undefined }),
+    () => api.previewDiscordLink("t".repeat(32)),
+    () => api.confirmDiscordLink("t".repeat(32)),
+    () => api.approveDevice("ABCD-EFGH-JKLM", "laptop"),
+    () => api.revokeDevice("device_1"),
+    () => api.updateTeam("team_1", { name: "Engines" }),
+    () => api.updateTeam("team_1", { description: null }),
+    () => api.changeTeamRepo("team_1", "cogworks-demo/face-finder"),
+    () => api.joinTeam("team_1"),
+    () => api.addTeamMember("team_1", "grace"),
+    () => api.leaveTeam("team_1"),
+    () => api.adminPatchCohort({ active: false }),
+    () => api.adminPatchCohort({ rotateJoinCode: true }),
+    () => api.adminPatchTeam("team_1", { name: "Engines", description: "Search" }),
+    () => api.adminAddMember("team_1", "grace"),
+    () => api.adminAssignTa("team_1", "grace"),
+    () => api.adminAddStaff("grace"),
+    () => api.startPractice("team_1", "vision-recognition", "main"),
+    () => api.startPractice("team_1", "vision-recognition"),
+    () => api.mutateRunSurface("surface_1", "retry", { runId: "run_1" }),
+    () => api.selectResult("run_1"),
+  ];
+  for (const call of calls) await call().catch(() => undefined);
+
+  assert.equal(sent.length, calls.length, "a call sent no body");
+  for (const { route, body } of sent) {
+    const schema = SPA_ROUTES[route];
+    assert.ok(schema, `${route} sends a body and has no schema listed here`);
+    const parsed = schema.safeParse(JSON.parse(body));
+    assert.ok(parsed.success, `${route} ${body}: ${parsed.error?.message}`);
+  }
 });
