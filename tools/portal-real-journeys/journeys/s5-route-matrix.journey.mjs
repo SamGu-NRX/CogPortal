@@ -23,7 +23,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { ACTIVITY, STACK, control, expectNoDispatch, failObserved, fresh, matrixMode } from "./helpers.mjs";
 import { REPO_ROOT } from "./cli.mjs";
-import { activitySession, buildWorld, call, devLogin } from "./world.mjs";
+import { LOGINS, activitySession, buildWorld, call, devLogin, worldFacts } from "./world.mjs";
+import { TEAM_A, TEAM_B, leaks, plantCanaries } from "./canaries.mjs";
+import { CONTENT } from "./route-content.mjs";
 import { IDENTITIES, NO_POSITIVE, POLICY } from "./route-policy.mjs";
 
 const PORTAL = path.join(REPO_ROOT, "apps", "portal");
@@ -179,6 +181,194 @@ const LAST = {
   "DELETE /api/v1/connections/discord": () => ({ method: "DELETE", path: "/api/v1/connections/discord" }),
   "POST /api/session/logout": () => ({ path: "/api/session/logout" }),
 };
+
+/**
+ * Mutating requests that must still meet authorization first. Each route
+ * that changes state gets a malformed request (a body or action the route
+ * can't accept, aimed at team A's real resources) and, where the main
+ * request names nothing that exists, a valid one aimed at team A's real
+ * resources. Every identity the policy refuses for the main request must
+ * get exactly the same refusal for these: a validation error or a "not
+ * found" first would tell an outsider the request reached further than
+ * their identity allows. A malformed request from an identity the guard
+ * admits must be a 4xx, never a 5xx. A valid request is sent only to
+ * identities the policy refuses (it would really act for the others),
+ * unless `to` names who sends it and that they must get their main answer.
+ * The run's D1 is compared before and after every one of these: none may
+ * change anything.
+ */
+const ACTIONS = ["verify_hosted", "promote_official", "publish_result", "rerun_hosted"];
+/** `missing`: the same request naming a thing that doesn't exist, for the "resource" refusals below. */
+const malformed = (label, request, missing) => ({ kind: "malformed", label, request, missing });
+const weightsWithoutChecksum = (reportId) => ({
+  method: "PUT",
+  path: `/api/v1/local-reports/${reportId}/weights/model.npz`,
+  body: "x",
+  headers: { "content-type": "application/octet-stream" },
+});
+const valid = (label, request, extra = {}) => ({ kind: "valid", label, request, ...extra });
+
+const VARIANTS = {
+  "POST /api/cohorts/join": [malformed("a code that isn't text", () => ({ path: "/api/cohorts/join", body: { code: 42 } }))],
+  "POST /api/github/connect": [malformed("a repository that isn't text", () => ({ path: "/api/github/connect", body: { fullName: 42 } }))],
+  "POST /api/github/webhook": [
+    malformed("an unsigned body that isn't JSON", () => ({ path: "/api/github/webhook", body: "{not json", headers: { "content-type": "application/json", "x-github-event": "push" } })),
+  ],
+  "POST /api/runs/practice": [
+    malformed("team A with a benchmark that isn't text", (w) => ({ path: "/api/runs/practice", body: { teamId: w.ids.teamA, benchmarkId: 42 } })),
+    valid("a practice run for team A", (w) => ({ path: "/api/runs/practice", body: { teamId: w.ids.teamA, benchmarkId: w.activeBenchmark } })),
+  ],
+  "POST /api/runs/:id/promote": [valid("promote team A's run", (w) => ({ path: `/api/runs/${w.ids.runA}/promote` }))],
+  "PUT /api/leaderboard-selection": [
+    malformed("a run id that isn't text", () => ({ method: "PUT", path: "/api/leaderboard-selection", body: { runId: 42 } })),
+    valid("select team A's run", (w) => ({ method: "PUT", path: "/api/leaderboard-selection", body: { runId: w.ids.runA } })),
+  ],
+  "PATCH /api/team": [
+    malformed("team A with a name that isn't text", (w) => ({ path: "/api/team", body: { teamId: w.ids.teamA, name: 42 } })),
+    valid("rename team A", (w) => ({ path: "/api/team", body: { teamId: w.ids.teamA, name: "RJ Hijacked Name" } })),
+  ],
+  "POST /api/team/repository": [
+    malformed("team A with a repository that isn't text", (w) => ({ path: "/api/team/repository", body: { teamId: w.ids.teamA, fullName: 42 } })),
+  ],
+  "POST /api/team/join": [
+    malformed("a team id that isn't text", () => ({ path: "/api/team/join", body: { teamId: 42 } })),
+    valid("join team A", (w) => ({ path: "/api/team/join", body: { teamId: w.ids.teamA } })),
+  ],
+  "POST /api/team/leave": [malformed("a team id that isn't text", () => ({ path: "/api/team/leave", body: { teamId: 42 } }))],
+  "POST /api/team/members": [
+    malformed("team A with a login that isn't text", (w) => ({ path: "/api/team/members", body: { teamId: w.ids.teamA, login: 42 } })),
+  ],
+  "DELETE /api/team/members/:login": [
+    malformed("team A, a login past any length", (w) => ({ method: "DELETE", path: `/api/team/members/${"x".repeat(300)}?teamId=${w.ids.teamA}` })),
+    valid("remove team A's member", (w) => ({ method: "DELETE", path: `/api/team/members/rj-m-teammate-a?teamId=${w.ids.teamA}` })),
+  ],
+  "POST /api/v1/connections/discord/preview": [malformed("a token that isn't text", () => ({ path: "/api/v1/connections/discord/preview", body: { token: 42 } }))],
+  "POST /api/v1/connections/discord/confirm": [malformed("a token that isn't text", () => ({ path: "/api/v1/connections/discord/confirm", body: { token: 42 } }))],
+  "POST /api/v1/cli/device/approve": [malformed("a user code that isn't text", () => ({ path: "/api/v1/cli/device/approve", body: { userCode: 42 } }))],
+  "DELETE /api/v1/cli/devices": [
+    malformed("a device id that isn't text", () => ({ method: "DELETE", path: "/api/v1/cli/devices", body: { deviceId: 42 } })),
+    // Revoking is scoped to the caller's own devices: anyone else asking
+    // to revoke student A's gets the same no-op answer as for a device
+    // that doesn't exist, and the device stays live.
+    valid("revoke student A's live device", (w) => ({ method: "DELETE", path: "/api/v1/cli/devices", body: { deviceId: w.ids.deviceA } }), {
+      to: ["joiner", "outsider", "teammateA", "studentB", "changedTeam", "taAssigned", "taUnassigned", "owner"],
+    }),
+  ],
+  "POST /api/v1/local-reports": [malformed("a body that isn't JSON", () => ({ path: "/api/v1/local-reports", body: "{not json" }))],
+  "PUT /api/v1/local-reports/:reportId/weights/*": [
+    malformed(
+      "team A's report, no checksum",
+      () => weightsWithoutChecksum("rj-canary-report-a"),
+      () => weightsWithoutChecksum("rj-matrix-missing"),
+    ),
+  ],
+  "POST /api/v1/local-runs": [malformed("a run id that isn't text", () => ({ path: "/api/v1/local-runs", body: { clientRunId: 42 } }))],
+  "POST /api/v1/local-runs/:id/events": [
+    malformed(
+      "team A's local run, an event that isn't one",
+      (w) => ({ path: `/api/v1/local-runs/${w.ids.localRunA}/events`, body: { eventId: 42 } }),
+      () => ({ path: "/api/v1/local-runs/localsession_rj_missing/events", body: { eventId: 42 } }),
+    ),
+  ],
+  "POST /api/v1/local-runs/:id/events/batch": [
+    malformed(
+      "team A's local run, events that aren't a list",
+      (w) => ({ path: `/api/v1/local-runs/${w.ids.localRunA}/events/batch`, body: { events: "x" } }),
+      () => ({ path: "/api/v1/local-runs/localsession_rj_missing/events/batch", body: { events: "x" } }),
+    ),
+  ],
+  "POST /api/internal/v1/runner/events": [malformed("an unsigned body that isn't JSON", () => ({ path: "/api/internal/v1/runner/events", body: "{not json" }))],
+  "POST /api/run-surfaces/:id/actions/:action": [
+    ...ACTIONS.map((action) => valid(`${action} on team A's console`, (w) => ({ path: `/api/run-surfaces/${w.ids.surfaceA}/actions/${action}` }))),
+    malformed(
+      "retry on team A's console with a run id that isn't text",
+      (w) => ({ path: `/api/run-surfaces/${w.ids.surfaceA}/actions/retry`, body: { runId: 42 } }),
+      () => ({ path: `/api/run-surfaces/surface_${"0".repeat(20)}/actions/retry`, body: { runId: 42 } }),
+    ),
+  ],
+  "PATCH /api/admin/cohort": [
+    malformed("active that isn't true or false", () => ({ path: "/api/admin/cohort", body: { active: "yes" } })),
+    valid("rotate the join code", () => ({ path: "/api/admin/cohort", body: { rotateJoinCode: true } })),
+  ],
+  "PATCH /api/admin/teams/:teamId": [
+    malformed("team A with a name that isn't text", (w) => ({ path: `/api/admin/teams/${w.ids.teamA}`, body: { name: 42 } })),
+    valid("rename team A", (w) => ({ path: `/api/admin/teams/${w.ids.teamA}`, body: { name: "RJ Hijacked Name" } })),
+  ],
+  "POST /api/admin/teams/:teamId/members": [
+    malformed("team A with a login that isn't text", (w) => ({ path: `/api/admin/teams/${w.ids.teamA}/members`, body: { login: 42 } })),
+  ],
+  "DELETE /api/admin/teams/:teamId/members/:login": [
+    valid("remove team A's member", (w) => ({ method: "DELETE", path: `/api/admin/teams/${w.ids.teamA}/members/rj-m-teammate-a` })),
+  ],
+  "POST /api/admin/teams/:teamId/tas": [
+    malformed("team A with a login that isn't text", (w) => ({ path: `/api/admin/teams/${w.ids.teamA}/tas`, body: { login: 42 } })),
+  ],
+  "DELETE /api/admin/teams/:teamId/tas/:login": [
+    valid("unassign team A's TA", (w) => ({ method: "DELETE", path: `/api/admin/teams/${w.ids.teamA}/tas/rj-m-ta-assigned` })),
+  ],
+  "POST /api/admin/staff": [malformed("a login that isn't text", () => ({ path: "/api/admin/staff", body: { login: 42 } }))],
+  "DELETE /api/admin/staff/:login": [valid("remove a staff member", () => ({ method: "DELETE", path: "/api/admin/staff/rj-m-ta-assigned" }))],
+  "POST /api/activity/run-surfaces/:id/actions/:action": [
+    ...ACTIONS.map((action) => valid(`${action} on team A's console`, (w) => ({ base: ACTIVITY, path: `/api/activity/run-surfaces/${w.ids.surfaceA}/actions/${action}` }))),
+    malformed("retry on team A's console with a run id that isn't text", (w) => ({
+      base: ACTIVITY,
+      path: `/api/activity/run-surfaces/${w.ids.surfaceA}/actions/retry`,
+      body: { runId: 42 },
+    })),
+  ],
+  "POST /api/v1/cli/setup/checks": [malformed("a schema version that isn't a number", () => ({ path: "/api/v1/cli/setup/checks", body: { schemaVersion: "one" } }))],
+};
+
+/** Mutating routes with no variant, and why. */
+const NO_VARIANT = {
+  "ALL /api/auth/*": "Better Auth's own handler (worker/auth); the matrix's request reads a session and the portal signs in through /api/dev/login",
+  "POST /api/dev/login": "signs anyone in, by design, in development only; there is no caller to authorize",
+  "POST /api/session/logout": "ends the caller's own session and takes no body",
+  "POST /api/v1/cli/device/start": "starts a device authorization for anyone, by design; there is no caller to authorize",
+  "POST /api/v1/cli/device/token": "the device code in the body is the credential",
+  "POST /api/activity/oauth/token": "the Discord code and the state cookie are the credential",
+  "POST /api/v1/setup/check-off": "the signed token in the query is the credential",
+  "DELETE /api/v1/connections/discord": "unlinks the caller's own Discord and takes no body",
+  "DELETE /api/v1/setup/state": "clears the caller's own setup checks and takes no body",
+};
+
+/**
+ * How a main-cell answer refused `identity`, which decides what a variant of
+ * the same request must get:
+ * - "identity": no session or token (401), a role, team or right the caller
+ *   lacks (403), or team A named by someone not on it (409). Settled by who
+ *   is asking, so every variant gets exactly this answer.
+ * - "resource": another team's thing named in the path, answered as missing
+ *   (404). A malformed variant may be refused for its body first, but must
+ *   get the answer it gets for a thing that doesn't exist (`missing`), so
+ *   nothing tells whether team A's exists.
+ * - null: not refused, or refused for what the request said (BODY_DECIDES).
+ *   A malformed variant gets a 4xx.
+ */
+function refusal(key, answer, identity, request, w) {
+  const [status, rest = ""] = answer.split(/ (.*)/s);
+  if (BODY_DECIDES[key]?.who.includes(identity)) return null;
+  if (status === "401" || status === "403") return "identity";
+  if (rest.includes("not the team this page showed")) {
+    const namesTeamA = JSON.stringify([request.path, request.body]).includes(w.ids.teamA);
+    return namesTeamA && !TEAM_A.includes(identity) ? "identity" : null;
+  }
+  if (status === "404" && OTHER_TEAM.includes(identity)) return "resource";
+  return null;
+}
+
+/** Refusals in the main cells that the request's content decides, not the caller. */
+const BODY_DECIDES = {
+  "POST /api/cohorts/join": {
+    who: ["joiner", "outsider", "studentA", "teammateA", "studentB", "changedTeam", "taAssigned", "taUnassigned", "owner"],
+    why: "the join code is the credential: 403 cohort_code_invalid says the code sent was wrong",
+  },
+  "POST /api/github/connect": {
+    who: ["outsider"],
+    why: "the repository named decides whether GitHub sign-in is needed (the fixture repository needs none)",
+  },
+};
+const OTHER_TEAM = ["studentB", "changedTeam", "deviceB"];
 
 const sha256 = (data) => crypto.createHash("sha256").update(data).digest("hex");
 const RUNNER_SECRET = "rj-local-runner-signing-secret-0001";
@@ -420,31 +610,66 @@ async function send(w, key, spec, who) {
 }
 
 test("every Worker route answers every identity exactly as the policy says", async ({}, testInfo) => {
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   const mode = matrixMode(testInfo);
   const registered = workerRoutes();
   const covered = Object.keys(REQUESTS);
   expect(covered.filter((key) => !registered.includes(key)), "requests for routes the Worker no longer registers").toEqual([]);
   expect(registered.filter((key) => !covered.includes(key)), "registered routes with no request in the matrix").toEqual([]);
+  const mutating = registered.filter((key) => !/^GET /.test(key));
+  expect(mutating.filter((key) => !VARIANTS[key] && !NO_VARIANT[key]), "mutating routes with no variant and no stated reason").toEqual([]);
   if (mode === "enforce") {
     expect(Object.keys(POLICY).sort(), "policy rows").toEqual([...registered].sort());
+    const succeeds = (key) => Object.keys(POLICY[key]).some((answer) => /^20[01]$/.test(answer));
+    expect(registered.filter((key) => succeeds(key) && !CONTENT[key]), "routes that answer 2xx with no content check").toEqual([]);
   }
 
   await fresh();
   const world = await buildWorld();
   const w = { ...world, ...(await worldFacts(world)) };
+  const canaries = await plantCanaries(w, { staffWithFullView: ["taAssigned", "owner"] });
 
   const observed = {};
+  const answers = {};
+  const cells = [];
   const record = (key, identity, result) => {
     observed[key] ??= {};
     const answer = describe(result);
     (observed[key][answer] ??= []).push(identity);
+    (answers[key] ??= {})[identity] = answer;
+    cells.push({ key, identity, result });
   };
   for (const key of registered) {
     const spec = REQUESTS[key];
     if (!spec) continue;
     for (const identity of IDENTITIES) record(key, identity, await send(w, key, spec, world.who[identity]));
   }
+
+  // Malformed and valid mutations, bracketed by two reads of the whole D1.
+  const before = await control.snapshot();
+  const variantMismatches = [];
+  for (const [key, variants] of Object.entries(VARIANTS)) {
+    for (const variant of variants) {
+      const request = variant.request(w);
+      const kind = Object.fromEntries(IDENTITIES.map((identity) => [identity, refusal(key, answers[key][identity], identity, request, w)]));
+      const to = variant.to ?? (variant.kind === "valid" ? IDENTITIES.filter((identity) => kind[identity]) : IDENTITIES);
+      for (const identity of to) {
+        const result = await send(w, key, () => request, world.who[identity]);
+        cells.push({ key: `${key} [${variant.label}]`, identity, result, variant: true });
+        const got = describe(result);
+        let want = null;
+        if (variant.to || variant.kind === "valid" || kind[identity] === "identity") want = answers[key][identity];
+        else if (kind[identity] === "resource") {
+          if (!variant.missing) throw new Error(`${key} [${variant.label}] needs a missing-resource twin for ${identity}`);
+          want = describe(await send(w, key, variant.missing, world.who[identity]));
+        }
+        const wrong = want === null ? !(result.status >= 400 && result.status < 500) : got !== want;
+        if (wrong) variantMismatches.push({ route: key, variant: variant.label, identity, want: want ?? "a 4xx", got });
+      }
+    }
+  }
+  const changed = changedRows(before, await control.snapshot());
+
   const positives = {};
   for (const [key, status, run] of POSITIVE) {
     let result;
@@ -459,9 +684,30 @@ test("every Worker route answers every identity exactly as the policy says", asy
     for (const identity of IDENTITIES) record(key, identity, await send(w, key, spec, world.who[identity]));
   }
 
+  // What each 2xx answer is about, and private data in any answer.
+  const facts = contentFacts(w, await control.snapshot());
+  const wrongContent = [];
+  const leaked = [];
+  for (const { key, identity, result, variant } of cells) {
+    if (!variant && (result.status === 200 || result.status === 201) && CONTENT[key]) {
+      const problem = CONTENT[key](result.json, identity, facts);
+      if (problem) wrongContent.push({ route: key, identity, problem });
+    }
+    const found = leaks(result.text, identity, canaries);
+    if (found.length) leaked.push({ route: key, identity, status: result.status, found });
+  }
+  // The planted per-person work is there to be withheld: staff with the full
+  // view do read it, so its absence elsewhere means something.
+  const deskA = cells.find((c) => c.key === "GET /api/admin/desk/teams/:teamId" && c.identity === "taAssigned");
+  if (!deskA?.result.text.includes("rj-canary-a-author-one")) wrongContent.push({ route: deskA?.key, identity: "taAssigned", problem: "the assigned TA's desk doesn't show team A's per-person work" });
+
   const out = path.join("test-results", "evidence", "route-matrix-observed.json");
   fs.writeFileSync(out, `${JSON.stringify(observed, null, 2)}\n`);
   fs.writeFileSync(path.join("test-results", "evidence", "route-matrix-positive.json"), `${JSON.stringify(positives, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join("test-results", "evidence", "route-matrix-content.json"),
+    `${JSON.stringify({ wrongContent, leaked, variantMismatches, changed, canaries: canaries.map(({ name, allowed }) => ({ name, allowed })) }, null, 2)}\n`,
+  );
   if (mode === "observe") failObserved(out);
 
   const mismatches = [];
@@ -476,6 +722,61 @@ test("every Worker route answers every identity exactly as the policy says", asy
     if (positive && positive.got !== positive.want) mismatches.push({ route: key, positive });
   }
   expect(mismatches, `cells that differ from the policy (full table: ${out})`).toEqual([]);
+  expect(leaked, "answers carrying private data their caller may not read").toEqual([]);
+  expect(wrongContent, "successful answers about the wrong subject").toEqual([]);
+  expect(variantMismatches, "malformed or valid mutations not refused exactly as the main request").toEqual([]);
+  expect(changed, "D1 rows the refused mutations changed").toEqual([]);
+  await expectNoDispatch();
+});
+
+// Under STAFF_VISIBILITY=restricted a TA reads team-level facts only. Every
+// staff route a TA can reach is called by both TAs and the owner in a world
+// with team A's per-person work planted: the TAs' answers name no student and
+// carry none of it; the owner's carry both, so the withheld data is there to
+// withhold.
+test("under the restricted staff setting, staff answers carry no student's name or per-person work", async ({}, testInfo) => {
+  test.setTimeout(600_000);
+  matrixMode(testInfo);
+  await fresh("fixture-restricted");
+  const world = await buildWorld();
+  const w = { ...world, ...(await worldFacts(world)) };
+  const canaries = await plantCanaries(w, { staffWithFullView: ["owner"] });
+  const routes = {
+    "GET /api/admin/overview": () => ({ path: "/api/admin/overview" }),
+    "GET /api/admin/desk/teams": () => ({ path: "/api/admin/desk/teams" }),
+    "GET /api/admin/desk/teams/:teamId": (v) => ({ path: `/api/admin/desk/teams/${v.ids.teamA}` }),
+    "GET /api/admin/desk/teams/:teamId/runs": (v) => ({ path: `/api/admin/desk/teams/${v.ids.teamA}/runs` }),
+    "PATCH /api/admin/teams/:teamId": (v) => ({ path: `/api/admin/teams/${v.ids.teamA}`, body: { description: "Staff note under the restricted setting." } }),
+    "POST /api/admin/teams/:teamId/members": (v) => ({ path: `/api/admin/teams/${v.ids.teamA}/members`, body: { login: "rj-m-nobody" } }),
+  };
+  const students = [LOGINS.studentA, LOGINS.teammateA];
+  const problems = [];
+  const answers = {};
+  for (const [key, spec] of Object.entries(routes)) {
+    for (const identity of ["taAssigned", "taUnassigned", "owner"]) {
+      const result = await send(w, key, spec, world.who[identity]);
+      (answers[key] ??= {})[identity] = describe(result);
+      const found = leaks(result.text, identity, canaries);
+      if (found.length) problems.push({ route: key, identity, leaked: found });
+      const named = identity === "owner" ? [] : students.filter((login) => result.text.includes(login));
+      if (named.length) problems.push({ route: key, identity, named });
+    }
+  }
+  fs.writeFileSync(path.join("test-results", "evidence", "route-matrix-restricted.json"), `${JSON.stringify({ answers, problems }, null, 2)}\n`);
+  expect(problems, "staff answers under the restricted setting that name students or carry their work").toEqual([]);
+
+  const desk = (await call("GET", `/api/admin/desk/teams/${w.ids.teamA}`, { who: world.who.taAssigned })).json;
+  expect({ view: desk.view, members: desk.team.members, commitSignals: desk.commitSignals }).toEqual({ view: "restricted", members: [], commitSignals: null });
+  const overview = (await call("GET", "/api/admin/overview", { who: world.who.taAssigned })).json;
+  expect(overview.teams.map((team) => ({ id: team.id, members: team.members, published: team.published }))).toEqual([
+    { id: w.ids.teamA, members: [], published: null },
+  ]);
+  expect(answers["POST /api/admin/teams/:teamId/members"].taAssigned).toBe(
+    "403 forbidden: Under the restricted staff setting, course owners manage team membership.",
+  );
+  const owner = (await call("GET", `/api/admin/desk/teams/${w.ids.teamA}`, { who: world.who.owner })).json;
+  expect(owner.team.members.map((member) => member.login)).toEqual(expect.arrayContaining(students));
+  expect(JSON.stringify(owner.commitSignals)).toContain("rj-canary-a-author-one");
   await expectNoDispatch();
 });
 
@@ -488,30 +789,51 @@ function normalise(table = {}) {
   );
 }
 
-async function worldFacts(world) {
-  const benchmarks = (await call("GET", "/api/benchmarks")).json;
-  // Highest version of each benchmark, open or not: Week 1 is closed in the
-  // seed, and the CLI still runs and reports on it. Live runs need an open
-  // one, so they use the Runs page's track.
-  const versions = {};
-  for (const b of benchmarks) versions[b.id] = Math.max(versions[b.id] ?? 0, b.version);
-  const dashboard = (await call("GET", "/api/dashboard", { who: world.who.studentA })).json;
-  const session = world.who.studentA.session;
-  const local = await call("POST", "/api/v1/local-runs", {
-    who: world.who.deviceA,
-    body: {
-      clientRunId: `localrun_${"b".repeat(32)}`,
-      benchmarkId: dashboard.benchmark.id,
-      benchmarkVersion: dashboard.benchmark.version,
-      repositoryId: null,
-      repositoryFullName: session.team.repo.fullName,
-      sha: "c".repeat(40),
-      branch: "main",
-      dirty: false,
-    },
-  });
-  if (local.status !== 201 && local.status !== 200) throw new Error(`local run start: ${local.status} ${local.text}`);
-  world.ids.localRunA = local.json.sessionId;
-  void control;
-  return { versions, activeBenchmark: dashboard.benchmark.id, repoA: session.team.repo.fullName };
+/**
+ * The facts route-content.mjs checks answers against, read from one D1
+ * snapshot: each team's runs, consoles and repository, each signed-in
+ * identity's own CLI devices, everyone on a team, and staff coverage.
+ */
+function contentFacts(w, db) {
+  const teams = [w.ids.teamA, w.ids.teamB];
+  const of = (table, team) => new Set(db[table].filter((row) => row.team_id === team).map((row) => row.id));
+  const userIdOf = new Map(db.users.map((user) => [user.email, user.id]));
+  const signedIn = ["joiner", "outsider", "studentA", "teammateA", "studentB", "changedTeam", "taAssigned", "taUnassigned", "owner"];
+  const memberIds = new Set(db.team_members.map((row) => row.user_id));
+  return {
+    ids: w.ids,
+    teamOf: Object.fromEntries([...TEAM_A.map((i) => [i, w.ids.teamA]), ...TEAM_B.map((i) => [i, w.ids.teamB])]),
+    loginOf: Object.fromEntries(signedIn.map((i) => [i, LOGINS[i]])),
+    runsOf: Object.fromEntries(teams.map((team) => [team, of("runs", team)])),
+    surfacesOf: Object.fromEntries(teams.map((team) => [team, of("run_surfaces", team)])),
+    repoOf: Object.fromEntries(teams.map((team) => [team, db.teams.find((row) => row.id === team).repo_full_name])),
+    devicesOf: Object.fromEntries(
+      signedIn.map((i) => [i, new Set(db.cli_devices.filter((d) => d.user_id === userIdOf.get(`${LOGINS[i]}@dev.local`)).map((d) => d.id))]),
+    ),
+    onSomeTeam: new Set(db.users.filter((u) => memberIds.has(u.id)).flatMap((u) => [u.github_login, u.email.split("@")[0]]).filter(Boolean)),
+    staffTeams: { taAssigned: [w.ids.teamA], taUnassigned: [w.ids.teamB], owner: "all" },
+  };
+}
+
+/**
+ * Columns a refused request may still write, and why. A CLI device's token
+ * is checked before its request's body, and using a live token records the
+ * time (worker/auth/device.ts) even when the body is then refused.
+ */
+const VOLATILE = { cli_devices: ["last_used_at"] };
+
+/** Rows added or removed between two D1 snapshots, ignoring VOLATILE columns. */
+function changedRows(before, after) {
+  const changes = [];
+  for (const table of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const skip = VOLATILE[table] ?? [];
+    const key = (row) => JSON.stringify(Object.entries(row).filter(([column]) => !skip.includes(column)));
+    const count = (rows) => rows.reduce((map, row) => map.set(key(row), (map.get(key(row)) ?? 0) + 1), new Map());
+    const was = count(before[table] ?? []);
+    const now = count(after[table] ?? []);
+    const added = [...now].filter(([row, n]) => n > (was.get(row) ?? 0)).map(([row]) => row);
+    const removed = [...was].filter(([row, n]) => n > (now.get(row) ?? 0)).map(([row]) => row);
+    if (added.length || removed.length) changes.push({ table, added: added.slice(0, 3), removed: removed.slice(0, 3) });
+  }
+  return changes;
 }

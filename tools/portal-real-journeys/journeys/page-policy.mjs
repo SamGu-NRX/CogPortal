@@ -121,3 +121,17 @@ export const PAGE_POLICY = {
     "/rj-no-such-page | There's nothing at this address.": EVERYONE,
   },
 };
+
+/**
+ * Pages that must show their reader their own private data (canaries.mjs),
+ * so a page that hides everything can't pass the leak check by showing
+ * nothing. `shows` is text that must be in the page's DOM.
+ */
+export const PAGE_CONTENT = [
+  { identity: "studentA", path: () => "/dashboard?benchmark=audio-identification", shows: ["rj-canary-a-report-note"] },
+  { identity: "studentB", path: () => "/dashboard?benchmark=audio-identification", shows: ["rj-canary-b-report-note"] },
+  { identity: "studentA", path: (w) => `/runs/${w.ids.runA}`, shows: ["rj-canary-a-run-log", "rj-canary-a-run-diagnostic"] },
+  { identity: "studentA", path: () => "/connections", shows: ["rj-m-device-live"] },
+  { identity: "taAssigned", path: (w) => `/desk/${w.ids.teamA}`, shows: ["rj-m-teammate-a"] },
+  { identity: "owner", path: (w) => `/desk/${w.ids.teamA}`, shows: ["rj-m-teammate-a"] },
+];

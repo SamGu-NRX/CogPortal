@@ -211,6 +211,17 @@ function sql(command) {
   return parsed.at(-1)?.results ?? [];
 }
 
+/** Every row of every application table, in one wrangler call: { table: rows }. */
+function snapshot() {
+  const tables = sql(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'd1_%' ORDER BY name",
+  ).map((row) => row.name);
+  const out = wrangler(["d1", "execute", "cogportal-db", "--local", "--command", tables.map((t) => `SELECT * FROM "${t}"`).join("; "), "--json"]);
+  const parsed = JSON.parse(out.slice(out.indexOf("[")));
+  if (parsed.length !== tables.length) throw new Error(`snapshot read ${parsed.length} result sets for ${tables.length} tables`);
+  return Object.fromEntries(tables.map((table, i) => [table, parsed[i].results ?? []]));
+}
+
 // ── The Worker preview ─────────────────────────────────────────────────────
 let preview = null;
 
@@ -495,6 +506,9 @@ async function control(req, res, url) {
     }
     if (url.pathname === "/__control/sql" && req.method === "POST") {
       return reply(200, { ok: true, rows: sql(body.sql) });
+    }
+    if (url.pathname === "/__control/snapshot" && req.method === "POST") {
+      return reply(200, { ok: true, tables: snapshot() });
     }
     return reply(404, { error: `no control route ${url.pathname}` });
   } catch (error) {

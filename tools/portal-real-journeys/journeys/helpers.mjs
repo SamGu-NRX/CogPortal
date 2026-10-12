@@ -38,6 +38,8 @@ export const control = {
   restartWorker: () => post(`${STACK}/__control/restart-worker`),
   /** Rows of the last statement, read from the run's own D1. */
   sql: async (sql) => (await post(`${STACK}/__control/sql`, { sql })).rows,
+  /** Every row of every table in the run's D1: { table: rows }. */
+  snapshot: async () => (await post(`${STACK}/__control/snapshot`)).tables,
 };
 
 export const doubles = {

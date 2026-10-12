@@ -220,3 +220,35 @@ export async function buildWorld() {
     },
   };
 }
+
+/**
+ * What the matrices' requests name beyond the world's ids: each benchmark's
+ * highest version, the Runs page's track, team A's repository, and a local
+ * run started by team A's CLI device (ids.localRunA).
+ */
+export async function worldFacts(world) {
+  const benchmarks = (await call("GET", "/api/benchmarks")).json;
+  // Highest version of each benchmark, open or not: Week 1 is closed in the
+  // seed, and the CLI still runs and reports on it. Live runs need an open
+  // one, so they use the Runs page's track.
+  const versions = {};
+  for (const b of benchmarks) versions[b.id] = Math.max(versions[b.id] ?? 0, b.version);
+  const dashboard = (await call("GET", "/api/dashboard", { who: world.who.studentA })).json;
+  const session = world.who.studentA.session;
+  const local = await call("POST", "/api/v1/local-runs", {
+    who: world.who.deviceA,
+    body: {
+      clientRunId: `localrun_${"b".repeat(32)}`,
+      benchmarkId: dashboard.benchmark.id,
+      benchmarkVersion: dashboard.benchmark.version,
+      repositoryId: null,
+      repositoryFullName: session.team.repo.fullName,
+      sha: "c".repeat(40),
+      branch: "main",
+      dirty: false,
+    },
+  });
+  if (local.status !== 201 && local.status !== 200) throw new Error(`local run start: ${local.status} ${local.text}`);
+  world.ids.localRunA = local.json.sessionId;
+  return { versions, activeBenchmark: dashboard.benchmark.id, repoA: session.team.repo.fullName };
+}
