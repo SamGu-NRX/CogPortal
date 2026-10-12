@@ -1,387 +1,248 @@
-// Stateful protocol doubles for the CogPortal provider boundaries.
+// Labelled provider doubles and the shaping hops in front of them.
 //
-// Each double is a small HTTP server that speaks one provider's protocol
-// well enough that the portal's real outbound code — the GitHub REST client,
-// the OAuth device-flow handlers, the Discord REST calls, the Modal runner
-// callbacks — can be exercised end to end. Doubles are stateful: claims,
-// pushes, channels, runs and revocations accumulate and change what they
-// answer next, exactly the way the real providers do.
+// The Worker reaches three providers: GitHub's REST API, Discord's API and
+// the Modal runner. In a harness boot each base URL points at a loopback
+// *hop* (a small forwarding proxy), and each hop forwards to the provider's
+// *double* (an HTTP server speaking enough of the provider's protocol for
+// the routes the journeys exercise). Every double's response carries
+// `x-cogportal-double: <label>` and every request it receives is journalled.
 //
-// Every response carries `x-cogportal-double: <label>`. A journey that ever
-// receives a doubled response knows precisely which boundary answered. The
-// default paths below shadow nothing that exists in production: they exist
-// only because the harness sets GITHUB_API_BASE_URL / DISCORD_API_BASE_URL
-// in local bindings (see stack/stack.mjs) and hands the OAuth and runner
-// callbacks their URLs explicitly.
+//   Worker --DISCORD_API_BASE_URL--> discord hop :8823 --> discord double :8813
+//
+// Faults that belong on the wire between the Worker and a provider (a send
+// that arrives twice, a delayed answer) are rules on the hop, so the double
+// receives real, separate HTTP requests and the Worker sees what it would see
+// on the real network: one response per request it sent.
+//
+// Control routes (`/__doubles/*` on a double, `/__hop/*` on a hop) are
+// answered locally and never forwarded.
 
 import http from "node:http";
-import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 
 export const DOUBLE_PORTS = {
   githubRest: 8811,
-  githubOAuth: 8812,
   discord: 8813,
   modalRunner: 8814,
 };
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export const HOP_PORTS = {
+  githubRest: 8821,
+  discord: 8823,
+  modalRunner: 8824,
+};
 
-function server(label, port, handler) {
-  const state = { log: [], requests: 0, rules: [] };
-  const instance = http.createServer((req, res) => {
+/** Base URLs the Worker is given: the hops, never the doubles directly. */
+export const PROVIDER_URLS = {
+  github: `http://127.0.0.1:${HOP_PORTS.githubRest}`,
+  // Stands for https://discord.com/api; the Worker appends /v10 or /oauth2.
+  discord: `http://127.0.0.1:${HOP_PORTS.discord}`,
+  modal: `http://127.0.0.1:${HOP_PORTS.modalRunner}/submit`,
+};
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", async () => {
-      const bodyRaw = Buffer.concat(chunks).toString("utf8");
-      let body = bodyRaw;
-      try {
-        body = bodyRaw ? JSON.parse(bodyRaw) : bodyRaw;
-      } catch {
-        // Non-JSON bodies: hand form-encoded posts to handlers as plain
-        // objects — that is the encoding every OAuth token endpoint speaks.
-        if ((req.headers["content-type"] ?? "").includes("application/x-www-form-urlencoded") && bodyRaw) {
-          body = Object.fromEntries(new URLSearchParams(bodyRaw));
-        }
-      }
-      state.requests += 1;
-      const url = new URL(req.url, `http://127.0.0.1:${port}`);
-      state.log.push({ method: req.method, path: url.pathname, body: bodyRaw, at: Date.now() });
-      // Control plane (see README): inspect exactly what this double received
-      // and tell it to replay (duplicate) matched requests. Control routes are
-      // served here on the loopback double itself, never proxied anywhere.
-      const controlReply = (payload) => {
-        res.writeHead(200, { "content-type": "application/json", "x-cogportal-double": label });
-        res.end(JSON.stringify(payload));
-      };
-      if (url.pathname === "/__doubles/journal" && req.method === "GET") {
-        return controlReply({ double: label, log: state.log });
-      }
-      if (url.pathname === "/__doubles/rules" && req.method === "POST") {
-        state.rules.push(body && typeof body === "object" ? body : {});
-        return controlReply({ ok: true, rules: state.rules.length });
-      }
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+function parseBody(raw, contentType) {
+  const text = raw.toString("utf8");
+  if (!text) return {};
+  if ((contentType ?? "").includes("application/x-www-form-urlencoded")) {
+    return Object.fromEntries(new URLSearchParams(text));
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function double(label, port, handler) {
+  const state = { journal: [] };
+  const instance = http.createServer(async (req, res) => {
+    const raw = await readBody(req);
+    const url = new URL(req.url, `http://127.0.0.1:${port}`);
+    const reply = (status, payload) => {
+      res.writeHead(status, { "content-type": "application/json", "x-cogportal-double": label });
+      res.end(JSON.stringify(payload));
+    };
+    if (url.pathname.startsWith("/__doubles/")) {
+      if (url.pathname === "/__doubles/journal" && req.method === "GET") return reply(200, { double: label, journal: state.journal });
       if (url.pathname === "/__doubles/reset" && req.method === "POST") {
-        state.log.length = 0;
-        state.rules.length = 0;
-        return controlReply({ ok: true });
+        state.journal.length = 0;
+        state.reset?.();
+        return reply(200, { ok: true });
       }
-      try {
-        await handler({ req, res, url, method: req.method, body, headers: req.headers });
-        // A duplicate rule is the wire-level shape of a second identical send:
-        // the same request is received and journalled again, marked duplicate.
-        const rule = state.rules.find(
-          (candidate) =>
-            candidate.duplicate > 0 &&
-            (!candidate.match?.method || candidate.match.method === req.method) &&
-            (!candidate.match?.path || candidate.match.path === url.pathname),
-        );
-        if (rule) {
-          rule.duplicate -= 1;
-          const captured = { status: 0, body: "" };
-          await handler({
-            req,
-            res: {
-              writeHead: (status) => {
-                captured.status = status;
-              },
-              end: (chunk) => {
-                captured.body = chunk ? chunk.toString() : "";
-              },
-            },
-            url,
-            method: req.method,
-            body,
-            headers: req.headers,
-          });
-          state.log.push({
-            method: req.method,
-            path: url.pathname,
-            body: bodyRaw,
-            duplicate: true,
-            status: captured.status,
-            at: Date.now(),
-          });
-        }
-      } catch (error) {
-        res.writeHead(500, { "content-type": "application/json", "x-cogportal-double": label });
-        res.end(JSON.stringify({ message: `double ${label} internal error: ${error.message}` }));
+      const body = parseBody(raw, req.headers["content-type"]);
+      if (state.control) {
+        const handled = await state.control({ url, method: req.method, body, reply });
+        if (handled !== false) return;
       }
-    });
+      return reply(404, { message: `${label} double has no control route ${url.pathname}` });
+    }
+    const entry = { method: req.method, path: url.pathname, at: Date.now(), status: 0 };
+    state.journal.push(entry);
+    const body = parseBody(raw, req.headers["content-type"]);
+    const respond = (status, payload) => {
+      entry.status = status;
+      reply(status, payload);
+    };
+    try {
+      await handler({ url, method: req.method, body, headers: req.headers, respond });
+    } catch (error) {
+      respond(500, { message: `double ${label} internal error: ${error.message}` });
+    }
   });
   return {
     label,
     port,
     state,
-    start: () =>
-      new Promise((resolve, reject) => {
-        instance.once("error", reject);
-        instance.listen(port, "127.0.0.1", () => resolve());
-      }),
+    start: () => new Promise((resolve, reject) => {
+      instance.once("error", reject);
+      instance.listen(port, "127.0.0.1", resolve);
+    }),
     stop: () => new Promise((resolve) => instance.close(() => resolve())),
   };
 }
 
-// ── GitHub REST double ─────────────────────────────────────────────────────
-// Speaks enough of api.github.com for the portal's client: repo listing,
-// ref resolution, file contents, and the check-suites endpoint the portal
-// polls for verify/repo_status. Claims are journaled; a "revoked" token
-// flips every subsequent call to 401 the way a real credential death does.
-const githubRest = server("github-rest", DOUBLE_PORTS.githubRest, (ctx) => {
-  const { res, url, method, body, headers } = ctx;
-  const reply = (status, payload, extra = {}) => {
-    res.writeHead(status, {
-      "content-type": "application/json",
-      "x-cogportal-double": "github-rest",
-      ...extra,
-    });
-    res.end(JSON.stringify(payload));
-  };
-  const auth = headers.authorization ?? "";
-  if (githubRest.state.revoked && auth.startsWith("Bearer gho_")) {
-    return reply(401, { message: "Bad credentials" });
-  }
-
-  // GET /user
-  if (url.pathname === "/user" && method === "GET") {
-    return reply(200, {
-      login: githubRest.state.userLogin ?? "owner-person",
-      id: 1001,
-      type: "User",
-    });
-  }
-
-  // GET /user/repos — the listing behind account connect. Repositories are
-  // registered by journeys through POST /__control/github-rest/repos.
-  if (url.pathname === "/user/repos" && method === "GET") {
-    return reply(200, githubRest.state.repos);
-  }
-
-  // GET /repos/:owner/:name/contents/:path
-  const contents = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/contents\/(.+)$/);
-  if (contents && method === "GET") {
-    const [, owner, name, path] = contents;
-    const entry = githubRest.state.files.get(`${owner}/${name}/${path}`);
-    if (!entry) return reply(404, { message: "Not Found" });
-    if (url.searchParams.get("ref") && entry.refs && !entry.refs.includes(url.searchParams.get("ref"))) {
-      return reply(404, { message: "Not Found" });
+/**
+ * A forwarding hop. Rules: `{ match: { method?, path? }, duplicate?: n,
+ * delayMs?, times? }`. `duplicate` sends the same request n extra times to
+ * the double, after the first, and answers the Worker with the first
+ * response: the wire shape of a send the network delivered twice.
+ */
+function hop(label, port, targetPort) {
+  const rules = [];
+  const instance = http.createServer(async (req, res) => {
+    const raw = await readBody(req);
+    const url = new URL(req.url, `http://127.0.0.1:${port}`);
+    const reply = (status, payload) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+    };
+    if (url.pathname === "/__hop/rules" && req.method === "POST") {
+      rules.push(JSON.parse(raw.toString("utf8") || "{}"));
+      return reply(200, { ok: true, rules: rules.length });
     }
-    return reply(200, {
-      name: path.split("/").pop(),
-      path,
-      content: Buffer.from(entry.content).toString("base64"),
-      encoding: "base64",
-    });
-  }
-
-  // GET /repos/:owner/:name/commits?path_sha=... (ref resolution proxy)
-  const commits = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/commits$/);
-  if (commits && method === "GET") {
-    const [, owner, name] = commits;
-    const ref = url.searchParams.get("sha") ?? "HEAD";
-    const head = githubRest.state.heads.get(`${owner}/${name}/${ref}`);
-    if (!head) return reply(404, { message: "Not Found" });
-    return reply(200, [{ sha: head.sha, commit: { message: head.message ?? "wip" } }]);
-  }
-
-  // GET /repos/:owner/:name/commits/:ref/status — check runs
-  const status = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/commits\/([^/]+)\/status$/);
-  if (status && method === "GET") {
-    const [, , , ref] = status;
-    const check = githubRest.state.checks.get(ref);
-    return reply(200, {
-      state: check?.state ?? "pending",
-      sha: ref,
-      statuses: check?.statuses ?? [],
-    });
-  }
-
-  return reply(404, {
-    message: `github-rest double has no route for ${method} ${url.pathname}`,
-  });
-});
-
-// Control-plane state for the GitHub REST double (mutated via /__control).
-Object.assign(githubRest.state, {
-  userLogin: "owner-person",
-  repos: [],
-  files: new Map(),
-  heads: new Map(),
-  checks: new Map(),
-  revoked: false,
-});
-
-// ── GitHub OAuth double ────────────────────────────────────────────────────
-// The device-flow pages the portal links a student to, plus the token
-// endpoint. The access codes minted here are what the portal's connect
-// routes hand to GITHUB_API_BASE_URL; that double accepts only tokens this
-// server actually issued, so a journey cannot accidentally pass a forged
-// credential through the real client code.
-const githubOAuth = server("github-oauth", DOUBLE_PORTS.githubOAuth, (ctx) => {
-  const { res, url, method, body } = ctx;
-  const reply = (status, payload, type = "application/json") => {
-    res.writeHead(status, { "content-type": type, "x-cogportal-double": "github-oauth" });
-    res.end(typeof payload === "string" ? payload : JSON.stringify(payload));
-  };
-
-  if (url.pathname === "/login/device/code" && method === "POST") {
-    const code = crypto.randomBytes(4).toString("hex").toUpperCase();
-    githubOAuth.state.codes.set(code, { client_id: body.client_id, scope: body.scope ?? "repo" });
-    return reply(200, {
-      device_code: `dh_${code.toLowerCase()}`,
-      user_code: code,
-      verification_uri: `http://127.0.0.1:${DOUBLE_PORTS.githubOAuth}/login/device`,
-      expires_in: 900,
-      interval: 1,
-    });
-  }
-
-  if (url.pathname === "/login/device" && method === "GET") {
-    const userCode = url.searchParams.get("code") ?? "";
-    return reply(
-      200,
-      `<!doctype html><html><body data-dirty="github-oauth"><h1>Device login</h1><p>Code ${userCode}</p></body></html>`,
-      "text/html; charset=utf-8",
+    if (url.pathname === "/__hop/reset" && req.method === "POST") {
+      rules.length = 0;
+      return reply(200, { ok: true });
+    }
+    const rule = rules.find(
+      (candidate) =>
+        (candidate.times === undefined || candidate.times > 0) &&
+        (!candidate.match?.method || candidate.match.method === req.method) &&
+        (!candidate.match?.path || candidate.match.path === url.pathname),
     );
-  }
-
-  if (url.pathname === "/login/oauth/access_token" && method === "POST") {
-    const grant = githubOAuth.state.grants.get(body.device_code ?? body.code ?? "");
-    if (!grant || grant.state === "slow") {
-      return reply(200, { error: "authorization_pending" });
+    if (rule && rule.times !== undefined) rule.times -= 1;
+    if (rule?.delayMs) await new Promise((resolve) => setTimeout(resolve, rule.delayMs));
+    const headers = { ...req.headers, host: `127.0.0.1:${targetPort}` };
+    const send = () =>
+      new Promise((resolve, reject) => {
+        const upstream = http.request(
+          { host: "127.0.0.1", port: targetPort, method: req.method, path: url.pathname + url.search, headers },
+          async (upRes) => resolve({ status: upRes.statusCode, headers: upRes.headers, body: await readBody(upRes) }),
+        );
+        upstream.on("error", reject);
+        upstream.end(raw);
+      });
+    try {
+      const first = await send();
+      for (let extra = 0; extra < (rule?.duplicate ?? 0); extra += 1) await send();
+      res.writeHead(first.status, first.headers);
+      res.end(first.body);
+    } catch (error) {
+      reply(502, { message: `${label} hop could not reach its double: ${error.message}` });
     }
-    if (grant.state === "denied") {
-      return reply(200, { error: "access_denied" });
-    }
-    if (grant.state === "expired") {
-      return reply(200, { error: "expired_token" });
-    }
-    const token = `gho_${crypto.randomBytes(16).toString("hex")}`;
-    grant.token = token;
-    return reply(200, { access_token: token, token_type: "bearer", scope: grant.scope });
-  }
-
-  return reply(404, { message: `github-oauth double has no route for ${method} ${url.pathname}` });
-});
-Object.assign(githubOAuth.state, { codes: new Map(), grants: new Map() });
-
-// ── Discord double ─────────────────────────────────────────────────────────
-// Bot-token REST endpoints the portal calls (channel inspection, message
-// posting) plus the OAuth token + /users/@me exchange the Discord Activity
-// bridge performs. Channel state drives the portal's validation outcomes.
-const discord = server("discord", DOUBLE_PORTS.discord, (ctx) => {
-  const { res, url, method, body, headers } = ctx;
-  const reply = (status, payload) => {
-    res.writeHead(status, { "content-type": "application/json", "x-cogportal-double": "discord" });
-    res.end(JSON.stringify(payload));
+  });
+  return {
+    label: `${label}-hop`,
+    port,
+    start: () => new Promise((resolve, reject) => {
+      instance.once("error", reject);
+      instance.listen(port, "127.0.0.1", resolve);
+    }),
+    stop: () => new Promise((resolve) => instance.close(() => resolve())),
   };
+}
 
-  // Harness control: mint an activity code the real exchange can spend.
-  if (url.pathname === "/__doubles/discord/seed" && method === "POST") {
-    discord.state.activityCodes.set(body.code ?? "", { scope: "identify" });
-    return reply(200, { ok: true, code: body.code ?? "" });
-  }
+// ── GitHub REST ────────────────────────────────────────────────────────────
+// Reached only when the Worker has GitHub OAuth configured (the
+// production-refusal profile). In development the Worker uses its in-repo
+// FixtureGitHubClient and sends nothing here. Without a token this double
+// issued, every route answers 401 the way api.github.com does.
+const githubRest = double("github-rest", DOUBLE_PORTS.githubRest, ({ respond }) => {
+  respond(401, { message: "Bad credentials" });
+});
+
+// ── Discord ────────────────────────────────────────────────────────────────
+// The Activity's OAuth exchange (/oauth2/token, /v10/users/@me) and the bot
+// routes the Worker calls (/v10/channels/...). Activity codes are minted by a
+// journey through the control route and are single-use, as Discord's are: a
+// second exchange of the same code answers invalid_grant.
+const discord = double("discord", DOUBLE_PORTS.discord, ({ url, method, body, headers, respond }) => {
+  const state = discord.state;
   if (url.pathname === "/oauth2/token" && method === "POST") {
-    const grant = discord.state.activityCodes.get(body.code ?? "");
-    if (!grant) return reply(400, { error: "invalid_grant" });
-    return reply(200, { access_token: `dt_${crypto.randomBytes(12).toString("hex")}`, token_type: "Bearer", expires_in: 604800 });
+    const grant = state.codes.get(body.code ?? "");
+    if (!grant || grant.spent) return respond(400, { error: "invalid_grant" });
+    grant.spent = true;
+    const token = `dt_${crypto.randomBytes(12).toString("hex")}`;
+    state.tokens.set(token, grant.user);
+    return respond(200, { access_token: token, token_type: "Bearer", expires_in: 604800, scope: "identify" });
   }
-  if (url.pathname === "/api/oauth2/token" && method === "POST") {
-    const grant = discord.state.activityCodes.get(body.code ?? "");
-    if (!grant) return reply(400, { error: "invalid_grant" });
-    return reply(200, { access_token: `dt_${crypto.randomBytes(12).toString("hex")}`, token_type: "Bearer", expires_in: 604800 });
+  if (url.pathname === "/v10/users/@me" && method === "GET") {
+    const user = state.tokens.get((headers.authorization ?? "").replace(/^Bearer /, ""));
+    if (!user) return respond(401, { message: "401: Unauthorized", code: 0 });
+    return respond(200, user);
   }
-  if ((url.pathname === "/api/v10/users/@me" || url.pathname === "/v10/users/@me") && method === "GET") {
-    if (!headers.authorization?.startsWith("Bearer dt_")) return reply(401, { message: "401: Unauthorized" });
-    return reply(200, { id: discord.state.activityUser.id, username: discord.state.activityUser.username, global_name: discord.state.activityUser.global_name });
+  if (url.pathname.startsWith("/v10/")) {
+    if (headers.authorization !== `Bot ${state.botToken}`) return respond(401, { message: "401: Unauthorized", code: 0 });
+    return respond(404, { message: "Unknown Channel", code: 10003 });
   }
-  if (url.pathname.startsWith("/api/v10/") || url.pathname.startsWith("/v10/")) {
-    if (headers.authorization !== `Bot ${discord.state.botToken}`) {
-      return reply(401, { message: "401: Unauthorized" });
-    }
-    // /channels/:id and /channels/:id/messages/...
-    const channel = url.pathname.match(/\/channels\/(\d+)/);
-    if (channel) {
-      const channelId = channel[1];
-      const known = discord.state.channels.get(channelId);
-      if (!known) {
-        return reply(404, { message: "Unknown Channel", code: 10003 });
-      }
-      if (method === "GET" && url.pathname === `/api/v10/channels/${channelId}`) {
-        return reply(200, { id: channelId, name: known.name, guild_id: known.guildId, type: 0 });
-      }
-      if (method === "POST" && url.pathname.endsWith("/messages")) {
-        if (!known.writable) return reply(403, { message: "Missing Permissions", code: 50013 });
-        const message = { id: `m_${discord.state.messages.size + 1}`, channel_id: channelId, content: body.content ?? "" };
-        discord.state.messages.set(message.id, message);
-        return reply(200, message);
-      }
-    }
-  }
-  return reply(404, { message: `discord double has no route for ${method} ${url.pathname}` });
+  return respond(404, { message: `discord double has no route for ${method} ${url.pathname}` });
 });
 Object.assign(discord.state, {
   botToken: "rj-local-bot-token",
-  activityUser: { id: "987654321000000000", username: "activity-student", global_name: "Activity Student" },
-  activityCodes: new Map(),
-  channels: new Map(),
-  messages: new Map(),
+  codes: new Map(),
+  tokens: new Map(),
+  reset() {
+    discord.state.codes.clear();
+    discord.state.tokens.clear();
+  },
+  async control({ url, method, body, reply }) {
+    // Mint an Activity code for a synthetic Discord user.
+    if (url.pathname === "/__doubles/discord/codes" && method === "POST") {
+      discord.state.codes.set(body.code, {
+        spent: false,
+        user: { id: body.user.id, username: body.user.username, global_name: body.user.global_name ?? null },
+      });
+      return reply(200, { ok: true });
+    }
+    return false;
+  },
 });
 
-// ── Modal runner double ────────────────────────────────────────────────────
-// The runner boundary: accepts signed run submissions, then drives a run
-// through its lifecycle by emitting the exact callback payloads the real
-// runner posts, including worker_log lines and artifact manifests. Test
-// control lives on /__control: journeys decide per-run whether it succeeds,
-// fails, stalls or emits partial logs. HMAC verification is done the way the
-// Worker verifies it (key id + timestamp window), so a run whose signature
-// the harness mangles is rejected by the real callback handler, not by
-// harness logic.
-const modalRunner = server("modal-runner", DOUBLE_PORTS.modalRunner, (ctx) => {
-  const { res, url, method, body, headers } = ctx;
-  const reply = (status, payload) => {
-    res.writeHead(status, { "content-type": "application/json", "x-cogportal-double": "modal-runner" });
-    res.end(JSON.stringify(payload));
+// ── Modal runner ───────────────────────────────────────────────────────────
+// A sink. Every harness profile points MODAL_RUNNER_URL here, and under the
+// fixture provider nothing should arrive at all; a journey asserts the
+// journal is empty. A dispatch that does arrive is refused, so no run can
+// look as if it was accepted.
+const modalRunner = double("modal-runner", DOUBLE_PORTS.modalRunner, ({ respond }) => {
+  respond(503, { error: "the modal-runner double accepts no jobs" });
+});
+
+export function createDoubles() {
+  return {
+    doubles: [githubRest, discord, modalRunner],
+    hops: [
+      hop("github-rest", HOP_PORTS.githubRest, DOUBLE_PORTS.githubRest),
+      hop("discord", HOP_PORTS.discord, DOUBLE_PORTS.discord),
+      hop("modal-runner", HOP_PORTS.modalRunner, DOUBLE_PORTS.modalRunner),
+    ],
   };
-
-  if (url.pathname === "/runs" && method === "POST") {
-    // The portal signs submissions; the double records and "runs" them.
-    const runId = `run_${modalRunner.state.runs.size + 1}`;
-    modalRunner.state.runs.set(runId, { ...body, status: "claimed", logs: [], artifacts: [] });
-    return reply(200, { run_id: runId, status: "claimed" });
-  }
-  if (url.pathname.startsWith("/runs/") && method === "GET") {
-    const runId = url.pathname.split("/")[2];
-    const run = modalRunner.state.runs.get(runId);
-    if (!run) return reply(404, { error: "unknown run" });
-    return reply(200, run);
-  }
-  return reply(404, { error: `modal-runner double has no route for ${method} ${url.pathname}` });
-});
-Object.assign(modalRunner.state, { runs: new Map(), control: new Map() });
-
-export function createDoubles({ log = () => {} } = {}) {
-  return { githubRest, githubOAuth, discord, modalRunner, log };
 }
-
-/** Registers a synthetic GitHub repo into the REST double (harness control). */
-export function registerRepo({ owner, name, defaultBranch = "main", files = {}, head }) {
-  const full = `${owner}/${name}`;
-  githubRest.state.repos.push({
-    id: 900 + githubRest.state.repos.length + 1,
-    name,
-    full_name: full,
-    private: false,
-    owner: { login: owner },
-    default_branch: defaultBranch,
-  });
-  for (const [path, content] of Object.entries(files)) {
-    githubRest.state.files.set(`${full}/${path}`, { content, refs: [defaultBranch] });
-  }
-  if (head?.sha) {
-    githubRest.state.heads.set(`${full}/${defaultBranch}`, head);
-    githubRest.state.heads.set(`${full}/HEAD`, head);
-  }
-}
-
-export const _internals = { sleep };

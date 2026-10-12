@@ -19,11 +19,9 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./journeys",
-  // Journey specs are named j1-…–j4-… .mjs, which the default
-  // *.spec/*.test pattern never matches — discovery found zero files.
-  // Scope the match to exactly the four journey specs in testDir;
-  // helpers.mjs is a shared module, not a spec.
-  testMatch: "**/j[1-4]-*.mjs",
+  // One file per surface (s1-…, s2-…) plus the stack's own properties
+  // (ops-…). helpers.mjs is a module, not a journey.
+  testMatch: "**/*.journey.mjs",
   timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
@@ -46,6 +44,9 @@ export default defineConfig({
     command: "node stack/stack.mjs",
     url: "http://127.0.0.1:8810/__stack/health",
     reuseExistingServer: false,
+    // SIGTERM first, so the supervisor stops the preview and removes its run
+    // directory; Playwright's own kill only reaches the supervisor's group.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 20_000 },
     timeout: 300_000,
     stdout: "pipe",
     stderr: "pipe",

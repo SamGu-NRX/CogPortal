@@ -1,119 +1,91 @@
-# Cog*Portal real-journeys harness
+# Cog*Portal real journeys
 
-Playwright journeys that drive the **real** Cog*Portal stack — the built
-SPA, the built Cloudflare Worker over a fresh local D1, and stateful
-provider doubles — with network-level shaping instead of mocks.
-
-## Why this exists
-
-The scripted `tools/portal-journey-e2e` fixture server exercises the SPA
-against canned HTTP. It cannot answer the questions that break real
-users: does the worker's genuine OAuth round trip survive a dropped
-connection? Does a duplicated upstream send of a Discord channel create
-produce two channels? Do signed sessions survive a cold worker boot?
-This harness answers those by running the real worker and shaping only
-the network between it and labelled provider doubles.
-
-## Layout
-
-- `playwright.config.mjs` — sequential, one worker, zero retries; traces
-  and video are retained for failing journeys.
-- `stack/stack.mjs` — `node stack/stack.mjs` supervisor. Builds the SPA
-  for production, boots the built Worker through the repo's own
-  Cloudflare Vite preview path (`vite preview` + `@cloudflare/vite-plugin`,
-  port 8810), applies local D1 migrations and seed data on a fresh boot,
-  starts the labelled doubles, and fronts the worker with the shaping
-  proxy. The stack boots in the **development** configuration by default
-  (dev sign-in enabled, EXECUTION_PROVIDER=fixture).
-- `stack/doubles.mjs` — the doubles:
-  - **GitHub** on 8813 — OAuth authorize/token, `/user`, org memberships,
-    repo sync fixtures; grants are stateful and revocable; every request
-    is journaled.
-  - **Discord** on 8814 — OAuth token/identity, guild channel create
-    (idempotent by channel id), channel/permission validation, run-bubble
-    message posting; journaled.
-  - **Modal runner** on 8815 — eval execution callbacks with controllable
-    latency and failure modes.
-- `journeys/helpers.mjs` — session minting through the worker's real
-  dev-auth route, fresh-boot orchestration, proxy fault control, D1 SQL
-  escape hatch.
-- `journeys/j1…j4*.mjs` — the four journeys (below).
-
-## Wiring the seams
-
-The worker reads two optional bindings declared in
-`apps/portal/worker/env.ts`:
-
-- `GITHUB_API_BASE_URL` — overrides the GitHub REST/OAuth base URL
-  (`apps/portal/worker/github/client.ts` and the OAuth authorize-URL
-  builder).
-- `DISCORD_API_BASE_URL` — overrides both Discord bot clients and the
-  Activity token/identity exchange.
-
-The stack supervisor sets them in the worker's local bindings to point at
-the doubles. **No real environment sets these variables** — nothing in
-`wrangler.jsonc`, the deploy pipeline, or CI — so production traffic is
-byte-for-byte unchanged in destination. The seams exist so the worker's
-real outbound code can be exercised end-to-end; they are not feature
-flags and do not alter any code path besides the base URL string.
-
-## The journeys
-
-1. **Real GitHub OAuth + membership sync** — the browser performs the
-   authorize → code → callback redirect chain against the double; the
-   worker exchanges the code and syncs org/team membership through its
-   real client; the linkage is visible in the API and the SPA.
-2. **Revoked credential** — the double revokes the stored grant; a sync
-   maps to the real `credential_revoked` error without unlinking the
-   account; the double sees exactly one attempt.
-3. **Duplicate-send idempotency** — the proxy duplicates one upstream
-   Discord channel-create POST; the journey ends with exactly one channel
-   and one membership row.
-4. **Mid-journey restart + production refusal** — a signed session
-   survives a cold worker boot; a production-configuration boot refuses
-   `/api/dev/login` until the development configuration returns.
+Playwright journeys that drive the portal the way a student, a TA or a visitor
+does: the SPA and Worker built for production by the repo's own Vite and
+Cloudflare plugin, served by `vite preview`, over a local D1 with every
+migration and `apps/portal/scripts/seed-local.sql` applied. GitHub, Discord and
+the Modal runner are local HTTP doubles; nothing else is replaced. The plan
+this suite scores is `docs/plan/real-user-readiness.md` (surfaces S1 to S10).
 
 ## Running
 
+Node 24, from the repo root after `pnpm install`:
+
 ```sh
 cd tools/portal-real-journeys
-npm install            # first time; also: npx playwright install chromium
-node stack/stack.mjs   # boots the full stack in the background
-npm test               # runs the journeys against it
+npm ci
+npx playwright install chromium   # first time only
+npx playwright test               # boots the stack, runs every journey, stops it
 ```
 
-The stack supervisor logs to `stack/.stack/stack.log`; the proxy logs
-each shaped request to the same file. Playwright writes traces and video
-under `test-results/` for any failing journey.
+Playwright starts `stack/stack.mjs` itself (its `webServer`). Don't start the
+supervisor by hand while a run is going; it needs ports 4173, 8810, 8811-8814
+and 8821-8824. Logs land in `test-results/stack-logs/`, traces and videos of
+failed journeys in `test-results/artifacts/`, screenshots the journeys take on
+purpose in `test-results/evidence/`.
 
-## Shaping vocabulary (proxy)
+S2 runs the real `cogworks` CLI from `python/cogbench/src` on Python 3.8
+(`~/.local/bin/python3.8`, or set `RJ_PYTHON`), with its own temporary HOME and
+config, so it never touches `~/.cogbench`.
 
-`POST /__proxy/faults` with `{ rules: [...] }`, where each rule is
+## What a run can and can't touch
 
-- `match` — `{ host?, path?, method? }` selecting upstream requests,
-- one of `delayMs` (hold the request), `dropTimes: n` (swallow the first
-  n sends), or `duplicate: n` (send the request n extra times upstream),
-- `times` — optional cap on how many matching requests the rule applies
-  to.
+Each run works in its own temporary directory (`RJ_RUN_DIR` to choose one; it is
+kept then). The supervisor writes a wrangler config there from an allowlist of
+the checkout's settings, builds into it, and keeps D1, R2 and Durable Object
+state there. It never reads or writes `apps/portal/.dev.vars`,
+`apps/portal/.wrangler` or `apps/portal/dist`.
 
-`POST /__proxy/faults/clear` removes all rules. Rules never touch the
-browser↔proxy hop; they shape proxy↔upstream sends only.
+Before every Worker boot, the supervisor asks wrangler which vars the Worker
+will get and refuses to start unless `GITHUB_API_BASE_URL`,
+`DISCORD_API_BASE_URL` and `MODAL_RUNNER_URL` are set to loopback, every
+origin is loopback, and no value matches a GitHub client, Discord application,
+guild or runner URL from the deployed config (`stack/seal.mjs`;
+`apps/portal/test/real-journeys-seal.test.ts` runs in CI). Once the Worker is
+up, it checks `/api/session` reports the expected execution provider. Child
+processes get an allowlisted environment, so a `CLOUDFLARE_ENV` or provider URL
+in your shell can't reach them.
 
-## Control endpoints (supervisor, port 8810)
+Profiles: `fixture` (development, dev sign-in, fixture execution),
+`fixture-restricted` (the same with `STAFF_VISIBILITY=restricted`) and
+`production-refusal` (configured like a deployment with fake credentials;
+used to prove dev sign-in is refused).
 
-- `POST /__control/fresh` `{ nextProfile? }` — fresh D1 (migrations +
-  seed), rebuild the SPA if sources changed, boot the Worker in the
-  development configuration with the seam bindings.
-- `POST /__control/restart-worker` — cold-boot the Worker in place
-  (same D1, same assets).
-- `POST /__control/prod-boot` / `POST /__control/dev-boot` — boot with
-  production / development configuration.
-- `POST /__control/sql` `{ sql }` — D1 escape hatch for assertions
-  (read-mostly; journeys assert counts through it).
+## Doubles and hops
 
-## Doubles' control endpoints
+The Worker's provider base URLs point at hops, small forwarding proxies, and
+each hop forwards to its double:
 
-Each double serves `GET /__doubles/<provider>/journal` (recorded
-requests) plus provider-specific state routes — e.g. GitHub
-`POST /__doubles/github/revoke { login }`, Discord
-`GET /__doubles/discord/channels/:id`.
+| Provider | Hop | Double | What the double does |
+|----------|-----|--------|----------------------|
+| GitHub REST | 8821 | 8811 | answers 401; only a GitHub-configured Worker calls it |
+| Discord | 8823 | 8813 | Activity OAuth with single-use codes, `/v10/users/@me`, bot routes |
+| Modal runner | 8824 | 8814 | refuses every job; under the fixture provider nothing should arrive |
+
+Every double journals what it receives (`GET /__doubles/journal`) and labels
+its answers with `x-cogportal-double`. A hop rule
+(`POST /__hop/rules {match: {method, path}, duplicate, delayMs, times}`)
+shapes the wire between the Worker and a provider. The browser-side proxy on
+8810 takes the same kind of rule at `POST /__proxy/faults` (`method`, `path`
+as a regex, `delayMs`, `drop`, `status`, `body`, `duplicateUpstream`,
+`times`).
+
+## Control routes (8810)
+
+- `POST /__control/fresh {profile}`: stop the Worker, rebuild if the profile
+  changed, wipe and re-seed D1, start the Worker.
+- `POST /__control/restart-worker`: stop and start the Worker, keeping D1.
+- `POST /__control/sql {sql}`: rows of the last statement, read from the run's
+  D1, for assertions and for setup a journey doesn't exercise.
+
+## Journeys
+
+| File | Surface | What it proves |
+|------|---------|----------------|
+| `s1-signed-out` | S1 | landing and leaderboard render signed out, axe-clean at 1440, 390 and 320 wide; deep links ask for sign-in; unknown routes say so; skip link works |
+| `s2-onboarding-and-cli` | S2 | sign in, join with the cohort code, start a team, link the real CLI by device code; a wrong code is refused |
+| `s3-hosted-run` | S3 | a practice run started from the Runs page reaches a scored result and stays in history; a missing-adapter run shows the neutral failure card |
+| `s4-staff-desk` | S4 | a TA's desk and admin view under both staff visibility settings; an owner still reads names |
+| `s5-refusals` | S5 (part) | connect refusals and the signed-out session |
+| `s6-activity-link` | S6 (part) | a duplicated Discord code exchange and a duplicated link confirmation still make one link |
+| `ops-restart-and-production` | all | sessions survive a Worker restart; a production-configured Worker refuses dev sign-in |
