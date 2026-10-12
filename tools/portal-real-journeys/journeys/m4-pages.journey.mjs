@@ -1,7 +1,9 @@
 // M4 on every S1 to S6 page: axe with zero violations once content has
 // loaded, text contrast measured on pixels where axe can't decide, no
 // horizontal overflow, at 1440x900, 390x844 and 320x640; and, under
-// prefers-reduced-motion, nothing still animating once the page settles.
+// prefers-reduced-motion at 1440 and 390 wide, nothing animating at all, from
+// the page's first script through hovering, focusing and opening its
+// controls, on every page and in the embedded Activity.
 //
 // Each page is opened as the person who would be on it, in a populated
 // portal (journeys/world.mjs): a run, its console, staff, and an owner.
@@ -11,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ACTIVITY, STACK, doubles, fresh } from "./helpers.mjs";
-import { VIEWPORTS, expectAccessible, expectStill, settle } from "./a11y.mjs";
+import { VIEWPORTS, exercise, expectAccessible, expectNoMotion, recordMotion, settle } from "./a11y.mjs";
 import { buildWorld, call, devLogin } from "./world.mjs";
 
 let world;
@@ -59,6 +61,7 @@ const PAGES = [
 async function open(browser, page_, viewport, { reducedMotion = "no-preference" } = {}) {
   const host = page_.host ?? STACK;
   const context = await browser.newContext({ viewport, reducedMotion });
+  if (reducedMotion === "reduce") await recordMotion(context);
   const who = page_.who?.();
   if (who?.cookie) await context.addCookies(cookiesFor(who.cookie, new URL(host).hostname));
   const page = await context.newPage();
@@ -88,30 +91,35 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
-test("under reduced motion nothing on any S1 to S6 page is still moving once it settles", async ({ browser }) => {
-  test.setTimeout(240_000);
-  const failures = [];
-  for (const entry of PAGES) {
-    const { context, page } = await open(browser, entry, VIEWPORTS[0], { reducedMotion: "reduce" });
-    try {
-      await expectStill(page, entry.name);
-    } catch (error) {
-      failures.push(`${entry.name}: ${String(error.message).split("\n").slice(0, 8).join("\n")}`);
-    } finally {
-      await context.close();
+const MOTION_VIEWPORTS = VIEWPORTS.filter((viewport) => viewport.width !== 320);
+
+for (const viewport of MOTION_VIEWPORTS) {
+  test(`under reduced motion nothing on any S1 to S6 page animates at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
+    test.setTimeout(420_000);
+    const failures = [];
+    for (const entry of PAGES) {
+      const { context, page } = await open(browser, entry, viewport, { reducedMotion: "reduce" });
+      try {
+        await exercise(page);
+        await expectNoMotion([page], `${entry.name} at ${viewport.width}`);
+      } catch (error) {
+        failures.push(`${entry.name}: ${String(error.message).split("\n").slice(0, 24).join("\n")}`);
+      } finally {
+        await context.close();
+      }
     }
-  }
-  expect(failures).toEqual([]);
-  void doubles;
-});
+    expect(failures).toEqual([]);
+  });
+}
 
 // The Activity inside the Discord client double (s6-activity-frontend): the
 // link gate, then the bench with a finished run. axe and the contrast check
 // read inside the frame; overflow is the frame's own.
 const DOUBLE_PAGE = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "stack", "discord-client-double.html"), "utf8");
 
-async function activityFrame(browser, viewport, code, user) {
-  const context = await browser.newContext({ viewport });
+async function activityFrame(browser, viewport, code, user, { reducedMotion = "no-preference" } = {}) {
+  const context = await browser.newContext({ viewport, reducedMotion });
+  if (reducedMotion === "reduce") await recordMotion(context);
   const page = await context.newPage();
   await page.route(`${ACTIVITY}/__rj/discord-client**`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: DOUBLE_PAGE }));
   await doubles.discordCode(code, user);
@@ -137,6 +145,30 @@ for (const viewport of VIEWPORTS) {
     try {
       await expect(bench.frame.getByText("Run summary")).toBeVisible();
       await expectAccessible(bench.page, `Activity bench at ${viewport.width}`, { frame: bench.frame });
+    } finally {
+      await bench.context.close();
+    }
+  });
+}
+
+for (const viewport of MOTION_VIEWPORTS) {
+  test(`under reduced motion nothing in the embedded Activity's gate or bench animates at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
+    test.setTimeout(180_000);
+    const n = VIEWPORTS.indexOf(viewport);
+    const gate = await activityFrame(browser, viewport, `rj-m4-still-gate-${n}`, { id: `90000000000000041${n}`, username: `rj-m4-still-gate-${n}` }, { reducedMotion: "reduce" });
+    try {
+      await expect(gate.frame.getByRole("heading", { name: "Link Cog*Portal to see your team's bench." })).toBeVisible();
+      await exercise(gate.page, gate.frame);
+      await expectNoMotion([gate.page, gate.frame], `Activity gate at ${viewport.width}`);
+    } finally {
+      await gate.context.close();
+    }
+    const user = { id: "900000000000000201", username: "rj-m-discord-a" };
+    const bench = await activityFrame(browser, viewport, `rj-m4-still-bench-${n}`, user, { reducedMotion: "reduce" });
+    try {
+      await expect(bench.frame.getByText("Run summary")).toBeVisible();
+      await exercise(bench.page, bench.frame);
+      await expectNoMotion([bench.page, bench.frame], `Activity bench at ${viewport.width}`);
     } finally {
       await bench.context.close();
     }

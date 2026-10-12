@@ -15,7 +15,8 @@
 //   the bar for normal text, 3:1 for large text (24px, or 18.66px bold).
 // - No horizontal overflow at the page's width.
 // - Reduced motion: with `prefers-reduced-motion: reduce`, nothing on the
-//   page is still animating once it has settled.
+//   page animates at all, from its first script through hovering, focusing
+//   and opening its controls (recordMotion, exercise, expectNoMotion).
 
 import { expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
@@ -185,20 +186,122 @@ export async function expectAccessible(page, label, { frame = null } = {}) {
   return { measured: measured.length };
 }
 
-/** Under reduced motion, nothing is still moving once the page settles. */
-export async function expectStill(page, label) {
-  await settle(page);
-  const moving = await page.evaluate(() =>
-    document
-      .getAnimations()
-      .filter((animation) => animation.playState === "running")
-      .map((animation) => {
-        const target = animation.effect?.target;
-        const name = animation.animationName ?? animation.transitionProperty ?? animation.constructor.name;
-        return `${name} on ${target?.tagName?.toLowerCase() ?? "?"}.${String(target?.className ?? "").slice(0, 60)}`;
-      }),
-  );
-  expect(moving, `animations still running under reduced motion on ${label}`).toEqual([]);
+/**
+ * Records every animation that starts in a context's pages and frames, from
+ * before their first script: CSS animations and transitions (by their start
+ * events, so a finite entrance is caught even after it ends), Web Animations
+ * made by script (Element.animate, which Motion uses), and inline styles a
+ * script rewrites frame after frame (a JavaScript-driven tween). Read with
+ * `motionSeen`. Under reduced motion nothing may appear here: an animation of
+ * 1ms or less counts as none, since it changes nothing a person can see.
+ */
+export async function recordMotion(context) {
+  await context.addInitScript(() => {
+    const seen = [];
+    window.__rjMotion = seen;
+    const name = (el) => {
+      if (!el || !el.tagName) return "?";
+      const cls = String(el.className?.baseVal ?? el.className ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 4).join(".");
+      return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${cls ? `.${cls}` : ""}`;
+    };
+    // An animation that already ended (or a transition already cancelled)
+    // is gone from getAnimations by the time its event arrives; its length is
+    // then read from the element's computed style.
+    const seconds = (list) => Math.max(0, ...String(list).split(",").map((value) => parseFloat(value) * (value.trim().endsWith("ms") ? 0.001 : 1) || 0));
+    const styled = (target, kind) => {
+      const style = getComputedStyle(target);
+      if (kind !== "css-animation") return (seconds(style.transitionDuration) + seconds(style.transitionDelay)) * 1000;
+      const each = seconds(style.animationDuration);
+      const count = /infinite/.test(style.animationIterationCount) ? Infinity : parseFloat(style.animationIterationCount) || 1;
+      return each === 0 ? 0 : (each * count + seconds(style.animationDelay)) * 1000;
+    };
+    const note = (kind, target, what, animation) => {
+      const timing = animation?.effect?.getComputedTiming?.();
+      const duration = timing ? timing.activeDuration : kind === "web-animation" ? undefined : styled(target, kind);
+      if (duration !== undefined && duration <= 1) return;
+      seen.push({ kind, target: name(target), what, durationMs: duration === undefined ? "unknown" : Number.isFinite(duration) ? Math.round(duration) : "infinite" });
+    };
+    const find = (target, test) => (target.getAnimations ? target.getAnimations().find(test) : undefined);
+    document.addEventListener("animationstart", (e) => note("css-animation", e.target, e.animationName, find(e.target, (a) => a.animationName === e.animationName)), true);
+    document.addEventListener("transitionrun", (e) => note("css-transition", e.target, e.propertyName, find(e.target, (a) => a.transitionProperty === e.propertyName)), true);
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (...args) {
+      const animation = animate.apply(this, args);
+      note("web-animation", this, "Element.animate", animation);
+      return animation;
+    };
+    // A script tween rewrites an element's inline style on consecutive
+    // frames; a progress bar or a popover's position changes now and then.
+    let frame = 0;
+    const tick = () => {
+      frame += 1;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    const frames = new WeakMap();
+    new MutationObserver((records) => {
+      for (const record of records) {
+        const list = frames.get(record.target) ?? [];
+        if (list.at(-1) !== frame) list.push(frame);
+        while (list.length > 4) list.shift();
+        frames.set(record.target, list);
+        if (list.length === 4 && list[3] - list[0] <= 6 && !list.flagged) {
+          list.flagged = true;
+          seen.push({ kind: "script-style-tween", target: name(record.target), what: "inline style rewritten on 4 frames in a row", durationMs: "unknown" });
+        }
+      }
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["style"] });
+  });
+}
+
+/** What recordMotion saw in `target` (a page or a frame). */
+export function motionSeen(target) {
+  return target.evaluate(() => window.__rjMotion ?? null);
+}
+
+/**
+ * Works a page's controls the way a person does without changing anything:
+ * hovers and focuses each one, then opens and closes each disclosure and
+ * menu (aria-expanded buttons and <summary>), so a transition that only runs
+ * on interaction gets its chance to run.
+ */
+export async function exercise(page, root = page) {
+  const controls = root.locator("a[href], button, input, select, textarea, summary, [role='tab'], [tabindex='0']");
+  const count = Math.min(await controls.count(), 60);
+  for (let i = 0; i < count; i += 1) {
+    const control = controls.nth(i);
+    if (!(await control.isVisible().catch(() => false))) continue;
+    await control.hover({ timeout: 2_000 }).catch(() => {});
+    await control.focus({ timeout: 2_000 }).catch(() => {});
+  }
+  // Tagged first: opening one changes which others match the selector.
+  const tagged = await root.locator("button[aria-expanded='false'], summary").evaluateAll((elements) => {
+    elements.slice(0, 12).forEach((element, i) => element.setAttribute("data-rj-toggle", String(i)));
+    return Math.min(elements.length, 12);
+  });
+  for (let i = 0; i < tagged; i += 1) {
+    const toggle = root.locator(`[data-rj-toggle="${i}"]`);
+    if (!(await toggle.isVisible().catch(() => false))) continue;
+    await toggle.click({ timeout: 2_000 }).catch(() => {});
+    await page.waitForTimeout(100);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
+  }
+  await page.mouse.move(0, 0);
+}
+
+/**
+ * Under reduced motion nothing animated, from the page's first script
+ * through `exercise`: `targets` are the page and any frames to read.
+ */
+export async function expectNoMotion(targets, label) {
+  const seen = [];
+  for (const target of targets) {
+    const motion = await motionSeen(target);
+    if (motion === null) throw new Error(`${label}: motion was not being recorded (recordMotion before the page opened)`);
+    seen.push(...motion);
+  }
+  expect(seen, `animations under reduced motion on ${label}`).toEqual([]);
 }
 
 /** The element that has focus, described for assertions. */
