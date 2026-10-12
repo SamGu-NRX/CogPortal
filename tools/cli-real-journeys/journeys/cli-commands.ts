@@ -102,11 +102,9 @@ function jsonDocument(output: string): any | null {
   return null;
 }
 
-/** The reportId of the newest saved report in a repository. */
-async function newestReportId(repoPath: string): Promise<string> {
-  const names = await savedReports(repoPath);
-  if (names.length === 0) return "";
-  const raw = await readFile(join(repoPath, ".cogbench", "reports", names[names.length - 1]), "utf8");
+/** The reportId of a saved report file in a repository. */
+async function reportIdOf(repoPath: string, name: string): Promise<string> {
+  const raw = await readFile(join(repoPath, ".cogbench", "reports", name), "utf8");
   const parsed = JSON.parse(raw) as { reportId?: unknown; id?: unknown };
   return String(parsed.reportId ?? parsed.id ?? "");
 }
@@ -213,9 +211,11 @@ try {
     const runProcess = home.start(["run", "--benchmark", BENCHMARK, "--json"], { cwd: repo.path });
     const exit = await finish(case_, `cogworks run --benchmark ${BENCHMARK} --json`, runProcess, 900_000);
     case_.expect(exit === 0, "the practice run completed", `exit ${exit}; ${runProcess.output().slice(-300)}`);
-    const after = await savedReports(repo.path);
-    case_.expect(after.length === before.length + 1, "the run saved one new report", `${before.length} -> ${after.length}`);
-    reportId = await newestReportId(repo.path);
+    // Report names are random, and `test` saved one here too, so the run's
+    // report is the file the run added, not the last name in sort order.
+    const added = (await savedReports(repo.path)).filter((name) => !before.includes(name));
+    case_.expect(added.length === 1, "the run saved one new report", `new files: ${JSON.stringify(added)}`);
+    reportId = await reportIdOf(repo.path, added[0]);
     const report = home.start(["report"], { cwd: repo.path });
     const reportExit = await finish(case_, "cogworks report (latest)", report, 60_000);
     case_.expect(
