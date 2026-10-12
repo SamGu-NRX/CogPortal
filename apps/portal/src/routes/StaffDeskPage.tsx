@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import type {
@@ -204,9 +204,17 @@ function RunRow({ row }: { row: StaffDeskRunRow }) {
   );
 }
 
+/** Keyed by team where it is rendered, so another team opens on its first page. */
 function RunsSection({ teamId }: { teamId: string }) {
   const [page, setPage] = useState(1);
   const runs = useStaffDeskRuns(teamId, page);
+  // Runs can disappear between pages (a cached later page, a reset team), and
+  // an empty page past the end has no "Older" to leave by. Step back to the
+  // last page that has rows.
+  const lastPage = runs.data ? Math.max(1, Math.ceil(runs.data.total / runs.data.pageSize)) : null;
+  useEffect(() => {
+    if (lastPage !== null && !runs.isPlaceholderData && page > lastPage) setPage(lastPage);
+  }, [lastPage, page, runs.isPlaceholderData]);
   return (
     <PageSection
       id="desk-runs"
@@ -308,7 +316,7 @@ export function StaffDeskTeamPage() {
         )}
       </PageSection>
 
-      <RunsSection teamId={team.id} />
+      <RunsSection key={team.id} teamId={team.id} />
 
       <PageSection id="desk-people" title="People">
         <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
