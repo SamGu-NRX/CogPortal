@@ -348,6 +348,35 @@ for pin_spec in "${PIN_REVISIONS[@]}"; do
           echo "--- pin $PIN_ID on $env_name: skipping the week $week_num real-data journey; the week's benchmark did not install (the run already fails)" >&2
           continue
         fi
+        # The real-data journeys import each week's model stack in THIS
+        # environment: the runner's `from facenet_models import FacenetModel`
+        # and the week 3 adapter imports run in the interpreter that executes
+        # `cogworks` (runner.py's "FaceNet is not installed" ContractError).
+        # The CLI's own WEEK*_TRACK is the authoritative list - the same
+        # source `cogworks check` reports missing modules from. Install it
+        # from the PINNED cogbench now in this env, so a pinned run exercises
+        # the pinned track and never a hand-picked subset that can drift from
+        # the check. Mirrors stage 2b's WEEK3_TRACK provisioning; pip no-ops
+        # anything already satisfied, so the second pin's cell is cheap.
+        case "$env_name" in
+          week2) track_name="WEEK2_TRACK" ;;
+          week3) track_name="WEEK3_TRACK" ;;
+        esac
+        track_log="$RESULTS/pin-$PIN_ID-$env_name-track.log"
+        if "$env_bin/python" - >"$track_log" 2>&1 <<PY
+import subprocess, sys
+
+from cogbench.environment import $track_name
+
+for package, _module in $track_name:
+    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", package], check=True)
+PY
+        then
+          echo "--- pin $PIN_ID on $env_name: model track install ok"
+        else
+          echo "pin $PIN_ID on $env_name: the $track_name install failed; failing the run (log: $track_log)" >&2
+          FAILED=1
+        fi
         journey_home="$RESULTS/journey-home-$PIN_ID-$env_name"
         rm -rf "$journey_home"
         mkdir -p "$journey_home"
