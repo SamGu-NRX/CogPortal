@@ -54,7 +54,7 @@ export function FailureCard({
   /** Evidence belonging to this failed physical execution, never current results. */
   children?: ReactNode;
 }) {
-  const copy = failure ? resolveFailureCopy(failure.category, { benchmarkId, module }) : null;
+  const copy = failure ? resolveFailureCopy(failure.category, { benchmarkId, module, detail: failure.detail }) : null;
 
   if (collapsed) {
     return (

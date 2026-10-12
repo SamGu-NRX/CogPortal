@@ -79,19 +79,20 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   },
   adapter_missing: {
     code: "E-ADAPTER",
-    title: "This benchmark couldn't find a submission to run",
-    // Says nothing about pyproject.toml entry points: that is packaging
-    // metadata none of the thirteen 2026 capstones has, and the platform no
-    // longer needs it now that it finds a team's code by running it. The
-    // runner's raw line for this class is exactly that machinery ("Entry-point
-    // group ... has no registration"), so the card leads with the course-terms
-    // sentence and the raw line waits under "Show details" (detailOpen:
-    // false). This code also covers a search that stopped partway, after the
-    // team's own installation ran, when nobody can say whose code stopped it.
+    title: "Nothing here could be scored",
+    // The shared fallback, for any adapter_missing failure whose detail is
+    // not one of the three discovery outcomes in ADAPTER_DISCOVERY_COPY
+    // below (and for every surface that has only the category, such as the
+    // admin roster). The runner files a search that stopped partway under
+    // this category too, so this copy claims only that scoring was not
+    // reached, never that the project is wrong. It says nothing about
+    // pyproject.toml entry points: none of the thirteen 2026 capstones has
+    // them, and an unrecognized detail line is usually that machinery, so it
+    // waits under "Show details" (detailOpen: false).
     explanation:
-      "The run couldn't start: the submission set up in your project doesn't match what this benchmark expects to find.",
+      "This run did not reach scoring. The available details are below.",
     action:
-      "Run the check below. It shows how far your project gets and what to set up next.",
+      "Run the check below. It says how far your code was followed and what the next step was given, in your own function names.",
     reproCommand: "cogworks check --benchmark {benchmark}",
     remedy: "fix",
     detailOpen: false,
@@ -242,19 +243,93 @@ export const MODULE_FAILURE_COPY: Partial<
 };
 
 /**
+ * What the runner's code search concluded, for an adapter_missing failure.
+ *
+ * - "missing": the search finished and no function performed the task.
+ * - "ambiguous": the project registers more than one adapter for the benchmark.
+ * - "unfinished": the search stopped partway, so nothing is known yet.
+ *
+ * The runner sends only the category and one detail line, so the outcome is
+ * read from that line. These are the exact sentences the runner's prepare
+ * script raises (`PREPARE_SCRIPT` in
+ * apps/runner-modal/src/cogworks_runner/modal_app.py), not a guess at wording:
+ * adapter-missing-presentation.test.ts reads that file and fails if any of
+ * them changes. Anything else is null and gets the neutral fallback.
+ */
+export type AdapterDiscoveryOutcome = "missing" | "ambiguous" | "unfinished";
+
+export const ADAPTER_DISCOVERY_MESSAGES: Record<AdapterDiscoveryOutcome, string> = {
+  missing: "No adapter found in ",
+  ambiguous: "Submission adapter entry point is ambiguous.",
+  unfinished: "The search for your code could not finish",
+};
+
+export function adapterDiscoveryOutcome(detail: string | null | undefined): AdapterDiscoveryOutcome | null {
+  if (!detail) return null;
+  // The detail is the exception's last line, "RuntimeError: <message>".
+  const message = detail.trim().replace(/^RuntimeError:\s*/, "");
+  for (const outcome of ["missing", "ambiguous", "unfinished"] as const) {
+    if (message.startsWith(ADAPTER_DISCOVERY_MESSAGES[outcome])) return outcome;
+  }
+  return null;
+}
+
+/**
+ * Copy for each discovery outcome, over the adapter_missing fallback. Only a
+ * finished search may say the code wasn't found; an unfinished one says only
+ * that it stopped.
+ */
+export const ADAPTER_DISCOVERY_COPY: Record<
+  AdapterDiscoveryOutcome,
+  Pick<FailureCopy, "title" | "explanation" | "action" | "detailOpen">
+> = {
+  missing: {
+    title: "No function in your project did this benchmark's task",
+    explanation:
+      "The runner installed your project and searched all of it, and none of your functions performed the task, so there was nothing to score.",
+    action:
+      "Run the check below. It shows which of your functions it tried and what each one was missing.",
+    // The line carries the search's own verdict in the student's terms.
+    detailOpen: true,
+  },
+  ambiguous: {
+    title: "Your project registers more than one adapter for this benchmark",
+    explanation:
+      "The runner found more than one registered adapter for this benchmark and won't guess which one you meant.",
+    action:
+      "Keep one registration for this benchmark in your project's packaging, then push a new commit.",
+    detailOpen: false,
+  },
+  unfinished: {
+    title: "The search for your code didn't finish",
+    explanation:
+      "The runner started looking through your project for this benchmark's functions and stopped partway, so it can't say yet whether they're there.",
+    action:
+      "Run the check below on your machine. It runs the same search and shows where it stops.",
+    detailOpen: true,
+  },
+};
+
+/**
  * The copy actually rendered for a failure: base entry, then the module
- * override if we know the module, then `{benchmark}` filled in so the
- * reproduce command is the one this student should run.
+ * override if we know the module, then, for adapter_missing, the discovery
+ * outcome its detail names, then `{benchmark}` filled in so the reproduce
+ * command is the one this student should run.
  */
 export function resolveFailureCopy(
   category: FailureCategory,
-  context: { benchmarkId: string; module?: Module },
+  context: { benchmarkId: string; module?: Module; detail?: string | null },
 ): FailureCopy {
   const base = FAILURE_CATALOG[category];
   const override = context.module
     ? MODULE_FAILURE_COPY[context.module]?.[category]
     : undefined;
-  const merged = override ? { ...base, ...override } : base;
+  const outcome = category === "adapter_missing" ? adapterDiscoveryOutcome(context.detail) : null;
+  const merged = {
+    ...base,
+    ...override,
+    ...(outcome ? ADAPTER_DISCOVERY_COPY[outcome] : undefined),
+  };
   const fill = (text: string) => text.replaceAll("{benchmark}", context.benchmarkId);
   return {
     ...merged,
