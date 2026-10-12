@@ -205,23 +205,23 @@ for journey in setup-and-link benchmark-real-run adversarial; do
 done
 set -e
 
-echo "== [6.5/8] device-name witness (expected failing; tracked in the PR handoff) =="
+echo "== [6.5/8] device-name witness =="
 # python/cogbench's client sends {"deviceName": ...} to /api/v1/cli/device/start
-# so the registration payload proposes the device's name (client.py's
-# start_device_link). The portal's start endpoint never reads that body and
-# stores device_name as null - the proposal is dropped. This suite owns no
-# portal files, so the witness proves the drop with the stack's own D1 row
-# and is deliberately non-required: while the portal drops the name, its
-# receipt stays FAIL (visible in the report's witness line) but the run bar
-# stays green and the PR handoff carries the portal-side item for the web
-# owner. If this witness ever passes, the portal records the proposal and
-# the handoff item can be closed.
-if ! "$NODE24/bin/npx" tsx journeys/device-name-witness.ts \
-  >"$RESULTS/journey-device-name-witness.log" 2>&1; then
-  echo "--- device-name witness FAILS as expected (the portal's start endpoint ignores the proposed device name; tracked for the web owner)"
-else
-  echo "--- device-name witness PASSED: the portal now records the proposed device name; update the PR handoff"
-fi
+# (client.py's start_device_link). The portal's start endpoint never reads that
+# body and stores device_name as null (connections.ts:146-158). The witness
+# reads the stack's own D1 row: a failed or empty read fails the run (exit 1);
+# only a row read successfully with a null name is the known portal-side drop
+# (exit 3), which stays on the summary without failing the run.
+set +e
+"$NODE24/bin/npx" tsx journeys/device-name-witness.ts >"$RESULTS/journey-device-name-witness.log" 2>&1
+WITNESS_STATUS=$?
+set -e
+case "$WITNESS_STATUS" in
+  0) echo "--- device-name witness PASSED: the portal now records the proposed device name; update the PR handoff" ;;
+  3) echo "--- device-name witness: the row was read and its device_name is null (the known portal-side drop)" ;;
+  *) echo "--- device-name witness could not read the authorization row (exit $WITNESS_STATUS); failing the run" >&2
+     FAILED=1 ;;
+esac
 
 echo "== [7/8] both documented staging pins, on every supported Python =="
 # Staging students install the CLI pinned by COGBENCH_SOURCE, and the pin
