@@ -52,6 +52,9 @@ export interface CliProcess {
   exited(ms: number): Promise<number>;
   /** Everything it wrote so far, stdout and stderr interleaved. */
   output(): string;
+  /** Ctrl-C: SIGINT to the process, or to its whole process group when it was
+   * started with `{ group: true }`, the way a terminal delivers it. */
+  interrupt(): void;
 }
 
 class OwnedProcess implements CliProcess {
@@ -64,9 +67,12 @@ class OwnedProcess implements CliProcess {
   /** Settles once the process has exited and its output is drained, or it failed to start. */
   readonly settled: Promise<void>;
 
-  constructor(child: ChildProcess, label: string) {
+  private readonly group: boolean;
+
+  constructor(child: ChildProcess, label: string, group = false) {
     this.child = child;
     this.label = label;
+    this.group = group;
     child.stdout?.on("data", (chunk: Buffer) => this.append(chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.append(chunk));
     this.settled = new Promise((resolve) => {
@@ -88,7 +94,20 @@ class OwnedProcess implements CliProcess {
   }
 
   stop(signal: NodeJS.Signals): void {
-    if (this.running) this.child.kill(signal);
+    if (!this.running) return;
+    if (this.group && this.child.pid !== undefined) {
+      try {
+        process.kill(-this.child.pid, signal);
+        return;
+      } catch {
+        // The group is gone; fall through to the process itself.
+      }
+    }
+    this.child.kill(signal);
+  }
+
+  interrupt(): void {
+    this.stop("SIGINT");
   }
 
   /** Whether it settles within `ms`. */
@@ -215,7 +234,7 @@ export class CliHome {
    * facts. `--no-browser` is the caller's to pass; BROWSER=/usr/bin/true backs
    * it up so nothing can open a window on the machine's screen.
    */
-  start(args: readonly string[], options: { cwd?: string } = {}): CliProcess {
+  start(args: readonly string[], options: { cwd?: string; group?: boolean } = {}): CliProcess {
     const env: NodeJS.ProcessEnv = {
       ...withoutGitRedirection(process.env),
       PATH: `${this.venvBin}:${process.env.PATH ?? ""}`,
@@ -239,8 +258,11 @@ export class CliHome {
       cwd: options.cwd ?? this.path,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      // Its own process group, so interrupt() reaches the CLI and every child
+      // it forked, as Ctrl-C in a terminal does.
+      detached: options.group === true,
     });
-    const owned = new OwnedProcess(child, `cogworks ${args[0] ?? ""}`.trim());
+    const owned = new OwnedProcess(child, `cogworks ${args[0] ?? ""}`.trim(), options.group === true);
     this.owned.push(owned);
     return owned;
   }
