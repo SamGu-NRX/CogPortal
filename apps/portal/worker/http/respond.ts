@@ -15,9 +15,100 @@ export function respond<T>(
   return c.json(body, status);
 }
 
-export async function parseBody<T>(c: Context<AppEnv>, schema: z.ZodType<T>): Promise<T> {
+const KiB = 1024;
+const MiB = 1024 * KiB;
+
+/**
+ * How many bytes a request body may hold, by what it carries. Every body the
+ * Worker reads is counted against one of these, so a request too large to
+ * mean anything is refused with 413 instead of being buffered and stored.
+ *
+ * The weight upload (PUT /v1/local-reports/:id/weights/*) streams to R2 under
+ * its own 100 MiB cap (services/weights.ts). The GitHub webhook and Better
+ * Auth read their own bodies and are not counted here: their real sizes have
+ * not been measured.
+ */
+export const BODY_LIMITS = {
+  /**
+   * A local report or an event that may carry one: report sync, live-run
+   * events (one, or a batch of up to 32 ending in the report), and the
+   * hosted runner's callbacks.
+   *
+   * Measured on 2026-10-12: the largest report a real CLI journey printed is
+   * Week 3 language search at no more than 14,436 bytes (CI run 38252289837,
+   * all three passes; the printed, indented copy, which is never smaller than
+   * the compact body the CLI sends). The largest report fixture is 5,936
+   * bytes, and a runner event fixture 621 bytes. 1 MiB is about 70 times
+   * the largest measured report. It is also above the most the schemas
+   * admit with every length-capped field full: 63 KB for a 32-event batch
+   * ending in a report and 107 KB for a runner callback, or 265 KB and
+   * 570 KB if every character were written as a JSON escape. Metric help
+   * text has no length cap, so this limit is the only bound on it.
+   */
+  report: 1 * MiB,
+  /**
+   * Every other JSON body: forms, team and admin actions, device linking,
+   * setup evidence and the live-run start. The largest the CLI sends is
+   * setup evidence, measured at 301 bytes; full in every capped field it is
+   * 2.9 KB, or 16 KB written entirely as JSON escapes, and the capped
+   * fields of every other schema here admit less. 64 KiB is four times the
+   * escaped bound.
+   */
+  control: 64 * KiB,
+} as const;
+export type BodyLimit = keyof typeof BODY_LIMITS;
+
+function formatBytes(bytes: number): string {
+  return bytes % MiB === 0 ? `${bytes / MiB} MiB` : `${bytes / KiB} KiB`;
+}
+
+/**
+ * The request body as text, refused with 413 past its limit.
+ *
+ * The bytes are counted as they arrive. A declared Content-Length over the
+ * limit is refused before anything is read; a missing or understated one
+ * can't get past the count, and reading stops at the first byte over.
+ */
+export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promise<string> {
+  const max = BODY_LIMITS[limit];
+  const tooLarge = () =>
+    new ApiHttpError(413, "invalid_request", `The request body is over the ${formatBytes(max)} this endpoint accepts.`);
+  if (Number(c.req.header("Content-Length")) > max) throw tooLarge();
+
+  const stream = c.req.raw.body;
+  if (!stream) return "";
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > max) {
+      // The refusal stands whether or not the stream closes cleanly.
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/** Reads, size-checks and validates a JSON body. */
+export async function parseBody<T>(
+  c: Context<AppEnv>,
+  schema: z.ZodType<T>,
+  limit: BodyLimit = "control",
+): Promise<T> {
+  const text = await readBodyText(c, limit);
   try {
-    return schema.parse(await c.req.json());
+    return schema.parse(JSON.parse(text));
   } catch {
     throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
   }
