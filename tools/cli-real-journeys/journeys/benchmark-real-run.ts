@@ -1,3 +1,4 @@
+import { webcrypto } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { CliHome, env } from "../support/cli.ts";
@@ -6,6 +7,7 @@ import { Portal } from "../support/portal.ts";
 import { readStackInfo } from "../support/stack-info.ts";
 import { Case } from "./harness.ts";
 import { SUBMISSION_PY } from "./submission.ts";
+import { LANGUAGE_SUBMISSION_PY } from "./submission-week3.ts";
 
 /**
  * The benchmark journey, entirely real: a team repository with a working
@@ -24,6 +26,72 @@ const portal = await Portal.create();
 // every approveDevice call answers 401.
 await portal.devLogin("journey-student", { demo: true });
 const BENCHMARK = "audio-identification";
+const WEEK3_BENCHMARK = "language-search";
+
+// ── Discord setup helpers for the channel-bind and live-run cases ──────────
+// The journey forges the Discord side of the CogBot conversation exactly the
+// way Discord would: signed interaction posts, and the double's log as the
+// receipt of every view the bot rendered and every message it sent.
+
+/** Signs `timestamp + body` with a PKCS8 Ed25519 private key, Discord's scheme. */
+async function signInteraction(privateKey: webcrypto.CryptoKey, timestamp: string, body: string): Promise<string> {
+  const data = new TextEncoder().encode(`${timestamp}${body}`);
+  const signature = await webcrypto.subtle.sign("Ed25519", privateKey, data);
+  return Buffer.from(signature).toString("hex");
+}
+
+async function importEd25519(pem: string): Promise<webcrypto.CryptoKey> {
+  const pemBody = pem.replace(/-----BEGIN [A-Z ]+-----/, "").replace(/-----END [A-Z ]+-----/, "").replace(/\s+/g, "");
+  return webcrypto.subtle.importKey("pkcs8", Buffer.from(pemBody, "base64"), { name: "Ed25519" }, false, ["sign"]);
+}
+
+/** The discord double's request log, minus its own /__log__ reads. */
+async function doubleLog(): Promise<Array<Record<string, any>>> {
+  const response = await fetch(`${info.discordDoubleOrigin}/__log__`);
+  const entries = (await response.json()) as Array<Record<string, any>>;
+  return entries.filter((entry) => entry.path !== "/__log__");
+}
+
+/** Waits until `probe` passes against a fresh double-log snapshot. */
+async function waitForDouble(what: string, probe: (entries: Array<Record<string, any>>) => boolean, timeoutMs = 20_000): Promise<Array<Record<string, any>>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const entries = await doubleLog();
+    if (probe(entries)) return entries;
+    if (Date.now() > deadline) throw new Error(`the Discord double never showed ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+let botKey: webcrypto.CryptoKey | null = null;
+
+/** A signed interaction poster acting as one Discord user in the course
+ * guild, talking to CogBot through the shaper. Answers the HTTP status. */
+async function interactionPoster(discordUser: { id: string; username: string }, channelId: string) {
+  botKey ??= await importEd25519(info.discordPrivateKeyPem);
+  const key = botKey;
+  return async (payload: Record<string, unknown>): Promise<number> => {
+    const body = JSON.stringify({
+      application_id: "journey-application",
+      token: `journey-interaction-${discordUser.id}`,
+      guild_id: info.courseGuildId,
+      channel_id: channelId,
+      member: { user: discordUser },
+      ...payload,
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const response = await fetch(`${info.shaperBotOrigin}/`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Signature-Ed25519": await signInteraction(key, timestamp, body),
+        "X-Signature-Timestamp": timestamp,
+      },
+      body,
+    });
+    return response.status;
+  };
+}
 
 /** Links a fresh CLI HOME and approves it from the browser session. */
 async function link(case_: Case, home: CliHome, deviceName: string): Promise<void> {
@@ -75,6 +143,8 @@ const cases = {
   testSmall: new Case("benchmark-real-run", "test-small-case", ["installed CLI", "benchmark package", "team repo"]),
   runSync: new Case("benchmark-real-run", "run-and-sync", ["installed CLI", "benchmark package", "portal Worker", "D1"]),
   liveBubble: new Case("benchmark-real-run", "live-run-bubble", ["installed CLI", "portal Worker", "CogBot", "Discord double"]),
+  discordBind: new Case("benchmark-real-run", "discord-channel-bind", ["portal Worker", "CogBot", "Discord double"]),
+  liveLanguage: new Case("benchmark-real-run", "live-run-language-search", ["installed CLI", "benchmark package", "portal Worker", "D1", "CogBot", "Discord double"]),
 };
 
 await cases.selfLink.run(async () => {
@@ -198,3 +268,152 @@ await cases.liveBubble.run(async () => {
     await repo.dispose();
   }
 });
+
+// The Discord setup journey, end to end: a signed /cog interaction mints the
+// portal link, the portal session confirms it, the channel binds through the
+// bot's confirmation interaction with the portal's real Discord validation
+// reads behind it, and the bound view names the channel live runs bubble in.
+// The link is revoked afterwards so the sequential adversarial journey's own
+// link of this shared demo account cannot conflict.
+await cases.discordBind.run(async () => {
+  const case_ = cases.discordBind;
+  const discordUser = { id: "9001000000000000001", username: "journey-student-discord" };
+  const channelId = "9002000000000000001";
+  const post = await interactionPoster(discordUser, channelId);
+
+  const cogStatus = await post({ type: 2, data: { id: "1", name: "cog", type: 1 } });
+  case_.expect(cogStatus === 200, "the bot accepted the /cog interaction", `status ${cogStatus}`);
+  const linkEntries = await waitForDouble(
+    "the bot's connect view with a portal link token",
+    (entries) =>
+      entries.some(
+        (entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("#discord="),
+      ),
+  );
+  const token = [...JSON.stringify(linkEntries.map((entry) => entry.body ?? {})).matchAll(/#discord=([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
+  case_.expect(Boolean(token), "the bot's connect view carried a portal link token", "no #discord= token in any view edit");
+  if (!token) throw new Error("the connect view never carried a #discord= token");
+
+  const confirmed = await portal.confirmDiscordLink(token);
+  case_.expect(
+    confirmed.discord !== null && confirmed.discord.username === discordUser.username,
+    "the portal session confirmed the Discord link",
+    JSON.stringify(confirmed).slice(0, 300),
+  );
+
+  // Linked: the /cog home view now offers binding this channel. Accept the
+  // bind button, confirm the consent view, and wait for the bound home view
+  // naming the channel — the portal's binding did real Discord validation
+  // reads (channel, roles, bot member) against the double on the way.
+  await post({ type: 2, data: { id: "2", name: "cog", type: 1 } });
+  await waitForDouble("the bot's linked home view with a bind button", (entries) =>
+    entries.some((entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("cog:bind-channel")),
+  );
+  await post({ type: 3, data: { custom_id: "cog:bind-channel" }, message: { id: "m-journey", channel_id: channelId } });
+  await waitForDouble("the bot's bind-consent view", (entries) =>
+    entries.some((entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("cog:bind-channel:confirm")),
+  );
+  await post({ type: 3, data: { custom_id: "cog:bind-channel:confirm" }, message: { id: "m-journey", channel_id: channelId } });
+  const bound = await waitForDouble("the bot's bound home view naming the channel", (entries) =>
+    entries.some((entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes(`Live runs → <#${channelId}>`)),
+  );
+  case_.claim("the bot's bound home view names the team channel", JSON.stringify(bound.map((entry) => entry.body)).slice(0, 600));
+
+  const summary = await portal.connectionSummary();
+  case_.expect(
+    summary.discord !== null && summary.discord.username === discordUser.username,
+    "the portal session lists the linked Discord account",
+    JSON.stringify(summary).slice(0, 300),
+  );
+
+  // Leave the shared demo account unlinked for the adversarial journey.
+  await portal.revokeDiscordLink();
+  const after = await portal.connectionSummary();
+  case_.expect(after.discord === null, "the cleanup revoked the shared account's Discord link", JSON.stringify(after).slice(0, 300));
+});
+
+// The successful --live journey: the real Week 3 language-search benchmark —
+// an active seeded version, unlike the deliberately inactive
+// audio-identification — run live from a fresh CLI home. The run scores the
+// checked-in reference submission against the checksum-pinned artifacts,
+// reports through the portal, and the bound team channel receives the live
+// progress bubble the CLI opens, all witnessed on the double.
+await cases.liveLanguage.run(async () => {
+  const case_ = cases.liveLanguage;
+  const home = await CliHome.create(env("VENV_WEEK3"), { data: { languageData: env("WEEK3_DATA") } });
+  const repo = await TeamRepository.create({
+    originFullName: "cogworks-demo/face-finder",
+    files: { "submission.py": LANGUAGE_SUBMISSION_PY },
+  });
+  try {
+    await link(case_, home, "journey-bench");
+    // The team's live bubble needs a bound channel: link the shared session's
+    // Discord account and bind one. The discordBind case asserts every
+    // intermediate view; here only the final bound state matters.
+    const discordUser = { id: "9003000000000000001", username: "journey-student-discord" };
+    const channelId = "9004000000000000001";
+    const post = await interactionPoster(discordUser, channelId);
+    await post({ type: 2, data: { id: "1", name: "cog", type: 1 } });
+    const linkEntries = await waitForDouble("the live journey's connect view token", (entries) =>
+      entries.some((entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes("#discord=")),
+    );
+    const token = [...JSON.stringify(linkEntries.map((entry) => entry.body ?? {})).matchAll(/#discord=([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
+    if (!token) throw new Error("the connect view never carried a #discord= token");
+    const confirmed = await portal.confirmDiscordLink(token);
+    case_.expect(confirmed.discord !== null, "the live journey's Discord link confirmed", JSON.stringify(confirmed).slice(0, 300));
+    await post({ type: 2, data: { id: "2", name: "cog", type: 1 } });
+    await post({ type: 3, data: { custom_id: "cog:bind-channel" }, message: { id: "m-live", channel_id: channelId } });
+    await post({ type: 3, data: { custom_id: "cog:bind-channel:confirm" }, message: { id: "m-live", channel_id: channelId } });
+    await waitForDouble("the live journey's bound home view", (entries) =>
+      entries.some((entry) => entry.method === "PATCH" && entry.path?.includes("/messages/@original") && JSON.stringify(entry.body ?? {}).includes(`Live runs → <#${channelId}>`)),
+    );
+
+    // The live run itself: the same shape as the refusal case, now against
+    // the active benchmark — it must complete and save a report.
+    const run = home.start(["run", "--benchmark", WEEK3_BENCHMARK, "--live", "--json"], { cwd: repo.path });
+    const exit = await run.exited(900_000);
+    case_.command("cogworks run --benchmark language-search --live --json", exit, run.output());
+    case_.expect(exit === 0, "the live run completed", `cogworks run exited ${exit}; output ends: ${run.output().slice(-400)}`);
+
+    const report = await latestReport(repo.path);
+    const reportId = report.id ?? report.reportId;
+    case_.expect(Boolean(reportId), "the live run saved a local report with an id", `report keys: ${Object.keys(report).slice(0, 12).join(",")}`);
+    const head = await repo.head();
+    case_.claim("the team repository's HEAD the live run pinned", head);
+
+    const sync = home.start(["sync"], { cwd: repo.path });
+    const syncExit = await sync.exited(120_000);
+    case_.command("cogworks sync", syncExit, sync.output());
+    case_.expect(syncExit === 0, "the live report synced to the portal", `cogworks sync exited ${syncExit}`);
+
+    const reports = [...(await portal.teamLocalReports(WEEK3_BENCHMARK)), ...(await portal.teamUntrackedReports())];
+    const found = reports.find((row: any) => (row.id ?? row.reportId) === reportId);
+    case_.expect(
+      Boolean(found),
+      "the live report appears in the team's portal view for the benchmark",
+      `${reports.length} report(s) listed; looking for ${reportId}`,
+    );
+
+    const surfaces = await portal.teamRunSurfaces();
+    const surface = surfaces.find((row: any) => JSON.stringify(row).includes(String(reportId)));
+    case_.expect(Boolean(surface), "the run surfaces a team-scoped live-run entry", `${surfaces.length} surface(s) listed`);
+
+    // The receipts: the bound channel actually received the live bubble — a
+    // message create and at least one edit, recorded by the double after the
+    // bind. The bubble carries the benchmark's name, not just any traffic.
+    const bubble = await waitForDouble("the live bubble's channel messages", (entries) => {
+      const sent = entries.filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
+      const edited = entries.filter((entry) => entry.method === "PATCH" && /^\/api\/v10\/channels\/[^/]+\/messages(\/[^/]+)?$/.test(entry.path ?? ""));
+      return sent.length > 0 && edited.length > 0;
+    });
+    const sent = bubble.filter((entry) => entry.method === "POST" && /^\/api\/v10\/channels\/[^/]+\/messages$/.test(entry.path ?? ""));
+    case_.claim("the live bubble's channel-message receipts", JSON.stringify(sent.map((entry) => ({ path: entry.path, body: entry.body }))).slice(0, 600));
+
+    await portal.revokeDiscordLink();
+  } finally {
+    await home.close();
+    await repo.dispose();
+  }
+});
+
+

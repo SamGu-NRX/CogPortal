@@ -74,7 +74,7 @@ async function freePort() {
 // Speaks the interaction-webhook calls CogBot makes (PATCH and GET on the
 // @original message) and records everything. Its log is a receipt the
 // journeys read back; nothing is dropped silently.
-function startDiscordDouble(logPath) {
+function startDiscordDouble(logPath, guildId) {
   const requests = [];
   const messages = new Map();
   const server = createServer(async (req, res) => {
@@ -91,6 +91,62 @@ function startDiscordDouble(logPath) {
     requests.push(record);
     await appendFile(logPath, `${JSON.stringify(record)}\n`).catch(() => {});
 
+    // The portal's Discord REST calls arrive with the full /api/v10 prefix
+    // (the outbound worker forwards paths verbatim). Channel binding validates
+    // by reading the channel, the guild roles, and the bot member; a bound
+    // team's live bubble creates and edits a channel message. The bot's own
+    // deferred view edits are /api/v10 webhook paths ending in @original —
+    // those stay with the @original handler below.
+    if (req.url.startsWith("/api/v10/") && !req.url.endsWith("/messages/@original")) {
+      const msgMatch = req.url.match(/^\/api\/v10\/channels\/([^/]+)\/messages(\/[^/]+)?$/);
+      if (msgMatch) {
+        const messageId = String(1758000000000000000n + BigInt(requests.length));
+        if (req.method === "POST") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ id: messageId, channel_id: msgMatch[1], ...(record.body ?? {}) }));
+          return;
+        }
+        if (req.method === "PATCH") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ id: msgMatch[2]?.slice(1) ?? messageId, channel_id: msgMatch[1], ...(record.body ?? {}) }));
+          return;
+        }
+      }
+      if (req.method === "GET" && /^\/api\/v10\/channels\/[^/]+$/.test(req.url)) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          id: req.url.split("/")[4],
+          type: 0,
+          guild_id: guildId,
+          name: "journey-team-channel",
+          permission_overwrites: [],
+        }));
+        return;
+      }
+      if (req.method === "GET" && /^\/api\/v10\/guilds\/[^/]+\/roles$/.test(req.url)) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([
+          { id: guildId, name: "@everyone", permissions: "0", color: 0, position: 0 },
+          // View Channel (1<<10) | Send Messages (1<<11), so the bot member
+          // clears assertDiscordChannelWritable with no channel overwrites.
+          { id: "journey-bot-role", name: "CogBot", permissions: "3072", color: 0, position: 1 },
+        ]));
+        return;
+      }
+      if (req.method === "GET" && /^\/api\/v10\/guilds\/[^/]+\/members\/[^/]+$/.test(req.url)) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          user: { id: req.url.split("/")[6], username: "cog-bot" },
+          nick: null,
+          roles: ["journey-bot-role"],
+          joined_at: "2026-01-01T00:00:00.000000+00:00",
+        }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ message: "discord-api-double: unhandled /api/v10 path" }));
+      return;
+    }
     if (req.url.endsWith("/messages/@original")) {
       if (req.method === "PATCH" || req.method === "POST") {
         messages.set(req.url, { id: `double-${requests.length}`, body: record.body });
@@ -255,7 +311,10 @@ async function main() {
   const privateKeyPem = keypair.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 
   const discordLogPath = join(dirname(STACK_INFO), "discord-double.log");
-  const double = startDiscordDouble(discordLogPath);
+  // Declared before the double starts: the double answers the portal's
+  // guild-scoped /api/v10 validation reads with this id.
+  const guildId = "1515858059027550321";
+  const double = startDiscordDouble(discordLogPath, guildId);
   await listen(double.server, doublePort);
 
   // The shaper fronts the Workers; these are the origins a browser or a CLI
@@ -264,7 +323,6 @@ async function main() {
   const portalOrigin = `http://portal.journey.test:${dispatchPort}`;
   const botOrigin = `http://bot.journey.test:${dispatchPort}`;
   const browsableOrigin = `http://127.0.0.1:${shaperPortalPort}`;
-  const guildId = "1515858059027550321";
 
   const mf = new Miniflare({
     port: dispatchPort,
@@ -329,13 +387,17 @@ async function main() {
           GITHUB_CLIENT_ID: "",
           GITHUB_CLIENT_SECRET: "",
           GITHUB_WEBHOOK_SECRET: "",
-          DISCORD_BOT_TOKEN: "",
+          DISCORD_BOT_TOKEN: "journey-local-bot-token",
+          DISCORD_CLIENT_ID: "journey-application",
           RUN_STALE_AFTER_SECONDS: "3600",
           RUNNER_PYTHON_VERSION: "3.11",
           RUNNER_SIGNING_KEY_ID: "runner-v1",
         },
         d1Databases: { DB: "b7e9e560-c32c-435e-9bfc-b82da43b27f4" },
         r2Buckets: { ARTIFACTS: "cogportal-artifacts-dev" },
+        // The portal's own Discord calls (channel validation on bind, the
+        // live-run bubble) must reach the local double, not the real API.
+        outboundService: "discord-outbound",
         durableObjects: { RUN_SURFACES: { className: "RunSurfaceHub", scriptName: "portal" } },
         migrations: [{ tag: "run-surfaces-v1", new_sqlite_classes: ["RunSurfaceHub"] }],
         assets: {

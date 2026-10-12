@@ -19,6 +19,7 @@ REPO_ROOT=$(cd ../.. && pwd)
 CONDA_ROOT=${CONDA_ROOT:-/home/user/work/miniconda3}
 NODE24=${NODE24:-/home/user/work/node24}
 WEEK1_ENV="$CONDA_ROOT/envs/week1"
+WEEK3_ENV="$CONDA_ROOT/envs/week3"
 export PATH="$NODE24/bin:$PATH"
 RUN_TAG=${RUN_TAG:-$(date -u +%Y%m%dT%H%M%SZ)}
 RESULTS="$PWD/results/$RUN_TAG"
@@ -62,6 +63,10 @@ trap 'exit 143' TERM
 # must be the same value the booted Worker runs with.
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-local-development-only-not-a-real-secret-0000}"
 export VENV_WEEK1="$WEEK1_ENV/bin"  # CliHome wants the venv's bin directory
+export VENV_WEEK3="$WEEK3_ENV/bin"  # the live-run journey's Week 3 CLI home
+# The live-run journey pins the Week 3 data root at the suite's own ignored
+# copy of the artifacts, fetched once by stage 2b.
+export WEEK3_DATA="$PWD/.week3-data"
 
 echo "== [1/7] prerequisites =="
 node --version
@@ -85,6 +90,38 @@ if [ "${SKIP_INSTALL:-0}" != "1" ]; then
 fi
 "$WEEK1_ENV/bin/cogworks" --version >"$RESULTS/cli-version.txt" 2>&1
 cat "$RESULTS/cli-version.txt"
+
+echo "== [2b/8] Week 3 environment and pinned data for the live-run journey =="
+# The successful --live journey runs the real language-search benchmark from
+# the Week 3 environment: it installs the CLI and the Week 3 distribution the
+# student way, fetches the checksum-pinned public artifacts once into the
+# suite's own ignored directory, and proves `cogworks check` passes against
+# them before any journey depends on that.
+if [ "${SKIP_INSTALL:-0}" != "1" ]; then
+  "$WEEK3_ENV/bin/python" -m pip install --quiet "numpy==1.24.4" platformdirs \
+    >"$RESULTS/pip-week3-deps.log" 2>&1
+  # The checked-in Week 3 reference submission loads GloVe vectors through
+  # resources.load_glove(), which needs gensim.
+  "$WEEK3_ENV/bin/python" -m pip install --quiet gensim \
+    >>"$RESULTS/pip-week3-deps.log" 2>&1
+  "$WEEK3_ENV/bin/python" -m pip install --quiet -e "$REPO_ROOT/python/cogbench" \
+    >"$RESULTS/pip-week3-cli.log" 2>&1
+  "$WEEK3_ENV/bin/python" -m pip install --quiet -e "$REPO_ROOT/benchmarks/week3" \
+    >"$RESULTS/pip-week3-bench.log" 2>&1
+fi
+mkdir -p "$WEEK3_DATA"
+COGWORKS_LANGUAGE_DATA="$WEEK3_DATA" "$WEEK3_ENV/bin/python" -m language_search_benchmark.fetch \
+  >"$RESULTS/week3-data-fetch.log" 2>&1
+# The check inspects its working directory as the student repository, so run
+# it in a throwaway git fixture holding the checked-in example submission.
+WEEK3_CHECK_DIR="$RESULTS/week3-check-repo"
+rm -rf "$WEEK3_CHECK_DIR" && mkdir -p "$WEEK3_CHECK_DIR"
+cp -r "$REPO_ROOT/examples/week3-language-submission/." "$WEEK3_CHECK_DIR/"
+git -C "$WEEK3_CHECK_DIR" init -q
+git -C "$WEEK3_CHECK_DIR" add -A
+git -C "$WEEK3_CHECK_DIR" -c user.name=Journey -c user.email=journey-student@dev.local commit -qm "Week 3 check fixture"
+(cd "$WEEK3_CHECK_DIR" && COGWORKS_LANGUAGE_DATA="$WEEK3_DATA" "$WEEK3_ENV/bin/cogworks" check --benchmark language-search) \
+  >"$RESULTS/week3-check.log" 2>&1
 
 echo "== [3/7] fresh local D1 in this run's state directory =="
 # The repo's db:migrate:local / db:seed:local scripts with the per-run

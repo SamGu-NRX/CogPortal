@@ -2,3 +2,7 @@ node_modules/
 results/
 .playwright/
 *.log
+# The week 3 benchmark's pinned public artifacts (~935 MB) that stage 2b
+# fetches once for the live-run journey; never committed.
+.week3-data/
+

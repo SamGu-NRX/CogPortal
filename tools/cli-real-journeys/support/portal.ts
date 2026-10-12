@@ -121,6 +121,45 @@ export class Portal {
     if (response.status !== 200) throw new Error(`local-reports answered ${response.status}: ${response.body}`);
     return parseReportList(response.json());
   }
+
+  /** The signed-in user's connection summary (ConnectionSummarySchema):
+   * `discord` is null until a link token is confirmed. */
+  async connectionSummary(): Promise<ConnectionSummary> {
+    const response = await this.request("/api/v1/connections");
+    if (response.status !== 200) throw new Error(`connections answered ${response.status}: ${response.body}`);
+    const parsed = response.json() as Partial<ConnectionSummary>;
+    if (typeof parsed !== "object" || parsed === null || !("discord" in parsed)) {
+      throw new Error(`connections answered an unrecognized shape: ${response.body.slice(0, 200)}`);
+    }
+    return parsed as ConnectionSummary;
+  }
+
+  /** Confirms a Discord link token minted by the bot's /cog link start,
+   * through this session's team auth. Answers the updated summary. */
+  async confirmDiscordLink(token: string): Promise<ConnectionSummary> {
+    const response = await this.request("/api/v1/connections/discord/confirm", {
+      method: "POST",
+      body: { token },
+    });
+    if (response.status !== 200) throw new Error(`discord link confirm answered ${response.status}: ${response.body}`);
+    return response.json() as ConnectionSummary;
+  }
+
+  /** Revokes this session's Discord link, so a later journey linking the same
+   * portal user does not hit the link_conflict the adversarial journey saw. */
+  async revokeDiscordLink(): Promise<ConnectionSummary> {
+    const response = await this.request("/api/v1/connections/discord", { method: "DELETE" });
+    if (response.status !== 200) throw new Error(`discord link revoke answered ${response.status}: ${response.body}`);
+    return response.json() as ConnectionSummary;
+  }
+
+  /** The team's run surfaces. Mounted at /api/run-surfaces (not under v1)
+   * and answering a bare array of RunSurfaceSnapshotSchema. */
+  async teamRunSurfaces(): Promise<any[]> {
+    const response = await this.request("/api/run-surfaces");
+    if (response.status !== 200) throw new Error(`run-surfaces answered ${response.status}: ${response.body}`);
+    return parseSurfaceList(response.json());
+  }
 }
 
 /** The list endpoints answer with a bare array (LocalReportListSchema is
@@ -136,7 +175,24 @@ function parseReportList(parsed: unknown): any[] {
   throw new Error(`local-reports answered an unrecognized shape: ${JSON.stringify(parsed).slice(0, 200)}`);
 }
 
+/** Same contract as parseReportList for the run-surfaces list
+ *  (RunSurfaceSnapshotSchema as a bare array). */
+function parseSurfaceList(parsed: unknown): any[] {
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === "object" && Array.isArray((parsed as { surfaces?: unknown }).surfaces)) {
+    return (parsed as { surfaces: any[] }).surfaces;
+  }
+  throw new Error(`run-surfaces answered an unrecognized shape: ${JSON.stringify(parsed).slice(0, 200)}`);
+}
+
 /** The setup page's check-off secret, which mints the page's copyable commands. */
 export function betterAuthSecret(): string {
   return env("BETTER_AUTH_SECRET");
+}
+
+/** The /api/v1/connections summary (ConnectionSummarySchema in
+ *  packages/contracts): the Discord link is null until confirmed. */
+export interface ConnectionSummary {
+  github: { id: number | null; login: string; avatarUrl: string | null } | null;
+  discord: { userId: string; username: string; linkedAt: number } | null;
 }
