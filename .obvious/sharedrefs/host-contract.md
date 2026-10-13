@@ -1,8 +1,8 @@
 # Host contract
 
-These focused design references supplement the user's existing design and writing guides; they do not replace them. Read only the skill and references relevant to the task. Select installed skills from [the manifest](../skills-manifest.json) when relevant. `anti-ui-slop` requires an explicit user request. A reference naming an unavailable skill is not permission to install or start it.
+These focused design references supplement the user's existing design and writing guides; they do not replace them. Read only the skill and references relevant to the task. The six focused skills may be selected when relevant. `better-interface`, `interface-review`, `explain-interface`, `break` and `variant` require an explicit user request. A focused skill naming them is not permission to start them.
 
-Within an explicitly requested broad workflow, read named sibling SKILL.md files as references rather than starting another model or bypassing their invocation policy. The current lead owns scope, judgment and acceptance. Do not load the whole bundle for ordinary UI work.
+Within an explicitly requested broad workflow, read named sibling SKILL.md files as references rather than starting another model or bypassing their invocation policy. The current lead owns scope, judgment and acceptance. Do not load all eleven skills for ordinary UI work.
 
 ## Capabilities and authorization
 
