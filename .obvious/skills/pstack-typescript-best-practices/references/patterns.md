@@ -1,6 +1,6 @@
 # TypeScript patterns
 
-Code examples for each rule in `SKILL.md`. The underlying principles are language-agnostic. The type-system rules are included in [SKILL.md](../SKILL.md). See [boundary discipline](../../pstack-principle-boundary-discipline/SKILL.md) for parsing external data.
+Code examples for each rule in `SKILL.md`. The underlying principles are language-agnostic. See the **type-system-discipline** and **boundary-discipline** principle skills.
 
 ## Branded types
 
@@ -40,12 +40,12 @@ Pick one discriminant name (`kind`, `type`, `tag`) and stick to it.
 
 ## Constructive modeling
 
-Use types to preserve structural invariants. Numeric constraints still require runtime validation at construction.
+Build the type from parts that are all legal instead of restricting a loose type with runtime checks.
 
 Non-empty, via a variadic tuple:
 
 ```ts
-type NonEmpty<T> = readonly [T, ...T[]];
+type NonEmpty<T> = [T, ...T[]];
 
 // Don't: T[] plus a length check every caller must repeat
 function pickWinner(entries: string[]): string {
@@ -59,10 +59,10 @@ function pickWinner(entries: NonEmpty<string>): string {
 }
 ```
 
-Accept readonly inputs and narrow once with a guard. Readonly blocks mutation through this reference, but it does not freeze a mutable alias. Copy external arrays into an owned value before retaining the invariant across calls:
+Where a plain `T[]` arrives, narrow once with a guard. The fact then travels in the type:
 
 ```ts
-const isNonEmpty = <T>(arr: readonly T[]): arr is NonEmpty<T> => arr.length > 0;
+const isNonEmpty = <T>(arr: T[]): arr is NonEmpty<T> => arr.length > 0;
 ```
 
 Even length, as pairs:
@@ -77,11 +77,11 @@ A time range, as start plus duration:
 // Don't: a comment holds the invariant
 type TimeRange = { start: Date; end: Date }; // start <= end
 
-// This shape avoids storing a redundant end, but number permits negatives.
+// Do: a negative range can't be written; derive end when needed
 type TimeRange = { start: Date; durationMs: number };
 ```
 
-Validate `Number.isFinite(durationMs) && durationMs >= 0` at construction. Reject negative values, `NaN`, and infinities before deriving the end. This plain-number example does not make invalid durations unrepresentable. Use a validated branded duration when callers need the type to carry that guarantee.
+Keep `durationMs` a plain number. Brand it (per Branded types) only if a raw number could be passed where a duration is expected, not by reflex. Pick the representation that makes the bad state unconstructable, then expose the reading you need on top (`pairs.flat()`, a `rangeEnd()` helper).
 
 ## Simplest total type
 
@@ -269,10 +269,9 @@ const config = { theme: "dark", cols: 3 } satisfies Config;
 
 ## Boundary validation
 
-Validate once where data crosses in. Trust types inside. See [boundary discipline](../../pstack-principle-boundary-discipline/SKILL.md).
+Validate once where data crosses in. Trust types inside. See the **boundary-discipline** principle skill.
 
-- **Protobuf JSON:** `ignoreUnknownFields` is a parser option. Enable it only when the protocol permits ignoring unknown fields.
-- **JSON-RPC:** validate request members and parameters with the stack's schema or validator. JSON-RPC does not define an `ignoreUnknownFields` parser option; follow the endpoint's unknown-field policy.
+- **Wire formats** (proto, JSON-RPC): parse with `ignoreUnknownFields` so forward-compatible changes don't break old clients.
 - **Persisted JSON:** versioned blob with a try/catch around the parse.
 - **Don't re-validate** deep in call chains.
 
