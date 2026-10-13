@@ -13,7 +13,7 @@ Write every fix in the project's styling system, and use the exact values below 
 
 Reviewing means two walks. Keyboard-only, where every flow completes without a mouse. Then screen-reader, where every control announces a name, a role and its state. Prefer the platform default over a custom rebuild. Remove only redundant or incorrect ARIA; retain or add names, states and relationships that native HTML does not supply.
 
-Contrast measurement and color fixes belong to `better-colors`. Text sizing and iOS input zoom belong to `better-typography`. Spatial RTL layout belongs to `better-layout`.
+Use the bundled [motion and zoom](motion-and-zoom.md) guide for text scaling and reflow. For contrast, inspect the rendered foreground and background with the browser's contrast tool and compare them with the applicable WCAG requirement. Test RTL reading and focus order in the running page. If a required tool or runtime check is unavailable, report it as not verified. Optional host skills such as `better-colors`, `better-typography`, and `better-layout` can help when installed; this bundle does not require them.
 
 ## Native elements first
 
@@ -59,7 +59,7 @@ Icon-only buttons need an accessible name from visually hidden text, `aria-label
 
 ## Don't rely on color alone
 
-Status needs a redundant cue: an icon, text, or an underline alongside the color. Work out which WCAG contrast requirement applies, then use `better-colors` to measure the rendered pair. When it fails, report the pair and the requirement it misses, and leave the colors alone unless asked.
+Status needs a redundant cue: an icon, text, or an underline alongside the color. Work out which WCAG contrast requirement applies, then measure the rendered pair with the browser's contrast tool. When it fails, report the pair and the requirement it misses, and leave the colors alone unless asked.
 
 ## Honor prefers-reduced-motion
 

@@ -60,7 +60,7 @@ Rules for reliable announcements:
 </div>
 ```
 
-For loading states: set `aria-busy="true"` on the updating region, announce "Loading…" politely, then announce the outcome ("Loaded, 12 results").
+For loading states, set `aria-busy="true"` on the updating region. Announce "Loading..." through a stable polite status region outside the busy subtree. Clear `aria-busy` to `false` when the update succeeds or fails, then announce the outcome, such as "Loaded, 12 results".
 
 ## aria-hidden
 
