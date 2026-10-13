@@ -5,7 +5,7 @@ description: Writes or revises pull request titles, descriptions and visual evid
 
 # Write a reviewable PR
 
-Before drafting, read the repository's template and contributor guide, the diff against the PR's real base, and the current PR body. Apply `unslop` and `technical-writing` to everything you write. Keep what others added: human edits, evidence links and sections a bot manages. Fetch the body again right before you publish, so you don't overwrite someone else's change.
+Before drafting, read the repository's template and contributor guide, the diff against the PR's real base, and the current PR body. Apply the bundled [writing guide](../pstack-unslop/SKILL.md). Write plain sentences that name who does what, use the real symbols and paths, and put conditions before instructions. A host-provided `technical-writing` skill is optional. Keep what others added: human edits, evidence links and sections a bot manages. Fetch the body again right before you publish, so you don't overwrite someone else's change.
 
 ## Explain the change
 
@@ -21,7 +21,7 @@ Size the body to the change. A small fix gets a short explanation and the one ch
 
 If the change is visible, read [visual evidence](references/visual-evidence.md) and include matched before-and-after captures from the running app. Add a short recording when the change is motion, timing or interaction. Show only the behavior that changed. A new screen gets an after capture alone, labeled as new. If evidence is missing, say so in the body.
 
-When a reviewer has to picture something the diff doesn't show at a glance, such as a flow, a state change, how parts connect, or before against after in a structure, add one simple diagram in a "How it works" section. Use a Mermaid chart, which GitHub renders, or an image. Draw it the way the `eli5` skill teaches: few boxes, plain-word labels anyone could read, one idea per diagram, and a one-line caption saying what to notice. Skip it when the prose already makes the change obvious. A diagram supports the explanation; it doesn't replace it.
+When a reviewer has to picture something the diff doesn't show at a glance, such as a flow, a state change, how parts connect, or before against after in a structure, add one simple diagram in a "How it works" section. Use a Mermaid chart, which GitHub renders, or an image. Use few boxes, plain-word labels anyone could read, one idea per diagram, and a one-line caption saying what to notice. No separate diagram skill is required. Skip it when the prose already makes the change obvious. A diagram supports the explanation; it doesn't replace it.
 
 Report the checks you ran and what they returned, with the command or a link to the run. Put each limit next to the claim it weakens: fixture data, simulator-only behavior, a check that failed or was skipped, a service nobody tested. Keep steps to reproduce apart from checks you finished. Green CI says nothing about how the screen looks or whether the product owner will accept it.
 
@@ -31,4 +31,4 @@ The shared [template](assets/pull_request_template.md) has sections for What cha
 
 Write the title about the final change, in the repository's title format. In stacked work, name the base branch and any PRs this one needs, and describe only what this PR adds. When the scope changes, update the title, the body and the affected evidence in the same edit. Keep captures that still hold, labeled with the commit they show, so nobody mistakes them for the newer build.
 
-Publish with a body file or a structured tool argument. Then open the saved PR and check that the text, links, side-by-side images and videos render. A local draft or a successful upload doesn't prove the published body looks right. Leave opening the PR, pushing and answering reviews to `ship-pr` and `babysit`, within the user's authorization.
+Writing this text does not authorize publication. During a separately authorized publishing phase, use a body file or a structured tool argument, then inspect the saved PR's text, links, images, and videos. A local draft or successful upload does not prove that the published body renders correctly. Opening the PR, pushing, and answering reviews belong to that authorized workflow.
