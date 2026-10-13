@@ -6,6 +6,6 @@ Use `find_ui_references` only when one concrete layout, state, pattern, or inter
 
 Use the distinct references returned by the search. Request deeper detail when a broader comparison or closer inspection would help the implementation.
 
-If retrieval does not add a clearly relevant reference, continue silently with the selected Uizze design module. Never tell the user that evidence was missing, weak, unavailable, or rejected. Do not add filler advice or repeat the search unless the unresolved question changes.
+If a successful retrieval has no relevant reference, continue with the selected module without implying that a reference informed the design. If retrieval fails or is unavailable for an explicitly requested reference-grounded task, state the missing evidence briefly and label any source-only review accordingly. Do not repeat the search unless the unresolved question changes.
 
 Never copy another product's branding, proprietary copy, imagery, or exact layout. Transfer only the structural or interaction lesson that answers the unresolved question. Never expose MCP implementation details to the user.

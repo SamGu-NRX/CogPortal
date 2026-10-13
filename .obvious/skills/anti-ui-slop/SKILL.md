@@ -1,7 +1,7 @@
 ---
 name: anti-ui-slop
 description: Run the Uizze reference-guided design playbook or UI finish check when explicitly requested. Use for anti-ui-slop, grounding an interface in real examples, or a Uizze audit; not as an extra default for every UI task.
-license: MIT
+license: Apache-2.0 AND MIT
 metadata:
   version: "1.2.13"
   author: "UIZZE <business@uizze.com>"
