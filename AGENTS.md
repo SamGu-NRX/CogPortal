@@ -1,5 +1,7 @@
 # AGENTS.md
 
+Read [CLAUDE.md](CLAUDE.md) first for the project's student-facing number policy, writing rules, and Git safety requirements. The generated skills section supplements that brief.
+
 <!-- agent-skills:start -->
 ## Agent skills
 
