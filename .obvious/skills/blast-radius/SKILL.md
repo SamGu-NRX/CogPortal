@@ -44,4 +44,4 @@ A test proves only the cases and environment exercised, not universal safety. Ma
 - Cleared cases, with evidence that rules them out within the tested scope.
 - The next test or reproduction needed before merge, including any missing permission or runtime capability.
 
-Apply the existing `unslop` writing guide. Return findings directly, not a report file. Strip private data before public sharing; this assessment does not authorize posting or merging.
+Apply the bundled [writing guide](../pstack-unslop/SKILL.md). Return findings directly, not a report file. Strip private data before public sharing; this assessment does not authorize posting or merging.

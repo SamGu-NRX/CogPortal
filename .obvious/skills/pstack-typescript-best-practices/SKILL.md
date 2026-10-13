@@ -1,5 +1,5 @@
 ---
-name: typescript-best-practices
+name: pstack-typescript-best-practices
 description: TypeScript best practices. Use when reading or editing any .ts or .tsx file.
 paths: ["**/*.ts", "**/*.tsx"]
 disable-model-invocation: true
@@ -7,13 +7,13 @@ disable-model-invocation: true
 
 # TypeScript best practices
 
-Apply the **type-system-discipline** principle skill first.
+Model valid states with discriminated unions and readonly data. Validate external values at the boundary before giving them a domain type. A TypeScript `number` cannot enforce a numeric range. Use a checked constructor when the invariant depends on the value. These rules are self-contained; no companion type-system skill is required.
 
 | Rule | Summary |
 |------|---------|
 | Discriminated unions | Model variants with a `kind` literal discriminant so impossible states can't be represented. No optional-field bags. |
 | Branded types | Brand primitives with `& { readonly __brand: "X" }` so they can't be mixed up. Validate once at the boundary. |
-| Constructive modeling | Build the shape so the illegal value can't be constructed. `[T, ...T[]]` for non-empty, `[T, T][]` for even length, `start` plus `duration` for a range. Not a runtime guard, not a wish for refinement types. |
+| Constructive modeling | Build the shape so the illegal value can't be constructed. `readonly [T, ...T[]]` for non-empty, pairs for even length. A time range still needs a checked non-negative duration; its shape alone does not validate numbers. |
 | Simplest total type | Keep `T[]` while every operation on it stays total. Strengthen to `NonEmpty<T>` only where the loose type forces `!`, a cast, or a "should never happen" throw. |
 | `unknown` over `any` | External data is `unknown`. |
 | Schemas before guards | Before hand-writing a property-by-property type guard, use the repository's runtime schema library and infer the type from the schema, such as `z.infer`. |
@@ -22,7 +22,7 @@ Apply the **type-system-discipline** principle skill first.
 | Type guards | Must verify the claim. A lying guard is worse than `as` because the bug hides behind a name that says it's safe. Name them `isX` or `hasX`. |
 | Exhaustiveness | Inline `const _exhaustive: never = x;` in default arms so the compiler errors when a new variant is added. |
 | `satisfies` over `as` | Validates the value without widening literal types. |
-| Boundary validation | Parse where data crosses in, into a named domain type. `Record<string, unknown>` (however spelled) stops at that parse. Trust types inside. See the **boundary-discipline** principle skill. |
+| Boundary validation | Parse where data crosses in, into a named domain type. `Record<string, unknown>` (however spelled) stops at that parse. Trust types inside. See [boundary discipline](../pstack-principle-boundary-discipline/SKILL.md). |
 | Schema-derived types | Reach for `Pick`/`Omit`/`Parameters`/`ReturnType`/`Awaited`/`typeof` before declaring a new interface. |
 | Object args | Pass objects, not positional, so argument order is self-documenting. Skip on hot paths (per-frame render, tokenizers, parsers). |
 | Real tests | Don't mock what you can run. Prefer the framework's real test primitives with leak/disposable checks, and verify UI in a running build. Mock only what you can't run locally. |
