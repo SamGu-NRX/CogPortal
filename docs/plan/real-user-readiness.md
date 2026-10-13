@@ -25,8 +25,9 @@ The suite is the scoring harness for every round. It lives in two owned director
 
 - `tools/portal-real-journeys/`: Playwright (`@playwright/test`) against the Worker run through the repo's own
   wrangler/Vite dev path, a fresh local D1 per journey with all migrations, and the production SPA build.
-- `tools/cli-real-journeys/`: the CLI installed the way the course docs say, run on the bundled public week
-  data, linked and synced against the same local Worker; CogBot driven with signed interactions.
+- `tools/cli-real-journeys/`: the CLI installed the way the course docs say, run on public week data
+  with its documented first-run asset downloads allowed and recorded, linked and synced against the same local
+  Worker; CogBot driven with signed interactions.
 
 What may be replaced by a double: GitHub OAuth and REST, Discord's API, and the Modal runner. Each double is an
 HTTP server that speaks the provider's protocol and is named as a double in every receipt. Sign-in uses the
@@ -47,7 +48,7 @@ result contract. No hand-written scores, no private submissions.
 | S4 | Staff | `/admin`, staff desk (worker routes in #106, no page yet) |
 | S5 | Authorization | every route above, for each role and for revoked, changed-team and expired users |
 | S6 | Discord Activity | the Activity frontend (`apps/portal/src/activity-main.tsx`), team/link gating, live console |
-| S7 | CLI | `cogworks check/test/run/report` offline; `link/sync/status/--live` against the Worker |
+| S7 | CLI | `cogworks check/test/run/report` without Portal/provider calls, allowing documented public-asset downloads; `link/sync/status/--live` against the Worker |
 | S8 | CogBot | `/cog` through signed interactions to Portal RPC |
 | S9 | Saved-report comparison | `tools/run-comparison/` (#101) |
 | S10 | Runner and scorer | `apps/runner-modal/` controller, sandbox, scorer and callbacks, run locally without Modal |
