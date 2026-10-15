@@ -9,7 +9,7 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 PORTAL="$HERE/../../../apps/portal"
 SUITE="$HERE/.."
-PORT=5199
+PORT="${JOURNEYS_PORT:-5199}"
 
 # The dev toolchain may live outside a non-login shell's PATH (sandbox tmux).
 export PATH="$HOME/.local/node22/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"

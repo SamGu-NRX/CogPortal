@@ -28,6 +28,16 @@ cd ../../tools/portal-concurrent-member-journeys
 npx playwright test
 ```
 
+Two environment knobs support running the suite on a shared checkout machine:
+
+- `JOURNEYS_PORT` moves the whole stack (`boot.sh`'s vite port, the config's
+  `baseURL` and health check). Default `5199`.
+- `JOURNEYS_REUSE_STACK=0` makes this run boot its own stack and never reuse a
+  server that is already listening — a reused server is somebody else's world.
+
+The local-readiness gate (`pnpm readiness`) drives this suite with
+`JOURNEYS_PORT=5399 JOURNEYS_REUSE_STACK=0` for exactly that reason.
+
 ## How the world is set up
 
 - `stack/boot.sh` mirrors alpha's `pnpm dev` predev: fresh D1, all migrations, then
