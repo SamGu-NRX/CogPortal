@@ -1,7 +1,7 @@
 {
   "schema": "wr-manifest/1",
   "experiment": "weight-reproducibility",
-  "baseBranch": "fix/device-link-recovery-20261004",
+  "baseBranch": "alpha",
   "purpose": "A matching receipt proves internal consistency of a recorded lineage, not that the evaluator sees those bytes or that they are the bytes any earlier lineage meant. Each case measures one way that gap opens, offline, on tiny synthetic artifacts, against the production receipt module loaded from this tree.",
   "sourceRefs": [
     {

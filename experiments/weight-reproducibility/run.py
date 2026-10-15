@@ -33,7 +33,7 @@ from harness import cases, digest, sources  # noqa: E402
 
 MANIFEST_SCHEMA = "wr-manifest/1"
 RESULTS_SCHEMA = "wr-results/1"
-BASE_BRANCH = "fix/device-link-recovery-20261004"
+BASE_BRANCH = "alpha"
 DEFAULT_RESULTS = HERE / "results"
 
 RUNNERS = {runner.__name__: runner for runner in cases.FAMILIES}
