@@ -1,5 +1,5 @@
 import type { PortalRpcContract } from "@cogworks/contracts/discord";
-import { RetryRunRequestSchema, runSurfaceCurrentRunId, type RunSurfaceAction, type RunSurfaceSnapshot } from "@cogworks/contracts/schema";
+import { OFFICIAL_LIMIT, RetryRunRequestSchema, runSurfaceCurrentRunId, type RunSurfaceAction, type RunSurfaceSnapshot } from "@cogworks/contracts/schema";
 import { ACCENT_DETECT, ACCENT_INK, ACCENT_VERIFY } from "@cogworks/discord-kit/accents";
 import {
   actionRow,
@@ -188,8 +188,8 @@ async function homeView(
   const attempts =
     latestSurface?.nextOfficialAttempt != null
       ? metaLine([
-          quotaCells(latestSurface.nextOfficialAttempt - 1, 3, fmt),
-          `official attempts   ${latestSurface.nextOfficialAttempt - 1} of 3 used`,
+          quotaCells(latestSurface.nextOfficialAttempt - 1, OFFICIAL_LIMIT, fmt),
+          `official attempts   ${latestSurface.nextOfficialAttempt - 1} of ${OFFICIAL_LIMIT} used`,
         ])
       : null;
   const repoLine = status.team.repo
@@ -565,10 +565,10 @@ async function surfaceActionView(
       promote_official: {
         title: "Use an official attempt?",
         detail: "This scores the same commit on the hidden set and spends one official attempt. It reuses the environment this run already built, so nothing reinstalls.",
-        label: attempt ? `Use attempt ${attempt} of 3` : "Use an official attempt",
+        label: attempt ? `Use attempt ${attempt} of ${OFFICIAL_LIMIT}` : "Use an official attempt",
         style: 4,
         extra: attempt
-          ? [`${quotaCells(attempt - 1, 3, fmt)}${META_SEP}attempt ${attempt} of 3`]
+          ? [`${quotaCells(attempt - 1, OFFICIAL_LIMIT, fmt)}${META_SEP}attempt ${attempt} of ${OFFICIAL_LIMIT}`]
           : undefined,
       },
       publish_result: {
