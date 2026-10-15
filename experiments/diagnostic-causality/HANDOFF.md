@@ -2,8 +2,9 @@
 
 ## Status: COMPLETE (offline, unmerged)
 
-Draft PR into `fix/device-link-recovery-20261004`. Nothing merged, deployed, or
-run against any paid service or live model.
+Draft PR into `alpha` (ported from the original base
+`fix/device-link-recovery-20261004`, which is an ancestor of `alpha`).
+Nothing merged, deployed, or run against any paid service or live model.
 
 ## What this study answers
 
@@ -70,6 +71,24 @@ the second frozen run):
 Diagnosis outcomes are unchanged from the first run (the broken report
 receipt never fed the diagnosis rules), so the numbers above are the second
 run's own.
+
+## Alpha port
+
+The repository's current integration branch is `alpha` (6554d59c); the
+original PR base `fix/device-link-recovery-20261004` (276da32f) is an
+ancestor of it, 27 commits behind. The PR was retargeted to `alpha` and
+`alpha` was merged into the branch (merge d7489001) instead of rebasing, so
+the reviewed head 450e05e8 and every evidence SHA are preserved. The 27
+alpha commits touch no path under `experiments/diagnostic-causality/` and
+none of the pinned study inputs (week1 submodule stays 4e516f39, cogbench
+0.2.0; alpha's only cogbench change is a datasets download-count ping
+opt-out), so the frozen results carry over unregenerated. Verified on the
+merged tree: `run.py --replay results` agrees with zero problems (the
+byte-level witness over every committed capture) and the full suite passes
+16/16, including the pinned-base ancestor test. The measurement venv was
+rebuilt from the recorded recipe in `results/environment.json` (numpy
+resolved 2.5.4 within the recorded 2.x deviation; timing is excluded from
+outcome comparison).
 
 ## Environment deviations (PROTOCOL.md has the details)
 
