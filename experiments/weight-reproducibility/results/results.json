@@ -1,17 +1,17 @@
 {
   "schema": "wr-results/1",
   "runFrom": {
-    "baseBranch": "fix/device-link-recovery-20261004",
-    "headSha": "276da32fc2e6ea3849a06c8c0d5f37417ba31da1",
+    "baseBranch": "alpha",
+    "headSha": "f1742f9df1c4e87ff21fe7e622140e40a30f0704",
     "pythonVersion": "3.13.14"
   },
   "manifest": {
     "path": "experiments/weight-reproducibility/manifest.json",
-    "sha256": "5a3fa31d93513e91b29336f6b2da347356c17d8fb3baa642d45a3b5633ff90f8",
+    "sha256": "d2d6e9b82e64e6d32a3aa9be130184f13f917016480cc55fa5d1682487406b97",
     "copy": {
       "schema": "wr-manifest/1",
       "experiment": "weight-reproducibility",
-      "baseBranch": "fix/device-link-recovery-20261004",
+      "baseBranch": "alpha",
       "purpose": "A matching receipt proves internal consistency of a recorded lineage, not that the evaluator sees those bytes or that they are the bytes any earlier lineage meant. Each case measures one way that gap opens, offline, on tiny synthetic artifacts, against the production receipt module loaded from this tree.",
       "sourceRefs": [
         {
