@@ -217,6 +217,39 @@ byte-identical; its `replay.json` was regenerated under the strengthened
 check and re-derives `identical` from the recorded verdict - the recorded
 clean results survive the stronger comparison.
 
+## Port - rebased onto alpha (review round 2)
+
+The study base `fix/device-link-recovery-20261004` (`276da32`) is an
+ancestor of the current integration branch `alpha` (`6554d59`), so the
+four study commits were replayed onto `origin/alpha` with
+`git rebase --onto` (no conflicts; new hashes `3d46301`, `3e35024`,
+`f0fafa5`, `32a713b`, authors and trailer bytes verified identical to the
+pre-rebase commits, no rewording). The diff against `alpha` remains
+confined to `experiments/run-interference/` (42 files, 0 outside).
+
+Re-verified on the alpha base:
+
+- `python -m pytest -q experiments/run-interference/tests` -> 39 passed
+  (no test or module behavior changed by the port).
+- Definitive port run `20261015T124220Z` (8 batches, 20 recorded outcomes
+  of 22 planned): all eight batches agree with manifest expectations;
+  answer agreements reproduce the pre-port digests exactly (clean pair
+  `identical`, `ee295a3a...` in both legs; different-answer control
+  `differs`, `a5412f5f...` vs `b6f5d6e7...`).
+- Resource counts, before/during/after: host descendants 0 -> 0 and study
+  scratch dirs 0 -> 0; every batch ends with 0 processes and 0 scratch
+  files after cleanup (during peak 3 files per run, removed by the
+  supervisor); post-run sweep reaped nothing. The SIGINT interruption
+  stopped `interrupted-batch` after 2 of 6 runs (timing-dependent) with
+  zero orphans and nothing reaped or remaining.
+- `python experiments/run-interference/run.py --replay
+  experiments/run-interference/results` -> ALL MATCH on the port run
+  (artifact sha256 verified, re-derived detector verdicts and agreement
+  rows identical to recorded).
+- Preserved pre-port runs (`20261010T210956Z`, `20261010T215633Z`) keep
+  their recorded artifacts byte-identical; only the new run directory and
+  this note are added.
+
 ## Status
 
 - Milestone 1 (supervisor + detector + tests, enforced/observed matrix):
