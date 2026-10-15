@@ -40,7 +40,7 @@ test.describe("recovery after removal at 320 px", () => {
     // the journey gives the removed member theirs once sign-ins are done.
     await d1(`UPDATE users SET github_login = 'mobile-rejoiner' WHERE email = 'mobile-rejoiner@dev.local'`);
     await adminPage.getByRole("button", { name: "Remove @mobile-rejoiner from the team" }).click();
-    await adminPage.getByRole("button", { name: "Confirm removing @mobile-rejoiner" }).click();
+    await adminPage.getByRole("button", { name: "Confirm, they leave (@mobile-rejoiner)" }).click();
     // The removal is a request the page sends after the click: wait until the
     // roster on the page itself no longer lists them, then read the server.
     await expect(adminPage.getByText("mobile-rejoiner")).toHaveCount(0, { timeout: 15_000 });

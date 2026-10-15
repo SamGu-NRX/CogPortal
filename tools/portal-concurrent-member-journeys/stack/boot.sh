@@ -11,6 +11,11 @@ PORTAL="$HERE/../../../apps/portal"
 SUITE="$HERE/.."
 PORT=5199
 
+# The dev toolchain may live outside a non-login shell's PATH (sandbox tmux).
+export PATH="$HOME/.local/node22/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+# Fall back to corepack when pnpm isn't on PATH yet.
+command -v pnpm >/dev/null 2>&1 || pnpm() { corepack pnpm "$@"; }
+
 cd "$PORTAL"
 
 if [ ! -f .dev.vars ]; then
@@ -21,10 +26,12 @@ if [ ! -f .dev.vars ]; then
   sed -i.bak "s|BETTER_AUTH_SECRET=\"\"|BETTER_AUTH_SECRET=\"$DEV_SECRET\"|" .dev.vars
 fi
 
-# A fresh database per boot, exactly what pnpm dev's predev does. The repo seed
-# arrives with migration 0002; the clock-skewed run is planted by the suite
-# itself after the demo team exists.
+# A fresh database per boot: all migrations plus the local-only seed, exactly
+# what pnpm dev's predev does. The seed restores the local join code (VISION26)
+# and the fixture teams; the clock-skewed run is planted by the suite itself
+# after the demo team exists.
 rm -rf .wrangler/state/v3/d1
 pnpm exec wrangler d1 migrations apply cogportal-db --local
+pnpm exec wrangler d1 execute cogportal-db --local --file scripts/seed-local.sql
 
-exec pnpm exec vite --port "$PORT" --strictPort
+pnpm exec vite --port "$PORT" --strictPort

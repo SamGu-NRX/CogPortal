@@ -18,7 +18,8 @@ export async function signIn(page: Page, login: string): Promise<void> {
   await expect(page.locator("#dev-login")).toHaveCount(0, { timeout: 15_000 });
 }
 
-/** The cohort join form on /join. Skips itself when already in a cohort. */
+/** The cohort join form. Alpha renders the same form on /join and, for a
+ *  member without a cohort, on /connect (the getting-started checklist). */
 export async function joinCohort(page: Page, code = JOIN_CODE): Promise<void> {
   await page.goto("/join");
   const input = page.locator("#join-code");
@@ -28,22 +29,22 @@ export async function joinCohort(page: Page, code = JOIN_CODE): Promise<void> {
     return; // the page redirected: already in a cohort
   }
   await input.fill(code);
-  await page.getByRole("button", { name: "Join", exact: true }).click();
+  await page.getByRole("button", { name: "Join the cohort" }).click();
   await expect(page).toHaveURL(/\/connect/, { timeout: 15_000 });
 }
 
-/** The team chooser on /connect: pick a team someone already started, then the
- *  named team's own Join button. A success lands on /setup. */
+/** The team chooser on /connect: expand the collapsed list when the toggle is
+ *  there, then the named team's own "Join <team>" button. A success lands on
+ *  /setup. */
 export async function joinTeam(page: Page, teamName = DEMO_TEAM): Promise<void> {
   await page.goto("/connect");
-  await page.getByRole("button", { name: "Join a team" }).click();
-  // The chooser lists teams only after the button above; this expectation is
+  const toggle = page.getByRole("button", { name: "Join a team someone already started" });
+  if ((await toggle.count()) > 0) await toggle.click();
+  const named = page.getByRole("button", { name: `Join ${teamName}` });
+  // The chooser names every card's button after its team; this expectation is
   // the real assertion that the team is offered to this member.
-  await expect(page.getByRole("heading", { name: teamName })).toBeVisible({ timeout: 15_000 });
-  const card = page
-    .locator("h3", { hasText: teamName })
-    .locator("xpath=ancestor::div[contains(@class,'border')][1]");
-  await card.getByRole("button", { name: "Join", exact: true }).click();
+  await expect(named).toBeVisible({ timeout: 15_000 });
+  await named.click();
   await expect(page).toHaveURL(/\/setup/, { timeout: 15_000 });
 }
 

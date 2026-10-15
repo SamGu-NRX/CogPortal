@@ -91,7 +91,7 @@ test.describe.serial("concurrent team members (A5)", () => {
     // The rename the page sends while the join is about to land mid-flight.
     await ownerPage.getByRole("button", { name: "Rename" }).click();
     await ownerPage.locator("#rename").fill(NEW_NAME);
-    await ownerPage.getByRole("button", { name: "Save", exact: true }).click();
+    await ownerPage.getByRole("button", { name: "Save name" }).click();
 
     const mate = await teamlessMember(browser, "race-mid-flight");
     await joinTeam(mate.page);
@@ -114,7 +114,7 @@ test.describe.serial("concurrent team members (A5)", () => {
     // find the team under its original name.
     await ownerPage.getByRole("button", { name: "Rename" }).click();
     await ownerPage.locator("#rename").fill(DEMO_TEAM);
-    await ownerPage.getByRole("button", { name: "Save", exact: true }).click();
+    await ownerPage.getByRole("button", { name: "Save name" }).click();
     await expect(ownerPage.getByRole("heading", { name: DEMO_TEAM })).toBeVisible();
     await mate.context.close();
     await owner.close();
@@ -166,11 +166,10 @@ test.describe.serial("concurrent team members (A5)", () => {
     await solo.context.close();
   });
 
-  // Known defect, documented in this suite's README: in the truly-concurrent
-  // interleaving the losing join answers 500 (an unhandled UNIQUE-constraint
-  // error) instead of the 409 the staggered interleaving produces. The strict
-  // contract stays pinned here so the fix flips this from fixme to green.
-  test.fixme("the losing join from two tabs is a 409 the page can act on", async ({
+  // On main this interleaving lost with a 500 (documented in PR #122); alpha's
+  // join path answers the contract correctly, so it runs as an active test
+  // here — the port's regression guard for that fix.
+  test("the losing join from two tabs is a 409 the page can act on", async ({
     browser,
     request,
   }) => {

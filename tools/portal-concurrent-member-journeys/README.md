@@ -11,7 +11,7 @@ of driving the app.
 ## Layout
 
 ```
-stack/boot.sh                 local stack command: fresh D1, migrations, dev secret, vite on :5199
+stack/boot.sh                 local stack command: fresh D1, migrations + local seed, vite on :5199
 playwright.config.ts          serial config pointed at http://localhost:5199
 tests/helpers.ts              sign-in, cohort join, team chooser, roster reads, wrangler d1 helper, fixture reset
 tests/concurrency.spec.ts     A5: six concurrent-membership journeys
@@ -30,27 +30,32 @@ npx playwright test
 
 ## How the world is set up
 
-- The dev sign-in (`POST /api/dev/login`, `demo: true`) provisions users into the active
-  cohort and onto the fixture-repository demo team. That team is created on first use
-  with a generated id, so the journeys target it by name (`Demo Team`) and read its id
-  through the cohort-teams API when a stable handle is needed.
+- `stack/boot.sh` mirrors alpha's `pnpm dev` predev: fresh D1, all migrations, then
+  `scripts/seed-local.sql` — the seed restores the local join code (`VISION26`) and the
+  fixture teams. The dev sign-in (`POST /api/dev/login`, `demo: true`) then provisions
+  users into the active cohort and onto the fixture-repository demo team, created on
+  first use with a generated id, so the journeys target it by name (`Demo Team`) and
+  read its id through the cohort-teams API when a stable handle is needed.
+- The chooser opens collapsed behind "Join a team someone already started"; its cards
+  name their buttons `Join <team>`. The roster's arm-then-confirm remove confirms with
+  "Confirm, they leave (@login)", and the rename control saves with "Save name".
 - Demo memberships carry the `write` role (the local fixture has no GitHub to ask), so
   journeys that need an admin promote their actor in local D1 before any browser work.
-- The demo team's roster is read through the cohort-teams API; the mid-flight rename
-  journey captures the team id first because a name lookup cannot survive a rename.
+- The mid-flight rename journey captures the team id before renaming, because a name
+  lookup cannot survive a rename.
 - Local D1 survives between suite runs while the journeys rename teams and create
   members, so each describe resets the mutable fixture parts (team name, synthetic
   people, their memberships, the skewed run) before provisioning anything.
 
 ## Findings
 
-1. **A losing concurrent join can answer 500 instead of 409.** Two joins from one
-   person at the same instant usually produce one success and one refusal — but in the
-   truly-concurrent interleaving the refusal is a 500 (an unhandled UNIQUE-constraint
-   error) rather than the 409 the staggered interleaving produces. The suite pins the
-   one-membership invariant as an active test and keeps the strict 409 contract as a
-   `test.fixme` so the fix flips it green. Repro: the pinned test in
-   `tests/concurrency.spec.ts`.
+1. **On main, a losing concurrent join answered 500 instead of 409.** Two joins from
+   one person at the same instant usually produced one success and one refusal — but on
+   main's truly-concurrent interleaving the refusal was a 500 (an unhandled
+   UNIQUE-constraint error) rather than a 409 (documented with repro in
+   [PR #122](https://github.com/SamGu-NRX/CogPortal/pull/122)). On alpha the contract
+   holds: the strict 409 test runs active here and passed six consecutive runs, so the
+   port carries it as the regression guard for that fix.
 2. **The remove control targets members by `github_login`, which dev sign-ins clear.**
    Dev-provisioned users have no `github_login`, and the roster falls back to showing
    their email prefix — so the arm-then-confirm remove answers 404 for them while the
