@@ -46,6 +46,20 @@ Raw evidence: ~30 screenshots at `/home/user/work/evidence/wave11-student/`
 (desktop + mobile per state), verdict JSONs in `/tmp/wave11-verdicts*.json`,
 driver logs in `/tmp/burst11-journey.log`.
 
+Re-walked on 2026-10-16 at this head `1d77f8c4` (the review-fix commit) on a
+fresh local dev stack booted from this clone on port 5174: local D1 migrated
+through `0049` and seeded, dev auth enabled, execution provider `fixture`,
+and the real-journeys provider doubles listening on their default ports — the
+journal check ran through the new default `DOUBLES_BASE` derivation, and the
+practice/failed/official run waits went through the new polling path. All 17
+verdicts `works` (0 rough, 0 broken, exit 0): `cogworks test`+`run` produced
+report `local_eff94ea166b…` with 11 metrics, `sync` filed it as LOCAL RUN ·
+SELF-REPORTED, official run `run_dc163497b9` was promoted and published, the
+entry landed at rank 1 on the language-search board, and all three doubles'
+journals stayed empty. Raw evidence: 29 screenshots at
+`/home/user/work/evidence/wave11-student-rerun/`, walker log at
+`/tmp/fixcp127-walk.log`, verdict JSON in the walk's `OUT_DIR`.
+
 ## What works, how checked
 
 Every verdict below is from the live walk, not from reading code.
