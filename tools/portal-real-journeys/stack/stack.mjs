@@ -231,7 +231,7 @@ function withD1Retry(runStatement) {
       const message = String(error?.message ?? error);
       if (attempt >= 3 || !TRANSIENT_D1.some((pattern) => pattern.test(message))) throw error;
       say(`[control] transient D1 failure (attempt ${attempt}), retrying: ${message.split("\n")[0].slice(0, 160)}`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, true, 400 * attempt);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400 * attempt);
     }
   }
 }
