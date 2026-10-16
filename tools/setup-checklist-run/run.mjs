@@ -129,22 +129,32 @@ await page.locator("#dev-login").press("Enter");
 await page.waitForURL(/dashboard|join|connect|setup/, { timeout: 30_000 }).catch(() => {});
 log(`after sign-in at ${page.url()}`);
 
-log("joining cohort VISION26");
+log("joining cohort VISION26 (or resuming an onboarded seat)");
 await page.goto(`${PORTAL}/join`, { waitUntil: "networkidle" });
-await page.locator("#join-code").fill("VISION26", { timeout: 90_000 });
-await page.locator("#join-code").press("Enter");
-await page.waitForURL(/connect|dashboard|setup/, { timeout: 30_000 }).catch(() => {});
-log(`after join at ${page.url()}`);
+if (new URL(page.url()).pathname.endsWith("/join")) {
+  await page.locator("#join-code").fill("VISION26", { timeout: 90_000 });
+  await page.locator("#join-code").press("Enter");
+  await page.waitForURL(/connect|dashboard|setup/, { timeout: 30_000 }).catch(() => {});
+  log(`after join at ${page.url()}`);
+} else {
+  log(`already onboarded; at ${page.url()}`);
+}
 
-log("starting a new team on the fixture repository");
-await page.goto(`${PORTAL}/connect?path=start`, { waitUntil: "networkidle" });
-const repoCard = page.locator("label,li,article,button").filter({ hasText: "cogworks-demo/face-finder" }).first();
-await repoCard.waitFor({ timeout: 60_000 });
-await repoCard.click();
-await page.locator("#team-name").fill("Face Finder Video QA", { timeout: 90_000 });
-await page.getByRole("button", { name: /connect|start|create/i }).last().click();
-await page.waitForURL(/setup/, { timeout: 30_000 });
-log(`team settled; at ${page.url()}`);
+log("starting a new team on the fixture repository (or resuming)");
+await page.goto(`${PORTAL}/setup`, { waitUntil: "networkidle" });
+await page.waitForTimeout(1500);
+if (await page.locator("#step-clone").count()) {
+  log(`setup checklist already present; at ${page.url()}`);
+} else {
+  await page.goto(`${PORTAL}/connect?path=start`, { waitUntil: "networkidle" });
+  const repoCard = page.locator("label,li,article,button").filter({ hasText: "cogworks-demo/face-finder" }).first();
+  await repoCard.waitFor({ timeout: 60_000 });
+  await repoCard.click();
+  await page.locator("#team-name").fill("Face Finder Video QA", { timeout: 90_000 });
+  await page.getByRole("button", { name: /connect|start|create/i }).last().click();
+  await page.waitForURL(/setup/, { timeout: 30_000 });
+  log(`team settled; at ${page.url()}`);
+}
 await page.waitForTimeout(2500);
 
 // ── milestone: 0 of 5 ───────────────────────────────────────────────────────
