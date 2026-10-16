@@ -1,0 +1,168 @@
+{
+ "answer_agreement_pairs": [
+  {
+   "concurrent": "concurrent-clean",
+   "expect": "identical",
+   "id": "clean",
+   "sequential": "sequential-clean"
+  },
+  {
+   "concurrent": "control-conc",
+   "expect": "differs",
+   "id": "different-answer-control",
+   "sequential": "control-seq"
+  }
+ ],
+ "batches": [
+  {
+   "adapters": [
+    "contaminated_all",
+    "clean_reuse",
+    "clean_reuse",
+    "clean_reuse"
+   ],
+   "concurrency": 1,
+   "expect_flagged": [
+    "mutated_arrays",
+    "module_globals",
+    "unclosed_handles",
+    "leftover_children",
+    "output_flooding"
+   ],
+   "id": "sequential-mixed",
+   "mode": "inprocess",
+   "purpose": "cross-adapter inheritance in one process (sequential)",
+   "runs": 4,
+   "timeout_seconds": 10.0
+  },
+  {
+   "adapters": [
+    "clean_reuse"
+   ],
+   "concurrency": 1,
+   "expect_clean": [
+    "mutated_arrays",
+    "module_globals",
+    "unclosed_handles",
+    "leftover_children",
+    "output_flooding"
+   ],
+   "id": "sequential-clean",
+   "mode": "inprocess",
+   "purpose": "clean sequential control",
+   "runs": 3,
+   "timeout_seconds": 10.0
+  },
+  {
+   "adapters": [
+    "clean_reuse"
+   ],
+   "concurrency": 2,
+   "expect_clean": [
+    "mutated_arrays",
+    "module_globals",
+    "unclosed_handles",
+    "leftover_children",
+    "output_flooding"
+   ],
+   "id": "concurrent-clean",
+   "mode": "inprocess",
+   "purpose": "clean concurrent control",
+   "runs": 4,
+   "timeout_seconds": 10.0
+  },
+  {
+   "adapters": [
+    "contaminated_all"
+   ],
+   "concurrency": 1,
+   "expect_flagged": [
+    "mutated_arrays",
+    "unclosed_handles",
+    "output_flooding"
+   ],
+   "id": "isolated-contaminated",
+   "mode": "isolated",
+   "purpose": "isolation containment of the contaminated control",
+   "runs": 3,
+   "timeout_seconds": 10.0
+  },
+  {
+   "adapters": [
+    "slow_sleeper"
+   ],
+   "concurrency": 1,
+   "expect_clean": [
+    "mutated_arrays",
+    "module_globals",
+    "unclosed_handles",
+    "leftover_children",
+    "output_flooding"
+   ],
+   "id": "timeout-bounded",
+   "mode": "isolated",
+   "purpose": "wall-clock timeout enforcement and cleanup",
+   "runs": 2,
+   "timeout_seconds": 2.0
+  },
+  {
+   "adapters": [
+    "quick_sleeper"
+   ],
+   "concurrency": 1,
+   "expect_clean": [
+    "mutated_arrays",
+    "module_globals",
+    "unclosed_handles",
+    "leftover_children",
+    "output_flooding"
+   ],
+   "id": "interrupted-batch",
+   "interrupt_after_seconds": 0.5,
+   "mode": "isolated",
+   "purpose": "SIGINT mid-batch: what is orphaned, what the supervisor reaps",
+   "runs": 6,
+   "timeout_seconds": 10.0
+  },
+  {
+   "adapters": [
+    "mode_variant"
+   ],
+   "concurrency": 1,
+   "expect_flagged": [],
+   "id": "control-seq",
+   "mode": "inprocess",
+   "purpose": "different-answer control, sequential leg (constant answer A)",
+   "runs": 1,
+   "timeout_seconds": 10.0
+  },
+  {
+   "adapters": [
+    "mode_variant"
+   ],
+   "concurrency": 2,
+   "expect_flagged": [],
+   "id": "control-conc",
+   "mode": "inprocess",
+   "purpose": "different-answer control, concurrent leg (constant answer B) - proves the digest-identity comparison can fail",
+   "runs": 1,
+   "timeout_seconds": 10.0
+  }
+ ],
+ "bounds": {
+  "adapter_pool": [
+   "clean_reuse",
+   "contaminated_all",
+   "slow_sleeper",
+   "quick_sleeper",
+   "mode_variant"
+  ],
+  "max_concurrency": 2,
+  "max_runs_per_batch": 6,
+  "max_timeout_seconds": 10.0,
+  "notes": "Small synthetic adapters only: pure-Python micro-benchmarks, no model weights, no network, no Modal, no shared or production processes. Sleeper fixtures are bounded at 30 seconds by their own code.",
+  "total_runs": 24
+ },
+ "study": "run-interference",
+ "version": 1
+}

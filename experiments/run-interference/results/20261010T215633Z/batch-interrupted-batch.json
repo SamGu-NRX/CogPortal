@@ -1,0 +1,751 @@
+{
+ "baselines": {
+  "quick_sleeper": {
+   "output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "status": "completed"
+  }
+ },
+ "batch_id": "interrupted-batch",
+ "counts": {
+  "fds": {
+   "after_batch": 7,
+   "before_batch": 7
+  },
+  "files": {
+   "after": {
+    "count": 0,
+    "names": []
+   },
+   "after_cleanup": {
+    "count": 0,
+    "names": []
+   },
+   "before": {
+    "count": 0,
+    "names": []
+   },
+   "during_max_per_run": 0
+  },
+  "processes": {
+   "after": 0,
+   "before": 0,
+   "during_max": 1
+  }
+ },
+ "interruption": {
+  "completed_runs": 2,
+  "orphans_found": [],
+  "planned_runs": 6,
+  "reaped_after_interrupt": [],
+  "remaining_after_sweep": [],
+  "signal": "SIGINT"
+ },
+ "limits": {
+  "capture_bytes": 262144,
+  "child_memory_bytes": 1073741824,
+  "flood_bytes": 131072,
+  "run_timeout_seconds": 10.0,
+  "sample_interval_seconds": 0.02
+ },
+ "limits_enforcement": {
+  "children": "enforced (child runs setsid; cogbench.isolate kills the process group, which reaches children the child spawned)",
+  "cpu": "enforced (RLIMIT_CPU soft/hard via cogbench.isolate._cpu_limit)",
+  "handles": "observed in-child; the boundary destroys them with the child",
+  "memory": "enforced (RLIMIT_AS, when the platform honors it)",
+  "note": "a descendant that escapes the group (setsid of its own) is outside what cogbench.isolate claims to reach; the supervisor's sweep would still see it here",
+  "output": "observed in-child (capped); result payload bounded by the isolate transport",
+  "wall_clock": "enforced (cogbench.isolate kills the child at the deadline)"
+ },
+ "module_state_series": [],
+ "runs": [
+  {
+   "adapter": "quick_sleeper",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 0,
+    "dropped_bytes": 0,
+    "head": "",
+    "lines": 0,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 5
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 29
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 54
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 78
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 102
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 126
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 149
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 172
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 195
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9296,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24428,
+     "scratch_files": 0,
+     "t_ms": 219
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 24424,
+     "scratch_files": 0,
+     "t_ms": 231
+    }
+   ],
+   "expect_clean": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 5,
+      "pipe": 3
+     },
+     "count": 9,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[64037]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 5,
+      "pipe": 3
+     },
+     "count": 9,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[64037]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-child"
+   },
+   "index": 0,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-000",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-000",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-000",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "isolate_diagnostics": {
+    "alarmFired": false,
+    "detail": "",
+    "limits": {
+     "cpuHardSeconds": 85,
+     "cpuSeconds": 80,
+     "memoryBytes": 1073741824,
+     "wallSeconds": 10
+    },
+    "readReason": null,
+    "signal": null,
+    "status": "completed"
+   },
+   "memory": {
+    "child_rss_series_kb": [
+     18156,
+     18156,
+     18156,
+     18156,
+     18156,
+     18156,
+     18156,
+     18156,
+     18156,
+     18640,
+     18636
+    ]
+   },
+   "mode": "isolated",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 1.0
+     }
+    ],
+    "predictions_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "interrupted-batch/run-000",
+   "scratch": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.228
+  },
+  {
+   "adapter": "quick_sleeper",
+   "baseline_output_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+   "capture": {
+    "bytes": 0,
+    "dropped_bytes": 0,
+    "head": "",
+    "lines": 0,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 5
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 29
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 53
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 77
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 101
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 125
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 149
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 173
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 196
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "",
+       "pid": 9303,
+       "ppid": 9165
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 221
+    },
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 7,
+     "rss_kb": 24432,
+     "scratch_files": 0,
+     "t_ms": 227
+    }
+   ],
+   "expect_clean": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": true,
+     "by_kind": {
+      "file": 5,
+      "pipe": 3
+     },
+     "count": 9,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[69958]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "before": {
+     "available": true,
+     "by_kind": {
+      "file": 5,
+      "pipe": 3
+     },
+     "count": 9,
+     "targets": {
+      "0": "/dev/null",
+      "1": "pipe:[66206]",
+      "2": "pipe:[66207]",
+      "3": "/proc",
+      "4": "/sys/fs/cgroup/ptys",
+      "6": "pipe:[69958]",
+      "7": "/sys/fs/cgroup/socats",
+      "8": "/sys/fs/cgroup/user"
+     },
+     "unreadable": 1
+    },
+    "source": "in-child"
+   },
+   "index": 1,
+   "inputs": {
+    "after": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-001",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ],
+    "before": [
+     {
+      "n": 3,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-001",
+      "xs": [
+       1,
+       2,
+       3
+      ]
+     },
+     {
+      "n": 4,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-001",
+      "xs": [
+       10,
+       20,
+       30,
+       40
+      ]
+     },
+     {
+      "n": 5,
+      "workspace": "/tmp/ri-interrupted-batch-f5pt0ebj/run-001",
+      "xs": [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     }
+    ]
+   },
+   "isolate_diagnostics": {
+    "alarmFired": false,
+    "detail": "",
+    "limits": {
+     "cpuHardSeconds": 85,
+     "cpuSeconds": 80,
+     "memoryBytes": 1073741824,
+     "wallSeconds": 10
+    },
+    "readReason": null,
+    "signal": null,
+    "status": "completed"
+   },
+   "memory": {
+    "child_rss_series_kb": [
+     18160,
+     18160,
+     18160,
+     18160,
+     18160,
+     18160,
+     18160,
+     18160,
+     18160,
+     18644
+    ]
+   },
+   "mode": "isolated",
+   "output": {
+    "detail": "",
+    "metrics": [
+     {
+      "help": "Share of cases where the adapter's answer equaled the array sum.",
+      "higherIsBetter": true,
+      "key": "prediction_match",
+      "label": "Prediction match",
+      "precision": 4,
+      "primary": true,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 1.0
+     }
+    ],
+    "predictions_digest": "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa",
+    "status": "completed"
+   },
+   "requested_timeout_seconds": 10.0,
+   "run_id": "interrupted-batch/run-001",
+   "scratch": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 0.2237
+  }
+ ],
+ "spec": {
+  "adapters": [
+   "quick_sleeper"
+  ],
+  "concurrency": 1,
+  "id": "interrupted-batch",
+  "interrupt_after_seconds": 0.5,
+  "mode": "isolated",
+  "purpose": "SIGINT mid-batch: what is orphaned, what the supervisor reaps",
+  "runs": 6,
+  "timeout_seconds": 10.0
+ },
+ "supervision": {
+  "reaped": [],
+  "remaining_after_sweep": []
+ }
+}

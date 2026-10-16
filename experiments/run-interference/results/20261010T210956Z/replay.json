@@ -1,0 +1,260 @@
+{
+ "all_match": true,
+ "answer_agreements": [
+  {
+   "derived_verdict": "identical",
+   "id": "sequential_vs_concurrent",
+   "matches": true,
+   "pairwise": [
+    {
+     "batches": [
+      "sequential-clean",
+      "concurrent-clean"
+     ],
+     "matched_identities": [
+      {
+       "adapter": "clean_reuse",
+       "agree": true,
+       "digests_first": [
+        "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa"
+       ],
+       "digests_second": [
+        "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa"
+       ],
+       "inputs": [
+        {
+         "n": 3,
+         "xs": [
+          1,
+          2,
+          3
+         ]
+        },
+        {
+         "n": 4,
+         "xs": [
+          10,
+          20,
+          30,
+          40
+         ]
+        },
+        {
+         "n": 5,
+         "xs": [
+          5,
+          5,
+          5,
+          5,
+          5
+         ]
+        }
+       ]
+      }
+     ],
+     "verdict": "identical"
+    }
+   ],
+   "recorded_verdict": "identical"
+  }
+ ],
+ "batches": [
+  {
+   "artifact": "20261010T210956Z/batch-sequential-mixed.json",
+   "artifact_integrity": "verified",
+   "derived_agrees": true,
+   "derived_flagged": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "id": "sequential-mixed",
+   "matches": true,
+   "recorded_agrees": true,
+   "recorded_flagged": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "runs": [
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "contaminated_all",
+     "run_id": "sequential-mixed/run-000",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": true,
+     "fixture": "clean_reuse",
+     "run_id": "sequential-mixed/run-001",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": true,
+     "fixture": "clean_reuse",
+     "run_id": "sequential-mixed/run-002",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": true,
+     "fixture": "clean_reuse",
+     "run_id": "sequential-mixed/run-003",
+     "status": "completed"
+    }
+   ]
+  },
+  {
+   "artifact": "20261010T210956Z/batch-sequential-clean.json",
+   "artifact_integrity": "verified",
+   "derived_agrees": true,
+   "derived_flagged": [],
+   "id": "sequential-clean",
+   "matches": true,
+   "recorded_agrees": true,
+   "recorded_flagged": [],
+   "runs": [
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "clean_reuse",
+     "run_id": "sequential-clean/run-000",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "clean_reuse",
+     "run_id": "sequential-clean/run-001",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "clean_reuse",
+     "run_id": "sequential-clean/run-002",
+     "status": "completed"
+    }
+   ]
+  },
+  {
+   "artifact": "20261010T210956Z/batch-concurrent-clean.json",
+   "artifact_integrity": "verified",
+   "derived_agrees": true,
+   "derived_flagged": [],
+   "id": "concurrent-clean",
+   "matches": true,
+   "recorded_agrees": true,
+   "recorded_flagged": [],
+   "runs": [
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "clean_reuse",
+     "run_id": "concurrent-clean/run-000",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "clean_reuse",
+     "run_id": "concurrent-clean/run-001",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "clean_reuse",
+     "run_id": "concurrent-clean/run-002",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "clean_reuse",
+     "run_id": "concurrent-clean/run-003",
+     "status": "completed"
+    }
+   ]
+  },
+  {
+   "artifact": "20261010T210956Z/batch-isolated-contaminated.json",
+   "artifact_integrity": "verified",
+   "derived_agrees": true,
+   "derived_flagged": [
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "id": "isolated-contaminated",
+   "matches": true,
+   "recorded_agrees": true,
+   "recorded_flagged": [
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "runs": [
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "contaminated_all",
+     "run_id": "isolated-contaminated/run-000",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "contaminated_all",
+     "run_id": "isolated-contaminated/run-001",
+     "status": "completed"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "contaminated_all",
+     "run_id": "isolated-contaminated/run-002",
+     "status": "completed"
+    }
+   ]
+  },
+  {
+   "artifact": "20261010T210956Z/batch-timeout-bounded.json",
+   "artifact_integrity": "verified",
+   "derived_agrees": true,
+   "derived_flagged": [],
+   "id": "timeout-bounded",
+   "matches": true,
+   "recorded_agrees": true,
+   "recorded_flagged": [],
+   "runs": [
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "slow_sleeper",
+     "run_id": "timeout-bounded/run-000",
+     "status": "timed_out"
+    },
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "slow_sleeper",
+     "run_id": "timeout-bounded/run-001",
+     "status": "timed_out"
+    }
+   ]
+  },
+  {
+   "artifact": "20261010T210956Z/batch-interrupted-batch.json",
+   "artifact_integrity": "verified",
+   "derived_agrees": true,
+   "derived_flagged": [],
+   "id": "interrupted-batch",
+   "matches": true,
+   "recorded_agrees": true,
+   "recorded_flagged": [],
+   "runs": [
+    {
+     "drift_from_fresh_import": false,
+     "fixture": "quick_sleeper",
+     "run_id": "interrupted-batch/run-000",
+     "status": "completed"
+    }
+   ]
+  }
+ ],
+ "replayed_utc": "2026-10-10T21:57:35Z",
+ "results_dir": "experiments/run-interference/results/20261010T210956Z",
+ "summary_sha256": "0e8f480a52b3090afa3bb1321113af5f4bca05b6a96056279d9c38537e32c8b1"
+}
