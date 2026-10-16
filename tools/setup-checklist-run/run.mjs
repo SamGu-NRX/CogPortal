@@ -38,7 +38,7 @@ const dump = (name, text) => fs.writeFileSync(path.join(OUT, name), text);
 
 const t0 = Date.now();
 const since = () => Math.round((Date.now() - t0) / 1000);
-const journey = { startedAt: new Date().toISOString(), portal: PORTAL, login: LOGIN, steps: [] };
+const journey = { startedAt: new Date().toISOString(), portal: PORTAL, login: LOGIN, steps: [], screenshots: [] };
 
 // ── the page witness ────────────────────────────────────────────────────────
 const STEP_IDS = ["clone", "tool", "benchmark", "link", "check"];
