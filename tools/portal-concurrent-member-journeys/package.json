@@ -1,0 +1,14 @@
+{
+  "name": "@cogworks/portal-concurrent-member-journeys",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Adversarial journeys for concurrent team members (A5), clock-skewed results (A8) and the narrow-viewport leave recovery, through the real local portal stack.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^22.20.5"
+  }
+}
