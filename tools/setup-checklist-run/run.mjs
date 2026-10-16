@@ -26,7 +26,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const PORTAL = process.env.PORTAL ?? "http://127.0.0.1:5173";
-const OUT = path.resolve(process.argv[process.argv.indexOf("--out") + 1] ?? "evidence");
+const outIdx = process.argv.indexOf("--out");
+const OUT = path.resolve(outIdx === -1 ? "evidence" : process.argv[outIdx + 1]);
 const LOGIN = process.env.DEV_LOGIN ?? "burst14-student";
 const WORKDIR = process.env.SEAT_DIR ?? path.join(process.env.HOME, "work", "burst14-seat");
 fs.mkdirSync(OUT, { recursive: true });
