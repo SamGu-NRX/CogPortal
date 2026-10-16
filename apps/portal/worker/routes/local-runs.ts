@@ -594,7 +594,7 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
 
   app.post("/v1/local-runs/:id/events", async (c) => {
     const device = await requireDevice(c);
-    const event = await parseBody(c, LocalRunEventSchema);
+    const event = await parseBody(c, LocalRunEventSchema, "report");
     const result = await acceptLocalRunEvent(c.env, device, c.req.param("id"), event);
     publishSurfaceInBackground(c, result.surfaceId, c.req.param("id"));
     return respond(c, LocalRunEventResponseSchema, {
@@ -606,7 +606,7 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
 
   app.post("/v1/local-runs/:id/events/batch", async (c) => {
     const device = await requireDevice(c);
-    const body = await parseBody(c, LocalRunEventBatchSchema);
+    const body = await parseBody(c, LocalRunEventBatchSchema, "report");
     // One transaction for the whole batch: the CLI does not retry a batch, so
     // the portal either records all of it or tells the CLI none of it landed.
     const outcomes = await acceptLocalRunEvents(c.env, device, c.req.param("id"), body.events);
