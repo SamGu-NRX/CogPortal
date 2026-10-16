@@ -1,0 +1,12 @@
+Connecting to http://127.0.0.1:8850
+CogPortal receives setup check names, package versions, and your GitHub repository.
+A report's scores and notes go up when you run `cogworks sync` or `cogworks run --live`, and weights only with `cogworks sync`. Source, logs, predictions, and environment variables stay on this machine.
+Open http://127.0.0.1:8850/connections?user_code=C3D9-C1E0-0F67&return_to=setup and confirm code C3D9-C1E0-0F67.
+
+exit=0
+Connecting to http://127.0.0.1:8850
+CogPortal receives setup check names, package versions, and your GitHub repository.
+A report's scores and notes go up when you run `cogworks sync` or `cogworks run --live`, and weights only with `cogworks sync`. Source, logs, predictions, and environment variables stay on this machine.
+Open http://127.0.0.1:8850/connections?user_code=C3D9-C1E0-0F67&return_to=setup and confirm code C3D9-C1E0-0F67.
+Linked e2b.local. Local commands still work offline.
+setup: clone was not updated: This directory is burst11-student/week1-audio, but CogPortal expects cogworks-demo/face-finder.
