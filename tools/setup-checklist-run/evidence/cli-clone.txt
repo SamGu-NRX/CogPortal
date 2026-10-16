@@ -1,0 +1,4 @@
+<com/cogworks-demo/face-finder.git && cd face-finder
+Cloning into 'face-finder'...
+~/work/burst14-seat/face-finder $ echo "
+exit=0
