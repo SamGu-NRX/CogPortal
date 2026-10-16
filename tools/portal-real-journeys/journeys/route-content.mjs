@@ -7,7 +7,10 @@
 // sentence saying what is wrong. `f` holds the world's facts (see
 // contentFacts in s5-route-matrix.journey.mjs): which team each identity
 // acts for, each team's run and console ids, each identity's own CLI
-// devices, and which teams each staff member covers.
+// devices, and which teams each staff member covers. The matrix checks
+// every 2xx cell against these rows, the positive controls included: each
+// positive names the caller it runs as, and every dev-local account the run
+// created has facts of its own.
 
 const isArray = (value) => Array.isArray(value);
 const ids = (rows, key = "id") => rows.map((row) => row[key]).sort();
@@ -126,4 +129,23 @@ export const CONTENT = {
   "GET /api/activity/run-surfaces": ownTeamSurfaces,
   "GET /api/v1/setup/state": (json) => (isArray(json?.verified) ? null : "has no setup state"),
   "POST /api/v1/cli/setup/checks": (json) => (isArray(json?.accepted) ? null : "says nothing was accepted"),
+  // The rest of these rows only ever see a 2xx from a positive control: the
+  // matrix's own cells hit these routes as refusals.
+  "POST /api/cohorts/join": ownSession,
+  "POST /api/github/connect": ownSession,
+  "POST /api/runs/:id/promote": (json, identity, f) => (f.runsOf[f.teamOf[identity]]?.has(json?.runId) ? null : `promotes run ${json?.runId}, which is not the caller team's`),
+  "POST /api/runs/practice": (json, identity, f) => (f.runsOf[f.teamOf[identity]]?.has(json?.runId) ? null : `starts run ${json?.runId}, which is not the caller team's`),
+  "PUT /api/leaderboard-selection": (json) => (json?.ok === true ? null : `answers ${JSON.stringify(json)}`),
+  "POST /api/run-surfaces/:id/actions/:action": (json, identity, f) => teamIs(json?.team?.id, f.teamOf[identity]),
+  "POST /api/activity/run-surfaces/:id/actions/:action": (json, identity, f) => teamIs(json?.team?.id, f.teamOf[identity]),
+  "POST /api/team/join": (json, identity, f) => teamIs(json?.id, f.teamOf[identity]),
+  "POST /api/team/members": (json, identity, f) => teamIs(json?.id, f.teamOf[identity]),
+  "DELETE /api/team/members/:login": (json, identity, f) => teamIs(json?.id, f.teamOf[identity]),
+  "POST /api/v1/connections/discord/preview": (json) => (json?.username === "rj-m-pos-discord" ? null : `previews ${json?.username ?? "nobody"}`),
+  "POST /api/v1/connections/discord/confirm": (json) => (json?.discord?.username === "rj-m-pos-discord" ? null : `links ${json?.discord?.username ?? "nobody"}`),
+  "POST /api/v1/cli/device/token": (json) => (typeof json?.token === "string" && json.token.length > 0 ? null : "answers without a token"),
+  "PUT /api/v1/local-reports/:reportId/weights/*": object,
+  "POST /api/admin/teams/:teamId/members": (json, identity, f) => teamIs(json?.id, f.ids.teamA),
+  "POST /api/admin/teams/:teamId/tas": (json, identity, f) => teamIs(json?.id, f.ids.teamA),
+  "DELETE /api/v1/setup/state": (json) => (json?.ok === true ? null : "does not answer ok"),
 };

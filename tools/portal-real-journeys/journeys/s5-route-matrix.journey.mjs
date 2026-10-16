@@ -413,30 +413,30 @@ const giveGithubLogin = (login) => control.sql(`UPDATE users SET github_login = 
  * identity the cells use.
  */
 const POSITIVE = [
-  ["ALL /api/auth/*", 200, (w) => call("GET", "/api/auth/get-session", { who: w.who.studentA })],
-  ["GET /api/session", 200, (w) => call("GET", "/api/session", { who: w.who.studentA })],
-  ["POST /api/dev/login", 200, () => call("POST", "/api/dev/login", { body: { login: "rj-m-positive" } })],
-  ["POST /api/cohorts/join", 200, async () => call("POST", "/api/cohorts/join", { who: await devLogin("rj-m-pos-joiner"), body: { code: "VISION26" } })],
-  ["GET /api/github/repositories", 200, (w) => call("GET", "/api/github/repositories", { who: w.who.studentA })],
-  ["POST /api/github/connect", 200, async () => {
+  ["ALL /api/auth/*", 200, "studentA", (w) => call("GET", "/api/auth/get-session", { who: w.who.studentA })],
+  ["GET /api/session", 200, "studentA", (w) => call("GET", "/api/session", { who: w.who.studentA })],
+  ["POST /api/dev/login", 200, "rj-m-positive", () => call("POST", "/api/dev/login", { body: { login: "rj-m-positive" } })],
+  ["POST /api/cohorts/join", 200, "rj-m-pos-joiner", async () => call("POST", "/api/cohorts/join", { who: await devLogin("rj-m-pos-joiner"), body: { code: "VISION26" } })],
+  ["GET /api/github/repositories", 200, "studentA", (w) => call("GET", "/api/github/repositories", { who: w.who.studentA })],
+  ["POST /api/github/connect", 200, "rj-m-pos-connect", async () => {
     const who = await devLogin("rj-m-pos-connect");
     await call("POST", "/api/cohorts/join", { who, body: { code: "VISION26" } });
     return call("POST", "/api/github/connect", { who, body: { fullName: "cogworks-demo/face-finder" } });
   }],
-  ["POST /api/github/webhook", 200, () => {
+  ["POST /api/github/webhook", 200, "github", () => {
     const body = JSON.stringify({ zen: "rj ping", hook_id: 1 });
     const signature = crypto.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
     return call("POST", "/api/github/webhook", { body, headers: { "content-type": "application/json", "x-github-event": "ping", "x-hub-signature-256": `sha256=${signature}` } });
   }],
-  ["GET /api/runs", 200, (w) => call("GET", "/api/runs", { who: w.who.studentA })],
-  ["GET /api/runs/:id", 200, (w) => call("GET", `/api/runs/${w.ids.runA}`, { who: w.who.studentA })],
-  ["GET /api/dashboard", 200, (w) => call("GET", "/api/dashboard", { who: w.who.studentA })],
-  ["POST /api/runs/:id/promote", 201, async (w) => {
+  ["GET /api/runs", 200, "studentA", (w) => call("GET", "/api/runs", { who: w.who.studentA })],
+  ["GET /api/runs/:id", 200, "studentA", (w) => call("GET", `/api/runs/${w.ids.runA}`, { who: w.who.studentA })],
+  ["GET /api/dashboard", 200, "studentA", (w) => call("GET", "/api/dashboard", { who: w.who.studentA })],
+  ["POST /api/runs/:id/promote", 201, "studentA", async (w) => {
     const result = await call("POST", `/api/runs/${w.ids.runA}/promote`, { who: w.who.studentA });
     w.ids.officialA = result.json?.runId;
     return result;
   }],
-  ["PUT /api/leaderboard-selection", 200, async (w) => {
+  ["PUT /api/leaderboard-selection", 200, "studentA", async (w) => {
     for (let i = 0; i < 90; i += 1) {
       const run = (await call("GET", `/api/runs/${w.ids.officialA}`, { who: w.who.studentA })).json;
       if (run?.status === "succeeded") break;
@@ -444,12 +444,12 @@ const POSITIVE = [
     }
     return call("PUT", "/api/leaderboard-selection", { who: w.who.studentA, body: { runId: w.ids.officialA } });
   }],
-  ["POST /api/run-surfaces/:id/actions/:action", 200, async (w) => {
+  ["POST /api/run-surfaces/:id/actions/:action", 200, "studentA", async (w) => {
     const run = (await call("GET", `/api/runs/${w.ids.officialA}`, { who: w.who.studentA })).json;
     w.ids.officialSurface = run.surfaceId;
     return call("POST", `/api/run-surfaces/${run.surfaceId}/actions/publish_result`, { who: w.who.studentA });
   }],
-  ["POST /api/runs/practice", 201, async (w) => {
+  ["POST /api/runs/practice", 201, "studentA", async (w) => {
     const result = await call("POST", "/api/runs/practice", { who: w.who.studentA, body: { teamId: w.ids.teamA, benchmarkId: w.activeBenchmark } });
     // Runs go one at a time per benchmark; let it finish before the
     // Activity's rerun below starts another.
@@ -460,56 +460,56 @@ const POSITIVE = [
     }
     return result;
   }],
-  ["GET /api/leaderboard", 200, () => call("GET", "/api/leaderboard")],
-  ["GET /api/v1/leaderboard", 200, () => call("GET", "/api/v1/leaderboard")],
-  ["GET /api/leaderboard-family", 200, () => call("GET", "/api/leaderboard-family")],
-  ["GET /api/benchmarks", 200, () => call("GET", "/api/benchmarks")],
-  ["GET /api/v1/benchmarks", 200, () => call("GET", "/api/v1/benchmarks")],
-  ["GET /api/team", 200, (w) => call("GET", "/api/team", { who: w.who.studentA })],
-  ["GET /api/v1/team/process", 200, (w) => call("GET", "/api/v1/team/process", { who: w.who.studentA })],
-  ["PATCH /api/team", 200, (w) => call("PATCH", "/api/team", { who: w.who.studentA, body: { teamId: w.ids.teamA, description: "Matrix positive control." } })],
-  ["POST /api/team/repository", 200, (w) => call("POST", "/api/team/repository", { who: w.who.studentA, body: { teamId: w.ids.teamA, fullName: w.repoA } })],
-  ["GET /api/cohorts/teams", 200, (w) => call("GET", "/api/cohorts/teams", { who: w.who.studentA })],
-  ["POST /api/team/join", 200, async (w) => {
+  ["GET /api/leaderboard", 200, "signedOut", () => call("GET", "/api/leaderboard")],
+  ["GET /api/v1/leaderboard", 200, "signedOut", () => call("GET", "/api/v1/leaderboard")],
+  ["GET /api/leaderboard-family", 200, "signedOut", () => call("GET", "/api/leaderboard-family")],
+  ["GET /api/benchmarks", 200, "signedOut", () => call("GET", "/api/benchmarks")],
+  ["GET /api/v1/benchmarks", 200, "signedOut", () => call("GET", "/api/v1/benchmarks")],
+  ["GET /api/team", 200, "studentA", (w) => call("GET", "/api/team", { who: w.who.studentA })],
+  ["GET /api/v1/team/process", 200, "studentA", (w) => call("GET", "/api/v1/team/process", { who: w.who.studentA })],
+  ["PATCH /api/team", 200, "studentA", (w) => call("PATCH", "/api/team", { who: w.who.studentA, body: { teamId: w.ids.teamA, description: "Matrix positive control." } })],
+  ["POST /api/team/repository", 200, "studentA", (w) => call("POST", "/api/team/repository", { who: w.who.studentA, body: { teamId: w.ids.teamA, fullName: w.repoA } })],
+  ["GET /api/cohorts/teams", 200, "studentA", (w) => call("GET", "/api/cohorts/teams", { who: w.who.studentA })],
+  ["POST /api/team/join", 200, "rj-m-pos-team-joiner", async (w) => {
     const who = await devLogin("rj-m-pos-team-joiner");
     await call("POST", "/api/cohorts/join", { who, body: { code: "VISION26" } });
     return call("POST", "/api/team/join", { who, body: { teamId: w.ids.teamA } });
   }],
-  ["POST /api/team/leave", 200, async (w) => call("POST", "/api/team/leave", { who: await devLogin("rj-m-pos-leaver", { demo: true }), body: { teamId: w.ids.teamA } })],
-  ["GET /api/team/invitable", 200, (w) => call("GET", "/api/team/invitable", { who: w.who.studentA })],
-  ["POST /api/team/members", 200, async (w) => {
+  ["POST /api/team/leave", 200, "rj-m-pos-leaver", async (w) => call("POST", "/api/team/leave", { who: await devLogin("rj-m-pos-leaver", { demo: true }), body: { teamId: w.ids.teamA } })],
+  ["GET /api/team/invitable", 200, "studentA", (w) => call("GET", "/api/team/invitable", { who: w.who.studentA })],
+  ["POST /api/team/members", 200, "studentA", async (w) => {
     const who = await devLogin("rj-m-pos-invitee");
     await call("POST", "/api/cohorts/join", { who, body: { code: "VISION26" } });
     await giveGithubLogin("rj-m-pos-invitee");
     return call("POST", "/api/team/members", { who: w.who.studentA, body: { teamId: w.ids.teamA, login: "rj-m-pos-invitee" } });
   }],
-  ["DELETE /api/team/members/:login", 200, (w) => call("DELETE", `/api/team/members/rj-m-pos-invitee?teamId=${w.ids.teamA}`, { who: w.who.studentA })],
-  ["GET /api/v1/connections", 200, (w) => call("GET", "/api/v1/connections", { who: w.who.studentA })],
-  ["POST /api/v1/connections/discord/preview", 200, async (w) => {
+  ["DELETE /api/team/members/:login", 200, "studentA", (w) => call("DELETE", `/api/team/members/rj-m-pos-invitee?teamId=${w.ids.teamA}`, { who: w.who.studentA })],
+  ["GET /api/v1/connections", 200, "studentA", (w) => call("GET", "/api/v1/connections", { who: w.who.studentA })],
+  ["POST /api/v1/connections/discord/preview", 200, "rj-m-pos-linker", async (w) => {
     const activity = await activitySession({ id: "900000000000000299", username: "rj-m-pos-discord" }, "rj-m-pos-code");
     const session = (await call("GET", "/api/activity/session", { who: activity, base: ACTIVITY })).json;
     w.ids.linkToken = new URL(session.linkUrl).hash.replace("#discord=", "");
     w.who.positiveLinker = await devLogin("rj-m-pos-linker", { demo: true });
     return call("POST", "/api/v1/connections/discord/preview", { who: w.who.positiveLinker, body: { token: w.ids.linkToken } });
   }],
-  ["POST /api/v1/connections/discord/confirm", 200, (w) => call("POST", "/api/v1/connections/discord/confirm", { who: w.who.positiveLinker, body: { token: w.ids.linkToken } })],
-  ["POST /api/v1/cli/device/start", 200, async (w) => {
+  ["POST /api/v1/connections/discord/confirm", 200, "rj-m-pos-linker", (w) => call("POST", "/api/v1/connections/discord/confirm", { who: w.who.positiveLinker, body: { token: w.ids.linkToken } })],
+  ["POST /api/v1/cli/device/start", 200, "signedOut", async (w) => {
     const result = await call("POST", "/api/v1/cli/device/start");
     w.ids.deviceStart = result.json;
     return result;
   }],
-  ["POST /api/v1/cli/device/approve", 200, (w) => call("POST", "/api/v1/cli/device/approve", { who: w.who.studentA, body: { userCode: w.ids.deviceStart.userCode, deviceName: "rj-m-pos-device" } })],
-  ["POST /api/v1/cli/device/token", 200, async (w) => {
+  ["POST /api/v1/cli/device/approve", 200, "studentA", (w) => call("POST", "/api/v1/cli/device/approve", { who: w.who.studentA, body: { userCode: w.ids.deviceStart.userCode, deviceName: "rj-m-pos-device" } })],
+  ["POST /api/v1/cli/device/token", 200, "signedOut", async (w) => {
     const result = await call("POST", "/api/v1/cli/device/token", { body: { deviceCode: w.ids.deviceStart.deviceCode } });
     w.who.positiveDevice = { bearer: result.json?.token };
     return result;
   }],
-  ["DELETE /api/v1/cli/devices", 200, async (w) => {
+  ["DELETE /api/v1/cli/devices", 200, "studentA", async (w) => {
     const [{ id }] = await control.sql("SELECT id FROM cli_devices WHERE name = 'rj-m-pos-device'");
     return call("DELETE", "/api/v1/cli/devices", { who: w.who.studentA, body: { deviceId: id } });
   }],
-  ["GET /api/v1/cli/device/status", 200, (w) => call("GET", "/api/v1/cli/device/status", { who: w.who.deviceA })],
-  ["POST /api/v1/local-reports", 201, (w) => {
+  ["GET /api/v1/cli/device/status", 200, "deviceA", (w) => call("GET", "/api/v1/cli/device/status", { who: w.who.deviceA })],
+  ["POST /api/v1/local-reports", 201, "deviceA", (w) => {
     const bytes = "rj matrix weights";
     w.ids.weight = { bytes, sha256: sha256(bytes) };
     return call("POST", "/api/v1/local-reports", {
@@ -517,83 +517,83 @@ const POSITIVE = [
       body: { ...report(w, "rj-matrix-report-weights"), weightsUsed: ["model.npz"], weightsUploaded: [{ path: "model.npz", sha256: w.ids.weight.sha256 }] },
     });
   }],
-  ["PUT /api/v1/local-reports/:reportId/weights/*", 201, (w) =>
+  ["PUT /api/v1/local-reports/:reportId/weights/*", 201, "deviceA", (w) =>
     call("PUT", "/api/v1/local-reports/rj-matrix-report-weights/weights/model.npz", {
       who: w.who.deviceA,
       body: w.ids.weight.bytes,
       headers: { "content-type": "application/octet-stream", "x-cogworks-weight-sha256": w.ids.weight.sha256 },
     })],
-  ["GET /api/v1/local-reports", 200, (w) => call("GET", "/api/v1/local-reports", { who: w.who.studentA })],
-  ["POST /api/v1/local-runs", 201, (w) => {
+  ["GET /api/v1/local-reports", 200, "studentA", (w) => call("GET", "/api/v1/local-reports", { who: w.who.studentA })],
+  ["POST /api/v1/local-runs", 201, "deviceA", (w) => {
     // A run id of its own: the cells already started the matrix's one, so
     // sending that again is a replay (200), not a start.
     const request = REQUESTS["POST /api/v1/local-runs"](w);
     return call("POST", request.path, { who: w.who.deviceA, body: { ...request.body, clientRunId: `localrun_${"d".repeat(32)}` } });
   }],
-  ["POST /api/v1/local-runs/:id/events", 200, (w) => call("POST", `/api/v1/local-runs/${w.ids.localRunA}/events`, {
+  ["POST /api/v1/local-runs/:id/events", 200, "deviceA", (w) => call("POST", `/api/v1/local-runs/${w.ids.localRunA}/events`, {
     who: w.who.deviceA,
     body: { eventId: "rj-matrix-event-2", sequence: 1, occurredAt: 1_790_000_000_100, type: "progress", phase: "evaluating" },
   })],
-  ["POST /api/v1/local-runs/:id/events/batch", 200, (w) => call("POST", `/api/v1/local-runs/${w.ids.localRunA}/events/batch`, {
+  ["POST /api/v1/local-runs/:id/events/batch", 200, "deviceA", (w) => call("POST", `/api/v1/local-runs/${w.ids.localRunA}/events/batch`, {
     who: w.who.deviceA,
     body: { events: [{ eventId: "rj-matrix-event-3", sequence: 2, occurredAt: 1_790_000_000_200, type: "progress", phase: "scoring" }] },
   })],
-  ["POST /api/internal/v1/runner/events", 200, (w) => {
+  ["POST /api/internal/v1/runner/events", 200, "runner", (w) => {
     const body = JSON.stringify({ protocolVersion: "1", eventId: "rj-matrix-runner-1", runId: w.ids.runA, sequence: 0, occurredAt: Date.now(), type: "status", status: "preparing" });
     return call("POST", "/api/internal/v1/runner/events", { body, headers: { "content-type": "application/json", ...runnerHeaders(body) } });
   }],
-  ["GET /api/run-surfaces", 200, (w) => call("GET", "/api/run-surfaces", { who: w.who.studentA })],
-  ["GET /api/run-surfaces/:id", 200, (w) => call("GET", `/api/run-surfaces/${w.ids.surfaceA}`, { who: w.who.studentA })],
-  ["GET /api/run-surfaces/:id/stream", 101, async (w) => {
+  ["GET /api/run-surfaces", 200, "studentA", (w) => call("GET", "/api/run-surfaces", { who: w.who.studentA })],
+  ["GET /api/run-surfaces/:id", 200, "studentA", (w) => call("GET", `/api/run-surfaces/${w.ids.surfaceA}`, { who: w.who.studentA })],
+  ["GET /api/run-surfaces/:id/stream", 101, "studentA", async (w) => {
     const message = await firstMessage(`ws://127.0.0.1:8810/api/run-surfaces/${w.ids.surfaceA}/stream`, w.who.studentA.cookie);
     return { status: message ? 101 : 0, json: message, text: JSON.stringify(message).slice(0, 200) };
   }],
-  ["GET /api/admin/overview", 200, (w) => call("GET", "/api/admin/overview", { who: w.who.owner })],
-  ["PATCH /api/admin/cohort", 200, (w) => call("PATCH", "/api/admin/cohort", { who: w.who.owner, body: { active: true } })],
-  ["PATCH /api/admin/teams/:teamId", 200, (w) => call("PATCH", `/api/admin/teams/${w.ids.teamA}`, { who: w.who.taAssigned, body: { description: "Staff note from the matrix." } })],
-  ["POST /api/admin/teams/:teamId/members", 200, async (w) => {
+  ["GET /api/admin/overview", 200, "owner", (w) => call("GET", "/api/admin/overview", { who: w.who.owner })],
+  ["PATCH /api/admin/cohort", 200, "owner", (w) => call("PATCH", "/api/admin/cohort", { who: w.who.owner, body: { active: true } })],
+  ["PATCH /api/admin/teams/:teamId", 200, "taAssigned", (w) => call("PATCH", `/api/admin/teams/${w.ids.teamA}`, { who: w.who.taAssigned, body: { description: "Staff note from the matrix." } })],
+  ["POST /api/admin/teams/:teamId/members", 200, "owner", async (w) => {
     const who = await devLogin("rj-m-pos-admin-add");
     await call("POST", "/api/cohorts/join", { who, body: { code: "VISION26" } });
     await giveGithubLogin("rj-m-pos-admin-add");
     return call("POST", `/api/admin/teams/${w.ids.teamA}/members`, { who: w.who.owner, body: { login: "rj-m-pos-admin-add" } });
   }],
-  ["DELETE /api/admin/teams/:teamId/members/:login", 200, (w) => call("DELETE", `/api/admin/teams/${w.ids.teamA}/members/rj-m-pos-admin-add`, { who: w.who.owner })],
-  ["POST /api/admin/teams/:teamId/tas", 200, async (w) => {
+  ["DELETE /api/admin/teams/:teamId/members/:login", 200, "owner", (w) => call("DELETE", `/api/admin/teams/${w.ids.teamA}/members/rj-m-pos-admin-add`, { who: w.who.owner })],
+  ["POST /api/admin/teams/:teamId/tas", 200, "owner", async (w) => {
     await devLogin("rj-m-pos-ta");
     await giveGithubLogin("rj-m-pos-ta");
     return call("POST", `/api/admin/teams/${w.ids.teamA}/tas`, { who: w.who.owner, body: { login: "rj-m-pos-ta" } });
   }],
-  ["DELETE /api/admin/teams/:teamId/tas/:login", 200, (w) => call("DELETE", `/api/admin/teams/${w.ids.teamA}/tas/rj-m-pos-ta`, { who: w.who.owner })],
-  ["GET /api/admin/staff", 200, (w) => call("GET", "/api/admin/staff", { who: w.who.owner })],
-  ["POST /api/admin/staff", 200, (w) => call("POST", "/api/admin/staff", { who: w.who.owner, body: { login: "rj-m-pos-staff" } })],
-  ["DELETE /api/admin/staff/:login", 200, (w) => call("DELETE", "/api/admin/staff/rj-m-pos-staff", { who: w.who.owner })],
-  ["GET /api/admin/desk/teams", 200, (w) => call("GET", "/api/admin/desk/teams", { who: w.who.taAssigned })],
-  ["GET /api/admin/desk/teams/:teamId", 200, (w) => call("GET", `/api/admin/desk/teams/${w.ids.teamA}`, { who: w.who.taAssigned })],
-  ["GET /api/admin/desk/teams/:teamId/runs", 200, (w) => call("GET", `/api/admin/desk/teams/${w.ids.teamA}/runs`, { who: w.who.taAssigned })],
-  ["GET /api/activity/oauth/state", 200, () => call("GET", "/api/activity/oauth/state", { base: ACTIVITY })],
-  ["POST /api/activity/oauth/token", 200, async () => {
+  ["DELETE /api/admin/teams/:teamId/tas/:login", 200, "owner", (w) => call("DELETE", `/api/admin/teams/${w.ids.teamA}/tas/rj-m-pos-ta`, { who: w.who.owner })],
+  ["GET /api/admin/staff", 200, "owner", (w) => call("GET", "/api/admin/staff", { who: w.who.owner })],
+  ["POST /api/admin/staff", 200, "owner", (w) => call("POST", "/api/admin/staff", { who: w.who.owner, body: { login: "rj-m-pos-staff" } })],
+  ["DELETE /api/admin/staff/:login", 200, "owner", (w) => call("DELETE", "/api/admin/staff/rj-m-pos-staff", { who: w.who.owner })],
+  ["GET /api/admin/desk/teams", 200, "taAssigned", (w) => call("GET", "/api/admin/desk/teams", { who: w.who.taAssigned })],
+  ["GET /api/admin/desk/teams/:teamId", 200, "taAssigned", (w) => call("GET", `/api/admin/desk/teams/${w.ids.teamA}`, { who: w.who.taAssigned })],
+  ["GET /api/admin/desk/teams/:teamId/runs", 200, "taAssigned", (w) => call("GET", `/api/admin/desk/teams/${w.ids.teamA}/runs`, { who: w.who.taAssigned })],
+  ["GET /api/activity/oauth/state", 200, "signedOut", () => call("GET", "/api/activity/oauth/state", { base: ACTIVITY })],
+  ["POST /api/activity/oauth/token", 200, "activityA", async () => {
     // activitySession runs the exchange and throws unless it answers 2xx.
     await activitySession({ id: "900000000000000298", username: "rj-m-pos-exchange" }, "rj-m-pos-exchange-code");
     return { status: 200 };
   }],
-  ["GET /api/activity/session", 200, (w) => call("GET", "/api/activity/session", { who: w.who.activityA, base: ACTIVITY })],
-  ["GET /api/activity/run-surfaces", 200, (w) => call("GET", "/api/activity/run-surfaces", { who: w.who.activityA, base: ACTIVITY })],
-  ["POST /api/activity/run-surfaces/:id/actions/:action", 200, (w) =>
+  ["GET /api/activity/session", 200, "activityA", (w) => call("GET", "/api/activity/session", { who: w.who.activityA, base: ACTIVITY })],
+  ["GET /api/activity/run-surfaces", 200, "activityA", (w) => call("GET", "/api/activity/run-surfaces", { who: w.who.activityA, base: ACTIVITY })],
+  ["POST /api/activity/run-surfaces/:id/actions/:action", 200, "activityA", (w) =>
     call("POST", `/api/activity/run-surfaces/${w.ids.surfaceA}/actions/rerun_hosted`, { who: w.who.activityA, base: ACTIVITY })],
-  ["GET /api/activity/run-surfaces/:id/stream", 101, async (w) => {
+  ["GET /api/activity/run-surfaces/:id/stream", 101, "activityA", async (w) => {
     const message = await firstMessage(`ws://localhost:8810/api/activity/run-surfaces/${w.ids.surfaceA}/stream`, w.who.activityA.cookie);
     return { status: message ? 101 : 0, json: message, text: JSON.stringify(message).slice(0, 200) };
   }],
-  ["GET /api/v1/setup/state", 200, (w) => call("GET", "/api/v1/setup/state", { who: w.who.studentA })],
-  ["POST /api/v1/setup/check-off", 200, async (w) => {
+  ["GET /api/v1/setup/state", 200, "studentA", (w) => call("GET", "/api/v1/setup/state", { who: w.who.studentA })],
+  ["POST /api/v1/setup/check-off", 200, "studentA", async (w) => {
     const state = (await call("GET", `/api/v1/setup/state?benchmarkId=${w.activeBenchmark}`, { who: w.who.studentA })).json;
     const [token] = Object.values(state.tokens ?? {});
     return call("POST", `/api/v1/setup/check-off?t=${encodeURIComponent(token)}`);
   }],
-  ["POST /api/v1/cli/setup/checks", 200, (w) => send(w, "POST /api/v1/cli/setup/checks", REQUESTS["POST /api/v1/cli/setup/checks"], w.who.deviceA)],
-  ["DELETE /api/v1/setup/state", 200, async () => call("DELETE", "/api/v1/setup/state", { who: await devLogin("second-owner", { demo: true }) })],
-  ["DELETE /api/v1/connections/discord", 200, (w) => call("DELETE", "/api/v1/connections/discord", { who: w.who.positiveLinker })],
-  ["POST /api/session/logout", 200, async () => call("POST", "/api/session/logout", { who: await devLogin("rj-m-pos-logout") })],
+  ["POST /api/v1/cli/setup/checks", 200, "deviceA", (w) => send(w, "POST /api/v1/cli/setup/checks", REQUESTS["POST /api/v1/cli/setup/checks"], w.who.deviceA)],
+  ["DELETE /api/v1/setup/state", 200, "second-owner", async () => call("DELETE", "/api/v1/setup/state", { who: await devLogin("second-owner", { demo: true }) })],
+  ["DELETE /api/v1/connections/discord", 200, "rj-m-pos-linker", (w) => call("DELETE", "/api/v1/connections/discord", { who: w.who.positiveLinker })],
+  ["POST /api/session/logout", 200, "rj-m-pos-logout", async () => call("POST", "/api/session/logout", { who: await devLogin("rj-m-pos-logout") })],
 ];
 
 function describe(result) {
@@ -671,14 +671,15 @@ test("every Worker route answers every identity exactly as the policy says", asy
   const changed = changedRows(before, await control.snapshot());
 
   const positives = {};
-  for (const [key, status, run] of POSITIVE) {
+  for (const [key, status, caller, run] of POSITIVE) {
     let result;
     try {
       result = await run(w);
     } catch (error) {
       result = { status: 0, text: String(error.message ?? error) };
     }
-    positives[key] = { want: status, got: result.status, answer: result.status === status ? undefined : (result.text ?? "").slice(0, 300) };
+    positives[key] = { caller, want: status, got: result.status, answer: result.status === status ? undefined : (result.text ?? "").slice(0, 300) };
+    cells.push({ key, identity: caller, result, positive: true });
   }
   for (const [key, spec] of Object.entries(LAST)) {
     for (const identity of IDENTITIES) record(key, identity, await send(w, key, spec, world.who[identity]));
@@ -688,13 +689,13 @@ test("every Worker route answers every identity exactly as the policy says", asy
   const facts = contentFacts(w, await control.snapshot());
   const wrongContent = [];
   const leaked = [];
-  for (const { key, identity, result, variant } of cells) {
+  for (const { key, identity, result, variant, positive } of cells) {
     if (!variant && (result.status === 200 || result.status === 201) && CONTENT[key]) {
       const problem = CONTENT[key](result.json, identity, facts);
-      if (problem) wrongContent.push({ route: key, identity, problem });
+      if (problem) wrongContent.push(positive ? { route: key, identity, problem, positive: true } : { route: key, identity, problem });
     }
     const found = leaks(result.text, identity, canaries);
-    if (found.length) leaked.push({ route: key, identity, status: result.status, found });
+    if (found.length) leaked.push({ route: positive ? `${key} [positive]` : key, identity, status: result.status, found });
   }
   // The planted per-person work is there to be withheld: staff with the full
   // view do read it, so its absence elsewhere means something.
@@ -800,16 +801,30 @@ function contentFacts(w, db) {
   const userIdOf = new Map(db.users.map((user) => [user.email, user.id]));
   const signedIn = ["joiner", "outsider", "studentA", "teammateA", "studentB", "changedTeam", "taAssigned", "taUnassigned", "owner"];
   const memberIds = new Set(db.team_members.map((row) => row.user_id));
+  // Every dev-local account the run created, not just the matrix's cast: the
+  // positive controls sign in as their own users and their answers are
+  // content-checked against these facts too, so the facts read them from the
+  // same snapshot (their login is their email's prefix).
+  const devUsers = db.users.filter((user) => user.email.endsWith("@dev.local"));
+  const teamOf = Object.fromEntries([...TEAM_A.map((i) => [i, w.ids.teamA]), ...TEAM_B.map((i) => [i, w.ids.teamB])]);
+  const loginOf = Object.fromEntries(signedIn.map((i) => [i, LOGINS[i]]));
+  const devicesOf = Object.fromEntries(
+    signedIn.map((i) => [i, new Set(db.cli_devices.filter((d) => d.user_id === userIdOf.get(`${LOGINS[i]}@dev.local`)).map((d) => d.id))]),
+  );
+  for (const user of devUsers) {
+    const login = user.email.split("@")[0];
+    loginOf[login] ??= login;
+    teamOf[login] ??= db.team_members.find((row) => row.user_id === user.id)?.team_id ?? null;
+    devicesOf[login] ??= new Set(db.cli_devices.filter((d) => d.user_id === user.id).map((d) => d.id));
+  }
   return {
     ids: w.ids,
-    teamOf: Object.fromEntries([...TEAM_A.map((i) => [i, w.ids.teamA]), ...TEAM_B.map((i) => [i, w.ids.teamB])]),
-    loginOf: Object.fromEntries(signedIn.map((i) => [i, LOGINS[i]])),
+    teamOf,
+    loginOf,
     runsOf: Object.fromEntries(teams.map((team) => [team, of("runs", team)])),
     surfacesOf: Object.fromEntries(teams.map((team) => [team, of("run_surfaces", team)])),
     repoOf: Object.fromEntries(teams.map((team) => [team, db.teams.find((row) => row.id === team).repo_full_name])),
-    devicesOf: Object.fromEntries(
-      signedIn.map((i) => [i, new Set(db.cli_devices.filter((d) => d.user_id === userIdOf.get(`${LOGINS[i]}@dev.local`)).map((d) => d.id))]),
-    ),
+    devicesOf,
     onSomeTeam: new Set(db.users.filter((u) => memberIds.has(u.id)).flatMap((u) => [u.github_login, u.email.split("@")[0]]).filter(Boolean)),
     staffTeams: { taAssigned: [w.ids.teamA], taUnassigned: [w.ids.teamB], owner: "all" },
   };
