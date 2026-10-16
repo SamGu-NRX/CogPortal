@@ -1,0 +1,7 @@
+GitHub   @burst11-student
+Team     Vector Voyagers
+Repo     cogworks-demo/face-finder
+Discord  team channel not chosen
+Device   burst11 seat (py3.11)
+Expires  Dec 15 (in 60 days)
+Portal   http://127.0.0.1:8850

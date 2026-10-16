@@ -1,0 +1,20 @@
+audio-identification v1 · LOCAL RUN · SELF-REPORTED
+Identification score: 0.5208
+Clean top-1: 1.000
+Noisy top-1: 1.000
+Short clip top-1: 1.000
+Pitch-shifted top-1: 0.042
+No candidate found: 0.275
+Wrong song ranked first: 0.100
+Chance: 0.033 (floor for Identification score, set by the data)
+Trivial baseline: 0.242 (floor for Identification score, set by the data)
+Median identify time: 0.101 s
+Margin separation (AUC): 0.795
+commit: aaf35e6
+note: Identification falls gradually from 60% at 5 songs to 52% at 30, without a single point where it breaks.
+note: Clean clips identify at 100% but pitch-shifted clips at 4%.
+note: A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.
+note: Every clip from a song that was never enrolled still came back with a candidate.
+note: Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.
+note: Weakest cell: pitch_+1 at 0% top-1.
+note: Outcome split over 240 scored queries: 125 top_1, 25 top_k, 24 ranking_failure, 66 retrieval_failure.
