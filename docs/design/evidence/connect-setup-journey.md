@@ -46,9 +46,8 @@ Zero axe violations on all three screens (41 rule passes each). Two
 
 ## Machine reports
 
-- `connect-setup-journey-walk-report.json`: per-path state sequences (URL,
-  headings, live-region count, focused element, alerts) and console errors.
-- `connect-setup-journey-axe-report.json`: full axe results per screen.
+- `connect-setup-journey-walk-report.json`: per-path state sequences (URL, h1, headings, the aria-live rail's `count` text, step counts, focused element, alerts) and console errors.
+- `connect-setup-journey-axe-report.json`: summary axe results per screen (label, url, violations, incomplete, passes count).
 
 Also at this commit: full portal suite 1256/1256 passing (`pnpm test` in
 `apps/portal` with `TSX_TSCONFIG_PATH=tsconfig.app.json`), `pnpm check` green.
