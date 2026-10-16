@@ -121,8 +121,9 @@ page.on("pageerror", (e) => log(`pageerror: ${e.message}`));
 
 log("signing in (development sign-in)");
 await page.goto(`${PORTAL}/signin`, { waitUntil: "networkidle" });
-const disc = page.locator("details", { hasText: "Development sign-in" });
-if (await disc.count()) await disc.first().locator("summary").click();
+const devDetails = page.locator("details", { hasText: "Development sign-in" }).first();
+await devDetails.waitFor({ state: "attached", timeout: 30_000 });
+if (!(await devDetails.evaluate((el) => el.open))) await devDetails.locator("summary").click();
 await page.locator("#dev-login").fill(LOGIN);
 await page.locator("#dev-login").press("Enter");
 await page.waitForURL(/dashboard|join|connect|setup/, { timeout: 30_000 }).catch(() => {});
