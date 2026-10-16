@@ -80,7 +80,16 @@ export const CONTENT = {
   "PATCH /api/team": (json, identity, f) => teamIs(json?.id, f.teamOf[identity]),
   "POST /api/team/repository": (json, identity, f) => teamIs(json?.id, f.teamOf[identity]),
   "GET /api/cohorts/teams": (json) => (isArray(json?.teams ?? json) ? null : "is not a list of teams"),
-  "POST /api/team/leave": (json) => (json?.alreadyLeft === true ? null : "says a teamless caller left a team"),
+  // A 2xx leave answers the route's shape and ends with the caller off every
+  // team: the route removes the one membership and 409s when the caller is on
+  // another team instead. The positive control signs in with the dev-auth demo
+  // provisioning, which auto-connects the caller to Demo Team, so its answer
+  // is a first leave — alreadyLeft:false — and the end state is the invariant,
+  // not the field's value.
+  "POST /api/team/leave": (json, identity, f) =>
+    typeof json?.alreadyLeft === "boolean" && !f.onSomeTeam.has(identity)
+      ? null
+      : "answers 2xx without leaving the caller off every team",
   "GET /api/team/invitable": (json, identity, f) => {
     const rows = json?.users ?? json;
     if (!isArray(rows)) return "is not a list of people";
