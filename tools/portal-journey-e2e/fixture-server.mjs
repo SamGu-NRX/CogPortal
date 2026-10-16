@@ -12,8 +12,10 @@
 import http from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DIST = process.env.DIST_DIR ?? "/home/user/work/CogPortal/apps/portal/dist/client";
+// Resolved from this checkout so the server works anywhere; DIST_DIR overrides.
+const DIST = process.env.DIST_DIR ?? fileURLToPath(new URL("../../apps/portal/dist/client", import.meta.url));
 const PORT = Number(process.env.PORT ?? 4173);
 
 const NOW = Date.now();
@@ -121,6 +123,7 @@ const MIME = {
 async function serveStatic(req, res, pathname) {
   let rel = pathname === "/" ? "/index.html" : pathname;
   let file = join(DIST, normalize(rel));
+  if (!file.startsWith(DIST + "/")) file = join(DIST, "index.html"); // traversal attempt: SPA fallback
   try {
     const s = await stat(file);
     if (!s.isFile()) throw new Error("dir");

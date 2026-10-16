@@ -5,9 +5,11 @@
  */
 import { chromium } from "playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const BASE = "http://localhost:4173";
-const OUT = "/home/user/work/e2e/shots";
+// Outputs land beside this script, not an author-specific path.
+const OUT = fileURLToPath(new URL("./shots/", import.meta.url));
 mkdirSync(OUT, { recursive: true });
 
 const report = { startedAt: new Date().toISOString(), paths: [] };
@@ -83,9 +85,12 @@ page.on("pageerror", (err) => report.paths.at(-1)?.consoleErrors.push(`pageerror
   await page.goto(`${BASE}/connections?user_code=ABCD-1234-EFGH&return_to=setup`, { waitUntil: "networkidle" });
   await observe(page, "device approval page", "first-run-6-approval");
   await page.getByRole("button", { name: "Approve device" }).click();
-  await sleep(1400); // approval + auto-return to /setup (900ms timer)
+  // approval + auto-return to /setup (a 900ms timer): wait for the landing, not a clock
+  await page.waitForURL(/\/setup/, { timeout: 15000 }).catch(() => {});
   await observe(page, "back from approval", "first-run-7-back-from-approval");
-  await sleep(4500); // connections poll (~2.5s) + setup-state poll must both land
+  // the connections poll (~2.5s) and the setup-state poll must both land: wait
+  // for the rail to tick 1 of 5 instead of sleeping through both
+  await page.locator("text=/1 of 5/").first().waitFor({ timeout: 15000 }).catch(() => {});
   const linked = await observe(page, "setup after approval poll", "first-run-8-setup-after-poll");
   report.paths.at(-1).linkTickedAfterApproval = linked.count?.startsWith("1 of 5") ?? false;
 }
@@ -179,5 +184,5 @@ page.on("pageerror", (err) => report.paths.at(-1)?.consoleErrors.push(`pageerror
 }
 
 await browser.close();
-writeFileSync("/home/user/work/e2e/walk-report.json", JSON.stringify(report, null, 2));
+writeFileSync(fileURLToPath(new URL("./walk-report.json", import.meta.url)), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report.paths.map((p) => ({ name: p.name, states: p.states.length, consoleErrors: p.consoleErrors })), null, 2));

@@ -5,6 +5,7 @@
  */
 import { chromium } from "playwright";
 import { writeFileSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const axeSource = readFileSync(new URL("./node_modules/axe-core/axe.js", import.meta.url), "utf8");
 
@@ -39,7 +40,7 @@ await scan("connect choice screen", "/connect", "first-run");
 await scan("setup rail (created, 1 of 5)", "/setup", "first-run");
 await scan("connections device list", "/connections?user_code=ABCD-1234-EFGH&return_to=setup", "first-run");
 
-writeFileSync("/home/user/work/e2e/axe-report.json", JSON.stringify(results, null, 2));
+writeFileSync(fileURLToPath(new URL("./axe-report.json", import.meta.url)), JSON.stringify(results, null, 2));
 for (const r of results) {
   console.log(`\n== ${r.label} (${r.url}) — ${r.passes} rule passes`);
   for (const v of r.violations) console.log(`  VIOLATION ${v.impact ?? "?"} ${v.id} × ${v.nodes}: ${v.sample.join(" | ")}`);
