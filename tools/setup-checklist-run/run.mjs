@@ -216,20 +216,27 @@ state = w3.after;
 
 // ── 4. link (approve in a second tab; the setup page stays open) ───────────
 log("$ cogworks link --portal ... --no-browser");
-const r4 = await runCommand(`cogworks link --portal ${PORTAL} --no-browser`, 150_000);
-dump("cli-link.txt", r4.text + `\nexit=${r4.code}`);
-const m4 = r4.text.match(/Open (\S+) and confirm code ([A-Za-z0-9-]+)/);
-if (!m4) throw new Error(`link never printed its verification URI:\n${r4.text}`);
+const linkP = runCommand(`cogworks link --portal ${PORTAL} --no-browser`, 300_000);
+const mre = /Open (\S+) and confirm code ([A-Za-z0-9-]+)/g;
+let m4 = null;
+for (let i = 0; i < 120 && !m4; i++) {
+  await page.waitForTimeout(2500);
+  const matches = [...out.matchAll(mre)];
+  m4 = matches.at(-1) ?? null;
+}
+if (!m4) throw new Error(`link never printed its verification URI:\n${out.slice(-2000)}`);
 const [, uri, code] = m4;
 log(`link URI ${uri} code ${code}`);
 const approve = await context.newPage();
-await approve.goto(uri, { waitUntil: "networkidle" });
+await approve.goto(uri.replace("localhost:5173", "[::1]:5173"), { waitUntil: "networkidle" });
 dump("approval-page.txt", await approve.locator("body").innerText());
 await approve.locator("#device-name").fill("burst14 seat (py3.11)");
 await approve.getByRole("button", { name: "Approve device" }).click();
 log("device approved in the second tab");
 await approve.waitForTimeout(1500);
 await approve.close();
+const r4 = await linkP;
+dump("cli-link.txt", r4.text + `\nexit=${r4.code}`);
 const w4 = await watchFor(page, state, 20_000);
 await record("link", state, w4, { exit: r4.code, deviceCode: code });
 state = w4.after;
