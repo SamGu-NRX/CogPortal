@@ -93,13 +93,20 @@ assert 'proxy lookup returned' in captured.getvalue()
 ''' % str(PROBE)
         source += '''
 child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
-Path(%r).write_text(json.dumps({
+# The parent reads this record the moment it exists (the interrupt test polls
+# for it while this worker still runs), so land it with an atomic replace:
+# a reader that sees the record sees all of it, never the empty file a
+# create-then-write leaves between the two.
+record = Path(%r)
+staged = record.with_name(record.name + '.staged')
+staged.write_text(json.dumps({
     'pid': os.getpid(), 'descendant': child.pid, 'cwd': os.getcwd(),
     'cpu': resource.getrlimit(resource.RLIMIT_CPU),
     'memory': resource.getrlimit(resource.RLIMIT_AS),
     'core': resource.getrlimit(resource.RLIMIT_CORE),
     'seed': sys.flags.hash_randomization, 'stdin': sys.stdin.read(),
 }))
+os.replace(staged, record)
 %s
 def create_submission(inputs):
     return inputs
