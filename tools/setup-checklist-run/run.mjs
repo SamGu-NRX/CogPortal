@@ -96,7 +96,7 @@ function runCommand(cmdline, timeoutMs) {
   return new Promise((resolve) => {
     const id = Date.now();
     const begin = out.length;
-    shell.write(`${cmdline}\necho "___DONE_${id}_$?___"\n`);
+    shell.stdin.write(`${cmdline}\necho "___DONE_${id}_$?___"\n`);
     const needle = `___DONE_${id}_`;
     const started = Date.now();
     const poll = setInterval(() => {
