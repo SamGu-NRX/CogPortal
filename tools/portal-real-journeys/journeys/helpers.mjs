@@ -39,8 +39,24 @@ export const control = {
   held: async () => (await (await fetch(`${STACK}/__proxy/held`)).json()).held,
   release: (tag) => post(`${STACK}/__proxy/release`, { tag }),
   restartWorker: () => post(`${STACK}/__control/restart-worker`),
-  /** Rows of the last statement, read from the run's own D1. */
-  sql: async (sql) => (await post(`${STACK}/__control/sql`, { sql })).rows,
+  /**
+   * Rows of the last statement, read from the run's own D1. The control
+   * plane runs wrangler against the same SQLite file the live Worker holds
+   * open, so a statement can land on a transient `SQLITE_BUSY` (a WAL
+   * snapshot race with the Worker's own writes). Retry those a few times —
+   * only those; every other control failure throws as before.
+   */
+  sql: async (sql) => {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return (await post(`${STACK}/__control/sql`, { sql })).rows;
+      } catch (error) {
+        if (attempt >= 3 || !String(error?.message).includes("SQLITE_BUSY")) throw error;
+        console.warn(`control.sql: SQLITE_BUSY (attempt ${attempt}), retrying`);
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+      }
+    }
+  },
   /** Every row of every table in the run's D1: { table: rows }. */
   snapshot: async () => (await post(`${STACK}/__control/snapshot`)).tables,
 };
