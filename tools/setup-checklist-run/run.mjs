@@ -127,6 +127,11 @@ if (!(await devDetails.evaluate((el) => el.open))) await devDetails.locator("sum
 await page.locator("#dev-login").fill(LOGIN);
 await page.locator("#dev-login").press("Enter");
 await page.waitForURL(/dashboard|join|connect|setup/, { timeout: 30_000 }).catch(() => {});
+// The sheet's commands and its evidence scope follow the selected track; the
+// walkthrough runs the vision-recognition commands, so pin that track before
+// any /setup visit (the default is the course's last-active module).
+await page.evaluate(() => window.localStorage.setItem("cogportal.track", "vision-recognition"));
+log("track pinned to vision-recognition");
 log(`after sign-in at ${page.url()}`);
 
 log("joining cohort VISION26 (or resuming an onboarded seat)");
@@ -257,7 +262,7 @@ const checkCmd = "cogworks check --benchmark vision-recognition --update-setup";
 log(`$ ${checkCmd}`);
 const r5 = await runCommand(checkCmd, 900_000);
 dump("cli-check.txt", r5.text + `\nexit=${r5.code}`);
-const w5 = await watchFor(page, state, 20_000);
+const w5 = await watchFor(page, state, 180_000);
 await record("check", state, w5, { exit: r5.code });
 state = w5.after;
 
