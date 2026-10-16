@@ -1,0 +1,362 @@
+{
+  "check": {
+    "argv": [
+      "-m",
+      "cogbench",
+      "check",
+      "--benchmark",
+      "audio-identification",
+      "--json"
+    ],
+    "command": "check",
+    "exit": 2,
+    "json": {
+      "benchmarkInstalled": true,
+      "benchmarkLoadable": true,
+      "canonicalHostedPython": "3.8.20",
+      "contractVersion": "cogworks.submissions.v2",
+      "dataEvaluationCache": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "dataTestCache": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "gitRepository": false,
+      "localGap": [
+        "IPython",
+        "librosa",
+        "llvmlite",
+        "numba",
+        "scipy",
+        "soundfile"
+      ],
+      "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+      },
+      "python": "3.13.14",
+      "repositoryFullName": null,
+      "submissionDetail": "submission.py:create_submission",
+      "submissionInstalled": false,
+      "submissionLoadable": true,
+      "submissionSource": "file"
+    },
+    "stderr": "",
+    "stdout": "{\n  \"benchmarkInstalled\": true,\n  \"benchmarkLoadable\": true,\n  \"canonicalHostedPython\": \"3.8.20\",\n  \"contractVersion\": \"cogworks.submissions.v2\",\n  \"dataEvaluationCache\": {\n    \"message\": \"30 songs, 252 queries, generated locally (no download)\",\n    \"path\": \".\",\n    \"ready\": true\n  },\n  \"dataTestCache\": {\n    \"message\": \"8 songs, 68 queries, generated locally (no download)\",\n    \"path\": \".\",\n    \"ready\": true\n  },\n  \"gitRepository\": false,\n  \"localGap\": [\n    \"IPython\",\n    \"librosa\",\n    \"llvmlite\",\n    \"numba\",\n    \"scipy\",\n    \"soundfile\"\n  ],\n  \"modelCache\": {\n    \"message\": \"corpus is generated locally\",\n    \"path\": \"\",\n    \"ready\": true\n  },\n  \"python\": \"3.13.14\",\n  \"repositoryFullName\": null,\n  \"submissionDetail\": \"submission.py:create_submission\",\n  \"submissionInstalled\": false,\n  \"submissionLoadable\": true,\n  \"submissionSource\": \"file\"\n}\n"
+  },
+  "report": {
+    "argv": [
+      "-m",
+      "cogbench",
+      "report"
+    ],
+    "command": "report",
+    "exit": 0,
+    "json": null,
+    "stderr": "",
+    "stdout": "audio-identification v1 \u00b7 LOCAL RUN \u00b7 SELF-REPORTED\nIdentification score: 0.0000\nClean top-1: 0.000\nNoisy top-1: 0.000\nShort clip top-1: 0.000\nPitch-shifted top-1: 0.000\nNo candidate found: 0.000\nWrong song ranked first: 0.000\nChance: 0.033 (floor for Identification score, set by the data)\nTrivial baseline: 0.242 (floor for Identification score, set by the data)\nMedian identify time: 0.000 s\nnote: 30 songs failed to enroll, so every query for them scored zero. First: song-00: NameError: name 'np' is not defined at submission.py:11\nnote: The score is at or below the trivial baseline (0.242), which is a whole-clip average spectrum with no peaks, no fingerprints and no time information. Beating chance (0.033) is not the bar; beating this is.\nnote: Clips from songs that were never enrolled correctly returned no match in 100% of cases.\nnote: Margin separation is not measured: there was no first-to-second margin to read on both sides (identify returned ranked ids without scores, or no out-of-database query produced one). Return (song_id, score) pairs to get this column.\nnote: 12 queries raised: NameError: name 'np' is not defined at submission.py:11 | identify raised while running this clip\nnote: Weakest cell: clean_10s at 0% top-1.\nnote: Outcome split over 252 scored queries: 12 error, 240 enrollment_failure.\nnote: warm-up identify on a 1s silent clip raised: NameError: name 'np' is not defined at submission.py:11\n"
+  },
+  "run": {
+    "argv": [
+      "-m",
+      "cogbench",
+      "run",
+      "--benchmark",
+      "audio-identification",
+      "--json"
+    ],
+    "command": "run",
+    "exit": 0,
+    "json": {
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "command": "run",
+      "contractVersion": "cogworks.submissions.v2",
+      "diagnostics": [
+        "30 songs failed to enroll, so every query for them scored zero. First: song-00: NameError: name 'np' is not defined at submission.py:11",
+        "The score is at or below the trivial baseline (0.242), which is a whole-clip average spectrum with no peaks, no fingerprints and no time information. Beating chance (0.033) is not the bar; beating this is.",
+        "Clips from songs that were never enrolled correctly returned no match in 100% of cases.",
+        "Margin separation is not measured: there was no first-to-second margin to read on both sides (identify returned ranked ids without scores, or no out-of-database query produced one). Return (song_id, score) pairs to get this column.",
+        "12 queries raised: NameError: name 'np' is not defined at submission.py:11 | identify raised while running this clip",
+        "Weakest cell: clean_10s at 0% top-1.",
+        "Outcome split over 252 scored queries: 12 error, 240 enrollment_failure.",
+        "warm-up identify on a 1s silent clip raised: NameError: name 'np' is not defined at submission.py:11"
+      ],
+      "dirty": true,
+      "finishedAt": 1791673327462,
+      "metrics": [
+        {
+          "help": "How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number.",
+          "higherIsBetter": true,
+          "key": "identification_score",
+          "label": "Identification score",
+          "precision": 4,
+          "primary": true,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned.",
+          "higherIsBetter": true,
+          "key": "clean_top1",
+          "label": "Clean top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Clips with white noise added at a target signal-to-noise ratio -- the capstone's \"how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match\" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses.",
+          "higherIsBetter": true,
+          "key": "noisy_top1",
+          "label": "Noisy top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "The capstone's \"how short of a clip can be matched\" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with.",
+          "higherIsBetter": true,
+          "key": "short_clip_top1",
+          "label": "Short clip top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden.",
+          "higherIsBetter": true,
+          "key": "pitch_top1",
+          "label": "Pitch-shifted top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query.",
+          "higherIsBetter": false,
+          "key": "retrieval_failure_rate",
+          "label": "No candidate found",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit.",
+          "higherIsBetter": false,
+          "key": "ranking_failure_rate",
+          "label": "Wrong song ranked first",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+          "higherIsBetter": true,
+          "key": "chance_top1",
+          "label": "Chance",
+          "precision": 3,
+          "primary": false,
+          "relatesTo": "identification_score",
+          "role": "floor",
+          "unit": null,
+          "value": 0.03333333333333333
+        },
+        {
+          "help": "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.",
+          "higherIsBetter": true,
+          "key": "trivial_baseline_top1",
+          "label": "Trivial baseline",
+          "precision": 3,
+          "primary": false,
+          "relatesTo": "identification_score",
+          "role": "floor",
+          "unit": null,
+          "value": 0.24166666666666667
+        },
+        {
+          "help": "Median wall-clock time for one identify call, after warm-up. Reported, never scored.",
+          "higherIsBetter": false,
+          "key": "median_identify_seconds",
+          "label": "Median identify time",
+          "precision": 3,
+          "primary": false,
+          "role": "reported",
+          "unit": null,
+          "value": 0.0
+        }
+      ],
+      "outputDigest": "f2bb9184e23f7176167aa931bb0cdbf4e4c42cc3de73e44cb962e716aa33cc9b",
+      "pluginVersion": "0.1.0",
+      "reportId": "local_52059e5a49e2466ab1a5ad0e4b37303e",
+      "repositoryFullName": null,
+      "repositoryId": null,
+      "sdkVersion": "0.2.0",
+      "sha": null,
+      "startedAt": 1791673322491,
+      "weightsUploaded": [],
+      "weightsUsed": []
+    },
+    "stderr": "",
+    "stdout": "{\n  \"benchmarkId\": \"audio-identification\",\n  \"benchmarkVersion\": 1,\n  \"command\": \"run\",\n  \"contractVersion\": \"cogworks.submissions.v2\",\n  \"diagnostics\": [\n    \"30 songs failed to enroll, so every query for them scored zero. First: song-00: NameError: name 'np' is not defined at submission.py:11\",\n    \"The score is at or below the trivial baseline (0.242), which is a whole-clip average spectrum with no peaks, no fingerprints and no time information. Beating chance (0.033) is not the bar; beating this is.\",\n    \"Clips from songs that were never enrolled correctly returned no match in 100% of cases.\",\n    \"Margin separation is not measured: there was no first-to-second margin to read on both sides (identify returned ranked ids without scores, or no out-of-database query produced one). Return (song_id, score) pairs to get this column.\",\n    \"12 queries raised: NameError: name 'np' is not defined at submission.py:11 | identify raised while running this clip\",\n    \"Weakest cell: clean_10s at 0% top-1.\",\n    \"Outcome split over 252 scored queries: 12 error, 240 enrollment_failure.\",\n    \"warm-up identify on a 1s silent clip raised: NameError: name 'np' is not defined at submission.py:11\"\n  ],\n  \"dirty\": true,\n  \"finishedAt\": 1791673327462,\n  \"metrics\": [\n    {\n      \"help\": \"How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number.\",\n      \"higherIsBetter\": true,\n      \"key\": \"identification_score\",\n      \"label\": \"Identification score\",\n      \"precision\": 4,\n      \"primary\": true,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned.\",\n      \"higherIsBetter\": true,\n      \"key\": \"clean_top1\",\n      \"label\": \"Clean top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Clips with white noise added at a target signal-to-noise ratio -- the capstone's \\\"how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match\\\" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses.\",\n      \"higherIsBetter\": true,\n      \"key\": \"noisy_top1\",\n      \"label\": \"Noisy top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"The capstone's \\\"how short of a clip can be matched\\\" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with.\",\n      \"higherIsBetter\": true,\n      \"key\": \"short_clip_top1\",\n      \"label\": \"Short clip top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden.\",\n      \"higherIsBetter\": true,\n      \"key\": \"pitch_top1\",\n      \"label\": \"Pitch-shifted top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query.\",\n      \"higherIsBetter\": false,\n      \"key\": \"retrieval_failure_rate\",\n      \"label\": \"No candidate found\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit.\",\n      \"higherIsBetter\": false,\n      \"key\": \"ranking_failure_rate\",\n      \"label\": \"Wrong song ranked first\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.\",\n      \"higherIsBetter\": true,\n      \"key\": \"chance_top1\",\n      \"label\": \"Chance\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"relatesTo\": \"identification_score\",\n      \"role\": \"floor\",\n      \"unit\": null,\n      \"value\": 0.03333333333333333\n    },\n    {\n      \"help\": \"Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.\",\n      \"higherIsBetter\": true,\n      \"key\": \"trivial_baseline_top1\",\n      \"label\": \"Trivial baseline\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"relatesTo\": \"identification_score\",\n      \"role\": \"floor\",\n      \"unit\": null,\n      \"value\": 0.24166666666666667\n    },\n    {\n      \"help\": \"Median wall-clock time for one identify call, after warm-up. Reported, never scored.\",\n      \"higherIsBetter\": false,\n      \"key\": \"median_identify_seconds\",\n      \"label\": \"Median identify time\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"role\": \"reported\",\n      \"unit\": null,\n      \"value\": 0.0\n    }\n  ],\n  \"outputDigest\": \"f2bb9184e23f7176167aa931bb0cdbf4e4c42cc3de73e44cb962e716aa33cc9b\",\n  \"pluginVersion\": \"0.1.0\",\n  \"reportId\": \"local_52059e5a49e2466ab1a5ad0e4b37303e\",\n  \"repositoryFullName\": null,\n  \"repositoryId\": null,\n  \"sdkVersion\": \"0.2.0\",\n  \"sha\": null,\n  \"startedAt\": 1791673322491,\n  \"weightsUploaded\": [],\n  \"weightsUsed\": []\n}\n"
+  },
+  "test": {
+    "argv": [
+      "-m",
+      "cogbench",
+      "test",
+      "--benchmark",
+      "audio-identification",
+      "--json"
+    ],
+    "command": "test",
+    "exit": 0,
+    "json": {
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "command": "test",
+      "contractVersion": "cogworks.submissions.v2",
+      "diagnostics": [
+        "8 songs failed to enroll, so every query for them scored zero. First: song-00: NameError: name 'np' is not defined at submission.py:11",
+        "The score is at or below the trivial baseline (0.375), which is a whole-clip average spectrum with no peaks, no fingerprints and no time information. Beating chance (0.125) is not the bar; beating this is.",
+        "Clips from songs that were never enrolled correctly returned no match in 100% of cases.",
+        "Margin separation is not measured: there was no first-to-second margin to read on both sides (identify returned ranked ids without scores, or no out-of-database query produced one). Return (song_id, score) pairs to get this column.",
+        "8 queries raised: song song-00 failed to enroll, so this query could not be answered: NameError: name 'np' is not defined at submission.py:11",
+        "Weakest cell: clean_6s at 0% top-1.",
+        "Outcome split over 68 scored queries: 4 error, 64 enrollment_failure.",
+        "warm-up identify on a 1s silent clip raised: NameError: name 'np' is not defined at submission.py:11"
+      ],
+      "dirty": true,
+      "finishedAt": 1791673293356,
+      "metrics": [
+        {
+          "help": "How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number.",
+          "higherIsBetter": true,
+          "key": "identification_score",
+          "label": "Identification score",
+          "precision": 4,
+          "primary": true,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned.",
+          "higherIsBetter": true,
+          "key": "clean_top1",
+          "label": "Clean top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Clips with white noise added at a target signal-to-noise ratio -- the capstone's \"how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match\" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses.",
+          "higherIsBetter": true,
+          "key": "noisy_top1",
+          "label": "Noisy top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "The capstone's \"how short of a clip can be matched\" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with.",
+          "higherIsBetter": true,
+          "key": "short_clip_top1",
+          "label": "Short clip top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden.",
+          "higherIsBetter": true,
+          "key": "pitch_top1",
+          "label": "Pitch-shifted top-1",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query.",
+          "higherIsBetter": false,
+          "key": "retrieval_failure_rate",
+          "label": "No candidate found",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit.",
+          "higherIsBetter": false,
+          "key": "ranking_failure_rate",
+          "label": "Wrong song ranked first",
+          "precision": 3,
+          "primary": false,
+          "unit": null,
+          "value": 0.0
+        },
+        {
+          "help": "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+          "higherIsBetter": true,
+          "key": "chance_top1",
+          "label": "Chance",
+          "precision": 3,
+          "primary": false,
+          "relatesTo": "identification_score",
+          "role": "floor",
+          "unit": null,
+          "value": 0.125
+        },
+        {
+          "help": "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.",
+          "higherIsBetter": true,
+          "key": "trivial_baseline_top1",
+          "label": "Trivial baseline",
+          "precision": 3,
+          "primary": false,
+          "relatesTo": "identification_score",
+          "role": "floor",
+          "unit": null,
+          "value": 0.375
+        },
+        {
+          "help": "Median wall-clock time for one identify call, after warm-up. Reported, never scored.",
+          "higherIsBetter": false,
+          "key": "median_identify_seconds",
+          "label": "Median identify time",
+          "precision": 3,
+          "primary": false,
+          "role": "reported",
+          "unit": null,
+          "value": 0.0
+        }
+      ],
+      "outputDigest": "ff12f681a8696e03166476ec6215ebc6c76f2d7ad023e12d3feeb1942440afec",
+      "pluginVersion": "0.1.0",
+      "reportId": "local_089b728688074af9b718e4ce69864a20",
+      "repositoryFullName": null,
+      "repositoryId": null,
+      "sdkVersion": "0.2.0",
+      "sha": null,
+      "startedAt": 1791673291916,
+      "weightsUploaded": [],
+      "weightsUsed": []
+    },
+    "stderr": "",
+    "stdout": "{\n  \"benchmarkId\": \"audio-identification\",\n  \"benchmarkVersion\": 1,\n  \"command\": \"test\",\n  \"contractVersion\": \"cogworks.submissions.v2\",\n  \"diagnostics\": [\n    \"8 songs failed to enroll, so every query for them scored zero. First: song-00: NameError: name 'np' is not defined at submission.py:11\",\n    \"The score is at or below the trivial baseline (0.375), which is a whole-clip average spectrum with no peaks, no fingerprints and no time information. Beating chance (0.125) is not the bar; beating this is.\",\n    \"Clips from songs that were never enrolled correctly returned no match in 100% of cases.\",\n    \"Margin separation is not measured: there was no first-to-second margin to read on both sides (identify returned ranked ids without scores, or no out-of-database query produced one). Return (song_id, score) pairs to get this column.\",\n    \"8 queries raised: song song-00 failed to enroll, so this query could not be answered: NameError: name 'np' is not defined at submission.py:11\",\n    \"Weakest cell: clean_6s at 0% top-1.\",\n    \"Outcome split over 68 scored queries: 4 error, 64 enrollment_failure.\",\n    \"warm-up identify on a 1s silent clip raised: NameError: name 'np' is not defined at submission.py:11\"\n  ],\n  \"dirty\": true,\n  \"finishedAt\": 1791673293356,\n  \"metrics\": [\n    {\n      \"help\": \"How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number.\",\n      \"higherIsBetter\": true,\n      \"key\": \"identification_score\",\n      \"label\": \"Identification score\",\n      \"precision\": 4,\n      \"primary\": true,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned.\",\n      \"higherIsBetter\": true,\n      \"key\": \"clean_top1\",\n      \"label\": \"Clean top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Clips with white noise added at a target signal-to-noise ratio -- the capstone's \\\"how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match\\\" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses.\",\n      \"higherIsBetter\": true,\n      \"key\": \"noisy_top1\",\n      \"label\": \"Noisy top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"The capstone's \\\"how short of a clip can be matched\\\" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with.\",\n      \"higherIsBetter\": true,\n      \"key\": \"short_clip_top1\",\n      \"label\": \"Short clip top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden.\",\n      \"higherIsBetter\": true,\n      \"key\": \"pitch_top1\",\n      \"label\": \"Pitch-shifted top-1\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query.\",\n      \"higherIsBetter\": false,\n      \"key\": \"retrieval_failure_rate\",\n      \"label\": \"No candidate found\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit.\",\n      \"higherIsBetter\": false,\n      \"key\": \"ranking_failure_rate\",\n      \"label\": \"Wrong song ranked first\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"unit\": null,\n      \"value\": 0.0\n    },\n    {\n      \"help\": \"1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.\",\n      \"higherIsBetter\": true,\n      \"key\": \"chance_top1\",\n      \"label\": \"Chance\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"relatesTo\": \"identification_score\",\n      \"role\": \"floor\",\n      \"unit\": null,\n      \"value\": 0.125\n    },\n    {\n      \"help\": \"Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.\",\n      \"higherIsBetter\": true,\n      \"key\": \"trivial_baseline_top1\",\n      \"label\": \"Trivial baseline\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"relatesTo\": \"identification_score\",\n      \"role\": \"floor\",\n      \"unit\": null,\n      \"value\": 0.375\n    },\n    {\n      \"help\": \"Median wall-clock time for one identify call, after warm-up. Reported, never scored.\",\n      \"higherIsBetter\": false,\n      \"key\": \"median_identify_seconds\",\n      \"label\": \"Median identify time\",\n      \"precision\": 3,\n      \"primary\": false,\n      \"role\": \"reported\",\n      \"unit\": null,\n      \"value\": 0.0\n    }\n  ],\n  \"outputDigest\": \"ff12f681a8696e03166476ec6215ebc6c76f2d7ad023e12d3feeb1942440afec\",\n  \"pluginVersion\": \"0.1.0\",\n  \"reportId\": \"local_089b728688074af9b718e4ce69864a20\",\n  \"repositoryFullName\": null,\n  \"repositoryId\": null,\n  \"sdkVersion\": \"0.2.0\",\n  \"sha\": null,\n  \"startedAt\": 1791673291916,\n  \"weightsUploaded\": [],\n  \"weightsUsed\": []\n}\n"
+  }
+}
