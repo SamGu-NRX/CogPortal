@@ -1,0 +1,71 @@
+Unhandled API error [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "teamId"
+    ],
+    "message": "Invalid input: expected string, received number"
+  }
+]
+✖ production strips an undeclared private field a route returned (28.464777ms)
+✔ development strips the same field (1.719998ms)
+✖ an answer that fails its schema is the house 500 in production, carrying nothing from the object (1.159143ms)
+✔ an answer that fails its schema refuses loudly in development too (2.442616ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 2
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 468.997509
+
+✖ failing tests:
+
+test at test/respond-serialization.test.ts:1:1092
+✖ production strips an undeclared private field a route returned (28.464777ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      note: "the caller's own note",
+  +   scorerInternalNote: 'rj-witness-private-note',
+      teamId: 'team_a'
+    }
+  
+      at TestContext.<anonymous> (/home/user/work/burst11-webapps-cp-114-block-fixes/apps/portal/test/respond-serialization.test.ts:47:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { teamId: 'team_a', note: "the caller's own note", scorerInternalNote: 'rj-witness-private-note' },
+    expected: { teamId: 'team_a', note: "the caller's own note" },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/respond-serialization.test.ts:1:1472
+✖ an answer that fails its schema is the house 500 in production, carrying nothing from the object (1.159143ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+  +   note: 'x',
+  +   teamId: 42
+  -   error: {
+  -     code: 'provider_unconfigured',
+  -     message: 'The request could not be completed by the configured backend.'
+  -   }
+    }
+  
+      at TestContext.<anonymous> (/home/user/work/burst11-webapps-cp-114-block-fixes/apps/portal/test/respond-serialization.test.ts:57:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { teamId: 42, note: 'x' },
+    expected: { error: { code: 'provider_unconfigured', message: 'The request could not be completed by the configured backend.' } },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

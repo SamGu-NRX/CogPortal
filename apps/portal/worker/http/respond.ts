@@ -11,8 +11,12 @@ export function respond<T>(
   data: T,
   status: ResponseStatus = 200,
 ): Response {
-  const body = c.env.ENVIRONMENT === "development" ? schema.parse(data) : data;
-  return c.json(body, status);
+  // Every environment serializes through the schema, not just development:
+  // an undeclared field on a returned object is stripped here rather than
+  // shipped because the Worker runs in production. A parse failure is a bug
+  // in the route, and the ZodError reaches the handler's 500, which carries
+  // nothing from the object (worker/http/errors.ts).
+  return c.json(schema.parse(data), status);
 }
 
 /**
