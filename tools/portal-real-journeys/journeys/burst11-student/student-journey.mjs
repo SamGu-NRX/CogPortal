@@ -16,7 +16,10 @@
 //     interpreter is PYTHON_BIN (the venv the student's CLI would use)
 //   - playwright resolvable from the module's directory
 //   - DOUBLES_BASE (default http://127.0.0.1:8811) when the doubles run;
-//     the github/discord/modal doubles answer on the next three ports
+//     the github/discord/modal doubles answer on the base port and +2/+3,
+//     and every journal URL is derived from the configured base.
+//     DOUBLES_BASE=off skips the no-outbound-traffic check; a configured
+//     but unreachable double records a rough verdict instead of crashing.
 //
 // Usage: node student-journey.mjs
 // Verdicts land in OUT_DIR/verdicts.json as {step, verdict, note} triples.
@@ -25,6 +28,7 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { doublesJournals, pollForRuns } from "./journey-support.mjs";
 
 const STACK = process.env.PORTAL_URL ?? "http://localhost:5173";
 const PYTHON = process.env.PYTHON_BIN ?? "python3.8";
@@ -33,10 +37,8 @@ const TEAM = process.env.TEAM_NAME ?? "Field Notes";
 const STUDENT = process.env.STUDENT_NAME ?? "field-notes-student";
 const JOIN_CODE = process.env.JOIN_CODE ?? "vision26";
 const WEEK_EXAMPLE = process.env.WEEK1_EXAMPLE ?? path.resolve("examples/week1-audio-submission");
-const DOUBLES_BASE = process.env.DOUBLES_BASE ?? null;
-const DOUBLE_PORTS = DOUBLES_BASE
-  ? { "github-rest": 8811, discord: 8813, "modal-runner": 8814 }
-  : null;
+const DOUBLES_BASE = process.env.DOUBLES_BASE;
+const JOURNALS = doublesJournals(DOUBLES_BASE);
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const verdicts = [];
@@ -201,9 +203,13 @@ try {
   await page.goto(`${STACK}/dashboard`);
   await page.getByLabel("Branch").selectOption("main");
   await page.getByRole("button", { name: "Run practice benchmark" }).click();
-  await page.waitForTimeout(1500);
-  let runs = await (await page.request.get(`${STACK}/api/runs`)).json();
-  const practice = runs.find((r) => r.mode === "practice" && r.branch === "main");
+  // The run row can take longer than a fixed sleep to appear in /api/runs on
+  // a slow local Worker, D1, or fixture runner — poll until it is listed.
+  const practice = await pollForRuns(
+    async () => (await (await page.request.get(`${STACK}/api/runs`)).json()),
+    (r) => r.mode === "practice" && r.branch === "main",
+    { label: "the practice run on main" },
+  );
   await page.goto(`${STACK}/runs/${practice.id}`);
   await page.getByText("Succeeded").first().waitFor({ timeout: 90_000 });
   await page.getByText("What this run shows").waitFor({ timeout: 10_000 });
@@ -216,9 +222,11 @@ try {
   await page.goto(`${STACK}/dashboard`);
   await page.getByLabel("Branch").selectOption("missing-adapter");
   await page.getByRole("button", { name: "Run practice benchmark" }).click();
-  await page.waitForTimeout(1500);
-  runs = await (await page.request.get(`${STACK}/api/runs`)).json();
-  const failedRun = runs.find((r) => r.mode === "practice" && r.branch === "missing-adapter");
+  const failedRun = await pollForRuns(
+    async () => (await (await page.request.get(`${STACK}/api/runs`)).json()),
+    (r) => r.mode === "practice" && r.branch === "missing-adapter",
+    { label: "the missing-adapter practice run" },
+  );
   await page.goto(`${STACK}/runs/${failedRun.id}`);
   await page.getByText("Nothing here could be scored").waitFor({ timeout: 90_000 });
   await shot(page, "09-failed-run");
@@ -233,13 +241,11 @@ try {
   await page.getByRole("button", { name: "Promote to official" }).first().click();
   await shot(page, "10-promote-confirm");
   await page.getByRole("button", { name: /Confirm, uses attempt 1 of/ }).click();
-  let official = null;
-  for (let i = 0; i < 60 && !official; i++) {
-    await page.waitForTimeout(2000);
-    runs = await (await page.request.get(`${STACK}/api/runs`)).json();
-    official = runs.find((r) => r.mode === "official" && r.status === "succeeded");
-  }
-  if (!official) throw new Error("no official run reached succeeded");
+  const official = await pollForRuns(
+    async () => (await (await page.request.get(`${STACK}/api/runs`)).json()),
+    (r) => r.mode === "official" && r.status === "succeeded",
+    { deadlineMs: 120_000, intervalMs: 2_000, label: "the official run reaching succeeded" },
+  );
   await shot(page, "10-promoted");
   verdict("promote", "works", `practice run promoted to official run ${official.id} (the confirm names the attempt it uses)`);
 
@@ -293,11 +299,16 @@ try {
   await shot(vm, "14-leaderboard-signed-out-mobile");
   verdict("signed-out-leaderboard", "works", "a signed-out visitor sees the published entry and can open its Details");
 
-  if (DOUBLE_PORTS) {
-    for (const [name, port] of Object.entries(DOUBLE_PORTS)) {
-      const journal = (await (await fetch(`http://127.0.0.1:${port}/__doubles/journal`)).json()).journal;
-      verdict("provider-journal-" + name, journal.length === 0 ? "works" : "rough",
-        journal.length === 0 ? "no requests reached the double" : `${journal.length} requests reached the double`);
+  if (JOURNALS) {
+    for (const { name, journal: journalUrl } of JOURNALS) {
+      try {
+        const journal = (await (await fetch(journalUrl)).json()).journal;
+        verdict("provider-journal-" + name, journal.length === 0 ? "works" : "rough",
+          journal.length === 0 ? "no requests reached the double" : `${journal.length} requests reached the double`);
+      } catch (error) {
+        verdict("provider-journal-" + name, "rough",
+          `the ${name} double is not reachable at ${journalUrl} (${String(error).slice(0, 120)}) — journal unchecked`);
+      }
     }
   }
   console.log("JOURNEY_OK");

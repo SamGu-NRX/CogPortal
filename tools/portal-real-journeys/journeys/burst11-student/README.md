@@ -19,6 +19,15 @@ run, sync subprocess driving) is adapted from `journeys/cli.mjs` on the
 real-journeys branch, and the provider doubles from that branch's stack are
 reused for the no-outbound-traffic check when they are running.
 
+`DOUBLES_BASE` (default `http://127.0.0.1:8811`) is where the github-rest
+double answers; the discord and modal-runner doubles sit at base port +2 and
++3, and every journal URL is derived from the configured base rather than
+hard-coded ports, so a doubles set on other ports is checked where it really
+listens. Set `DOUBLES_BASE=off` to skip the no-outbound-traffic check
+explicitly; a configured but unreachable double records a rough verdict
+instead of ending the walk. The helpers in `journey-support.mjs` carry
+regression tests: `node --test tools/portal-real-journeys/journeys/burst11-student/`.
+
 Run it with the dev stack up (`pnpm dev` after `db:migrate:local` +
 `db:seed:local`), a Python venv with cogbench and the week benchmarks
 installed (`PYTHON_BIN`), and playwright resolvable.
