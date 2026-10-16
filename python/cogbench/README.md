@@ -64,7 +64,9 @@ A few of these look odd, and each oddity is there on purpose:
   line omits `[data]`, add it to the first install as shown above.
 - `link` opens the portal in your browser so you can approve this machine
   within ten minutes. On a machine without a browser, add `--no-browser` and
-  open the printed link yourself. The link lasts 60 days.
+  open the printed link yourself. The link lasts 60 days. The device is
+  registered under a neutral name like `macos-a1b2c3`; add `--name "Laptop"`
+  to choose your own.
 - `--update-setup` is the only thing that lets `check` report back, and it
   reports only after `check` passes.
 
