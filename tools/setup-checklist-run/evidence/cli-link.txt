@@ -1,0 +1,9 @@
+<gworks link --portal http://[::1]:5173 --no-browser
+Connecting to http://[::1]:5173
+CogPortal receives setup check names, package versions, and your GitHub repository.
+A report's scores and notes go up when you run `cogworks sync` or `cogworks run --live`, and weights only with `cogworks sync`. Source, logs, predictions, and environment variables stay on this machine.
+Open http://localhost:5173/connections?user_code=99EB-A16E-7A1B&return_to=setup and confirm code 99EB-A16E-7A1B.
+Linked e2b.local. Local commands still work offline.
+setup: updated clone
+~/work/burst14-seat/face-finder $ echo "
+exit=0

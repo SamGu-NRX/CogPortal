@@ -277,3 +277,4 @@ fs.writeFileSync(path.join(OUT, "journey.json"), JSON.stringify(journey, null, 2
 log("journey.json written");
 await browser.close();
 shell.kill();
+process.exit(0);
