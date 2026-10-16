@@ -51,7 +51,11 @@ export const control = {
       try {
         return (await post(`${STACK}/__control/sql`, { sql })).rows;
       } catch (error) {
-        if (attempt >= 3 || !String(error?.message).includes("SQLITE_BUSY")) throw error;
+        if (
+          attempt >= 3 ||
+          !(String(error?.message).includes("SQLITE_BUSY") || String(error?.message).includes("database is locked"))
+        )
+          throw error;
         console.warn(`control.sql: SQLITE_BUSY (attempt ${attempt}), retrying`);
         await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
       }

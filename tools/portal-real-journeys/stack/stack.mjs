@@ -92,13 +92,23 @@ function childEnv(extra = {}) {
 
 function run(argv, opts = {}) {
   say(`$ ${argv.join(" ")}`);
-  return execFileSync(argv[0], argv.slice(1), {
-    cwd: RUN_DIR,
-    env: childEnv(opts.env),
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 300_000,
-    maxBuffer: 64 * 1024 * 1024,
-  }).toString();
+  try {
+    return execFileSync(argv[0], argv.slice(1), {
+      cwd: RUN_DIR,
+      env: childEnv(opts.env),
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 300_000,
+      maxBuffer: 64 * 1024 * 1024,
+    }).toString();
+  } catch (error) {
+    // wrangler may print the real failure on either stream (workerd's
+    // SQLITE_BUSY goes to stderr; some wrangler errors go to stdout).
+    // Surface both tails so the caller — and the /__control/sql 500 body —
+    // names the reason instead of a bare "Command failed".
+    const tail = (s) => String(s ?? "").trimEnd().slice(-1500);
+    const detail = [tail(error.stderr), tail(error.stdout)].filter(Boolean).map((s) => `\n${s}`).join("");
+    throw new Error(`Command failed: ${argv.join(" ")}${detail}`, { cause: error });
+  }
 }
 
 // ── The run directory ──────────────────────────────────────────────────────
