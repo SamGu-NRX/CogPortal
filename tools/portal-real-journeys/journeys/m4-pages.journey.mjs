@@ -1,8 +1,8 @@
 // M4 on every S1 to S6 page: axe with zero violations once content has
 // loaded, text contrast measured on pixels where axe can't decide, no
 // horizontal overflow, at 1440x900, 390x844 and 320x640; and, under
-// prefers-reduced-motion at 1440 and 390 wide, nothing animating at all, from
-// the page's first script through hovering, focusing and opening its
+// prefers-reduced-motion at those three widths, nothing animating at all,
+// from the page's first script through hovering, focusing and opening its
 // controls, on every page and in the embedded Activity.
 //
 // Each page is opened as the person who would be on it, in a populated
@@ -91,7 +91,7 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
-const MOTION_VIEWPORTS = VIEWPORTS.filter((viewport) => viewport.width !== 320);
+const MOTION_VIEWPORTS = VIEWPORTS;
 
 for (const viewport of MOTION_VIEWPORTS) {
   test(`under reduced motion nothing on any S1 to S6 page animates at ${viewport.width}x${viewport.height}`, async ({ browser }) => {

@@ -2,8 +2,8 @@
 // Escape and typing alone, and focus after each action landing somewhere that
 // makes sense (never dropped to the document body): a student's onboarding
 // and a run's life, a TA's way through the admin console and the desk, and
-// the embedded Activity's link gate and bench. Each at 1440x900 and on a
-// 390x844 phone.
+// the embedded Activity's link gate and bench. Each at 1440x900, on a
+// 390x844 phone, and at 320x640.
 //
 // `tabTo` presses Tab until the wanted control has focus, failing if it
 // takes more than a page's worth of stops, so a control that can't be
@@ -20,6 +20,7 @@ import { devLogin, practiceRun } from "./world.mjs";
 const VIEWPORTS = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
+  { width: 320, height: 640 },
 ];
 
 async function tabTo(page, locator, { max = 80, back = false } = {}) {
