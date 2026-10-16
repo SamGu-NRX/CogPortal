@@ -1,0 +1,5 @@
+{
+  "project": "desktop",
+  "renderedLabel": "Sign in",
+  "note": "Local dev has no GitHub App configured (githubConfigured:false), so the fallback label is the honest state; with the App configured the label is 'Sign in with GitHub'."
+}
