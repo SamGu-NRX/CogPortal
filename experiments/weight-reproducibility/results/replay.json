@@ -1,0 +1,8 @@
+{
+  "schema": "wr-replay/1",
+  "replayedFrom": "experiments/weight-reproducibility/results/results.json",
+  "sourceRefsVerified": true,
+  "casesReDerived": 12,
+  "digestsRechecked": 17,
+  "drift": []
+}
