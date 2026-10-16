@@ -215,8 +215,29 @@ function freshState({ seed }) {
   if (seed) wrangler(["d1", "execute", "cogportal-db", "--local", "--file", path.join(PORTAL_DIR, "scripts", "seed-local.sql")]);
 }
 
+// The control plane runs wrangler against the same SQLite file the live
+// Worker holds open, so a statement can land on a transient failure: a WAL
+// snapshot race (workerd answers SQLITE_BUSY or "database is locked") or
+// workerd's D1 wrapper surfacing that race as an opaque "internal error;
+// reference = ..." (jsgInternalError). The identical statement passes on
+// the next attempt, so those texts — and only those — are retried a few
+// times with a growing pause; every other failure throws on attempt one.
+const TRANSIENT_D1 = [/SQLITE_BUSY/, /database is locked/, /internal error; reference = /];
+function withD1Retry(runStatement) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return runStatement();
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      if (attempt >= 3 || !TRANSIENT_D1.some((pattern) => pattern.test(message))) throw error;
+      say(`[control] transient D1 failure (attempt ${attempt}), retrying: ${message.split("\n")[0].slice(0, 160)}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, true, 400 * attempt);
+    }
+  }
+}
+
 function sql(command) {
-  const out = wrangler(["d1", "execute", "cogportal-db", "--local", "--command", command, "--json"]);
+  const out = withD1Retry(() => wrangler(["d1", "execute", "cogportal-db", "--local", "--command", command, "--json"]));
   const parsed = JSON.parse(out.slice(out.indexOf("[")));
   return parsed.at(-1)?.results ?? [];
 }
@@ -226,7 +247,9 @@ function snapshot() {
   const tables = sql(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'd1_%' ORDER BY name",
   ).map((row) => row.name);
-  const out = wrangler(["d1", "execute", "cogportal-db", "--local", "--command", tables.map((t) => `SELECT * FROM "${t}"`).join("; "), "--json"]);
+  const out = withD1Retry(() =>
+    wrangler(["d1", "execute", "cogportal-db", "--local", "--command", tables.map((t) => `SELECT * FROM "${t}"`).join("; "), "--json"]),
+  );
   const parsed = JSON.parse(out.slice(out.indexOf("[")));
   if (parsed.length !== tables.length) throw new Error(`snapshot read ${parsed.length} result sets for ${tables.length} tables`);
   return Object.fromEntries(tables.map((table, i) => [table, parsed[i].results ?? []]));
