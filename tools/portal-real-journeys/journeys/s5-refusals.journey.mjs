@@ -75,6 +75,41 @@ test.describe("journey: credential refusals and error mapping", () => {
     // The original team is untouched.
     const session = await (await page.request.get(`${STACK}/api/session`)).json();
     expect(session.team?.name).toBe("Demo Team");
+
+    // And the repositories listing marks the fixture repository as claimed
+    // by the demo team the demo connect path created (from j1-real-github-oauth).
+    const repos = await (await page.request.get(`${STACK}/api/github/repositories`)).json();
+    const claimed = repos.find((r) => r.fullName === FIXTURE_REPO);
+    expect(claimed?.claimedByTeam).toBe("Demo Team");
+  });
+
+  test("a duplicated connect POST keeps the first response and lands one team", async ({ page }) => {
+    // Restored from j3-duplicate-send. The proxy duplicates exactly one
+    // non-idempotent POST — the wire-level shape of a client retry after a
+    // response was lost. The caller must see the first response, and the
+    // duplicate must not land a second team or a second membership row. (The
+    // old journey duplicated Discord's channel-create during connect; the
+    // connect route no longer creates a Discord channel, so the duplication
+    // rides the create itself.)
+    await signIn(page, "rj-duplicated-student", { demo: false });
+    await page.request.post(`${STACK}/api/cohorts/join`, { data: { code: "VISION26" } });
+    await control.fault({
+      method: "POST",
+      path: "^/api/github/connect$",
+      duplicateUpstream: 1,
+      times: 1,
+    });
+    const create = await page.request.post(`${STACK}/api/github/connect`, {
+      data: { fullName: FIXTURE_REPO, teamName: TEAM.name },
+    });
+    expect(create.ok()).toBeTruthy();
+
+    const teams = await control.sql(`SELECT COUNT(*) AS n FROM teams WHERE name = '${TEAM.name}'`);
+    expect(Number(teams[0].n)).toBe(1);
+    const members = await control.sql(
+      `SELECT COUNT(*) AS n FROM team_members m JOIN teams t ON t.id = m.team_id WHERE t.name = '${TEAM.name}'`,
+    );
+    expect(Number(members[0].n)).toBe(1);
   });
 
   test("unauthenticated traffic is refused by the real session guard", async ({ page }) => {

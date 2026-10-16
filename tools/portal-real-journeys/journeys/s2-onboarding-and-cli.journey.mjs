@@ -47,6 +47,14 @@ test("a new student signs in, joins, starts a team, and links the CLI", async ({
   const session = await (await page.request.get(`${STACK}/api/session`)).json();
   expect(session.team?.name).toBe("RJ Parity Checkers");
 
+  // The repositories listing and the cohort roster both read the new
+  // membership back (assertions restored from j1-real-github-oauth).
+  const repos = await (await page.request.get(`${STACK}/api/github/repositories`)).json();
+  const fixture = repos.find((r) => r.fullName === "cogworks-demo/face-finder");
+  expect(fixture?.claimedByTeam).toBe("RJ Parity Checkers");
+  const roster = await (await page.request.get(`${STACK}/api/cohorts/teams`)).json();
+  expect(JSON.stringify(roster)).toContain("RJ Parity Checkers");
+
   const home = makeHome();
   const cli = startLink(STACK, { cwd: home, home });
   try {
