@@ -131,7 +131,7 @@ log(`after sign-in at ${page.url()}`);
 
 log("joining cohort VISION26");
 await page.goto(`${PORTAL}/join`, { waitUntil: "networkidle" });
-await page.locator("#join-code").fill("VISION26");
+await page.locator("#join-code").fill("VISION26", { timeout: 90_000 });
 await page.locator("#join-code").press("Enter");
 await page.waitForURL(/connect|dashboard|setup/, { timeout: 30_000 }).catch(() => {});
 log(`after join at ${page.url()}`);
