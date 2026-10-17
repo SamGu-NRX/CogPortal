@@ -24,6 +24,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
@@ -57,6 +59,20 @@ _CAUSAL_PHRASES = (
     "due to the change",
 )
 
+# Elements that fetch or redirect: their presence in the rendered view is
+# an offline-contract break even when the page also carries report text
+# that merely NAMES a URL in its diagnostics.
+_RESOURCE_TAGS = (
+    "script",
+    "link",
+    "iframe",
+    "frame",
+    "object",
+    "embed",
+    "applet",
+    "base",
+)
+
 _TOOL_SOURCE_FILES = ("build.py", "report_reader.py")
 
 _REPLAY_GENERATOR = "tools/run-comparison/build.py --replay"
@@ -70,17 +86,52 @@ def _sha_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _inputs_by_name(entries: Any) -> Optional[Dict[str, str]]:
-    """A file->sha256 map from a receipt inputs list, or None if malformed."""
+def _inputs_list(entries: Any) -> Optional[List[Tuple[str, str]]]:
+    """The receipt inputs list as ordered (file, sha256) pairs, or None.
+
+    Order-sensitive and duplicate-preserving on purpose: a name->digest
+    map would collapse two same-named files from different --fixtures
+    roots, and then changing the bytes of the earlier duplicate — while
+    leaving its parsed disposition unchanged — would verify green against
+    the later one's digest.
+    """
 
     if not isinstance(entries, list):
         return None
-    by_name: Dict[str, str] = {}
+    pairs: List[Tuple[str, str]] = []
     for entry in entries:
-        if not isinstance(entry, dict) or "file" not in entry or "sha256" not in entry:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("file"), str)
+            or not isinstance(entry.get("sha256"), str)
+        ):
             return None
-        by_name[entry["file"]] = entry["sha256"]
-    return by_name
+        pairs.append((entry["file"], entry["sha256"]))
+    return pairs
+
+
+#: The writer's MAX_WEIGHT_PATH (python/cogbench/src/cogbench/storage.py).
+_WEIGHT_PATH_LIMIT = 500
+
+
+def _usable_weight_path(name: str) -> bool:
+    """The writer's ``_usable_name`` rules, mirrored from report_reader.
+
+    The reason strings this verifier derives must match the reader's
+    exactly — the receipt's recorded refusal reasons are compared to this
+    derivation word for word.
+    """
+
+    if not name or len(name) > _WEIGHT_PATH_LIMIT:
+        return False
+    if name.startswith("/"):
+        return False
+    for part in name.split("/"):
+        if part in ("", ".", ".."):
+            return False
+        if "\\" in part or any(ord(c) < 32 or ord(c) == 127 for c in part):
+            return False
+    return True
 
 
 def _fmt(value: float, precision: int) -> str:
@@ -119,7 +170,9 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
     try:
         value = json.loads(data.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as error:
-        record["reasons"].append("not_json: {}".format(error))
+        record["reasons"].append(
+            "not_json: the file does not parse as JSON ({})".format(error)
+        )
         return record
     if not isinstance(value, dict):
         record["reasons"].append("not_an_object: the file is JSON but not an object")
@@ -150,13 +203,27 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
             )
     if type_problems:
         record["reasons"].extend(type_problems)
-        return record
 
-    if value["contractVersion"] not in SUPPORTED_CONTRACTS:
+    # Mirrors of the reader's later refusals — same conditions, same
+    # word-for-word strings: the verifier compares the receipt's recorded
+    # refusal reasons to its own derivation, so the two implementations
+    # must refuse with identical words, not merely the same labels.
+    sha = value.get("sha")
+    if sha is not None and (
+        not isinstance(sha, str)
+        or re.fullmatch(r"[a-f0-9]{40}", sha) is None
+    ):
         record["reasons"].append(
-            "unsupported_contract: {!r}".format(value["contractVersion"])
+            "bad_source_sha: sha must be a 40-character lowercase hex digest "
+            "or absent, not {!r}".format(sha)
         )
-        return record
+
+    contract = value["contractVersion"]
+    if isinstance(contract, str) and contract not in SUPPORTED_CONTRACTS:
+        record["reasons"].append(
+            "unsupported_contract: {} cannot be interpreted by this reader; "
+            "supported: {}".format(contract, ", ".join(SUPPORTED_CONTRACTS))
+        )
 
     command: Optional[str] = None
     if "command" in value:
@@ -178,10 +245,20 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
             )
         elif len(set(used)) != len(used):
             record["reasons"].append(
-                "duplicate_weights_used: weightsUsed names a path more than once"
+                "duplicate_weights_used: weightsUsed names a path more than "
+                "once; one name cannot stand for two sets of bytes"
             )
         else:
-            weights_used = list(used)
+            bad_paths = [name for name in used if not _usable_weight_path(name)]
+            if bad_paths:
+                record["reasons"].append(
+                    "bad_weight_path: weightsUsed names {}, which is not a "
+                    "path the writer could have keyed".format(
+                        ", ".join(repr(name) for name in bad_paths)
+                    )
+                )
+            else:
+                weights_used = list(used)
 
     uploaded = value.get("weightsUploaded")
     receipts: List[Dict[str, Any]] = []
@@ -232,9 +309,11 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
                     "duplicate_weight_receipt: weightsUploaded names a path more than once"
                 )
             if weights_used is not None:
-                captured = {receipt["path"] for receipt in receipts}
+                # "Missing" fires only when no receipt entry NAMES the path
+                # at all (seen_paths holds every named path, validated or
+                # not): a broken receipt is one problem, not two theories.
                 missing_receipts = [
-                    name for name in weights_used if name not in captured
+                    name for name in weights_used if name not in seen_paths
                 ]
                 if missing_receipts:
                     record["reasons"].append(
@@ -274,6 +353,12 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
                 )
             )
             continue
+        if not math.isfinite(metric_value):
+            record["reasons"].append(
+                "bad_metric_value: metrics[{}].value must be a finite number, "
+                "not {!r}".format(index, metric_value)
+            )
+            continue
         shape_problem = None
         for name, kind, check in (
             ("higherIsBetter", "a boolean", _bool_field),
@@ -292,10 +377,17 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
         if shape_problem is not None:
             record["reasons"].append(shape_problem)
             continue
+        if not 0 <= entry["precision"] <= 12:
+            record["reasons"].append(
+                "bad_precision: metrics[{}].precision must be between 0 and "
+                "12, not {!r}".format(index, entry["precision"])
+            )
+            continue
         key = entry["key"]
         if key in seen_keys:
             record["reasons"].append(
-                "duplicate_metric_key: metrics names {!r} more than once".format(key)
+                "duplicate_metric_key: metrics names {!r} more than once; "
+                "a comparison keyed by metric could not tell the two apart".format(key)
             )
             continue
         seen_keys.add(key)
@@ -325,7 +417,9 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
         not isinstance(item, str) for item in diagnostics
     ):
         record["reasons"].append(
-            "bad_field_type: diagnostics must be a list of strings"
+            "bad_field_type: diagnostics must be a list of strings, not {!r}".format(
+                value.get("diagnostics", [])
+            )
         )
         diagnostics = []
 
@@ -622,9 +716,11 @@ class _PageParser(HTMLParser):
         self._cell: Optional[Dict[str, Any]] = None
         self._li: Optional[Dict[str, Any]] = None
         self.text_chunks: List[str] = []
+        self.tags: List[Tuple[str, Dict[str, Any]]] = []
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
         attributes = dict(attrs)
+        self.tags.append((tag, attributes))
         if tag == "table":
             self._table = {"header": [], "rows": []}
             self.tables.append(self._table)
@@ -707,6 +803,11 @@ def main() -> int:
             files.extend(sorted(path.glob("*.json")))
         else:
             files.append(path)
+    # The same one deterministic order across every --fixtures root the
+    # builder applies, keyed by report name with the full path only
+    # breaking same-name ties: the compared pair must not depend on
+    # argument order or root layout.
+    files.sort(key=lambda path: (path.name, path.as_posix()))
     if not files:
         print("no fixture files found", file=sys.stderr)
         return 2
@@ -739,17 +840,17 @@ def main() -> int:
         print("misrendered: the receipt does not parse as JSON ({})".format(error), file=sys.stderr)
         return 1
 
-    actual_inputs = {
-        path.name: _sha_bytes(path.read_bytes()) for path in files
-    }
-    receipt_input_map = _inputs_by_name(receipt.get("inputs"))
-    if receipt_input_map is None:
+    expected_inputs = [
+        (path.name, _sha_bytes(path.read_bytes())) for path in files
+    ]
+    receipt_inputs = _inputs_list(receipt.get("inputs"))
+    if receipt_inputs is None:
         _fail(failures, "the receipt records no well-formed inputs list")
-    elif receipt_input_map != actual_inputs:
+    elif receipt_inputs != expected_inputs:
         _fail(
             failures,
-            "receipt inputs do not match the fixture bytes: receipt {!r} vs actual {!r}".format(
-                receipt_input_map, actual_inputs
+            "receipt inputs do not match the fixture bytes in order: receipt {!r} vs actual {!r}".format(
+                receipt_inputs, expected_inputs
             ),
         )
 
@@ -812,14 +913,14 @@ def main() -> int:
                     failures,
                     "replay receipt receipt_sha256 does not match the receipt bytes on disk",
                 )
-            replay_input_map = _inputs_by_name(replay.get("inputs"))
-            if replay_input_map is None:
+            replay_inputs = _inputs_list(replay.get("inputs"))
+            if replay_inputs is None:
                 _fail(failures, "the replay receipt records no well-formed inputs list")
-            elif replay_input_map != actual_inputs:
+            elif replay_inputs != expected_inputs:
                 _fail(
                     failures,
-                    "replay receipt inputs do not match the fixture bytes: receipt {!r} vs actual {!r}".format(
-                        replay_input_map, actual_inputs
+                    "replay receipt inputs do not match the fixture bytes in order: receipt {!r} vs actual {!r}".format(
+                        replay_inputs, expected_inputs
                     ),
                 )
             replay_tool = replay.get("tool_source")
@@ -865,7 +966,8 @@ def main() -> int:
                 not_compared, expected_not_compared
             ),
         )
-    excluded = [entry["file"] for entry in (receipt.get("excluded") or [])]
+    excluded_entries = receipt.get("excluded")
+    excluded = [entry["file"] for entry in (excluded_entries or [])]
     if excluded != expected_excluded:
         _fail(
             failures,
@@ -873,6 +975,39 @@ def main() -> int:
                 excluded, expected_excluded
             ),
         )
+    elif isinstance(excluded_entries, list):
+        # The reasons the reader refused each file, word for word: a
+        # receipt that paraphrases a refusal is evidence that the reader
+        # did not write it.
+        derived_refusal_reasons = {
+            record["file"]: record["reasons"] for record in refused
+        }
+        for entry in excluded_entries:
+            if not isinstance(entry, dict) or "reasons" not in entry:
+                _fail(
+                    failures,
+                    "excluded entry {!r} does not record a reasons list".format(entry),
+                )
+                continue
+            recorded_reasons = entry["reasons"]
+            if not isinstance(recorded_reasons, list):
+                _fail(
+                    failures,
+                    "excluded entry {!r} carries a malformed reasons list".format(
+                        entry.get("file")
+                    ),
+                )
+            elif recorded_reasons != derived_refusal_reasons.get(
+                entry.get("file")
+            ):
+                _fail(
+                    failures,
+                    "receipt refusal reasons for {!r}: receipt {!r} != independently derived {!r}".format(
+                        entry.get("file"),
+                        recorded_reasons,
+                        derived_refusal_reasons.get(entry.get("file")),
+                    ),
+                )
 
     a_record, b_record = accepted[0], accepted[1]
     derived = _derive_analysis(a_record, b_record)
@@ -1189,16 +1324,242 @@ def main() -> int:
                 ),
             )
 
-    lowered = html_bytes.decode("utf-8", errors="replace").lower()
-    for marker in ("<script", "<link", "http://", "https://"):
-        if marker in lowered:
-            _fail(failures, "the rendered view contains {!r} — it is not an offline artifact".format(marker))
-    for phrase in _CAUSAL_PHRASES:
-        if phrase in lowered:
+    if not derived["floors"] and "No floor metrics recorded." not in html_text:
+        _fail(
+            failures,
+            "the floorless pair does not render the 'No floor metrics recorded.' empty state",
+        )
+
+    # The recorded-provenance table: bind every cell to the independently
+    # derived value, so a swapped report id, commit prefix, weight list or
+    # scorer version cannot pass the digest checks unnoticed — those bind
+    # whole files, not which report a row belongs to.
+    provenance_table = None
+    for table in page.tables:
+        if (
+            table["header"]
+            and table["header"][0] == "Field"
+            and len(table["header"]) == 3
+        ):
+            provenance_table = table
+            break
+    if provenance_table is None:
+        _fail(failures, "the recorded-provenance table (Field..Run B) is not rendered")
+        provenance_table = {"rows": []}
+    rendered_provenance: Dict[str, Tuple[str, str]] = {}
+    for row in provenance_table["rows"]:
+        if len(row["cells"]) == 3:
+            rendered_provenance[row["cells"][0]] = (row["cells"][1], row["cells"][2])
+
+    def _prov_source_cell(record: Dict[str, Any]) -> str:
+        sha = record["source"]["sha"]
+        if sha is None:
+            return "not recorded"
+        pins = (
+            "pins the scored bytes"
+            if (bool(sha) and not record["source"]["dirty"])
+            else "does not pin the scored bytes (dirty tree)"
+        )
+        return "{} — {}".format(sha[:12], pins)
+
+    def _prov_benchmark(record: Dict[str, Any]) -> str:
+        raw = record["value"]
+        benchmark_id = raw["benchmarkId"]
+        benchmark_version = raw["benchmarkVersion"]
+        if benchmark_id is None:
+            return "an unrecorded benchmark"
+        if benchmark_version is None:
+            return "{!r} (version unrecorded)".format(benchmark_id)
+        return "{!r} v{}".format(benchmark_id, benchmark_version)
+
+    def _prov_case_set(record: Dict[str, Any]) -> str:
+        command = record["dataset"]["command"]
+        return "`{}`".format(command) if command is not None else "not recorded"
+
+    def _prov_weights_used(record: Dict[str, Any]) -> str:
+        weights = record["dataset"]["weights_used"]
+        if weights is None:
+            return "not recorded — may predate weight recording"
+        if not weights:
+            return "none recorded"
+        return ", ".join(weights)
+
+    def _prov_weight_capture(record: Dict[str, Any]) -> str:
+        capture = record["dataset"]["weights_uploaded"]
+        if capture is None:
+            return "not recorded — the report may predate weight capture"
+        if not capture:
+            return "recorded: nothing was uploaded"
+        return "; ".join(
+            "{} ({} bytes, sha256 {})".format(
+                receipt["path"], receipt["size"], receipt["sha256"][:12]
+            )
+            for receipt in capture
+        )
+
+    expected_provenance = {
+        "Report ID": (
+            str(a_record["value"]["reportId"]),
+            str(b_record["value"]["reportId"]),
+        ),
+        "Repository": (
+            str(a_record["source"]["repository"]),
+            str(b_record["source"]["repository"]),
+        ),
+        "Commit": (
+            _prov_source_cell(a_record),
+            _prov_source_cell(b_record),
+        ),
+        "Benchmark": (
+            _prov_benchmark(a_record),
+            _prov_benchmark(b_record),
+        ),
+        "Case set (command)": (
+            _prov_case_set(a_record),
+            _prov_case_set(b_record),
+        ),
+        "Weights used": (
+            _prov_weights_used(a_record),
+            _prov_weights_used(b_record),
+        ),
+        "Weight capture": (
+            _prov_weight_capture(a_record),
+            _prov_weight_capture(b_record),
+        ),
+        "Contract": (
+            a_record["scorer"]["contract"] or "not recorded",
+            b_record["scorer"]["contract"] or "not recorded",
+        ),
+        "SDK": (
+            a_record["scorer"]["sdk"] or "not recorded",
+            b_record["scorer"]["sdk"] or "not recorded",
+        ),
+        "Plugin": (
+            a_record["scorer"]["plugin"] or "not recorded",
+            b_record["scorer"]["plugin"] or "not recorded",
+        ),
+    }
+    for label, expected_cells in expected_provenance.items():
+        rendered = rendered_provenance.get(label)
+        if rendered is None:
+            _fail(failures, "the provenance table has no {!r} row".format(label))
+        elif rendered != expected_cells:
             _fail(
                 failures,
-                "the rendered view contains the causal claim {!r}".format(phrase),
+                "provenance {!r} cells {!r} != derived {!r}".format(
+                    label, rendered, expected_cells
+                ),
             )
+
+    # The comparability banner: bind the derived condition to the words a
+    # reader sees, including the comparable-with-a-changed-source case the
+    # builder must not paper over with an all-clear.
+    axes_all_same = (
+        derived["source"] == "same"
+        and derived["dataset"] == "same"
+        and derived["scorer"] == "same"
+    )
+    if derived["comparable"] and axes_all_same:
+        expected_banner = (
+            "Conditions line up on every axis the reports record. The deltas "
+            "below are observations only — this view states no cause for any "
+            "difference."
+        )
+    elif derived["comparable"]:
+        expected_banner = (
+            "Comparable as conditions stand: the source difference above is "
+            "the change under observation, and the dataset and scorer "
+            "conditions the deltas depend on line up. The deltas below are "
+            "observations only — this view states no cause for any difference."
+        )
+    else:
+        expected_banner = "Not comparable as conditions stand."
+    if derived["comparable"]:
+        if expected_banner not in html_text:
+            _fail(
+                failures,
+                "the rendered banner does not state the derived comparable "
+                "condition ({!r}...)".format(expected_banner[:72]),
+            )
+        if "Not comparable as conditions stand." in html_text:
+            _fail(
+                failures,
+                "the rendered banner claims the pair is not comparable while "
+                "the derived conditions are comparable",
+            )
+    elif expected_banner not in html_text:
+        _fail(
+            failures,
+            "the rendered banner does not state that the pair is not comparable",
+        )
+
+    expected_pair_note = (
+        "Compared: {} and {} — the first two accepted reports in sorted order "
+        "({} of {} fixture files accepted).".format(
+            expected_compared[0], expected_compared[1], len(accepted), len(files)
+        )
+    )
+    if expected_pair_note not in html_text:
+        _fail(
+            failures,
+            "the rendered pair note does not name the derived comparison scope",
+        )
+
+    # Offline scan, parser-based: the resource element itself and any
+    # attribute value carrying a URL are what fetch. Report-sourced text
+    # naming a URL in its diagnostics is data, not a resource, and is
+    # exempt here.
+    for tag, attributes in page.tags:
+        if tag in _RESOURCE_TAGS:
+            _fail(
+                failures,
+                "the rendered view contains a <{}> element — it is not an offline artifact".format(
+                    tag
+                ),
+            )
+        for value in attributes.values():
+            if isinstance(value, str) and (
+                "http://" in value.lower() or "https://" in value.lower()
+            ):
+                _fail(
+                    failures,
+                    "the rendered view carries a URL in an attribute of <{}> — it is not an offline artifact".format(
+                        tag
+                    ),
+                )
+
+    # The causal scan covers the claims the BUILDER authors — receipt
+    # findings, the pair note, the comparability banner, and every rendered
+    # detail cell the fixture data does not supply. Report-sourced text
+    # (diagnostics, provenance values, labels) is exempt: a diagnostic may
+    # repeat a producing tool's own "caused by" without the view claiming
+    # anything.
+    generated_claims: List[str] = [
+        line
+        for line in (findings if isinstance(findings, list) else [])
+        if isinstance(line, str)
+    ]
+    generated_claims.append(expected_pair_note)
+    if derived["comparable"]:
+        generated_claims.append(expected_banner)
+    for table, column in ((conditions_table, 2), (metric_table, 3), (floor_table, 3)):
+        for row in table["rows"]:
+            cells = row["cells"]
+            if len(cells) > column:
+                generated_claims.append(cells[column])
+    for item in page.items:
+        if item["attrs"].get("data-field") is not None:
+            generated_claims.append(item["text"])
+    for claim in generated_claims:
+        lowered_claim = claim.lower()
+        for phrase in _CAUSAL_PHRASES:
+            if phrase in lowered_claim:
+                _fail(
+                    failures,
+                    "the generated claim {!r} contains the causal claim {!r}".format(
+                        claim, phrase
+                    ),
+                )
 
     if findings and isinstance(findings, list):
         for line in findings:
@@ -1207,6 +1568,19 @@ def main() -> int:
                     failures,
                     "receipt finding {!r} does not appear in the rendered view".format(line),
                 )
+
+    if isinstance(excluded_entries, list):
+        for entry in excluded_entries:
+            if not isinstance(entry, dict):
+                continue
+            for reason in entry.get("reasons") or []:
+                if isinstance(reason, str) and reason and reason not in html_text:
+                    _fail(
+                        failures,
+                        "receipt exclusion reason {!r} does not appear in the rendered view".format(
+                            reason
+                        ),
+                    )
 
     if failures:
         for failure in failures:
@@ -1235,7 +1609,7 @@ def main() -> int:
     )
     print(
         "receipt: inputs {}, tool sources {}, html sha256 bound".format(
-            len(actual_inputs), len(expected_tool_source)
+            len(expected_inputs), len(expected_tool_source)
         )
     )
     print(

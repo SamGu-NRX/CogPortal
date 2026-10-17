@@ -3,7 +3,7 @@
     "01-run-a.json",
     "02-run-b.json"
   ],
-  "fixtures_root": "tools/run-comparison/fixtures",
+  "fixtures_root": "fixtures",
   "generator": "tools/run-comparison/build.py --replay",
   "html_sha256": "87dd91ab30f5e238c2a323d2ed235a2f8e4bc2631ebc2dd509ef758658237387",
   "identical": true,
@@ -54,11 +54,11 @@
     }
   ],
   "rebuilt_html_sha256": "87dd91ab30f5e238c2a323d2ed235a2f8e4bc2631ebc2dd509ef758658237387",
-  "receipt_sha256": "9f8f5be95f129bab77e23a20fd05d825627ebdc80399e11e4560250a6c002d44",
+  "receipt_sha256": "efe73df1369d547d3137fe2f5b2efeff88bce004be70defae4a2c8d44d0293d0",
   "tool_source": {
     "files": {
-      "build.py": "90dbb23a245152cd4a37b2cf2b043eca524b56e414dee61923470382b9bf7c37",
-      "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
+      "build.py": "b66c983b7a4a054fb8ed5554b123a45a21b774cbd6d3bc064f66672fc2233aab",
+      "report_reader.py": "6dbd05fc4292602170cea0e4e13e350f7b22e2930077ae0fbdd6ab8116e2bbdd"
     }
   }
 }

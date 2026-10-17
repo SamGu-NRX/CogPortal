@@ -157,7 +157,7 @@
       "status": "refused"
     }
   ],
-  "fixtures_root": "tools/run-comparison/fixtures-stress",
+  "fixtures_root": "fixtures-stress",
   "refusal_codes": {
     "bad_field_type": 3,
     "bad_metric_value": 1,

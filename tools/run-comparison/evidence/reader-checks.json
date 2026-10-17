@@ -89,7 +89,7 @@
       "status": "refused"
     }
   ],
-  "fixtures_root": "tools/run-comparison/fixtures",
+  "fixtures_root": "fixtures",
   "refusal_codes": {
     "bad_weight_receipt": 1,
     "not_json": 1,

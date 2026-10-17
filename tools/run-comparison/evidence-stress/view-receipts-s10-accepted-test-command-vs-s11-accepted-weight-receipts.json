@@ -127,7 +127,7 @@
     "dataset conditions changed: see the field verdicts",
     "While any blocker stands, a metric difference is not evidence of a source effect."
   ],
-  "fixtures_root": "tools/run-comparison/fixtures-stress",
+  "fixtures_root": "fixtures-stress",
   "generator": "tools/run-comparison/build.py",
   "html_sha256": "b4bfbd66824cdd8c48de4b6e2fae0ee047f25f1f89fe234d9a0f67101d45220d",
   "inputs": [
@@ -302,8 +302,8 @@
   },
   "tool_source": {
     "files": {
-      "build.py": "90dbb23a245152cd4a37b2cf2b043eca524b56e414dee61923470382b9bf7c37",
-      "report_reader.py": "055fd229206e62221b13e30db9dc41b7f143e77edf47b55fc72adc7dd8c44480"
+      "build.py": "b66c983b7a4a054fb8ed5554b123a45a21b774cbd6d3bc064f66672fc2233aab",
+      "report_reader.py": "6dbd05fc4292602170cea0e4e13e350f7b22e2930077ae0fbdd6ab8116e2bbdd"
     }
   }
 }

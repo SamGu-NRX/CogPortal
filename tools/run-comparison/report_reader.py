@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -241,6 +243,26 @@ def read_payload(raw: bytes, file: str) -> ReadReport:
     for message in _bad_top_level_types(value):
         refusals.append(Refusal("bad_field_type", message))
 
+    # The writer's own repository_state refuses to write anything but a
+    # full lowercase hex digest or an absent sha (project.py fullmatches
+    # the rev-parse output and drops everything else), so a partial
+    # digest — 12 hex characters, the length of the display form — or a
+    # wrongly typed sha cannot have been written by this writer. Reading
+    # it as pinning would promote a display prefix to scored-bytes
+    # identity; reading it as absent would hide the tamper. Refuse.
+    sha = value.get("sha")
+    if sha is not None and (
+        not isinstance(sha, str)
+        or re.fullmatch(r"[a-f0-9]{40}", sha) is None
+    ):
+        refusals.append(
+            Refusal(
+                "bad_source_sha",
+                "sha must be a 40-character lowercase hex digest or absent, "
+                "not {!r}".format(sha),
+            )
+        )
+
     contract = value["contractVersion"]
     if isinstance(contract, str) and contract not in SUPPORTED_CONTRACTS:
         refusals.append(
@@ -332,6 +354,32 @@ def _bool_field(value: Any) -> bool:
     return type(value) is bool
 
 
+#: The writer's MAX_WEIGHT_PATH (python/cogbench/src/cogbench/storage.py).
+_WEIGHT_PATH_LIMIT = 500
+
+
+def _usable_weight_path(name: str) -> bool:
+    """The writer's ``_usable_name`` rules, mirrored.
+
+    The writer runs them on every weight it saves, keys and serves, so a
+    path they refuse cannot name bytes this writer stored. The raw
+    segments, not ``PurePosixPath.parts``: that collapses ``a//b`` and
+    ``a/./b`` and drops a trailing slash, so a name would validate in a
+    shape it was never stored or keyed under.
+    """
+
+    if not name or len(name) > _WEIGHT_PATH_LIMIT:
+        return False
+    if name.startswith("/"):
+        return False
+    for part in name.split("/"):
+        if part in ("", ".", ".."):
+            return False
+        if "\\" in part or any(ord(c) < 32 or ord(c) == 127 for c in part):
+            return False
+    return True
+
+
 def _bad_top_level_types(value: Dict[str, Any]) -> List[str]:
     checks = (
         ("reportId", "a non-empty string", _nonempty_str),
@@ -411,7 +459,26 @@ def _read_weights(
                 )
             )
         else:
-            weights_used = tuple(used)
+            bad_paths = [
+                name for name in used if not _usable_weight_path(name)
+            ]
+            if bad_paths:
+                # The writer runs check_weight_path on every weight it
+                # saves and keys, so a path its rules refuse (absolute,
+                # traversal, backslash, control characters) cannot name
+                # scored bytes; accepting it would compare digests keyed
+                # under a shape the writer never stored.
+                refusals.append(
+                    Refusal(
+                        "bad_weight_path",
+                        "weightsUsed names {}, which is not a path the "
+                        "writer could have keyed".format(
+                            ", ".join(repr(name) for name in bad_paths)
+                        ),
+                    )
+                )
+            else:
+                weights_used = tuple(used)
 
     uploaded = value.get("weightsUploaded")
     if uploaded is None:
@@ -548,6 +615,20 @@ def _read_metrics(
                 )
             )
             continue
+        if not math.isfinite(value):
+            # Python's json round-trips NaN and Infinity literals, so a
+            # report can carry them; a non-finite number has no honest
+            # delta or rendered form, and "{:.4f}".format("nan") would
+            # silently print a string no run measured.
+            refusals.append(
+                Refusal(
+                    "bad_metric_value",
+                    "metrics[{}].value must be a finite number, not {!r}".format(
+                        index, value
+                    ),
+                )
+            )
+            continue
 
         shape_problem = None
         for name, kind, check in (
@@ -567,6 +648,22 @@ def _read_metrics(
                 break
         if shape_problem is not None:
             refusals.append(shape_problem)
+            continue
+
+        precision = entry["precision"]
+        if not 0 <= precision <= 12:
+            # The writer emits 3 or 4 (runner.py's metric construction);
+            # a render precision far beyond that forces excessive output
+            # width for a number that carries no more information, and a
+            # negative one has no meaning at all. Both refuse rather
+            # than reaching "{:.{}f}".format unchecked.
+            refusals.append(
+                Refusal(
+                    "bad_precision",
+                    "metrics[{}].precision must be between 0 and 12, "
+                    "not {!r}".format(index, precision),
+                )
+            )
             continue
 
         key = entry["key"]

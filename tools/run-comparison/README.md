@@ -43,6 +43,19 @@ The reader mirrors the writer's provenance doctrine and adds nothing:
   (`cogworks.submissions.v2`) is refused as incompatible: what a
   metric's role and direction mean cannot be trusted under a contract
   this reader cannot read.
+- The reader also refuses reports whose shape the writer could not
+  have produced — a report that cannot have been written by this
+  writer is not a variant of one, so it is not read at all:
+  - a `sha` that is neither absent nor a full 40-character lowercase
+    hex digest (the display form, an integer, or uppercase letters are
+    all refused as `bad_source_sha`);
+  - a metric value that is not a finite number (`bad_metric_value`) or
+    whose render `precision` is outside 0-12 (`bad_precision`; the
+    bound is deliberately generous next to the writer's normal output);
+  - a `weightsUsed` entry that is not a usable relative path the
+    writer could have keyed (`bad_weight_path`): absolute paths,
+    traversal, backslashes, control characters and paths over 500
+    characters are all refused.
 - A refused report is recorded with its reasons and never compared.
 - A dirty tree means the `sha` cannot pin the bytes that ran; the
   source identity is recorded but unusable for comparison.
@@ -72,6 +85,28 @@ the generator is preserved, never overwritten. `--force` is the single
 deliberate path around the gate, for regenerating evidence after a
 fixture or tool change.
 
+A build without `--replay` refuses a directory that already holds
+generated artifacts (`view-*`, `view-receipts-*`, `replay-*`): a bare
+build overwrites or mixes evidence with no validation, so it is refused
+with the `--replay` / `--replay --force` paths named. A bare build into
+a fresh directory writes the view and receipt but no replay receipt —
+only a `--replay` run attests a byte-identical rebuild, so bare
+evidence is incomplete by contract until a deliberate `--replay
+--force` pass completes it.
+
+The compared pair is always the first two accepted reports in one
+deterministic order across every `--fixtures` root: keyed by the
+report's own file name, with the full path breaking only same-name
+ties. Two roots each holding a same-named report therefore resolve by
+path — never by argument order — and the receipt's inputs list records
+every input in that order, duplicates included, so each copy's bytes
+are attested individually.
+
+Changing which two fixtures are compared moves the evidence to its own
+stem (`view-<pair>.html`): a `--replay` run writes the new pair's
+artifacts alongside the old ones without touching them, and each
+evidence set verifies against its own fixtures.
+
 Every receipt binds the artifacts to their provenance: the SHA-256 of
 every fixture input, the SHA-256 of the generator sources (`build.py`,
 `report_reader.py`), and — in the replay receipt — the digests of the
@@ -79,7 +114,17 @@ exact view and receipt bytes it attests. Tools or inputs change and the
 committed evidence stops verifying: staleness is detectable, never
 silent. `verify.py` checks the committed evidence exactly as it checks a
 fresh build, replay record included; a tampered or mismatched evidence
-file fails with a `misrendered:` line.
+file fails with a `misrendered:` line. Beyond digests, it binds the
+wording itself, independently derived from the fixtures: every
+excluded report's refusal reasons must match the reader's derivation
+word for word and appear in the rendered view; the provenance table's
+cells, the comparability banner and the comparison-scope note are
+compared to their derivations; a pair with no floor metrics must
+render the `No floor metrics recorded.` empty state; and the offline
+scan is structural — `<script>`/`<iframe>`-class elements and URLs in
+attributes fail the view even when the digest checks are re-stamped,
+while report-sourced diagnostics text that merely names a URL stays
+green.
 
 ## Files
 

@@ -27,6 +27,7 @@ import argparse
 import hashlib
 import html
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -579,8 +580,10 @@ def metric_sections(
             "value": _fmt(metric.value, metric.precision),
             "unit": metric.unit,
         }
-        for metric in a.metrics
-        if metric.key not in b_by_key
+        for metric in sorted(
+            (m for m in a.metrics if m.key not in b_by_key),
+            key=lambda m: m.key,
+        )
     ]
     only_b = [
         {
@@ -589,8 +592,10 @@ def metric_sections(
             "value": _fmt(metric.value, metric.precision),
             "unit": metric.unit,
         }
-        for metric in b.metrics
-        if metric.key not in a_by_key
+        for metric in sorted(
+            (m for m in b.metrics if m.key not in a_by_key),
+            key=lambda m: m.key,
+        )
     ]
     return {
         "shared": shared,
@@ -791,11 +796,29 @@ def render(
     conditions_html = "\n".join(condition_rows)
 
     if analysis["comparable"]:
-        banner = (
-            '<p class="ok">Conditions line up on every axis the reports record. '
-            "The deltas below are observations only — this view states no "
-            "cause for any difference.</p>"
+        # A comparable pair can still carry a changed source: the source
+        # difference IS the change under observation, while the dataset
+        # and scorer conditions the deltas depend on line up. The banner
+        # must not claim every condition matches when the findings name a
+        # changed axis.
+        axes_all_same = all(
+            analysis["conditions"][axis]["verdict"] == "same"
+            for axis in ("source", "dataset", "scorer")
         )
+        if axes_all_same:
+            banner = (
+                '<p class="ok">Conditions line up on every axis the reports '
+                "record. The deltas below are observations only — this view "
+                "states no cause for any difference.</p>"
+            )
+        else:
+            banner = (
+                '<p class="ok">Comparable as conditions stand: the source '
+                "difference above is the change under observation, and the "
+                "dataset and scorer conditions the deltas depend on line up. "
+                "The deltas below are observations only — this view states "
+                "no cause for any difference.</p>"
+            )
     else:
         banner = (
             '<p class="banner"><strong>Not comparable as conditions stand.</strong> '
@@ -1246,13 +1269,26 @@ def replay_gate_disagreements(
                 for key in set(existing_replay) | set(expected_replay)
                 if existing_replay.get(key) != expected_replay.get(key)
             )
+            pair_detail = ""
+            if existing_replay.get("compared") != expected_replay.get(
+                "compared"
+            ):
+                # Name both pairs: "compared differs" alone does not say
+                # which reports the existing evidence stands for.
+                pair_detail = (
+                    " — the compared pair changed: the existing evidence "
+                    "compares {}, the fresh build compares {}".format(
+                        existing_replay.get("compared"),
+                        expected_replay.get("compared"),
+                    )
+                )
             problems.append(
                 "replay disagreement: the existing replay receipt does not "
                 "match the complete expected receipt (generator, "
                 "fixture-root binding, digests, inputs, tool source and "
-                "compared pair); differing key(s): {}; the existing "
+                "compared pair); differing key(s): {}{}; the existing "
                 "receipt is preserved and nothing was written".format(
-                    ", ".join(differing) or "structure"
+                    ", ".join(differing) or "structure", pair_detail
                 )
             )
     return problems
@@ -1289,6 +1325,33 @@ def main() -> int:
     if arguments.force and not arguments.replay:
         parser.error("--force is only meaningful with --replay")
 
+    out = Path(arguments.out)
+    if out.is_dir() and not arguments.replay:
+        # A bare build must not overwrite or mix evidence: an out directory
+        # that already holds generated artifacts is refused before any work,
+        # whether they belong to this pair or to a different one. --replay
+        # validates them against a fresh build (and refuses a changed pair
+        # as a replay disagreement); --force is the one deliberate
+        # regeneration path.
+        _artifact = re.compile(
+            r"^(view-.*\.html|view-receipts-.*\.json|replay-.*\.json)$"
+        )
+        existing_artifacts = sorted(
+            entry.name for entry in out.iterdir() if _artifact.match(entry.name)
+        )
+        if existing_artifacts:
+            print(
+                "build.py: refusing to write: {} already holds generated "
+                "artifacts ({}). A bare build overwrites or mixes evidence "
+                "with no validation; run --replay to validate the existing "
+                "artifacts against a fresh build, or --replay --force to "
+                "replace them deliberately.".format(
+                    out, ", ".join(existing_artifacts)
+                ),
+                file=sys.stderr,
+            )
+            return 1
+
     files: List[Path] = []
     roots: List[str] = []
     for item in arguments.fixtures:
@@ -1298,6 +1361,12 @@ def main() -> int:
             files.extend(sorted(path.glob("*.json")))
         else:
             files.append(path)
+    # One deterministic order across every --fixtures root, keyed by the
+    # report's own name first and the full path only to break ties: two
+    # roots each holding a same-named file must resolve by path, not by
+    # argument order, while ordinary names keep their documented order
+    # whatever roots they arrive from.
+    files.sort(key=lambda path: (path.name, path.as_posix()))
     if not files:
         print("no fixture files found", file=sys.stderr)
         return 2
