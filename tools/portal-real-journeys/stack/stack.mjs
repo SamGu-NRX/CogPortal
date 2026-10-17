@@ -352,13 +352,16 @@ async function startPreview(expectedProfile) {
   }
   say(`starting the Worker preview on ${PORTAL_PORT}`);
   const log = fs.openSync(path.join(LOG_DIR, "preview.log"), "a");
-  preview = spawn(VITE_BIN, ["preview", "--config", VITE_CONFIG, "--port", String(PORTAL_PORT), "--strictPort", "--host", "127.0.0.1"], {
-    cwd: RUN_DIR,
-    env: childEnv(),
-    stdio: ["ignore", log, log],
-  });
-  const child = preview;
-  const deadline = Date.now() + 120_000;
+  const spawnPreview = () =>
+    spawn(VITE_BIN, ["preview", "--config", VITE_CONFIG, "--port", String(PORTAL_PORT), "--strictPort", "--host", "127.0.0.1"], {
+      cwd: RUN_DIR,
+      env: childEnv(),
+      stdio: ["ignore", log, log],
+    });
+  preview = spawnPreview();
+  let child = preview;
+  let restarted = false;
+  let deadline = Date.now() + 180_000;
   for (;;) {
     const session = await getJson(PORTAL_PORT, "/api/session");
     if (session && session.status < 500 && session.body?.auth) {
@@ -372,7 +375,17 @@ async function startPreview(expectedProfile) {
       return;
     }
     if (child.exitCode !== null) throw new Error(`the preview exited with ${child.exitCode}; see test-results/stack-logs/preview.log`);
-    if (Date.now() > deadline) throw new Error(`the Worker on ${PORTAL_PORT} never answered /api/session`);
+    if (Date.now() > deadline) {
+      if (restarted) throw new Error(`the Worker on ${PORTAL_PORT} never answered /api/session`);
+      restarted = true;
+      say("the Worker preview missed the /api/session deadline; restarting it once");
+      child.kill("SIGTERM");
+      await waitForPortClosed(PORTAL_PORT, 20_000);
+      preview = spawnPreview();
+      child = preview;
+      deadline = Date.now() + 180_000;
+      continue;
+    }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }
