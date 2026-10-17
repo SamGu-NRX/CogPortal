@@ -1180,6 +1180,11 @@ def make_receipt(
 
 
 REPLAY_GENERATOR = "tools/run-comparison/build.py --replay"
+# Artifact names this tool owns in an out directory: the evidence the
+# gates refuse to overwrite, mix or leave stale.
+GENERATED_ARTIFACTS = re.compile(
+    r"^(view-.*\.html|view-receipts-.*\.json|replay-.*\.json)$"
+)
 
 
 def _json_bytes(payload: Dict[str, Any]) -> bytes:
@@ -1333,11 +1338,10 @@ def main() -> int:
         # validates them against a fresh build (and refuses a changed pair
         # as a replay disagreement); --force is the one deliberate
         # regeneration path.
-        _artifact = re.compile(
-            r"^(view-.*\.html|view-receipts-.*\.json|replay-.*\.json)$"
-        )
         existing_artifacts = sorted(
-            entry.name for entry in out.iterdir() if _artifact.match(entry.name)
+            entry.name
+            for entry in out.iterdir()
+            if GENERATED_ARTIFACTS.match(entry.name)
         )
         if existing_artifacts:
             print(
@@ -1474,6 +1478,35 @@ def main() -> int:
                 ("replay", replay_path),
             )
         }
+        if all(data is None for data in existing.values()) and not arguments.force:
+            # The derived pair's own files are absent, but the directory may
+            # hold evidence for a PREVIOUS pair: a fixture change that moves
+            # the selection must not silently write a second evidence set
+            # beside stale artifacts. Refuse; --replay --force is the
+            # deliberate path.
+            stale = (
+                sorted(
+                    entry.name
+                    for entry in out.iterdir()
+                    if GENERATED_ARTIFACTS.match(entry.name)
+                    and entry.name
+                    not in {html_path.name, receipt_path.name, replay_path.name}
+                )
+                if out.is_dir()
+                else []
+            )
+            if stale:
+                print(
+                    "replay: refusing to write — the compared pair changed: "
+                    "{} holds generated artifacts ({}) but the fresh build "
+                    "compares {} vs {}; run --replay --force to replace the "
+                    "evidence deliberately.".format(
+                        out, ", ".join(stale), a_name, b_name
+                    ),
+                    file=sys.stderr,
+                )
+                return 1
+
         if arguments.force:
             fresh = {
                 "view": html_bytes,

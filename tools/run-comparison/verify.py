@@ -1055,6 +1055,36 @@ def main() -> int:
     ):
         _fail(failures, "receipt findings must be a non-empty list of non-empty strings")
 
+    # The leading finding is a generated claim, so bind its wording to the
+    # derived axis verdicts: a changed source may never be announced as an
+    # all-conditions-match pair, and the all-match claim may never hide a
+    # source change.
+    axes_same = (
+        derived["source"] == "same"
+        and derived["dataset"] == "same"
+        and derived["scorer"] == "same"
+    )
+    if axes_same:
+        expected_leading = (
+            "All recorded conditions match: source, dataset (benchmark, case "
+            "set, weight bytes, scoring floors) and scorer identity."
+        )
+    elif derived["source"] == "changed":
+        expected_leading = (
+            "source differs between the runs; the metric deltas below "
+            "are observations only and state no cause"
+        )
+    else:
+        expected_leading = None
+    if expected_leading is not None and isinstance(findings, list) and findings:
+        if findings[0] != expected_leading:
+            _fail(
+                failures,
+                "the leading finding reads {!r} != derived {!r}".format(
+                    findings[0], expected_leading
+                ),
+            )
+
     receipt_shared = (receipt.get("metrics") or {}).get("shared") or []
     if len(receipt_shared) != len(derived["shared"]):
         _fail(

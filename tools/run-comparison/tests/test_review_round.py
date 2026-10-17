@@ -217,9 +217,7 @@ def test_replay_refuses_a_receipt_attesting_a_different_pair(tmp_path):
     assert after == before  # the tampered bytes are preserved, not replaced
 
 
-def test_replay_moves_a_changed_pair_to_its_own_stem_without_touching_the_old(
-    tmp_path,
-):
+def test_replay_refuses_a_moved_pair_without_force(tmp_path):
     out, _ = _build_evidence(tmp_path)
     before = {name: (out / name).read_bytes() for name in (VIEW, RECEIPT, REPLAY)}
 
@@ -230,14 +228,55 @@ def test_replay_moves_a_changed_pair_to_its_own_stem_without_touching_the_old(
 
     second = _run_build(out, later, extra=("--replay",))
 
-    assert second.returncode == 0, second.stdout + second.stderr
+    assert second.returncode == 1, second.stdout + second.stderr
+    assert "the compared pair changed" in second.stderr
+    assert "02-run-b.json vs 03-run-dirty.json" in second.stderr
+    assert "--replay --force" in second.stderr
+    # Nothing was written: the old evidence stands, no new stem exists.
+    after = {name: (out / name).read_bytes() for name in (VIEW, RECEIPT, REPLAY)}
+    assert after == before
+    assert not list(out.glob("view-02-run-b-vs-03-run-dirty*"))
+
+
+def test_replay_force_moves_the_pair_and_keeps_the_old_evidence(tmp_path):
+    out, _ = _build_evidence(tmp_path)
+    before = {name: (out / name).read_bytes() for name in (VIEW, RECEIPT, REPLAY)}
+
+    later = tmp_path / "later-fixtures"
+    later.mkdir()
+    for name in ("02-run-b.json", "03-run-dirty.json"):
+        shutil.copy2(FIXTURES / name, later / name)
+
+    forced = _run_build(out, later, extra=("--replay", "--force"))
+
+    assert forced.returncode == 0, forced.stdout + forced.stderr
     new_stem = "02-run-b-vs-03-run-dirty"
     assert (out / "view-{}.html".format(new_stem)).exists()
     assert (out / "view-receipts-{}.json".format(new_stem)).exists()
     assert (out / "replay-{}.json".format(new_stem)).exists()
+    # The deliberately replaced evidence's bytes are not deleted by --force;
+    # they stay exactly as they were, recoverable or removable by hand.
     after = {name: (out / name).read_bytes() for name in (VIEW, RECEIPT, REPLAY)}
     assert after == before
     assert _run_verify(out, later).returncode == 0
+
+
+def test_verify_rejects_an_all_match_claim_over_a_changed_source(tmp_path):
+    out, fixtures = _build_evidence(tmp_path)
+
+    def mutate(receipt):
+        receipt["findings"][0] = (
+            "All recorded conditions match: source, dataset (benchmark, case "
+            "set, weight bytes, scoring floors) and scorer identity."
+        )
+
+    _restamp(out, mutate_receipt=mutate)
+
+    checked = _run_verify(out, fixtures)
+
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "the leading finding reads" in checked.stderr
+    assert "source differs between the runs" in checked.stderr
 
 
 def test_verify_rejects_a_paraphrased_refusal_reason(tmp_path):

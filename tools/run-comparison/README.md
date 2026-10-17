@@ -102,10 +102,12 @@ path — never by argument order — and the receipt's inputs list records
 every input in that order, duplicates included, so each copy's bytes
 are attested individually.
 
-Changing which two fixtures are compared moves the evidence to its own
-stem (`view-<pair>.html`): a `--replay` run writes the new pair's
-artifacts alongside the old ones without touching them, and each
-evidence set verifies against its own fixtures.
+Changing which two fixtures are compared is a deliberate decision: a
+`--replay` run whose fresh build selects a different pair than the
+evidence on disk refuses with both pairs named (`--replay --force`
+replaces the evidence; the replaced files are not deleted — they stay
+exactly as they were, recoverable from version control or removable by
+hand). Each evidence set verifies against its own fixtures.
 
 Every receipt binds the artifacts to their provenance: the SHA-256 of
 every fixture input, the SHA-256 of the generator sources (`build.py`,
@@ -186,10 +188,13 @@ python tools/run-comparison/build.py \
    and the HTML from raw JSON (a tampered receipt fails it).
 3. `--replay` plus a browser walk. Done: the view has zero focusable
    elements and zero CSS animations (nothing to keyboard-operate, no
-   motion to reduce); at the rework head an axe-core sweep (npm
-   package install, build-time only) ran after content load on the
-   committed canonical and stress views and reported zero WCAG 2.x
-   A/AA violations with 23 passes and 0 incomplete; the reworked
+   motion to reduce); an axe-core sweep was
+   deferred (the repository has no vendored axe build and the sandbox
+   permits no network fetch), so the zero-violation line inherited from
+   the original writer's environment is not evidence from this
+   delivery; keyboard focus count, the Tab walk and reduced-motion
+   behavior were measured directly instead (`m3-browser-notes.md`);
+   the reworked
    tables fit a 390px viewport with measured scrollWidth 390 = 390
    (the pre-rework generator at 92a5f0e1 overflows at 877, measured
    for the before/after comparison); cold-load layout shift is 0.000

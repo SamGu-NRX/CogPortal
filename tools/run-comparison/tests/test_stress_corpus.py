@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from build import analyze_pair
+from reader_checks import collect
 from report_reader import read_report
 
 WORKBENCH = Path(__file__).resolve().parents[1]
@@ -85,14 +86,21 @@ def test_stress_corpus_counts_are_exact():
     assert (len(accepted), len(refused), len(files)) == (5, 13, 18)
 
 
+def _without_root(record):
+    """The record embeds where it was produced; everything else is content."""
+
+    return {key: value for key, value in record.items() if key != "fixtures_root"}
+
+
 def test_stress_reader_checks_record_matches_corpus():
     record = json.loads((STRESS_EVIDENCE / "reader-checks.json").read_text(encoding="utf-8"))
+    # Every field is compared — counts, refusal codes, and each file's full
+    # entry (status, exact refusal strings, report id, sha256) — against a
+    # fresh read of the corpus, exactly like the canonical record's pin.
+    assert record["fixtures_root"] == "fixtures-stress"
+    assert _without_root(record) == _without_root(collect(STRESS))
     assert (record["total"], record["accepted"], record["refused"]) == (18, 5, 13)
     assert record["refusal_codes"] == EXPECTED_STRESS_CODES
-    by_file = {entry["file"]: entry for entry in record["files"]}
-    for name, (status, codes) in EXPECTED_STRESS.items():
-        assert by_file[name]["status"] == status, name
-        assert sorted(code.split(":")[0] for code in by_file[name]["refusals"]) == sorted(codes), name
 
 
 def test_committed_stress_evidence_verifies_green():
