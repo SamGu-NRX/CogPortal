@@ -16,10 +16,23 @@ Design notes a reviewer needs:
 - `filesystem.*` calls happen in the runner process and translate `/tmp` and
   `/workspace` into the sandbox's private directories. Nothing else is
   sandboxed for them; the controller only ever touches those two paths.
-- `snapshot_filesystem()` tars the private trees; `Image.from_id(snapshot_id)`
-  later extracts that tar into a new sandbox's private trees. The course stacks
-  are not inside `/tmp` or `/workspace`, so snapshots stay small and no
-  student-writable byte is shared between sandboxes.
+- `snapshot_filesystem()` tars the private trees (and the sandbox's private
+  copy of the track venv, when one exists); `Image.from_id(snapshot_id)` later
+  extracts that tar into a new sandbox's private trees. No student-writable
+  byte is shared between sandboxes.
+- Student code runs unprivileged and allowlisted: the exec environment is
+  `CHILD_ENV_ALLOWLIST` plus the suite's declared passthrough — never a copy
+  of the runner's env, which carries RUNNER_SIGNING_SECRET — and the timed
+  process drops to an unprivileged uid with `setpriv` (`COGBOX_DROP_PRIVILEGES=0`
+  opts out). Because that uid cannot traverse the runner's own home (the
+  course tree lives under it), the namespace bind-mounts everything the
+  student needs at world-traversable /opt paths mirroring the deployed
+  images: the sandbox-PRIVATE copy of the track venv at
+  `/opt/cogworks-py38` (the deployed venv path, so argv needs no rewrite
+  gymnastics) and the runner source at `/opt/cogworks-runner`. Installs made
+  during preparation land in the private copy; the prepared snapshot carries
+  it, so evaluate sees the submission's installed package without sharing it
+  with the course build or any other sandbox.
 - Interpreter selection follows `prepared_environment.student_python`:
   `/opt/cogworks-py38/bin/python` means "the 3.8 venv of this track" and bare
   `python` means "the track's control interpreter", so argv is rewritten per the
@@ -78,6 +91,14 @@ REPO = _repo_root()
 #: week1/week3 tracks, mapped to the track's local venv.
 PY38_VENV = "/opt/cogworks-py38/bin/python"
 
+#: Where the namespace bind-mounts the student-facing trees. These mirror the
+#: deployed images' layout and live under world-traversable /opt, because the
+#: unprivileged student uid cannot traverse the runner's own home directory to
+#: reach the host-side copies (review: 'Student code reaches host files' — the
+#: privilege drop also surfaced this traversal wall).
+VENV_MOUNT = "/opt/cogworks-py38"
+RUNNER_MOUNT = "/opt/cogworks-runner"
+
 _TRACK_VENV = {
     "week1": "week1-py38",
     "week3": "week3-py38",
@@ -97,6 +118,90 @@ def set_track(track: str) -> None:
 
 def _track_venv(track: str) -> str:
     return os.path.join(BOX, _TRACK_VENV[track])
+
+
+#: The only host environment a sandbox exec may inherit. Everything else the
+#: runner carries — RUNNER_SIGNING_SECRET among it — stays on the runner side:
+#: student code runs with an allowlisted environment, not a copy of ours.
+CHILD_ENV_ALLOWLIST = (
+    "SSL_CERT_FILE",        # the suite-local CA, for the GitHub edge double
+    "REQUESTS_CA_BUNDLE",
+    "NODE_EXTRA_CA_CERTS",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "TORCH_HOME",           # the baked FaceNet checkpoint root
+    "LD_LIBRARY_PATH",
+)
+
+
+def _passthrough_env() -> dict:
+    """Extra values a sandbox child may receive, as declared by the suite.
+
+    Two sources: names listed in COGBOX_PASSTHROUGH_ENV (values read from the
+    runner's own env at exec time) and KEY=VALUE lines in the suite's
+    passthrough.env file (e.g. the week3 data-root variable the builder
+    discovers at bake time). Never a wholesale copy of the host environment.
+    """
+    values = {}
+    for name in os.environ.get("COGBOX_PASSTHROUGH_ENV", "").split(","):
+        name = name.strip()
+        if name and name in os.environ:
+            values[name] = os.environ[name]
+    path = os.path.join(os.environ.get("COGBOX_ROOT", BOX), "passthrough.env")
+    try:
+        with open(path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key:
+                    values[key] = value.strip()
+    except OSError:
+        pass
+    return values
+
+
+def child_environment(venv: str, extra=None, host_env=None, passthrough_env=None) -> dict:
+    """The full environment a sandbox exec runs with: the allowlisted host
+    values, the suite's declared passthrough, and the exec's own values, with
+    the fixed sandbox values (PATH, HOME, TMPDIR, PYTHONPATH) applied last so
+    nothing can override them."""
+    host = dict(os.environ) if host_env is None else dict(host_env)
+    env = {name: host[name] for name in CHILD_ENV_ALLOWLIST if name in host}
+    env.update(
+        dict(passthrough_env) if passthrough_env is not None else _passthrough_env()
+    )
+    if extra:
+        env.update(extra)
+    env.update({
+        "PATH": os.path.join(venv, "bin") + ":/usr/bin:/bin",
+        "HOME": "/tmp",
+        "TMPDIR": "/tmp",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "COGWORKS_RUNNER_TARGET": "",
+        # The venvs have the course stack and benchmarks; the runner source
+        # rides PYTHONPATH via its /opt bind (in-namespace, traversable).
+        "PYTHONPATH": RUNNER_MOUNT,
+    })
+    env.pop("COGWORKS_RUNNER_SANDBOX_IMAGE_IDS", None)
+    return env
+
+
+def _make_student_writable(root: str) -> None:
+    """chmod -R a+rwX: the timed student process runs as an unprivileged uid,
+    so every path it may write (private /tmp, /workspace, the track-venv
+    copy) must be writable by it. The trees are sandbox-private, so this
+    hands nothing to any other sandbox."""
+    os.chmod(root, 0o777)
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in dirnames + filenames:
+            try:
+                os.chmod(os.path.join(dirpath, name), 0o777)
+            except OSError:
+                pass
 
 
 class ShimError(RuntimeError):
@@ -349,6 +454,26 @@ class Sandbox:
                 "sandbox whose processes would resolve the real GitHub"
                 % sandbox._hosts_path
             )
+        # The track venv is sandbox-private: a prepared snapshot carries its
+        # own copy (with the submission's installs); otherwise the shared
+        # course venv is copied in. The copy is bind-mounted at the deployed
+        # venv path (/opt/cogworks-py38) inside the namespace — a path the
+        # unprivileged student can traverse, unlike the host cogbox tree —
+        # so the controller's argv and PATH keep the deployed convention
+        # while student installs land in the private copy, never the course
+        # build (review: shared environment).
+        sandbox._venv_copy = None
+        shared_venv = _track_venv(track)
+        private_venv = os.path.join(root, "venv")
+        if os.path.isdir(os.path.join(private_venv, "bin")):
+            sandbox._venv_copy = private_venv
+        elif os.path.isdir(shared_venv):
+            shutil.copytree(shared_venv, private_venv, symlinks=True)
+            sandbox._venv_copy = private_venv
+        if sandbox._venv_copy:
+            _make_student_writable(sandbox._venv_copy)
+        _make_student_writable(tmp_dir)
+        _make_student_writable(ws_dir)
         sandbox._timer = threading.Timer(timeout, sandbox._wall_clock_kill)
         sandbox._timer.daemon = True
         sandbox._timer.start()
@@ -358,10 +483,12 @@ class Sandbox:
         """The bash run inside the namespaces: private mounts, cgroup, exec.
 
         Environment is exported in the script because `sudo` strips the
-        caller's env before `unshare` runs. The timeout wrapper enforces the
-        sandbox's remaining wall clock from inside; the delegated parent
-        cgroup is host-visible, so kill() can also reach the child's
-        cgroup.kill directly; on exit the
+        caller's env before `unshare` runs. The timed process drops to an
+        unprivileged uid (`setpriv`) after the cgroup placement, so student
+        code cannot write the host tree it can still see; `COGBOX_DROP_PRIVILEGES=0`
+        opts out. The timeout wrapper enforces the sandbox's remaining wall
+        clock from inside; the delegated parent cgroup is host-visible, so
+        kill() can also reach the child's cgroup.kill directly; on exit the
         cgroup's memory.events is copied to the private /tmp, which IS visible
         to the runner, for the OOM check.
         """
@@ -372,7 +499,16 @@ class Sandbox:
             "export {k}={v}".format(k=k, v=shlex.quote(str(v)))
             for k, v in env.items()
         )
-        script = "\n".join([
+        if os.environ.get("COGBOX_DROP_PRIVILEGES", "1") != "0":
+            uid = os.environ.get("COGBOX_STUDENT_UID", "65534")
+            gid = os.environ.get("COGBOX_STUDENT_GID", uid)
+            dropline = (
+                "setpriv --no-new-privs --reuid " + uid
+                + " --regid " + gid + " --clear-groups "
+            )
+        else:
+            dropline = ""
+        lines = [
             "set -eu",
             "hostname " + self._id,
             "mount --make-rprivate /",
@@ -380,7 +516,18 @@ class Sandbox:
             "mount --bind {ws} /workspace",
             "mount --bind {hosts} /etc/hosts",
             "mount --bind {cgparent} {cg}",
-            "mkdir {cg}/{cgid}",
+            # -p: a second exec of this same sandbox re-creates the cgroup the
+            # first exec already made (review: 'Second sandbox command fails'),
+            # and re-creates the /opt mount targets a prior exec already made.
+            "mkdir -p {cg}/{cgid} {venv_mount} {runner_mount}",
+            # The runner source, at a path the unprivileged student can
+            # traverse (its host home is not).
+            "mount --bind {runner_src} {runner_mount}",
+        ]
+        if getattr(self, "_venv_copy", None):
+            # The deployed venv path resolves to this sandbox's private copy.
+            lines.append("mount --bind {vcopy} {venv_mount}")
+        lines += [
             "echo {hi} > {cg}/{cgid}/memory.high",
             "echo {mx} > {cg}/{cgid}/memory.max",
             "echo 512 > {cg}/{cgid}/pids.max",
@@ -388,15 +535,19 @@ class Sandbox:
             'printf "%s\\n" "$BASHPID" > {cg}/{cgid}/cgroup.procs',
             "{exports}",
             "set +e",
-            "timeout --kill-after=10 {remaining} \"$@\"",
+            dropline + 'timeout --kill-after=10 {remaining} "$@"',
             "rc=$?",
             "set -e",
             "cp {cg}/{cgid}/memory.events /tmp/.cog-cg-events 2>/dev/null || true",
             "exit $rc",
-        ]).format(
+        ]
+        script = "\n".join(lines).format(
             tmp=self.dirs["tmp"], ws=self.dirs["ws"], cg=cg,
             cgparent=CG_PARENT, cgid=self._cg_name,
             hosts=self._hosts_path,
+            venv_mount=VENV_MOUNT, runner_mount=RUNNER_MOUNT,
+            runner_src=os.path.join(REPO, "apps", "runner-modal", "src"),
+            vcopy=getattr(self, "_venv_copy", None),
             hi=self.limits["memoryHigh"] * 1024 * 1024,
             mx=self.limits["memoryMax"] * 1024 * 1024,
             cpu=self.limits["cpuMax"],
@@ -407,25 +558,13 @@ class Sandbox:
 
     def exec(self, *argv, text=True, env=None, **_kwargs):
         argv = list(argv)
-        venv = _track_venv(self.limits["track"])
-        if argv[0] == PY38_VENV:
-            argv[0] = os.path.join(venv, "bin", "python")
-        elif argv[0] == "python":
-            argv[0] = os.path.join(venv, "bin", "python")
-        child_env = dict(os.environ)
-        child_env.update({
-            "PATH": os.path.join(venv, "bin") + ":/usr/bin:/bin",
-            "HOME": "/tmp",
-            "TMPDIR": "/tmp",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "COGWORKS_RUNNER_TARGET": "",
-            # The image bakes the runner package in; the venvs have the course
-            # stack and benchmarks, and the runner source rides PYTHONPATH.
-            "PYTHONPATH": os.path.join(REPO, "apps", "runner-modal", "src"),
-        })
-        child_env.pop("COGWORKS_RUNNER_SANDBOX_IMAGE_IDS", None)
-        if env:
-            child_env.update(env)
+        if argv[0] == PY38_VENV or argv[0] == "python":
+            # Both spellings mean "this track's student venv", which lives at
+            # the /opt bind inside the namespace (the private copy).
+            argv[0] = os.path.join(VENV_MOUNT, "bin", "python")
+        # Allowlisted env, not a copy of the runner's: student code must not
+        # see RUNNER_SIGNING_SECRET or anything else the runner carries.
+        child_env = child_environment(VENV_MOUNT, env)
         inner, inner_argv = self._setup_script(argv, child_env)
         cmd = ["sudo", "unshare", "--mount", "--uts", "--pid", "--fork", "--mount-proc"]
         if self.limits["blockNetwork"]:
@@ -484,15 +623,44 @@ class Sandbox:
         object_id = "snap-" + uuid.uuid4().hex[:16]
         target = os.path.join(BOX, "snapshots", object_id + ".tar.gz")
         os.makedirs(os.path.dirname(target), exist_ok=True)
+        sources = {"tmp": self.dirs["tmp"], "ws": self.dirs["ws"]}
+        # The private track-venv copy rides with the snapshot: installs made
+        # during preparation (pip -e, requirements.txt) must reach evaluate.
+        if getattr(self, "_venv_copy", None) and os.path.isdir(self._venv_copy):
+            sources["venv"] = self._venv_copy
         with tarfile.open(target, "w:gz") as tar:
-            for name, arc in (("tmp", "tmp"), ("ws", "ws")):
-                tar.add(self.dirs[name], arcname=arc)
+            for name, arc in sources.items():
+                tar.add(sources[name], arcname=arc)
         return types.SimpleNamespace(object_id=object_id)
+
+    def _cleanup_cgroup(self):
+        """Wait for the sandbox cgroup to drain, then remove it. Best effort:
+        an empty cgroup is rmdir-able; one that will not drain is left keyed
+        to this sandbox id rather than blocking cleanup."""
+        cgid = os.path.join(CG_PARENT, self._cg_name)
+        procs = os.path.join(cgid, "cgroup.procs")
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            try:
+                with open(procs) as fh:
+                    if not fh.read().strip():
+                        break
+            except OSError:
+                return  # already gone
+            time.sleep(0.1)
+        try:
+            subprocess.run(
+                ["sudo", "-n", "rmdir", cgid],
+                capture_output=True, timeout=30,
+            )
+        except Exception:
+            pass
 
     def terminate(self):
         self.kill()
         if hasattr(self, "_timer") and self._timer:
             self._timer.cancel()
+        self._cleanup_cgroup()
         shutil.rmtree(self._root, ignore_errors=True)
 
 

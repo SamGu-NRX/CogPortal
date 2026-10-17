@@ -10,7 +10,8 @@ through the sandbox shim and answers POST / the way Modal would call
 
 Admin surface (localhost only, never signed):
 - GET  /__healthz  -> "ok" once modal_app has imported
-- POST /__reset    -> empties the job store (fresh journey)
+- POST /__reset    -> empties the job store (fresh journey); GET /__reset is
+                     read-only: it reports the store instead of clearing it
 """
 
 import argparse
@@ -73,16 +74,31 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("[runnerbox] " + (fmt % args) + "\n")
 
     def _admin(self):
-        if self.path == "/__healthz":
+        if self.path == "/__healthz" and self.command == "GET":
             self._respond(200, b"ok\n")
             return True
         if self.path == "/__reset":
-            box = os.environ["COGBOX_ROOT"]
-            dicts = os.path.join(box, "dicts")
-            for name in os.listdir(dicts):
-                with open(os.path.join(dicts, name), "w") as fh:
-                    json.dump({}, fh)
-            self._respond(200, b"reset\n")
+            dicts = os.path.join(os.environ["COGBOX_ROOT"], "dicts")
+            if self.command == "POST":
+                for name in os.listdir(dicts):
+                    with open(os.path.join(dicts, name), "w") as fh:
+                        json.dump({}, fh)
+                self._respond(200, b"reset\n")
+            else:
+                # GET stays read-only: it reports the store instead of
+                # clearing it. A GET must never mutate; a spider or a
+                # health-check that happens to walk /__reset used to wipe the
+                # journeys' store as a side effect (review: reset is a
+                # state-changing action served on GET).
+                summary = {}
+                if os.path.isdir(dicts):
+                    for name in os.listdir(dicts):
+                        try:
+                            with open(os.path.join(dicts, name)) as fh:
+                                summary[name] = len(json.load(fh))
+                        except (OSError, ValueError):
+                            summary[name] = -1
+                self._respond(200, json.dumps(summary).encode() + b"\n")
             return True
         return False
 
@@ -94,6 +110,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_POST(self):
+        if self._admin():
+            return
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length)
         headers = {k.lower(): v for k, v in self.headers.items()}

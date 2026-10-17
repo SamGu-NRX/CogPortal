@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Seven-check smoke suite for the local runner stack.
+"""Ten-check smoke suite for the local runner stack.
 
     python3 tools/runner-real-journeys/stack/smoke_test.py
 
 Runs one-time setup (process-local certs/hosts, /workspace, cgroup
-delegation), then the seven checks the review asked for. Exits 1 if any
-check fails; every check prints its own evidence line.
+delegation), then the seven checks the review asked for plus the three the
+second review round added (second exec in one sandbox; allowlisted,
+unprivileged student; sandbox-private track venv). Exits 1 if any check
+fails; every check prints its own evidence line.
 """
 
 import glob
@@ -264,6 +266,130 @@ def check_7():
             sb.terminate()
 
 
+def check_8():
+    """Two execs, one sandbox: the second exec re-creates the sandbox's
+    cgroup instead of dying at `mkdir` (review: 'Second sandbox command
+    fails: exec path always runs mkdir <cg>/<id>'). The terminate() that
+    follows must also leave the cgroup removed."""
+    import sandbox_shim
+
+    sb = sandbox(cpu=(0.5, 2.0), memory=(512, 2048), timeout=60)
+    try:
+        p1 = sb.exec("/bin/echo", "first")
+        rc1 = p1.wait()
+        out1 = p1.stdout.read().decode().strip()
+        p2 = sb.exec("/bin/echo", "second")
+        rc2 = p2.wait()
+        out2 = p2.stdout.read().decode().strip()
+        record(8, "second exec in the same sandbox",
+               rc1 == 0 and rc2 == 0 and out1 == "first" and out2 == "second",
+               "rc=%s/%s out=%r/%r" % (rc1, rc2, out1, out2))
+    finally:
+        sb.terminate()
+    gone = not os.path.exists(os.path.join(sandbox_shim.CG_PARENT, sb._cg_name))
+    record("8b", "terminate removes the sandbox cgroup", gone,
+           "cgroup %s removed=%s" % (sb._cg_name, gone))
+
+
+def check_9():
+    """Env allowlist + privilege drop: the sandbox child does not see the
+    runner's secrets, runs as the unprivileged student uid, and cannot write
+    the repository it can still see (review: 'Student code reaches host
+    files')."""
+    import sandbox_shim
+
+    os.environ["RUNNER_SIGNING_SECRET"] = "smoke-secret-must-not-leak"
+    os.environ["SMOKE_NOT_FOR_SANDBOX"] = "host-only"
+    try:
+        sb = sandbox(cpu=(0.5, 2.0), memory=(512, 2048), timeout=60)
+        try:
+            probe_repo = getattr(sandbox_shim, "REPO", "/tmp")
+            p = sb.exec(
+                "/bin/sh", "-c",
+                "env; echo uid=$(id -u); "
+                "if touch '%s/.cog-smoke-write-probe' 2>/dev/null; "
+                "then echo WROTE; else echo REFUSED; fi" % probe_repo,
+            )
+            rc = p.wait()
+            txt = p.stdout.read().decode()
+            expected_uid = (
+                "0" if os.environ.get("COGBOX_DROP_PRIVILEGES") == "0"
+                else os.environ.get("COGBOX_STUDENT_UID", "65534")
+            )
+            ok = (
+                rc == 0
+                and "RUNNER_SIGNING_SECRET" not in txt
+                and "SMOKE_NOT_FOR_SANDBOX" not in txt
+                and ("uid=" + expected_uid) in txt
+                and "REFUSED" in txt
+                and not os.path.exists(os.path.join(probe_repo, ".cog-smoke-write-probe"))
+            )
+            record(9, "allowlisted env + unprivileged student", ok,
+                   "rc=%s secret-hidden=%s uid-ok=%s repo-write-refused=%s"
+                   % (rc, "RUNNER_SIGNING_SECRET" not in txt,
+                      ("uid=" + expected_uid) in txt,
+                      "REFUSED" in txt and not os.path.exists(
+                          os.path.join(probe_repo, ".cog-smoke-write-probe"))))
+        finally:
+            sb.terminate()
+    finally:
+        os.environ.pop("RUNNER_SIGNING_SECRET", None)
+        os.environ.pop("SMOKE_NOT_FOR_SANDBOX", None)
+
+
+def check_10():
+    """Sandbox-private track venv: installs inside the sandbox land in the
+    private copy, never in the shared course venv (review: 'Submission
+    installs use the shared course environment'). Uses a fabricated venv
+    double when no real course venv exists, so it runs anywhere."""
+    import shutil as _shutil
+
+    import sandbox_shim
+
+    shared = sandbox_shim._track_venv("week1")  # exactly where create() copies from
+    fabricated = False
+    if os.path.isdir(shared):
+        record(10, "sandbox-private track venv", True,
+               "real course venv present at %s; the copy is exercised by "
+               "build_envs --verify and prepare/evaluate journeys" % shared)
+        return
+    try:
+        fabricated = True
+        os.makedirs(os.path.join(shared, "bin"))
+        os.makedirs(os.path.join(shared, "lib", "site-packages"))
+        fake = os.path.join(shared, "bin", "python")
+        with open(fake, "w") as fh:
+            fh.write("#!/bin/sh\necho fake-python-ok\n"
+                     ": > \"$(dirname \"$0\")/../lib/site-packages/"
+                     "installed-by-student.txt\"\n")
+        os.chmod(fake, 0o755)
+        sandbox_shim.set_track("week1")
+        sb = sandbox(cpu=(0.5, 2.0), memory=(512, 2048), timeout=60)
+        try:
+            p = sb.exec(sandbox_shim.PY38_VENV, "-")
+            rc = p.wait()
+            out = p.stdout.read().decode().strip()
+            copy_marker = os.path.join(
+                getattr(sb, "_venv_copy", ""), "lib", "site-packages",
+                "installed-by-student.txt")
+            shared_marker = os.path.join(
+                shared, "lib", "site-packages", "installed-by-student.txt")
+            ok = (
+                rc == 0 and "fake-python-ok" in out
+                and os.path.isfile(copy_marker)      # install reached the copy
+                and not os.path.exists(shared_marker)  # shared venv untouched
+            )
+            record(10, "sandbox-private track venv", ok,
+                   "rc=%s out=%r copy-has-install=%s shared-untouched=%s"
+                   % (rc, out[:40], os.path.isfile(copy_marker),
+                      not os.path.exists(shared_marker)))
+        finally:
+            sb.terminate()
+    finally:
+        if fabricated and os.path.isdir(shared):
+            _shutil.rmtree(shared, ignore_errors=True)
+
+
 def _run_setup(cmd, abort=True):
     r = subprocess.run(cmd)
     if r.returncode != 0:
@@ -279,7 +405,8 @@ def main():
     _run_setup(["bash", os.path.join(HERE, "setup-host.sh")])
     _run_setup(["sudo", "-E", "bash", os.path.join(HERE, "setup_host_cgroups.sh")],
                abort=False)
-    for check in (check_1, check_2, check_3, check_4, check_5, check_6, check_7):
+    for check in (check_1, check_2, check_3, check_4, check_5, check_6,
+                  check_7, check_8, check_9, check_10):
         try:
             check()
         except Exception as exc:  # noqa: BLE001 — a failing check is a result, not a crash

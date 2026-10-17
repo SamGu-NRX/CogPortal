@@ -128,12 +128,18 @@ WEEK2_CACHE_DIR = Path("/opt/cogworks-cache")
 WEEK3_DATA_DIR = Path("/opt/cogworks-data/week3")
 
 #: (track, venv name, uv python spec, benchmark source dir). Order is small
-#: to large: week 2 pulls the CUDA torch build, so it goes last.
-WEEKS: List[Tuple[str, str, str, Path]] = [
-    ("week1", "week1-py38", "3.8.20", BENCHMARKS / "week1"),
-    ("week3", "week3-py38", "3.8.20", BENCHMARKS / "week3"),
-    ("week2", "week2-py311", "3.11", BENCHMARKS / "week2"),
-]
+#: to large: week 2 pulls the CUDA torch build, so it goes last. A function,
+#: not a module constant: --repo rebinds BENCHMARKS after import, and the
+#: rows must name the requested checkout's benchmarks rather than this
+#: module's import-time paths (review: --repo rebuilt BENCHMARKS while WEEKS
+#: kept the original paths).
+def weeks() -> List[Tuple[str, str, str, Path]]:
+    return [
+        ("week1", "week1-py38", "3.8.20", BENCHMARKS / "week1"),
+        ("week3", "week3-py38", "3.8.20", BENCHMARKS / "week3"),
+        ("week2", "week2-py311", "3.11", BENCHMARKS / "week2"),
+    ]
+
 
 BENCHMARK_IDS = {
     "week1": "audio-identification",
@@ -304,26 +310,83 @@ def track_requirements() -> Dict[str, List[str]]:
 # Venv builds
 # ---------------------------------------------------------------------------
 
+_TRACK_INPUT_SUFFIXES = (".py", ".toml", ".txt", ".cfg", ".json", ".csv")
+
+
+def _tree_digest(root: Path) -> str:
+    """A stable digest over a source tree's tracked files: sorted relative
+    paths plus their bytes — a stand-in for what pip would install from it."""
+    digest = hashlib.sha256()
+    if not root.is_dir():
+        digest.update(b"absent")
+        return digest.hexdigest()
+    for path in sorted(
+        p for p in root.rglob("*")
+        if p.is_file() and p.suffix in _TRACK_INPUT_SUFFIXES
+    ):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            with open(path, "rb") as fh:
+                while True:
+                    chunk = fh.read(1 << 20)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+        except OSError:
+            digest.update(b"unreadable")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def build_inputs_hash(python_spec: str, bench_dir: Path) -> str:
+    """Everything a track venv's build consumes: the interpreter spec, the
+    benchmark tree, and the cogbench source installed --no-deps. The build
+    marker records this hash; a changed hash rebuilds instead of skipping
+    (review: the marker skipped on existence alone, so changed requirements
+    or changed benchmark source were silently ignored)."""
+    digest = hashlib.sha256()
+    digest.update(python_spec.encode("utf-8") + b"\0")
+    digest.update(_tree_digest(bench_dir).encode("ascii") + b"\0")
+    digest.update(_tree_digest(COGBENCH_SRC).encode("ascii") + b"\0")
+    return digest.hexdigest()
+
+
+def venv_steps(track: str, venv_name: str, python_spec: str, bench_dir: Path,
+               uv: Optional[str] = None) -> List[Tuple[str, List[str]]]:
+    """The commands that build one track venv, in order. The uv binary is
+    injectable so the command shape is checkable without uv installed."""
+    uv = str(uv_binary()) if uv is None else str(uv)
+    return [
+        # --seed: the controller's PREPARE_SCRIPT installs the submission with
+        # `sys.executable -m pip`, and a uv venv has no pip unless seeded
+        # (review: 'venv creation does not seed pip').
+        ("venv", [uv, "venv", "--seed", "--python", python_spec, str(COGBOX_ROOT / venv_name)]),
+        ("track", [uv, "pip", "install", "--python", str(COGBOX_ROOT / venv_name / "bin" / "python")]
+         + track_requirements()[track]),
+        ("plugins", [uv, "pip", "install", "--python",
+                     str(COGBOX_ROOT / venv_name / "bin" / "python"),
+                     "--no-deps", str(bench_dir), str(REPO / "python" / "cogbench")]),
+    ]
+
+
 def build_venv(track: str, venv_name: str, python_spec: str, bench_dir: Path) -> Dict[str, Any]:
-    """Create one track venv and install its stack; marker makes it a no-op."""
+    """Create one track venv and install its stack; a marker recording the
+    build's INPUTS makes it a no-op for identical inputs."""
+    inputs_hash = build_inputs_hash(python_spec, bench_dir)
     recorded = marker_read("venv-" + venv_name)
     if recorded:
-        log(track, "%s already built (%.0fs originally); skipping"
-            % (venv_name, recorded["seconds"]))
-        return recorded
+        if recorded.get("inputsHash") == inputs_hash:
+            log(track, "%s already built (%.0fs originally); skipping"
+                % (venv_name, recorded["seconds"]))
+            return recorded
+        log(track, "%s track inputs changed since its build; rebuilding" % venv_name)
     venv_dir = COGBOX_ROOT / venv_name
     if venv_dir.exists():
         log(track, "%s exists without a pass marker; rebuilding" % venv_name)
         shutil.rmtree(venv_dir)
     started = time.time()
-    uv = str(uv_binary())
-    steps: List[Tuple[str, List[str]]] = [
-        ("venv", [uv, "venv", "--python", python_spec, str(venv_dir)]),
-        ("track", [uv, "pip", "install", "--python", str(venv_dir / "bin" / "python")]
-         + track_requirements()[track]),
-        ("plugins", [uv, "pip", "install", "--python", str(venv_dir / "bin" / "python"),
-                     "--no-deps", str(bench_dir), str(REPO / "python" / "cogbench")]),
-    ]
+    steps = venv_steps(track, venv_name, python_spec, bench_dir)
     for label, cmd in steps:
         log(track, "%s: %s" % (venv_name, label))
         if run_logged(cmd, track) != 0:
@@ -335,10 +398,21 @@ def build_venv(track: str, venv_name: str, python_spec: str, bench_dir: Path) ->
     )
     if sanity.returncode != 0:
         raise RuntimeError("%s interpreter failed its sanity check" % venv_name)
+    pip = subprocess.run(
+        [str(venv_dir / "bin" / "python"), "-m", "pip", "--version"],
+        capture_output=True, text=True,
+    )
+    if pip.returncode != 0:
+        raise RuntimeError(
+            "%s venv has no working pip; the controller's submission "
+            "installs would fail in prepare" % venv_name
+        )
     payload = {
         "venv": venv_name,
         "python": sanity.stdout.strip(),
         "pythonSpec": python_spec,
+        "pip": pip.stdout.strip(),
+        "inputsHash": inputs_hash,
         "seconds": time.time() - started,
         "exit": 0,
     }
@@ -703,14 +777,14 @@ def verify() -> Dict[str, Any]:
     }
     # (a) The build: markers recorded each fresh build as it happened.
     builds = {}
-    for _, venv_name, _, _ in WEEKS:
+    for _, venv_name, _, _ in weeks():
         record = marker_read("venv-" + venv_name)
         builds[venv_name] = record if record else {"missing": True}
     receipt["a_fresh_build"] = builds
 
     # (b) The pristine probe inside a shim sandbox, per week.
     probe_results = {}
-    for track, _, _, _ in WEEKS:
+    for track, _, _, _ in weeks():
         driver = fill_driver(
             DRIVER_SANDBOX, stack=str(STACK), runner_src=str(RUNNER_SRC),
             cogbench_src=str(COGBENCH_SRC),
@@ -732,7 +806,7 @@ def verify() -> Dict[str, Any]:
     steps_chains = [chain for chain in controller.get("imageSteps", {}).values()
                     if isinstance(chain, list)]
     controller["imageStepsRecorded"] = (
-        len(steps_chains) >= len(WEEKS)
+        len(steps_chains) >= len(weeks())
         and all(
             any(step.get("op") == "pip_install" and step.get("args") for step in chain)
             and any(step.get("op") == "add_local_dir" for step in chain)
@@ -741,7 +815,7 @@ def verify() -> Dict[str, Any]:
     )
     controller["pass"] = (
         all(row.get("loaded") for row in loaded_rows)
-        and len(loaded_rows) == len(WEEKS) + 1  # four benchmark ids
+        and len(loaded_rows) == len(weeks()) + 1  # four benchmark ids
         and controller["imageStepsRecorded"]
         and bool(controller.get("modalAppSha256"))
     )
@@ -750,7 +824,7 @@ def verify() -> Dict[str, Any]:
 
     # (d) A trivial student adapter importing the week stack, in the sandbox.
     adapter_results = {}
-    for track, _, _, _ in WEEKS:
+    for track, _, _, _ in weeks():
         driver = fill_driver(DRIVER_ADAPTER, stack=str(STACK))
         result = run_driver(driver, [track], use_sudo=True)
         result["pass"] = all(
@@ -801,7 +875,7 @@ def main() -> int:
     if not args.verify_only:
         ensure_uv()
         ensure_interpreters()
-        for track, venv_name, python_spec, bench_dir in WEEKS:
+        for track, venv_name, python_spec, bench_dir in weeks():
             build_venv(track, venv_name, python_spec, bench_dir)
         build_controller(with_torch=args.controller_torch)
         if not args.skip_caches:

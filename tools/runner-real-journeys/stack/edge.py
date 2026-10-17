@@ -116,10 +116,27 @@ class Handler(BaseHTTPRequestHandler):
             resp = conn.getresponse()
             data = resp.read()
             self.send_response(resp.status)
+            # Exactly one Content-Length: the upstream's value is captured and
+            # replaced, not duplicated. The old loop forwarded the upstream's
+            # header and then added our own — two Content-Lengths on a GET
+            # whose upstream carried one, and on a HEAD the upstream's real
+            # length beside a zero (the protocol gives HEAD an empty body, so
+            # `data` is b"" here), which curl and http.client read as
+            # conflicting (review: HEAD responses carry conflicting
+            # Content-Length).
+            upstream_length = None
             for k, v in resp.getheaders():
-                if k.lower() not in HOP_BY_HOP:
+                low = k.lower()
+                if low == "content-length":
+                    if v.strip().isdigit():
+                        upstream_length = v.strip()
+                    continue
+                if low not in HOP_BY_HOP:
                     self.send_header(k, v)
-            self.send_header("Content-Length", str(len(data)))
+            if method == "HEAD" and upstream_length is not None:
+                self.send_header("Content-Length", upstream_length)
+            else:
+                self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             if method != "HEAD" and data:
                 self.wfile.write(data)
