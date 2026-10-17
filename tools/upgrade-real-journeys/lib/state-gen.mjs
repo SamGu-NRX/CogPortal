@@ -29,6 +29,15 @@ export function readCogbenchPin(fromDir) {
 export const FIXTURE_REPO_FULL = "cogworks-demo/face-finder";
 export const COHORT_JOIN_CODE = "VISION26";
 
+// The week-probe loop tries each public week and records why each was
+// rejected. When no week works, the thrown error must carry those reasons -
+// a bare "none worked" turns a diagnosable host problem (requires-python
+// refusal, missing system library, failing check field) into a dead end.
+export function noBenchmarkInstalledError(quirks) {
+  const detail = quirks.length ? `\n${quirks.map((q) => `  - ${q}`).join("\n")}` : "";
+  return new Error(`no public week benchmark installed and passed \`cogworks check\` on this host${detail}`);
+}
+
 // ── CLI-phase helpers shared with the tests ───────────────────────────────
 
 export const FIXTURE_ORIGIN = "https://github.com/cogworks-demo/face-finder.git";
@@ -457,6 +466,7 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
       runChecked("git", ["-C", pinDir, "submodule", "update", "--init", `benchmarks/${candidate}`], { timeoutMs: 600_000 });
     }
     const example = path.join(pinDir, "examples", dir);
+    log(`CLI: probing ${candidate} (examples/${dir})`);
     try {
       const id = benchmarkPluginId(path.join(pinDir, "benchmarks", candidate));
       runChecked(path.join(venvDir, "bin", "pip"), ["install", "--quiet", path.join(pinDir, "benchmarks", candidate)], { timeoutMs: 600_000 });
@@ -466,10 +476,17 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
       exampleDir = example;
       break;
     } catch (error) {
-      quirks.push(`week ${candidate}: benchmark install or check failed on this host (${String(error).split("\n")[0].slice(0, 200)})`);
+      // Keep the tail of the failure output: runChecked puts the exit reason
+      // and stderr there, and that is the diagnosable line (a requires-python
+      // refusal, a missing system library, a check JSON field).
+      const lines = String(error).split("\n").map((l) => l.trim()).filter(Boolean);
+      const detail = lines.slice(-2).join(" | ").slice(0, 300);
+      const quirk = `week ${candidate}: benchmark install or check failed on this host (${detail})`;
+      quirks.push(quirk);
+      log(`CLI: ${quirk}`);
     }
   }
-  if (!week || !pluginId) throw new Error("no public week benchmark installed and passed `cogworks check` on this host");
+  if (!week || !pluginId) throw noBenchmarkInstalledError(quirks);
   log(`CLI: pinned cogworks installed; week ${week} (benchmark ${pluginId}) selected from real public data`);
 
   // One linked device per student, each with its own CLI config and project
