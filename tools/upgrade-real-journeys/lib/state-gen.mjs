@@ -55,6 +55,28 @@ export function pickVenvInterpreter({
   return "python3";
 }
 
+// A real deployment carries the benchmark registry row in its migrations; the
+// suite writes the row the pinned plugin itself declares, activating any
+// stale inactive row with the same (id, version) so `run --live` reports pass
+// beta's local-runs gate.
+export function seedBenchmarkRow(db, identity, pluginId, week) {
+  const MODULE_BY_WEEK = { week1: "audio", week2: "vision", week3: "language" };
+  db.prepare(
+    `INSERT INTO benchmarks (id, version, contract_version, entry_point_name, title, module, summary, active, primary_metric_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(id, version) DO UPDATE SET active = 1`,
+  ).run(
+    identity.benchmark_id,
+    identity.benchmark_version,
+    identity.contract_version,
+    pluginId,
+    pluginId,
+    MODULE_BY_WEEK[week],
+    "Active benchmark row seeded by tools/upgrade-real-journeys from the pinned plugin's own identity.",
+    identity.primary_metric,
+  );
+}
+
 export function noBenchmarkInstalledError(quirks) {
   const detail = quirks.length ? `\n${quirks.map((q) => `  - ${q}`).join("\n")}` : "";
   return new Error(`no public week benchmark installed and passed \`cogworks check\` on this host${detail}`);
@@ -444,7 +466,7 @@ async function hostedRunsPhase({ baseUrl, clients, log }) {
 }
 
 // ── Phase: pinned CLI - device links, local reports, one live run ────────
-async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }) {
+async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin, dbFile }) {
   const quirks = [];
   const cacheDir = path.join(suiteDir, ".cache");
   const pinDir = path.join(cacheDir, "cli-pin");
@@ -517,6 +539,29 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
   if (!week || !pluginId) throw noBenchmarkInstalledError(quirks);
   log(`CLI: pinned cogworks installed; week ${week} (benchmark ${pluginId}) selected from real public data`);
 
+  // beta's /api/v1/local-runs accepts a report only when the benchmarks table
+  // holds an ACTIVE row matching the plugin's own (benchmark_id,
+  // benchmark_version) - the seed migration knows only vision-recognition
+  // (audio-recognition is a different, inactive id). Ask the INSTALLED plugin
+  // for its identity through the CLI's own loader (from /tmp so no repository
+  // shadows it), then write the row a real deployment would carry in its
+  // migrations.
+  const identity = JSON.parse(
+    runChecked(
+      path.join(venvDir, "bin", "python"),
+      [
+        "-c",
+        `import json
+from cogbench.plugins import load_benchmark
+b = load_benchmark(${JSON.stringify(pluginId)})
+print(json.dumps({"benchmark_id": b.benchmark_id, "benchmark_version": b.benchmark_version, "contract_version": b.contract_version, "primary_metric": b.primary_metric}))`,
+      ],
+      { cwd: "/tmp", timeoutMs: 120_000 },
+    ),
+  );
+  seedBenchmarkRow(openD1(dbFile), identity, pluginId, week);
+  log(`CLI: seeded active benchmark row ${identity.benchmark_id}@${identity.benchmark_version} (${identity.contract_version})`);
+
   // One linked device per student, each with its own CLI config and project
   // copy. The copy becomes its own committed git repository whose origin
   // names the team's connected fixture repository: the pinned CLI reports the
@@ -569,7 +614,8 @@ export async function generateBetaState({ checkoutDir, baseUrl, repoDir, suiteDi
   await adminPhase({ baseUrl, teamId: team.teamId, log });
   await hostedRunsPhase({ baseUrl, clients: team.clients, log });
   const cli = await cliPhase({
-    stagingPin: readCogbenchPin(checkoutDir), repoDir, suiteDir, baseUrl, clients: team.clients, log });
+    stagingPin: readCogbenchPin(checkoutDir), repoDir, suiteDir, baseUrl, clients: team.clients, log,
+    dbFile: findD1File(persistDirFor(checkoutDir)) });
   quirks.push(...cli.quirks);
 
   timings.totalMs = Date.now() - t0;
