@@ -8,15 +8,19 @@ file SAYS, quoted and hashed — never an interpretation of permission. Where
 no committed notice exists, the resource is recorded with evidenceState
 "unknown"; nothing is guessed.
 
-The generator is offline by default: it reads committed metadata (parent
-repo plus whatever submodule content is checked out) and writes
+The generator is offline by default: it reads committed metadata (the parent
+repo plus the pinned benchmark submodule checkouts) and refuses to run over a
+checkout whose input files are not the committed bytes — uncommitted input
+edits, a missing submodule checkout, or a submodule HEAD off its pin would
+otherwise be recorded against the wrong commit. It writes
 resources.json, summary.json, and summary.md. With --verify-urls it performs
 bounded read-only reachability checks against the pinned URLs and records
 them separately in url-checks.json — reachability is evidence about the
 network, never about permission.
 
 Output is validated against schema/resources.schema.json BEFORE anything is
-written. Exit codes: 0 ok, 1 schema violation, 2 missing required inputs.
+written. Exit codes: 0 ok, 1 schema violation, 2 missing required inputs,
+3 the checkout does not match the recorded commits.
 """
 from __future__ import annotations
 
@@ -63,10 +67,27 @@ REQUIRED_INPUTS = [
     "{}/README.md".format(COGWEB_DIR),
     CAPSTONES_README,
     "{}/README.md".format(FIXTURE_DIR),
+    "{}/LICENSE-week2-benchmark".format(FIXTURE_DIR),
     DESCRIPTOR_REL,
     DEPRECATED_REL,
     WEEK1_DECISION_REL,
+    WEEK2_SCORING_REL,
+    WEEK_PACKAGE_DIRS["week1"] + "/manifests/public-test.json",
+    WEEK_PACKAGE_DIRS["week1"] + "/manifests/public-evaluation.json",
+    WEEK_PACKAGE_DIRS["week2"] + "/model-lock.json",
+    WEEK_PACKAGE_DIRS["week2"] + "/manifests/public-test.json",
+    WEEK_PACKAGE_DIRS["week2"] + "/manifests/public-evaluation.json",
+    WEEK_PACKAGE_DIRS["week3"] + "/datasets.py",
 ]
+
+# Files the generator reads only when they exist (their absence is recorded
+# as an unknown, never a guess); hashed into "sources" when present.
+OPTIONAL_CONSUMED_INPUTS = [
+    "benchmarks/week1/LICENSE",
+    "benchmarks/week2/LICENSE",
+    "benchmarks/week3/LICENSE",
+]
+CONSUMED_INPUTS = REQUIRED_INPUTS + OPTIONAL_CONSUMED_INPUTS
 
 SOURCE_GROUPS = [
     "pinned-submodule",
@@ -108,9 +129,9 @@ def dump_json(path: Path, document: Any) -> None:
     path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def git(root: Path, *args: str) -> str:
+def git(root: Path, *args: str, timeout: Optional[float] = None) -> str:
     result = subprocess.run(["git", *args], cwd=str(root), check=True,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, timeout=timeout)
     return result.stdout.strip()
 
 
@@ -164,12 +185,13 @@ def static_assigns(root: Path, rel: str) -> Dict[str, Any]:
         if isinstance(node, ast.Constant):
             return node.value
         if isinstance(node, ast.Name):
-            # In-order module constants only (e.g. ``_RELEASE``); cycles and
-            # forward references are refused, never approximated.
+            # The value the name already had at this point in the file
+            # (in-order module constants). Cycles and forward references are
+            # refused, never approximated by re-reading a later assignment.
             if node.id in seen:
                 raise ValueError("cyclic reference: " + node.id)
             if node.id in names:
-                return literal(names_ast[node.id], seen | {node.id})
+                return names[node.id]
             raise ValueError("unresolved name: " + node.id)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
             left, right = literal(node.left, seen), literal(node.right, seen)
@@ -285,22 +307,31 @@ def cogweb_facts(root: Path) -> Dict[str, Any]:
 
 
 def fixture_facts(root: Path) -> Dict[str, List[str]]:
-    """Commit pins recorded in the saved-environments fixture README."""
+    """Commit pins recorded in the saved-environments fixture README.
+
+    The committed README records pins as backtick-quoted hashes after the
+    source name ("CogPortal `8871f88...`"); the legacy "commit: <sha>" shape
+    is still accepted. Matches are de-duplicated in file order; only lines
+    that name CogPortal feed ``cogportalCommits`` and only lines that name
+    the Week 2 benchmark feed ``week2BenchmarkCommits``.
+    """
     commits: Dict[str, List[str]] = {"cogportal": [], "week2": []}
     readme = read_text(root, "{}/README.md".format(FIXTURE_DIR))
     for line in readme.splitlines():
-        match = re.search(r"([A-Za-z0-9_ ./-]+?)\s*commit:\s*([0-9a-f]{40})", line)
-        if not match:
+        lowered = line.lower()
+        shas = re.findall(r"`?([0-9a-f]{40})`?", line)
+        if not shas:
             continue
-        label, sha = match.groups()
-        lowered = label.lower()
         if "cogportal" in lowered:
-            commits["cogportal"].append(sha)
+            label = "cogportal"
         elif "week 2" in lowered or "benchmark" in lowered:
-            commits["week2"].append(sha)
+            label = "week2"
+        else:
+            label = None
+        for sha in shas:
+            if label and sha not in commits[label]:
+                commits[label].append(sha)
     return {"cogportalCommits": commits["cogportal"], "week2BenchmarkCommits": commits["week2"]}
-
-
 def quote(text: str, needle: str) -> str:
     """The line containing ``needle``, whitespace-collapsed and bounded.
 
@@ -322,15 +353,35 @@ def file_notice(root: Path, rel: str) -> Dict[str, str]:
 
 def noticed(root: Path, path: str, relationship: str, evidence_state: str,
             needle: str = "Copyright") -> Dict[str, Any]:
-    """A noticeReference pointing at committed content, quote included."""
+    """A noticeReference pointing at committed content, quote included.
+
+    A reference may only claim ``evidenceState`` when its quoted text
+    actually occurs in the committed file; an unmatched needle downgrades
+    the reference to ``unknown`` with an empty quote instead of recording
+    verified evidence that cannot be checked.
+    """
     text = read_text_if_exists(root, path)
     quote_text = quote(text, needle) if text is not None else ""
+    if not quote_text:
+        evidence_state = "unknown"
     return {
         "path": path,
         "relationship": relationship,
         "evidenceState": evidence_state,
         "quote": quote_text,
     }
+
+
+def reuse_state_for(notices: List[Dict[str, Any]]) -> str:
+    """A resource's reuse state derives from its noticeReferences: the best
+    evidence actually recorded (verified over secondary over unknown), so a
+    failed quote check cannot leave a stronger claim behind."""
+    states = {n["evidenceState"] for n in notices}
+    if "verified" in states:
+        return "verified"
+    if "secondary" in states:
+        return "secondary"
+    return "unknown"
 
 
 # -------------------------------------------------------------- resources
@@ -386,6 +437,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
 
     # -- the three pinned benchmark submodules -----------------------------
     week1_license = read_text_if_exists(root, "benchmarks/week1/LICENSE")
+    week1_notices = ([noticed(root, "benchmarks/week1/LICENSE", "upstream-license", "verified")]
+                     if week1_license else [])
     resources.append(_resource(
         "benchmarks-week1-submodule", "code-submodule",
         "Week 1 audio identification benchmark (pinned submodule)",
@@ -395,8 +448,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         [entry(WEEK_PACKAGE_DIRS["week1"] + "/datasets.py", "corpus generator"),
          entry(WEEK_PACKAGE_DIRS["week1"] + "/manifests/public-test.json", "committed corpus manifest"),
          entry(WEEK_PACKAGE_DIRS["week1"] + "/manifests/public-evaluation.json", "committed corpus manifest")],
-        "verified" if week1_license is not None else "unknown",
-        [noticed(root, "benchmarks/week1/LICENSE", "upstream-license", "verified")] if week1_license else [],
+        reuse_state_for(week1_notices),
+        week1_notices,
         "Committed metadata pins this submodule at {} via the parent gitlink.".format(links.get("benchmarks/week1", "?")),
         "verified" if week1_license is not None else "unknown",
         [".gitmodules"],
@@ -422,7 +475,7 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
          entry(WEEK_PACKAGE_DIRS["week2"] + "/model-lock.json", "model pin"),
          entry(WEEK_PACKAGE_DIRS["week2"] + "/manifests/public-test.json", "committed dataset manifest"),
          entry(WEEK_PACKAGE_DIRS["week2"] + "/manifests/public-evaluation.json", "committed dataset manifest")],
-        "verified" if week2_license is not None else "unknown",
+        reuse_state_for(week2_notices),
         week2_notices,
         "Committed metadata pins this submodule at {} via the parent gitlink; its committed LICENSE states a copyright line.".format(links.get("benchmarks/week2", "?")),
         "verified" if week2_license is not None else "unknown",
@@ -430,6 +483,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         "Dataset terms are referenced by the committed data-and-scoring document, which points to the CelebA agreement and Hugging Face terms without reproducing them."))
 
     week3_license = read_text_if_exists(root, "benchmarks/week3/LICENSE")
+    week3_notices = ([noticed(root, "benchmarks/week3/LICENSE", "upstream-license", "verified")]
+                     if week3_license else [])
     resources.append(_resource(
         "benchmarks-week3-submodule", "code-submodule",
         "Week 3 language search benchmark (pinned submodule)",
@@ -437,8 +492,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         [modules.get("benchmarks/week3", "unknown")], links.get("benchmarks/week3", "unpinned"),
         "benchmarks/week3 gitlink", "verified",
         [entry(WEEK_PACKAGE_DIRS["week3"] + "/datasets.py", "artifact table")],
-        "verified" if week3_license is not None else "unknown",
-        [noticed(root, "benchmarks/week3/LICENSE", "upstream-license", "verified")] if week3_license else [],
+        reuse_state_for(week3_notices),
+        week3_notices,
         "Committed metadata pins this submodule at {} via the parent gitlink.".format(links.get("benchmarks/week3", "?")),
         "verified" if week3_license is not None else "unknown",
         [".gitmodules"],
@@ -492,6 +547,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
 
     # -- week1 bundled corpus ----------------------------------------------
     counts = week1_counts.get("public-evaluation", {})
+    week1_decision_notice = noticed(root, WEEK1_DECISION_REL, "decision-record", "verified",
+                                    needle="renders seeded synthetic music")
     resources.append(_resource(
         "week1-corpus", "bundled-corpus",
         "Week 1 audio identification corpus (generated from committed seeds)",
@@ -503,11 +560,10 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         [entry(WEEK_PACKAGE_DIRS["week1"] + "/datasets.py", "corpus generator"),
          entry(WEEK_PACKAGE_DIRS["week1"] + "/manifests/public-test.json", "committed corpus manifest"),
          entry(WEEK_PACKAGE_DIRS["week1"] + "/manifests/public-evaluation.json", "committed corpus manifest")],
-        "verified" if exists(root, WEEK1_DECISION_REL) else "unknown",
-        [noticed(root, WEEK1_DECISION_REL, "decision-record", "verified",
-                 needle="rendered from committed seeds")],
+        reuse_state_for([week1_decision_notice]),
+        [week1_decision_notice],
         "The committed decision record states the corpus is rendered from committed seeds; counts derive from the committed manifests.",
-        "verified" if exists(root, WEEK1_DECISION_REL) else "unknown",
+        week1_decision_notice["evidenceState"],
         [WEEK1_DECISION_REL],
         "public-test manifest: {} songs; public-evaluation manifest: {} songs, {} out-of-set.".format(
             week1_counts.get("public-test", {}).get("songs", "?"),
@@ -517,6 +573,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
     tier = week2_counts.get("public-evaluation", {})
     dataset = tier.get("dataset", "flwrlabs/celeba")
     revision = tier.get("revision", "unrecorded")
+    celeba_terms_notice = noticed(root, WEEK2_SCORING_REL, "terms-pointer", "secondary",
+                                  needle="CelebA")
     resources.append(_resource(
         "week2-celeba-dataset", "dataset",
         "CelebA dataset used by week2",
@@ -527,14 +585,16 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         "verified" if revision != "unrecorded" else "unknown",
         [entry(WEEK_PACKAGE_DIRS["week2"] + "/manifests/public-test.json", "committed dataset manifest"),
          entry(WEEK_PACKAGE_DIRS["week2"] + "/manifests/public-evaluation.json", "committed dataset manifest")],
-        "secondary" if exists(root, WEEK2_SCORING_REL) else "unknown",
-        [noticed(root, WEEK2_SCORING_REL, "terms-pointer", "secondary", needle="CelebA")],
+        reuse_state_for([celeba_terms_notice]),
+        [celeba_terms_notice],
         "Committed manifests pin dataset {} at revision {}; the committed data-and-scoring document points to the dataset agreement and Hugging Face terms without reproducing them.".format(dataset, revision),
         "verified" if revision != "unrecorded" else "unknown",
         [WEEK2_SCORING_REL],
         "The terms themselves are not reproduced in this repository; follow the committed pointers to read them."))
 
     # -- CogWeb mirror -------------------------------------------------------
+    cogweb_notice = noticed(root, COGWEB_DIR + "/README.md", "readme-statement", "verified",
+                            needle="None of it is ours")
     resources.append(_resource(
         "cogweb-mirror", "documentation-mirror",
         "CogWeb documentation mirror (docs/cogweb)",
@@ -543,24 +603,24 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         COGWEB_DIR + "/README.md capture date", "verified",
         [entry(COGWEB_DIR + "/manifest.json", "capture manifest"),
          entry(COGWEB_DIR + "/README.md", "capture record")],
-        "verified",
-        [noticed(root, COGWEB_DIR + "/README.md", "readme-statement", "verified",
-                 needle="None of it is ours")],
+        reuse_state_for([cogweb_notice]),
+        [cogweb_notice],
         "The committed capture record states the mirror is unedited and kept for design reference; {} pages and {} images captured, {} failed.".format(cogweb["pages"], cogweb["images"], cogweb["failed"]),
         "verified",
         [COGWEB_DIR + "/manifest.json"],
         "The mirrored text is not claimed as original work; see the quoted capture record."))
 
     # -- curated capstones ----------------------------------------------------
+    capstones_notice = noticed(root, CAPSTONES_README, "readme-statement", "verified",
+                               needle="None of it is ours")
     resources.append(_resource(
         "capstones-mirror", "documentation-mirror",
         "Curated capstones capture (docs/capstones)",
         "repository-fixture", "unversioned",
         ["file://" + CAPSTONES_README], "unversioned", CAPSTONES_README, "verified",
         [entry(CAPSTONES_README, "capture record")],
-        "verified",
-        [noticed(root, CAPSTONES_README, "readme-statement", "verified",
-                 needle="None of it is ours")],
+        reuse_state_for([capstones_notice]),
+        [capstones_notice],
         "The committed capture record states this is an edited subset of course material and that the underlying text is not ours.",
         "verified",
         [CAPSTONES_README],
@@ -568,6 +628,11 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
 
     # -- saved-environments fixture -----------------------------------------
     license_name = "LICENSE-week2-benchmark"
+    fixture_license_notice = noticed(root, "{}/{}".format(FIXTURE_DIR, license_name),
+                                     "upstream-license", "verified")
+    fixture_notices = [fixture_license_notice,
+                       noticed(root, FIXTURE_DIR + "/README.md", "readme-statement", "verified",
+                               needle="Week 2 benchmark")]
     resources.append(_resource(
         "saved-environments-fixture", "repository-fixture",
         "Saved environments fixture (apps/runner-modal tests)",
@@ -577,9 +642,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         FIXTURE_DIR + "/README.md recorded commit", "verified",
         [entry(FIXTURE_DIR + "/README.md", "fixture record"),
          entry(FIXTURE_DIR + "/" + license_name, "bundled upstream license")],
-        "verified" if exists(root, "{}/{}".format(FIXTURE_DIR, license_name)) else "unknown",
-        [noticed(root, "{}/{}".format(FIXTURE_DIR, license_name), "upstream-license", "verified"),
-         noticed(root, FIXTURE_DIR + "/README.md", "readme-statement", "verified", needle="commit")],
+        reuse_state_for(fixture_notices),
+        fixture_notices,
         "The fixture bundles the week2 benchmark environment with an upstream LICENSE file committed alongside it; the README records the source commits it was captured from.",
         "verified",
         [FIXTURE_DIR + "/README.md"],
@@ -587,6 +651,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
 
     # -- deprecated vision-recognition fixture ------------------------------
     descriptor = read_json(root, DESCRIPTOR_REL)
+    deprecated_notice = noticed(root, DEPRECATED_REL, "readme-statement", "verified",
+                                needle="history only")
     resources.append(_resource(
         "vision-recognition-deprecated", "deprecated-fixture",
         "vision-recognition package (retained for history)",
@@ -595,9 +661,8 @@ def build_resources(root: Path) -> List[Dict[str, Any]]:
         DESCRIPTOR_REL + " pluginVersion", "verified",
         [entry(DESCRIPTOR_REL, "package descriptor"),
          entry(DEPRECATED_REL, "deprecation record")],
-        "verified",
-        [noticed(root, DEPRECATED_REL, "readme-statement", "verified",
-                 needle="retained for history")],
+        reuse_state_for([deprecated_notice]),
+        [deprecated_notice],
         "The committed deprecation record states the package is retained for history and should not be installed.",
         "verified",
         [DEPRECATED_REL],
@@ -621,8 +686,11 @@ def fetch_submodule_pins(root: Path, modules: Dict[str, str], links: Dict[str, s
             results[path] = {"url": url, "pin": "", "reachable": False, "detail": "no gitlink"}
             continue
         try:
-            git(root, "ls-remote", url, sha)
+            git(root, "ls-remote", url, sha, timeout=URL_TIMEOUT_SECONDS)
             results[path] = {"url": url, "pin": sha, "reachable": True, "detail": "pin reachable"}
+        except subprocess.TimeoutExpired:
+            results[path] = {"url": url, "pin": sha, "reachable": False,
+                             "detail": "ls-remote timed out after {}s".format(URL_TIMEOUT_SECONDS)}
         except subprocess.CalledProcessError as error:
             results[path] = {"url": url, "pin": sha, "reachable": False,
                              "detail": "ls-remote failed: {}".format(error.returncode)}
@@ -649,8 +717,11 @@ def verify_urls(root: Path, resources: List[Dict[str, Any]]) -> Dict[str, Any]:
         record: Dict[str, Any] = {"resource": resource_id, "url": url, "kind": kind}
         if kind == "git-remote":
             try:
-                git(root, "ls-remote", url)
+                git(root, "ls-remote", url, timeout=URL_TIMEOUT_SECONDS)
                 record.update(reachability="reachable", status="ls-remote ok")
+            except subprocess.TimeoutExpired:
+                record.update(reachability="unreachable",
+                              status="ls-remote timed out after {}s".format(URL_TIMEOUT_SECONDS))
             except subprocess.CalledProcessError:
                 record.update(reachability="unreachable", status="ls-remote failed")
         else:
@@ -662,7 +733,7 @@ def verify_urls(root: Path, resources: List[Dict[str, Any]]) -> Dict[str, Any]:
             except urllib.error.HTTPError as error:
                 record.update(reachability="unreachable", status=error.code)
             except (urllib.error.URLError, TimeoutError, OSError) as error:
-                record.update(reachability="unreachable", status="connection-error: {}".format(error.reason))
+                record.update(reachability="unreachable", status="connection-error: {}".format(error))
         results.append(record)
     return {"sourceRevision": git(root, "rev-parse", "HEAD"), "results": results}
 
@@ -740,7 +811,8 @@ def write_summary_md(out_dir: Path, summary: Dict[str, Any]) -> None:
     header = ("| source group | resources | verified refs | secondary refs | unknown refs | "
               "verified reuse | secondary reuse | unknown reuse | unresolved terms |"
               " urls reachable | unreachable | unverified |")
-    lines += [header, "|" + "---|" * 11]
+    # One separator cell per header column, derived so the two cannot drift.
+    lines += [header, "|" + "---|" * (header.count("|") - 1)]
     for group in summary["groups"]:
         lines.append(
             "| {group_id} | {resources} | {verifiedReferences} | {secondaryReferences} | {unknownReferences} | "
@@ -770,6 +842,40 @@ def missing_inputs(root: Path) -> List[str]:
     return [rel for rel in REQUIRED_INPUTS if not exists(root, rel)]
 
 
+def checkout_problems(root: Path) -> List[str]:
+    """Every way this checkout's input files can differ from the recorded commits.
+
+    Evidence is labeled with the parent HEAD and the committed submodule pins,
+    so the generator refuses to run when the bytes it would read are not the
+    committed ones: uncommitted input edits, a submodule not checked out, a
+    submodule HEAD off its pin, or local submodule changes.
+    """
+    problems: List[str] = []
+    links = gitlinks(root)
+    for rel in REQUIRED_INPUTS:
+        if any(rel.startswith(path + "/") for path in links):
+            continue  # lives inside a submodule; checked with that submodule below
+        state = git(root, "status", "--porcelain", "--", rel)
+        if state:
+            problems.append("{} is not committed at HEAD ({})".format(rel, state.splitlines()[0]))
+    for path in sorted(links):
+        work = root / path
+        if not (work / ".git").exists():
+            problems.append("submodule {} is not initialized; check it out at the pinned revision".format(path))
+            continue
+        try:
+            actual = git(work, "rev-parse", "HEAD")
+        except subprocess.CalledProcessError:
+            problems.append("submodule {} has no readable HEAD".format(path))
+            continue
+        if actual != links[path]:
+            problems.append("submodule {} is checked out at {} but the parent pins {}".format(
+                path, actual[:12], links[path][:12]))
+        if git(work, "status", "--porcelain"):
+            problems.append("submodule {} has uncommitted changes".format(path))
+    return problems
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Generate the benchmark data attribution inventory.")
     parser.add_argument("--out", required=True, help="output directory")
@@ -789,6 +895,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("  - {}".format(rel), file=sys.stderr)
         return 2
 
+    problems = checkout_problems(root)
+    if problems:
+        print("the checkout does not match the recorded commits; refusing to generate:",
+              file=sys.stderr)
+        for problem in problems:
+            print("  - {}".format(problem), file=sys.stderr)
+        return 3
+
     resources = build_resources(root)
     summary = summarize(resources, None)
 
@@ -806,7 +920,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "baseRevision": git(root, "rev-parse", "HEAD"),
         "sources": [
             {"path": rel, "sha256": sha256_bytes(read_bytes(root, rel))}
-            for rel in sorted(REQUIRED_INPUTS)
+            for rel in sorted(CONSUMED_INPUTS)
+            if exists(root, rel)
         ],
         "resources": resources,
     }

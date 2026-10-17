@@ -34,6 +34,14 @@ def _type_of(value: Any) -> Optional[str]:
     return None
 
 
+def _json_equal(value: Any, expected: Any) -> bool:
+    """JSON equality: booleans are a distinct type from numbers, so True does
+    not equal 1 even though Python compares them equal."""
+    if isinstance(value, bool) != isinstance(expected, bool):
+        return False
+    return value == expected
+
+
 def _validate(value: Any, schema: Dict[str, Any], root: Dict[str, Any], path: str,
               errors: List[str]) -> None:
     if "$ref" in schema:
@@ -54,10 +62,10 @@ def _validate(value: Any, schema: Dict[str, Any], root: Dict[str, Any], path: st
             errors.append("{}: expected type {}, got {}".format(path, expected, actual))
             return
 
-    if "const" in schema and value != schema["const"]:
+    if "const" in schema and not _json_equal(value, schema["const"]):
         errors.append("{}: expected const {!r}, got {!r}".format(path, schema["const"], value))
 
-    if "enum" in schema and value not in schema["enum"]:
+    if "enum" in schema and not any(_json_equal(value, option) for option in schema["enum"]):
         errors.append("{}: {!r} is not one of {}".format(path, value, schema["enum"]))
 
     if isinstance(value, str):

@@ -81,6 +81,15 @@ def cmd_summary(document: Dict[str, Any], url_checks: Optional[Dict[str, Any]]) 
         document.get("baseRevision", "?")))
     print("derived from {} committed sources".format(len(document.get("sources", []))))
     if url_checks:
+        checks_revision = url_checks.get("sourceRevision")
+        inventory_revision = document.get("baseRevision")
+        if checks_revision != inventory_revision:
+            # Reachability recorded against another revision is not evidence
+            # about this one; presenting it as current would misattribute it.
+            raise SystemExit(
+                "url-checks record revision {!r} but the inventory records {!r}; "
+                "the reachability results belong to another revision and are not "
+                "shown as current evidence".format(checks_revision, inventory_revision))
         results = url_checks.get("results", [])
         reachable = sum(1 for r in results if r.get("reachability") == "reachable")
         unreachable = sum(1 for r in results if r.get("reachability") == "unreachable")

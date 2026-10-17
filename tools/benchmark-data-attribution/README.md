@@ -12,20 +12,25 @@ is evidence about the network, never about permission.
 
 ## Files
 
-- `inventory.py` — generator. Reads committed metadata (parent repo plus
-  whatever submodule content is checked out), builds the resource list, and
+- `inventory.py` — generator. Reads committed metadata (the parent repo plus
+  the pinned submodule checkouts) and refuses to run when the checkout's
+  input files are not the committed bytes; builds the resource list, and
   validates output against the schema **before** writing it.
 - `schema/resources.schema.json` — draft 2020-12 schema for the inventory.
 - `validate.py` — dependency-free validator for exactly the keywords the
   schema uses.
 - `reader.py` — offline reader. `summary`, `unknowns`, `resource <id>`.
   Refuses to display free text that asserts permission; verbatim license
-  quotes are observational and always shown.
+  quotes are observational and always shown. Refuses url-checks recorded
+  for a revision other than the inventory's own.
 - `test_inventory.py` — pytest suite over a synthetic clone (no network).
 
 ## Usage
 
 ```sh
+# The pinned benchmarks/week* submodules must be checked out first:
+git submodule update --init
+
 # Offline inventory for the working tree
 python3 tools/benchmark-data-attribution/inventory.py --out /tmp/attr
 
@@ -45,7 +50,9 @@ python3 -m pytest tools/benchmark-data-attribution/test_inventory.py -q
 ```
 
 Exit codes: `0` ok, `1` schema violation (nothing written), `2` missing
-required committed inputs.
+required committed inputs, `3` the checkout does not match the recorded
+commits (uncommitted input edits, missing submodule checkouts, or submodule
+HEADs off their pins).
 
 ## Evidence states
 

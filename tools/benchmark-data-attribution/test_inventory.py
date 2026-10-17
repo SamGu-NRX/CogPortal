@@ -15,6 +15,8 @@ import json
 import os
 import subprocess
 import sys
+import hashlib
+import shutil
 import types
 from pathlib import Path
 
@@ -35,10 +37,6 @@ validator = _load("validate")
 reader = _load("reader")
 
 SCHEMA = json.loads((TOOL_DIR / "schema" / "resources.schema.json").read_text(encoding="utf-8"))
-
-WEEK1_GITLINK = "1" * 40
-WEEK2_GITLINK = "2" * 40
-WEEK3_GITLINK = "3" * 40
 
 GITMODULES = """
 [submodule "benchmarks/week1"]
@@ -119,10 +117,13 @@ CAPSTONES_README = """Edited subset of course material captured 2026-08-16.
 None of it is ours; annotations are ours, the underlying text is not.
 """
 
-FIXTURE_README = """Saved environments fixture.
+FIXTURE_README = """Saved platform code.
 
-CogPortal source commit: {cogportal}
-Week 2 benchmark commit: {week2}
+These unedited public source files let shallow CI checkouts test the code an
+older prepared filesystem preserves.
+
+- `pr8_week3_payload.py`: CogPortal `{cogportal}`, `apps/runner-modal/src/cogworks_runner/week3_payload.py`.
+- `c177_vision_drivers.py`: Week 2 benchmark `{week2}`, `facial_recognition_benchmark/drivers.py`.
 """.format(cogportal="d" * 40, week2="e" * 40)
 
 
@@ -160,7 +161,8 @@ def make_clone(root: Path) -> Path:
     _write(root, "benchmarks/week2/docs/data-and-scoring.md", DATA_AND_SCORING_MD)
     _write(root, "benchmarks/week3/LICENSE", MIT.format(holder="Sam Gu"))
     _write(root, "docs/decisions/week1-corpus-determinism.md",
-           "# Week 1 corpus determinism\n\nThe corpus is rendered from committed seeds.\n")
+           "# Week 1 corpus determinism\n\n`synth.py` renders seeded synthetic music, "
+           "and the CLI rebuilds the corpus from those seeds.\n")
     _write(root, "benchmarks/week1/audio_identification_benchmark/datasets.py", '"""synthetic"""\n')
     _write(root, "benchmarks/week1/audio_identification_benchmark/manifests/public-test.json",
            _json({"manifest_id": "w1-test", "corpus_version": "synth-v1", "master_seed": 2026,
@@ -194,13 +196,24 @@ def make_clone(root: Path) -> Path:
     git("config", "user.name", "Test")
     git("config", "user.email", "test@example.com")
     git("add", "-A")
+    # The three benchmark submodules are real git repositories committed with
+    # the pinned dates, so their SHAs are deterministic across clones; the
+    # parent records them as gitlinks, exactly like an initialized checkout.
+    pins = {}
+    for path in ("benchmarks/week1", "benchmarks/week2", "benchmarks/week3"):
+        git("-C", path, "init", "-q")
+        git("-C", path, "config", "user.name", "Test")
+        git("-C", path, "config", "user.email", "test@example.com")
+        git("-C", path, "add", "-A")
+        git("-C", path, "commit", "-q", "-m", "submodule snapshot")
+        pins[path] = git("-C", path, "rev-parse", "HEAD")
+    (root.parent / "submodule-pins.json").write_text(json.dumps(pins), encoding="utf-8")
+    git("add", "-A")
     # Submodule content is not tracked by the parent: drop it from the index,
     # then record the gitlinks, exactly as a real submodule checkout looks.
     git("rm", "-r", "-q", "--cached",
         "benchmarks/week1", "benchmarks/week2", "benchmarks/week3")
-    for path, sha in (("benchmarks/week1", WEEK1_GITLINK),
-                      ("benchmarks/week2", WEEK2_GITLINK),
-                      ("benchmarks/week3", WEEK3_GITLINK)):
+    for path, sha in pins.items():
         git("update-index", "--add", "--cacheinfo", "160000,{},{}".format(sha, path))
     git("commit", "-q", "-m", "synthetic clone")
     return root
@@ -220,7 +233,9 @@ def test_parse_gitmodules(clone):
 
 def test_gitlinks(clone):
     links = inventory.gitlinks(clone)
-    assert links["benchmarks/week2"] == WEEK2_GITLINK
+    pins = json.loads((clone.parent / "submodule-pins.json").read_text(encoding="utf-8"))
+    assert links["benchmarks/week2"] == pins["benchmarks/week2"]
+    assert links["benchmarks/week1"] == pins["benchmarks/week1"]
 
 
 def test_environment_tracks_extracts_specs(clone):
@@ -288,7 +303,7 @@ def _wrap(resources):
     return {
         "schemaVersion": 1, "schema": inventory.SCHEMA_REF,
         "repo": inventory.REPO, "branch": inventory.BRANCH,
-        "baseBranch": inventory.BASE_BRANCH, "baseRevision": WEEK1_GITLINK,
+        "baseBranch": inventory.BASE_BRANCH, "baseRevision": "0" * 40,
         "sources": [], "resources": resources,
     }
 
@@ -422,6 +437,205 @@ def test_main_reports_missing_inputs(clone, tmp_path, capsys):
     code = inventory.main(["--out", str(tmp_path / "out"), "--root", str(clone)])
     assert code == 2
     assert "LICENSE" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------ review findings
+
+def test_missing_submodule_metadata_refuses_generation(clone, tmp_path, capsys):
+    """A clone without initialized submodules must exit 2, not write a
+    complete-looking inventory that silently omits the week3 artifacts."""
+    (clone / "benchmarks/week3/language_search_benchmark/datasets.py").unlink()
+    code = inventory.main(["--out", str(tmp_path / "out"), "--root", str(clone)])
+    assert code == 2
+    assert "datasets.py" in capsys.readouterr().err
+
+
+def test_main_refuses_uncommitted_input(clone, tmp_path, capsys):
+    """Evidence names HEAD, so input files not committed at HEAD must stop
+    the run instead of being recorded against the wrong commit."""
+    with open(clone / "LICENSE", "a", encoding="utf-8") as handle:
+        handle.write("locally added line\n")
+    code = inventory.main(["--out", str(tmp_path / "out"), "--root", str(clone)])
+    assert code == 3
+    assert "LICENSE" in capsys.readouterr().err
+
+
+def test_main_refuses_submodule_at_another_revision(clone, tmp_path, capsys):
+    """A submodule checked out off its recorded pin must stop the run."""
+    subprocess.run(["git", "-C", str(clone / "benchmarks/week1"), "commit", "-q",
+                    "--allow-empty", "-m", "drift"],
+                   check=True, capture_output=True, text=True)
+    code = inventory.main(["--out", str(tmp_path / "out"), "--root", str(clone)])
+    assert code == 3
+    assert "benchmarks/week1" in capsys.readouterr().err
+
+
+def test_main_refuses_dirty_submodule(clone, tmp_path, capsys):
+    with open(clone / "benchmarks/week2/LICENSE", "a", encoding="utf-8") as handle:
+        handle.write("locally added line\n")
+    code = inventory.main(["--out", str(tmp_path / "out"), "--root", str(clone)])
+    assert code == 3
+    assert "benchmarks/week2" in capsys.readouterr().err
+
+
+def test_main_refuses_uninitialized_submodule(clone, tmp_path, capsys):
+    shutil.rmtree(clone / "benchmarks/week1/.git")
+    code = inventory.main(["--out", str(tmp_path / "out"), "--root", str(clone)])
+    assert code == 3
+    assert "not initialized" in capsys.readouterr().err
+
+
+def test_static_assigns_alias_uses_value_at_assignment(clone):
+    """A name must read the value it had at that point in the file, not be
+    re-evaluated through a later reassignment of the same name."""
+    _write(clone, "alias_probe.py",
+           '_RELEASE = "https://example.org/v1/"\n'
+           "_BASE = _RELEASE\n"
+           '_RELEASE = "https://example.org/v2/"\n'
+           'URLS = [_RELEASE + "captions.json", _BASE + "glove.txt"]\n')
+    names = inventory.static_assigns(clone, "alias_probe.py")
+    assert names["URLS"] == ("https://example.org/v2/captions.json",
+                             "https://example.org/v1/glove.txt")
+
+
+def test_fixture_facts_reads_the_committed_backtick_format(clone):
+    """The committed fixture README records pins as backtick-quoted hashes
+    after the source name; the parser must read that shape."""
+    facts = inventory.fixture_facts(clone)
+    assert facts["cogportalCommits"] == ["d" * 40]
+    assert facts["week2BenchmarkCommits"] == ["e" * 40]
+
+
+def test_fixture_facts_accepts_both_formats_and_dedupes(clone):
+    path = clone / "apps/runner-modal/tests/fixtures/saved_environments/README.md"
+    path.write_text(
+        "CogPortal source commit: {}\n".format("1" * 40) +
+        "- `x.py`: CogPortal `" + "3" * 40 + "`, `p.py`.\n" +
+        "- `x.py`: CogPortal `" + "3" * 40 + "`, `p.py`.\n" +
+        "- `y.py`: Week 2 benchmark `" + "4" * 40 + "`, `d.py`.\n" +
+        "Week 2 benchmark commit: {}\n".format("2" * 40),
+        encoding="utf-8")
+    facts = inventory.fixture_facts(clone)
+    assert facts["cogportalCommits"] == ["1" * 40, "3" * 40]
+    assert facts["week2BenchmarkCommits"] == ["4" * 40, "2" * 40]
+
+
+def test_noticed_downgrades_a_needle_the_file_does_not_contain(clone):
+    """A verified reference must carry a quote that occurs in the committed
+    file; an unmatched needle downgrades to unknown instead."""
+    rel = "docs/decisions/week1-corpus-determinism.md"
+    found = inventory.noticed(clone, rel, "decision-record", "verified",
+                              needle="renders seeded synthetic music")
+    assert found["evidenceState"] == "verified"
+    assert found["quote"]
+    missing = inventory.noticed(clone, rel, "decision-record", "verified",
+                                needle="rendered from committed seeds")
+    assert missing == {"path": rel, "relationship": "decision-record",
+                       "evidenceState": "unknown", "quote": ""}
+
+
+def test_week1_corpus_reuse_follows_the_decision_record(clone):
+    rel = clone / "docs/decisions/week1-corpus-determinism.md"
+    original = rel.read_text(encoding="utf-8")
+    by_id = {r["id"]: r for r in inventory.build_resources(clone)}
+    assert by_id["week1-corpus"]["reuse"]["evidenceState"] == "verified"
+    rel.write_text("# Week 1 corpus determinism\n\nSeeds are committed.\n", encoding="utf-8")
+    by_id = {r["id"]: r for r in inventory.build_resources(clone)}
+    assert by_id["week1-corpus"]["reuse"]["evidenceState"] == "unknown"
+    assert by_id["week1-corpus"]["reuse"]["noticeReferences"][0]["quote"] == ""
+    rel.write_text(original, encoding="utf-8")
+
+
+def test_verify_urls_survives_an_ls_remote_timeout(clone, monkeypatch):
+    real_git = inventory.git
+
+    def flaky(root, *args, **kwargs):
+        if args and args[0] == "ls-remote":
+            raise subprocess.TimeoutExpired(cmd="git ls-remote", timeout=10)
+        return real_git(root, *args, **kwargs)
+
+    monkeypatch.setattr(inventory, "git", flaky)
+    checks = inventory.verify_urls(clone, inventory.build_resources(clone))
+    remote_records = [r for r in checks["results"] if r["kind"] == "git-remote"]
+    assert remote_records
+    for record in remote_records:
+        assert record["reachability"] == "unreachable"
+        assert "timed out" in str(record["status"])
+
+
+def test_verify_urls_survives_an_http_timeout(clone, monkeypatch):
+    def refusing(*args, **kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(inventory.urllib.request, "urlopen", refusing)
+    checks = inventory.verify_urls(clone, inventory.build_resources(clone))
+    http_records = [r for r in checks["results"] if r["kind"] == "http"]
+    assert http_records
+    for record in http_records:
+        assert record["reachability"] == "unreachable"
+        assert "timed out" in str(record["status"])
+
+
+def test_summary_md_separator_matches_the_header(clone, tmp_path):
+    out_dir = tmp_path / "out"
+    assert inventory.main(["--out", str(out_dir), "--root", str(clone)]) == 0
+    lines = (out_dir / "summary.md").read_text(encoding="utf-8").splitlines()
+    header = next(line for line in lines if line.startswith("| source group"))
+    separator = lines[lines.index(header) + 1]
+    assert header.count("|") == separator.count("|")
+    assert separator == "|" + "---|" * (header.count("|") - 1)
+
+
+def test_sources_hash_every_consumed_input(clone, tmp_path):
+    out_dir = tmp_path / "out"
+    assert inventory.main(["--out", str(out_dir), "--root", str(clone)]) == 0
+    document = json.loads((out_dir / "resources.json").read_text(encoding="utf-8"))
+    hashed = {entry["path"]: entry["sha256"] for entry in document["sources"]}
+    expected = [
+        ".gitmodules",
+        "LICENSE",
+        "apps/runner-modal/tests/fixtures/saved_environments/LICENSE-week2-benchmark",
+        "benchmarks/week2/LICENSE",
+        "benchmarks/week2/docs/data-and-scoring.md",
+        "benchmarks/week2/facial_recognition_benchmark/model-lock.json",
+        "benchmarks/week2/facial_recognition_benchmark/manifests/public-evaluation.json",
+        "benchmarks/week3/LICENSE",
+        "benchmarks/week3/language_search_benchmark/datasets.py",
+    ]
+    for rel in expected:
+        assert rel in hashed, rel
+        assert hashed[rel] == hashlib.sha256((clone / rel).read_bytes()).hexdigest()
+
+
+def test_reader_rejects_url_checks_from_another_revision(clone, tmp_path, capsys):
+    out_dir = tmp_path / "out"
+    assert inventory.main(["--out", str(out_dir), "--root", str(clone)]) == 0
+    inventory_path = str(out_dir / "resources.json")
+    stale = out_dir / "stale-url-checks.json"
+    stale.write_text(json.dumps({"sourceRevision": "b" * 40, "results": []}),
+                     encoding="utf-8")
+    with pytest.raises(SystemExit, match="another revision"):
+        reader.main(["reader.py", inventory_path, "summary", "--url-checks", str(stale)])
+    document = json.loads(Path(inventory_path).read_text(encoding="utf-8"))
+    current = out_dir / "current-url-checks.json"
+    current.write_text(json.dumps({"sourceRevision": document["baseRevision"],
+                                   "results": []}), encoding="utf-8")
+    assert reader.main(["reader.py", inventory_path, "summary",
+                        "--url-checks", str(current)]) == 0
+
+
+def test_validator_treats_booleans_and_numbers_as_distinct():
+    """schemaVersion: true must not pass const: 1 (JSON Schema keeps booleans
+    and numbers distinct); the same strictness applies to enum membership."""
+    document = _valid_document()
+    document["schemaVersion"] = True
+    errors = validator.validate(document, SCHEMA)
+    assert errors and "schemaVersion" in errors[0]
+    assert validator.validate(True, {"enum": [1]}) != []
+    assert validator.validate(1, {"enum": [True]}) != []
+    assert validator.validate(1, {"enum": [1]}) == []
+    assert validator.validate(True, {"const": 1}) != []
+    assert validator.validate(1, {"const": 1}) == []
 
 
 def test_main_output_is_deterministic_across_identical_clones(tmp_path):
