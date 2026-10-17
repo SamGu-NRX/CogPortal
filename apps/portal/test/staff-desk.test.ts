@@ -54,6 +54,13 @@ function freshBinding(): unknown {
     let bound: never[] = [];
     const prepared = {
       bind(...params: unknown[]) {
+        // D1 refuses any statement with more than 100 bound parameters.
+        // The in-memory binding enforces the same ceiling, so a desk query
+        // that binds one parameter per team fails here the way it fails
+        // against D1 in production.
+        if (params.length > 100) {
+          throw new Error(`too many bound parameters (${params.length}); D1 allows 100`);
+        }
         bound = params as never[];
         return prepared;
       },
@@ -98,7 +105,7 @@ interface Harness {
   call(method: string, path: string, options?: { cookie?: string }): Promise<{ status: number; body: any }>;
 }
 
-function harness(): Harness {
+function harness(options: { env?: Partial<Env> } = {}): Harness {
   const binding = freshBinding();
   const env = {
     DB: binding,
@@ -108,6 +115,7 @@ function harness(): Harness {
     BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
     BETTER_AUTH_URL: "http://localhost:5173",
     PLATFORM_OWNER_LOGINS: OWNER,
+    ...options.env,
   } as unknown as Env;
   const db = drizzle(binding as never) as unknown as Database;
 
@@ -237,6 +245,9 @@ function harness(): Harness {
 /** Two members on a team, so ownership readings have people to name. */
 async function seedTwoMembers(h: Harness, teamId: string, logins: [string, string]) {
   const idFor = async (login: string) => {
+    // Only signIn creates a user row (a dev account's githubLogin is set
+    // there), so create the person before looking them up.
+    await h.signIn(login);
     const [row] = await h.db.select().from(users).where(eq(users.githubLogin, login));
     return row.id;
   };
@@ -374,6 +385,10 @@ test("the desk answers 404, not signals, for a team that does not exist", async 
 /* ── The read projection ───────────────────────────────────────────────── */
 
 const CHECKED_AT = 1_789_000_500_000;
+/** Fresh enough to sit inside the history window: the projection tests need
+ *  a usable read, while the staleness tests use CHECKED_AT, which is
+ *  deliberately past the window. */
+const FRESH_CHECKED_AT = Date.now() - 5 * 60 * 1000;
 
 function commit(sha: string, authorLogin: string, authoredAt: number, filesChanged: string[]) {
   return { sha, authorLogin, authoredAt, filesChanged, coAuthors: [] };
@@ -387,11 +402,11 @@ test("the desk serves the stored history through the team page's own signal buil
   await h.seedRun("run_first", "team_a", { repositoryId: 101, status: "succeeded", finishedAt: 1_789_000_100_000 });
   await h.seedHistory("team_a", {
     repository: "course/audio",
-    checkedAt: CHECKED_AT,
+    checkedAt: FRESH_CHECKED_AT,
     commits: [
-      commit("1".repeat(40), "ada", CHECKED_AT - 500, ["src/spectrogram.py"]),
-      commit("2".repeat(40), "grace", CHECKED_AT - 400, ["src/peak_finding.py"]),
-      commit("3".repeat(40), "ada", CHECKED_AT - 300, ["src/fingerprint.py", "src/query.py"]),
+      commit("1".repeat(40), "ada", FRESH_CHECKED_AT - 500, ["src/spectrogram.py"]),
+      commit("2".repeat(40), "grace", FRESH_CHECKED_AT - 400, ["src/peak_finding.py"]),
+      commit("3".repeat(40), "ada", FRESH_CHECKED_AT - 300, ["src/fingerprint.py", "src/query.py"]),
     ],
   });
   await seedTwoMembers(h, "team_a", ["Ada", "Grace"]);
@@ -421,7 +436,7 @@ test("the desk serves the stored history through the team page's own signal buil
     benchmarkTitle: "audio-identification",
     at: 1_789_000_100_000,
   });
-  assert.equal(detail.body.history.checkedAt, CHECKED_AT);
+  assert.equal(detail.body.history.checkedAt, FRESH_CHECKED_AT);
   assert.equal(detail.body.history.stale, false);
   assert.equal(detail.body.history.forConnectedRepository, true);
   assert.equal(detail.body.runsElsewhere, false);
@@ -461,7 +476,10 @@ test("a team whose history was never read is not a team without work", async () 
   // No row: the desk says the portal has not read this team's history.
   assert.equal(detail.body.commitSignals, null);
   assert.equal(detail.body.history.checkedAt, null);
-  assert.equal(detail.body.history.forConnectedRepository, true);
+  // No stored read exists, so no read stands for the connected repository:
+  // false, like a read for a repository the team has left. checkedAt null
+  // already marks "never read".
+  assert.equal(detail.body.history.forConnectedRepository, false);
   // And the run-derived readings, which need no commit history, still hold:
   // a first light is recorded even though the desk cannot say anything
   // about stages yet.
@@ -504,6 +522,9 @@ test("a single-commit history degrades stage signals with the exact reason", asy
   await h.seedCohort();
   await h.seedTeam("team_a", "Team A", { repoId: 101, fullName: "course/audio" });
   await h.seedBenchmark("audio-identification", "audio");
+  // A run establishes the week (audio -> week1): without one the stage map
+  // is unknowable, not degraded.
+  await h.seedRun("run_first", "team_a", { repositoryId: 101, status: "succeeded", finishedAt: 1_789_000_100_000 });
   await h.seedHistory("team_a", {
     repository: "course/audio",
     checkedAt: CHECKED_AT,
@@ -514,7 +535,13 @@ test("a single-commit history degrades stage signals with the exact reason", asy
   const detail = await h.call("GET", "/admin/desk/teams/team_a", { cookie: owner });
   assert.equal(detail.status, 200);
   assert.equal(detail.body.commitSignals.historyQuality, "bulk_upload");
-  const [spectrogram] = Object.values(detail.body.commitSignals.stageFootprint);
+  const stages = Object.values(detail.body.commitSignals.stageFootprint) as {
+    available: boolean;
+    unavailableReason: string | null;
+    commitCount: number | null;
+  }[];
+  assert.ok(stages.length > 0, "the week's stages are named");
+  const [spectrogram] = stages;
   assert.equal(spectrogram.available, false);
   assert.equal(spectrogram.unavailableReason, "the entire history is a single commit");
   assert.equal(spectrogram.commitCount, null, "no count is invented for a degraded stage");
@@ -724,17 +751,27 @@ test("the runner-activity clock on the desk mirrors the maintenance sweep", asyn
   await h.seedTeam("team_a", "Team A", { repoId: 101 });
   // One active run per team+benchmark: each live run sits on its own
   // benchmark so the seeds are legal.
-  await h.seedBenchmark("audio-identification", "audio");
-  await h.seedBenchmark("audio-identification-b", "audio");
-  await h.seedBenchmark("audio-identification-c", "audio");
+  for (const benchmarkId of [
+    "audio-identification",
+    "audio-identification-b",
+    "audio-identification-c",
+    "audio-identification-d",
+    "audio-identification-e",
+    "audio-identification-f",
+    "audio-identification-g",
+    "audio-identification-h",
+  ]) {
+    await h.seedBenchmark(benchmarkId, "audio");
+  }
   const now = Date.now();
-  // Silent for two hours: the sweep would fail this run, so the desk calls
-  // it stale rather than "in progress".
+  // Silent for two hours: the sweep would fail this Modal run, so the desk
+  // calls it stale rather than "in progress".
   await h.seedRun("run_silent", "team_a", {
     repositoryId: 101,
     status: "evaluating",
     finishedAt: null,
     benchmarkId: "audio-identification",
+    provider: "modal",
     acceptedActivityAt: now - 2 * 60 * 60 * 1000,
   });
   await h.seedRun("run_busy", "team_a", {
@@ -742,6 +779,7 @@ test("the runner-activity clock on the desk mirrors the maintenance sweep", asyn
     status: "evaluating",
     finishedAt: null,
     benchmarkId: "audio-identification-b",
+    provider: "modal",
     acceptedActivityAt: now - 5 * 60 * 1000,
   });
   // A row from before the activity clock: inside its one-time grace it is
@@ -751,8 +789,59 @@ test("the runner-activity clock on the desk mirrors the maintenance sweep", asyn
     status: "scoring",
     finishedAt: null,
     benchmarkId: "audio-identification-c",
+    provider: "modal",
     createdAt: now - 3 * 60 * 60 * 1000,
     legacyGraceUntil: now + 30 * 60 * 1000,
+  });
+  // A legacy row the sweep has not granted its grace yet (both clocks
+  // NULL): the sweep gives it a full window first, so it is not stale.
+  await h.seedRun("run_legacy_nograce", "team_a", {
+    repositoryId: 101,
+    status: "evaluating",
+    finishedAt: null,
+    benchmarkId: "audio-identification-d",
+    provider: "modal",
+    createdAt: now - 3 * 60 * 60 * 1000,
+    acceptedActivityAt: null,
+    legacyGraceUntil: null,
+  });
+  // Its grace spent: the sweep fails it, so the desk reads stale.
+  await h.seedRun("run_legacy_expired", "team_a", {
+    repositoryId: 101,
+    status: "evaluating",
+    finishedAt: null,
+    benchmarkId: "audio-identification-e",
+    provider: "modal",
+    createdAt: now - 3 * 60 * 60 * 1000,
+    acceptedActivityAt: null,
+    legacyGraceUntil: now - 30 * 60 * 1000,
+  });
+  // Queued keeps its ten-minute clock — for Modal rows.
+  await h.seedRun("run_queued_old", "team_a", {
+    repositoryId: 101,
+    status: "queued",
+    finishedAt: null,
+    benchmarkId: "audio-identification-f",
+    provider: "modal",
+    createdAt: now - 20 * 60 * 1000,
+  });
+  // The sweep never fails a fixture execution: however quiet, it is not
+  // the sweep's to fail, and the desk does not invent a stale label.
+  await h.seedRun("run_queued_fixture", "team_a", {
+    repositoryId: 101,
+    status: "queued",
+    finishedAt: null,
+    benchmarkId: "audio-identification-g",
+    provider: "fixture",
+    createdAt: now - 20 * 60 * 1000,
+  });
+  await h.seedRun("run_reporting_fixture", "team_a", {
+    repositoryId: 101,
+    status: "evaluating",
+    finishedAt: null,
+    benchmarkId: "audio-identification-h",
+    provider: "fixture",
+    acceptedActivityAt: now - 2 * 60 * 60 * 1000,
   });
   await h.seedRun("run_done", "team_a", { repositoryId: 101, status: "succeeded" });
   const owner = await h.signIn(OWNER);
@@ -764,7 +853,116 @@ test("the runner-activity clock on the desk mirrors the maintenance sweep", asyn
   assert.equal(activity.get("run_silent"), "stale");
   assert.equal(activity.get("run_busy"), "active");
   assert.equal(activity.get("run_legacy"), "active");
+  assert.equal(activity.get("run_legacy_nograce"), "active");
+  assert.equal(activity.get("run_legacy_expired"), "stale");
+  assert.equal(activity.get("run_queued_old"), "stale");
+  assert.equal(activity.get("run_queued_fixture"), "active");
+  assert.equal(activity.get("run_reporting_fixture"), "active");
   assert.equal(activity.get("run_done"), "terminal");
+});
+
+test("the desk shares maintenance's stale timeout: below 900 seconds is the one-hour default", async () => {
+  const h = harness({ env: { RUN_STALE_AFTER_SECONDS: "300" } });
+  await h.seedCohort();
+  await h.seedTeam("team_a", "Team A", { repoId: 101 });
+  await h.seedBenchmark("audio-identification", "audio");
+  await h.seedBenchmark("audio-identification-b", "audio");
+  const now = Date.now();
+  // Forty minutes silent: a configured 300 s is below the sweep's 900 s
+  // floor, so the one-hour default applies and this run is still active.
+  await h.seedRun("run_40m", "team_a", {
+    repositoryId: 101,
+    status: "evaluating",
+    finishedAt: null,
+    benchmarkId: "audio-identification",
+    provider: "modal",
+    acceptedActivityAt: now - 40 * 60 * 1000,
+  });
+  // Two hours silent: past the one-hour default the sweep would fail it.
+  await h.seedRun("run_2h", "team_a", {
+    repositoryId: 101,
+    status: "evaluating",
+    finishedAt: null,
+    benchmarkId: "audio-identification-b",
+    provider: "modal",
+    acceptedActivityAt: now - 2 * 60 * 60 * 1000,
+  });
+  const owner = await h.signIn(OWNER);
+
+  const runs = await h.call("GET", "/admin/desk/teams/team_a/runs", { cookie: owner });
+  const activity = new Map(
+    runs.body.runs.map((run: { runId: string; activity: string }) => [run.runId, run.activity]),
+  );
+  assert.equal(activity.get("run_40m"), "active");
+  assert.equal(activity.get("run_2h"), "stale");
+});
+
+test("the desk honors a configured window at or above the sweep's 900-second floor", async () => {
+  const h = harness({ env: { RUN_STALE_AFTER_SECONDS: "7200" } });
+  await h.seedCohort();
+  await h.seedTeam("team_a", "Team A", { repoId: 101 });
+  await h.seedBenchmark("audio-identification", "audio");
+  await h.seedBenchmark("audio-identification-b", "audio");
+  const now = Date.now();
+  // Ninety minutes silent: inside the configured two-hour window.
+  await h.seedRun("run_90m", "team_a", {
+    repositoryId: 101,
+    status: "evaluating",
+    finishedAt: null,
+    benchmarkId: "audio-identification",
+    provider: "modal",
+    acceptedActivityAt: now - 90 * 60 * 1000,
+  });
+  // Three hours silent: the sweep would fail it.
+  await h.seedRun("run_3h", "team_a", {
+    repositoryId: 101,
+    status: "evaluating",
+    finishedAt: null,
+    benchmarkId: "audio-identification-b",
+    provider: "modal",
+    acceptedActivityAt: now - 3 * 60 * 60 * 1000,
+  });
+  const owner = await h.signIn(OWNER);
+
+  const runs = await h.call("GET", "/admin/desk/teams/team_a/runs", { cookie: owner });
+  const activity = new Map(
+    runs.body.runs.map((run: { runId: string; activity: string }) => [run.runId, run.activity]),
+  );
+  assert.equal(activity.get("run_90m"), "active");
+  assert.equal(activity.get("run_3h"), "stale");
+});
+
+test("a desk with more teams than D1's parameter budget still loads", async () => {
+  const h = harness();
+  await h.seedCohort();
+  // 101 live teams: with one bound parameter per team, the id-list form of
+  // the follow-up queries crosses D1's 100-parameter limit and the owner's
+  // desk fails to load. The harness binding refuses statements the same
+  // way D1 does.
+  for (let i = 0; i < 101; i += 1) {
+    await h.seedTeam(`team_${String(i).padStart(3, "0")}`, `Team ${i}`);
+  }
+  await h.seedBenchmark("audio-identification", "audio");
+  await h.seedRun("run_first", "team_000", { repositoryId: 101, status: "succeeded", finishedAt: 1_789_000_100_000 });
+  await h.seedHistory("team_000", {
+    repository: "course/team-0",
+    checkedAt: CHECKED_AT,
+    commits: [
+      commit("1".repeat(40), "ada", CHECKED_AT - 200, ["src/spectrogram.py"]),
+      commit("2".repeat(40), "grace", CHECKED_AT - 100, ["src/peaks.py"]),
+    ],
+  });
+  const owner = await h.signIn(OWNER);
+
+  const list = await h.call("GET", "/admin/desk/teams", { cookie: owner });
+  assert.equal(list.status, 200);
+  assert.equal(list.body.teams.length, 101);
+  const [first] = list.body.teams;
+  assert.equal(first.id, "team_000");
+  assert.equal(first.scoredRunCount, 1);
+  assert.equal(first.historyQuality, "usable");
+  assert.equal(list.body.teams[100].id, "team_100");
+  assert.equal(list.body.teams[100].scoredRunCount, 0);
 });
 
 test("run rows say which repository they stand for, including 'nobody recorded one'", async () => {

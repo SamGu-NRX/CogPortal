@@ -1673,8 +1673,10 @@ export type StaffDeskFirstLight = z.infer<typeof StaffDeskFirstLightSchema>;
 const StaffDeskStageActivitySchema = z.object({
   /** null when the history's quality makes the stage unknowable. */
   commitCount: z.number().int().nonnegative().nullable(),
-  /** Stage-wide: how many people touched the stage, never who did how much. */
-  distinctAuthorCount: z.number().int().nonnegative(),
+  /** Stage-wide: how many people touched the stage, never who did how much.
+   *  null like `commitCount` when `available` is false — a degraded stage
+   *  invents no count (the team page's StageActivitySchema rule). */
+  distinctAuthorCount: z.number().int().nonnegative().nullable(),
   firstTouchAt: z.number().nullable(),
   lastTouchAt: z.number().nullable(),
   available: z.boolean(),

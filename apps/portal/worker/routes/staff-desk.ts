@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import {
@@ -14,6 +14,7 @@ import {
 import type { RunStatus } from "@cogworks/contracts/schema";
 import { getDb } from "../db/client";
 import { benchmarks, runs, teamMembers, teamProcessSignals, teamTas, teams, users } from "../db/schema";
+import { QUEUED_STALE_AFTER_SECONDS, REPORTING_PHASES, staleAfterMs } from "../execution/maintenance";
 import type { AppEnv } from "../env";
 import type { CommitRecord } from "../github/commits";
 import { ApiHttpError } from "../http/errors";
@@ -62,15 +63,42 @@ import {
  *    payload leaves the maintenance surfaces here.
  */
 
-/** Mirrors `execution/maintenance.ts`, which fails silent live runs. */
-const DEFAULT_STALE_AFTER_SECONDS = 60 * 60;
-const QUEUED_STALE_AFTER_MS = 10 * 60 * 1000;
+/**
+ * The runner-activity clock, shared with the maintenance sweep
+ * (`execution/maintenance.ts`, which fails silent live runs): a live run the
+ * sweep would fail reads "stale", not "in progress". The sweep fails only
+ * Modal executions — queued after ten minutes, reporting phases after the
+ * inactivity window, real activity deciding, and a legacy row's one-time
+ * grace standing in before its first recorded callback — so everything else
+ * reads "active": a stale label here is one the sweep would assign.
+ */
+const QUEUED_STALE_AFTER_MS = QUEUED_STALE_AFTER_SECONDS * 1000;
 
-function staleAfterMs(env: AppEnv["Bindings"]): number {
-  const configured = Number(env.RUN_STALE_AFTER_SECONDS ?? DEFAULT_STALE_AFTER_SECONDS);
-  return Number.isFinite(configured) && configured > 0
-    ? configured * 1_000
-    : DEFAULT_STALE_AFTER_SECONDS * 1_000;
+function activityOf(
+  row: {
+    provider: string;
+    status: string;
+    createdAt: number;
+    acceptedActivityAt: number | null;
+    legacyGraceUntil: number | null;
+  },
+  now: number,
+  staleMs: number,
+): "active" | "stale" | "terminal" {
+  if (isTerminal(row.status as RunStatus)) return "terminal";
+  if (row.provider !== "modal") return "active";
+  if (row.status === "queued") {
+    return row.createdAt < now - QUEUED_STALE_AFTER_MS ? "stale" : "active";
+  }
+  if (!(REPORTING_PHASES as readonly string[]).includes(row.status)) return "active";
+  const activityAt = row.acceptedActivityAt ?? row.createdAt;
+  if (activityAt >= now - staleMs) return "active";
+  // Real activity decides. Without it, the one-time legacy grace decides;
+  // a row not yet granted its grace (NULL) is never silent — the sweep
+  // gives it a full window before it could fail.
+  if (row.acceptedActivityAt !== null) return "stale";
+  if (row.legacyGraceUntil === null) return "active";
+  return row.legacyGraceUntil >= now ? "active" : "stale";
 }
 
 type StoredCommitHistory = {
@@ -97,34 +125,26 @@ function parseStoredHistory(row: { signalsJson: string }): StoredCommitHistory |
   }
 }
 
-/**
- * The runner-activity clock, mirrored from the maintenance sweep
- * (`execution/maintenance.ts`): a live run the sweep would fail reads
- * "stale", not "in progress". Queued runs have their own shorter clock;
- * rows from before the activity clock keep their one-time grace.
- */
-function activityOf(
-  row: { status: string; createdAt: number; acceptedActivityAt: number | null; legacyGraceUntil: number | null },
-  now: number,
-  staleMs: number,
-): "active" | "stale" | "terminal" {
-  if (isTerminal(row.status as RunStatus)) return "terminal";
-  if (row.status === "queued") {
-    return row.createdAt < now - QUEUED_STALE_AFTER_MS ? "stale" : "active";
-  }
-  if (row.acceptedActivityAt === null && row.legacyGraceUntil !== null && row.legacyGraceUntil >= now) {
-    return "active";
-  }
-  const activityAt = row.acceptedActivityAt ?? row.createdAt;
-  return activityAt < now - staleMs ? "stale" : "active";
-}
-
 export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
   // ── GET /admin/desk/teams ────────────────────────────────────────────
   app.get("/admin/desk/teams", async (c) => {
     const scope = await getAdminScope(c);
     const db = getDb(c.env);
     const live = eq(teams.provenance, "live");
+    // The scope predicate, not an expanded id list: every follow-up below
+    // filters through teams (or a teams subquery), so no statement binds one
+    // parameter per team. D1 refuses any statement with more than 100 bound
+    // parameters, and the id-list form failed an owner's desk at 101 live
+    // teams (`readFirstLights` exceeds the budget even sooner).
+    const scopedTeams: SQL = scope.isOwner
+      ? live
+      : and(
+          live,
+          inArray(
+            teams.id,
+            db.select({ id: teamTas.teamId }).from(teamTas).where(eq(teamTas.userId, scope.auth.user.id)),
+          ),
+        )!;
     const rows = await db
       .select({
         id: teams.id,
@@ -135,13 +155,8 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
         repoId: teams.repoId,
       })
       .from(teams)
-      .where(
-        scope.isOwner
-          ? live
-          : and(live, inArray(teams.id, scope.teamIds)),
-      )
+      .where(scopedTeams)
       .orderBy(asc(teams.id));
-    const ids = rows.map((row) => row.id);
 
     // One windowed query per reading, for the same query budget the admin
     // summaries keep (`readFirstLights`, `readAdminTeamSummaries`).
@@ -150,25 +165,23 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
         db
           .select({ teamId: teamMembers.teamId, value: count() })
           .from(teamMembers)
-          .where(inArray(teamMembers.teamId, ids.length > 0 ? ids : [""]))
+          .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+          .where(scopedTeams)
           .groupBy(teamMembers.teamId),
-        ids.length > 0
-          ? db
-              .select({ teamId: teamTas.teamId, login: users.githubLogin, email: users.email })
-              .from(teamTas)
-              .innerJoin(users, eq(teamTas.userId, users.id))
-              .where(inArray(teamTas.teamId, ids))
-          : Promise.resolve([] as { teamId: string; login: string | null; email: string }[]),
-        ids.length > 0
-          ? readFirstLights(db, selectTeamIds(db, inArray(teams.id, ids)))
-          : Promise.resolve([] as { teamId: string; benchmarkId: string; benchmarkTitle: string; at: number }[]),
+        db
+          .select({ teamId: teamTas.teamId, login: users.githubLogin, email: users.email })
+          .from(teamTas)
+          .innerJoin(users, eq(teamTas.userId, users.id))
+          .innerJoin(teams, eq(teams.id, teamTas.teamId))
+          .where(scopedTeams),
+        readFirstLights(db, selectTeamIds(db, scopedTeams)),
         db
           .select({ teamId: runs.teamId, value: count() })
           .from(runs)
           .innerJoin(teams, eq(teams.id, runs.teamId))
           .where(
             and(
-              inArray(runs.teamId, ids.length > 0 ? ids : [""]),
+              scopedTeams,
               eq(runs.status, "succeeded"),
               isNotNull(runs.finishedAt),
               // Connected repository only (routes/team.ts `forConnectedRepository`).
@@ -179,44 +192,41 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
         // Scored runs that are NOT from the connected repository, in one
         // pass. A team with no recorded repository counts any succeeded run
         // (the exact rule `hasRunsElsewhere` applies per team).
-        ids.length > 0
-          ? db
-              .selectDistinct({ teamId: runs.teamId })
-              .from(runs)
-              .innerJoin(teams, eq(teams.id, runs.teamId))
-              .where(
-                and(
-                  inArray(runs.teamId, ids),
-                  eq(runs.status, "succeeded"),
-                  or(
-                    isNull(teams.repoId),
-                    isNull(runs.repositoryId),
-                    ne(runs.repositoryId, teams.repoId),
-                  ),
-                ),
-              )
-          : Promise.resolve([] as { teamId: string }[]),
+        db
+          .selectDistinct({ teamId: runs.teamId })
+          .from(runs)
+          .innerJoin(teams, eq(teams.id, runs.teamId))
+          .where(
+            and(
+              scopedTeams,
+              eq(runs.status, "succeeded"),
+              or(
+                isNull(teams.repoId),
+                isNull(runs.repositoryId),
+                ne(runs.repositoryId, teams.repoId),
+              ),
+            ),
+          ),
         // The week the team is working in: the benchmark module of its most
         // recent run for the connected repository (any status), same rule as
         // `resolveWeekLabel`, windowed over all teams.
-        ids.length > 0
-          ? db
-              .select({
-                teamId: runs.teamId,
-                module: benchmarks.module,
-                position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as("position"),
-              })
-              .from(runs)
-              .innerJoin(teams, eq(teams.id, runs.teamId))
-              .innerJoin(
-                benchmarks,
-                and(eq(benchmarks.id, runs.benchmarkId), eq(benchmarks.version, runs.benchmarkVersion)),
-              )
-              .where(and(inArray(runs.teamId, ids), eq(runs.repositoryId, teams.repoId)))
-          : Promise.resolve(null),
-        ids.length > 0
-          ? db.select().from(teamProcessSignals).where(inArray(teamProcessSignals.teamId, ids))
-          : Promise.resolve([] as typeof teamProcessSignals.$inferSelect[]),
+        db
+          .select({
+            teamId: runs.teamId,
+            module: benchmarks.module,
+            position: sql<number>`row_number() over (partition by ${runs.teamId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as("position"),
+          })
+          .from(runs)
+          .innerJoin(teams, eq(teams.id, runs.teamId))
+          .innerJoin(
+            benchmarks,
+            and(eq(benchmarks.id, runs.benchmarkId), eq(benchmarks.version, runs.benchmarkVersion)),
+          )
+          .where(and(scopedTeams, eq(runs.repositoryId, teams.repoId))),
+        db
+          .select()
+          .from(teamProcessSignals)
+          .where(inArray(teamProcessSignals.teamId, selectTeamIds(db, scopedTeams))),
       ]);
 
     const weekRanked = weekRows as unknown as { teamId: string; module: string; position: number }[] | null;
@@ -406,6 +416,7 @@ export function registerStaffDeskRoutes(app: Hono<AppEnv>): void {
           id: runs.id,
           status: runs.status,
           mode: runs.mode,
+          provider: runs.provider,
           benchmarkId: runs.benchmarkId,
           benchmarkTitle: runBenchmarkTitle,
           attemptNumber: runs.attemptNumber,
