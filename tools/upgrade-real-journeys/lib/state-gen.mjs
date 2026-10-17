@@ -33,6 +33,28 @@ export const COHORT_JOIN_CODE = "VISION26";
 // rejected. When no week works, the thrown error must carry those reasons -
 // a bare "none worked" turns a diagnosable host problem (requires-python
 // refusal, missing system library, failing check field) into a dead end.
+// The venv must run a Python the course stack supports: weeks 2/3 declare
+// requires-python <3.13, and week1's example pins scipy<1.13 / numpy<2,
+// which have no 3.13 wheels - on 3.13 every week fails for interpreter
+// reasons no code fix removes. Prefer the newest supported interpreter.
+export function pickVenvInterpreter({
+  candidates = ["python3.12", "python3.11", "python3.10", "python3"],
+  probe = (name) => {
+    try {
+      const r = spawnSync(name, ["-c", 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'], { encoding: "utf8" });
+      return r.status === 0 ? r.stdout.trim() : null;
+    } catch {
+      return null;
+    }
+  },
+} = {}) {
+  for (const name of candidates) {
+    const version = probe(name);
+    if (version && version.startsWith("3.") && Number(version.split(".")[1]) < 13) return name;
+  }
+  return "python3";
+}
+
 export function noBenchmarkInstalledError(quirks) {
   const detail = quirks.length ? `\n${quirks.map((q) => `  - ${q}`).join("\n")}` : "";
   return new Error(`no public week benchmark installed and passed \`cogworks check\` on this host${detail}`);
@@ -441,7 +463,9 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
   const cogworks = path.join(venvDir, "bin", "cogworks");
   if (!existsSync(cogworks)) {
     rmSync(venvDir, { recursive: true, force: true });
-    runChecked("python3", ["-m", "venv", venvDir], { timeoutMs: 120_000 });
+    const py = pickVenvInterpreter();
+    log(`CLI: venv interpreter ${py}`);
+    runChecked(py, ["-m", "venv", venvDir], { timeoutMs: 120_000 });
     runChecked(path.join(venvDir, "bin", "pip"), ["install", "--quiet", path.join(pinDir, "python", "cogbench")], { timeoutMs: 300_000 });
   }
 
@@ -470,6 +494,10 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
     try {
       const id = benchmarkPluginId(path.join(pinDir, "benchmarks", candidate));
       runChecked(path.join(venvDir, "bin", "pip"), ["install", "--quiet", path.join(pinDir, "benchmarks", candidate)], { timeoutMs: 600_000 });
+      // The example is itself a package (the submission's entry point lives
+      // there) and check's exit gate requires the submission to import, so
+      // install it and its declared deps into the same venv before checking.
+      runChecked(path.join(venvDir, "bin", "pip"), ["install", "--quiet", example], { timeoutMs: 600_000 });
       runChecked(cogworks, ["check", "--benchmark", id, "--json"], { cwd: example, timeoutMs: 420_000 });
       week = candidate;
       pluginId = id;
