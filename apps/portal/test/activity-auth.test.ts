@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { generateCookie } from "hono/cookie";
 import { Hono } from "hono";
-import { activityCookieOptions, activityTokenRejection, registerActivityRoutes } from "../worker/routes/activity.ts";
+import {
+  activityCookieOptions,
+  activitySessionValue,
+  activityTokenRejection,
+  parseActivitySession,
+  registerActivityRoutes,
+} from "../worker/routes/activity.ts";
 import type { AppEnv } from "../worker/env.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
 import { RetryRunRequestSchema } from "@cogworks/contracts/schema";
@@ -141,4 +147,20 @@ test("no student-facing sentence carries a provider identifier", () => {
     const { message } = activityTokenRejection(400, { error });
     assert.doesNotMatch(message, /invalid_|unauthorized_client|slow_down|oauth/i);
   }
+});
+
+test("the Activity session carries Discord's username, and an older cookie still parses", () => {
+  for (const username of ["rj-activity-student", "dot.ted.name", "Zoë 学生 🦫", ""]) {
+    const parsed = parseActivitySession(activitySessionValue("900000000000000001", 1_900_000_000_000, username));
+    assert.deepEqual(parsed, { discordUserId: "900000000000000001", expires: 1_900_000_000_000, username: username || null });
+  }
+  // A cookie from before the username field.
+  assert.deepEqual(parseActivitySession("900000000000000001.1900000000000"), {
+    discordUserId: "900000000000000001",
+    expires: 1_900_000_000_000,
+    username: null,
+  });
+  assert.equal(parseActivitySession("900000000000000001.soon"), null);
+  assert.equal(parseActivitySession(""), null);
+  assert.equal(parseActivitySession("900000000000000001.1900000000000.%%%")?.username, null);
 });

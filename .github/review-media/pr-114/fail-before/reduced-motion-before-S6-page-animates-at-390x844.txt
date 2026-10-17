@@ -1,0 +1,80 @@
+# Error details
+
+```
+Error: expect(received).toEqual(expected) // deep equality
+
+- Expected  -   1
++ Received  + 334
+
+- Array []
++ Array [
++   "landing: animations under reduced motion on landing at 390
++
++ expect(received).toEqual(expected) // deep equality
++
++ - Expected  -  1
++ + Received  + 14
++
++ - Array []
++ + Array [
++ +   Object {
++ +     \"durationMs\": \"unknown\",
++ +     \"kind\": \"css-transition\",
++ +     \"target\": \"a.relative.inline-flex.min-h-11.shrink-0\",
++ +     \"what\": \"color\",
++ +   },
++ +   Object {
++ +     \"durationMs\": \"unknown\",
++ +     \"kind\": \"css-transition\",
++ +     \"target\": \"a.relative.inline-flex.min-h-11.shrink-0\",
++ +     \"what\": \"color\",
++ +   },
++ + ]",
++   "sign-in: animations under reduced motion on sign-in at 390
++
++ expect(received).toEqual(expected) // deep equality
++
++ - Expected  -  1
++ + Received  + 86
++
++ - Array []
++ + Array [
++ +   Object {
++ +     \"durationMs\": \"unknown\",
++ +     \"kind\": \"css-transition\",
++ +     \"target\": \"a.relative.inline-flex.min-h-11.shrink-0\",
++ +     \"what\": \"color\",
++ +   },
++ +   Object {
++ +     \"durationMs\": \"unknown\",
++ +     \"kind\": \"css-transition\",
++ +     \"target\": \"a.relative.inline-flex.min-h-11.shrink-0\",
++ +     \"what\": \"color\",
++ +   },
++ +   Object {
++ +     \"durationMs\": 150,
++ +     \"kind\": \"css-transition\",",
++   "not-found: animations under reduced motion on not-found at 390
++
++ expect(received).toEqual(expected) // deep equality
++
++ - Expected  -  1
++ + Received  + 14
++
++ - Array []
++ + Array [
++ +   Object {
++ +     \"durationMs\": \"unknown\",
++ +     \"kind\": \"css-transition\",
++ +     \"target\": \"a.relative.inline-flex.min-h-11.shrink-0\",
++ +     \"what\": \"color\",
++ +   },
++ +   Object {
++ +     \"durationMs\": \"unknown\",
++ +     \"kind\": \"css-transition\",
++ +     \"target\": \"a.relative.inline-flex.min-h-11.shrink-0\",
++ +     \"what\": \"color\",
++ +   },
++ + ]",
++   "join: animations under reduced motion on join at 390
++

@@ -11,7 +11,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { MemberAvatar } from "@/components/MemberAvatar";
-import { PageHeader } from "@/components/Note";
+import { Note, PageHeader } from "@/components/Note";
 import { PageSection } from "@/components/PageSection";
 import { RemoveButton } from "@/components/RemoveButton";
 import { ApiRequestError } from "@/lib/api";
@@ -57,6 +57,9 @@ export function AdminPage() {
 
   const { cohort, teams, unassigned } = overview.data;
   const isOwner = overview.data.scope === "owner";
+  // Absent from a Worker older than the staff visibility setting, which
+  // served the full view.
+  const restricted = overview.data.view === "restricted";
 
   return (
     <div className="page anim-rise">
@@ -64,6 +67,12 @@ export function AdminPage() {
           portal couldn't approve; this says so before the console does. */}
       <DroppedLinkNotice teamOptional className="mb-8 max-w-[34rem]" />
       <PageHeader eyebrow={isOwner ? "Instructor console" : "TA workspace"} title={cohort.name} />
+      {restricted ? (
+        <Note className="mt-6 max-w-[38rem]">
+          This portal runs the restricted staff setting, so student names and published scores are withheld here, and
+          owners manage team membership. Run counts and run states stay.
+        </Note>
+      ) : null}
 
       {isOwner && cohort.joinCode ? (
         <Enrollment cohort={{ ...cohort, joinCode: cohort.joinCode }} />
@@ -81,6 +90,7 @@ export function AdminPage() {
                 <TeamRow
                   key={team.id}
                   team={team}
+                  restricted={restricted}
                   canAssignTas={isOwner}
                   suggestions={unassigned.map((student) => student.login)}
                 />
@@ -179,9 +189,11 @@ function Enrollment({
             onClick={copy}
             title="Copy join code"
             aria-label={`Copy join code ${cohort.joinCode}`}
-            className="u-pressable group relative mt-3 inline-flex items-center gap-4 rounded-control px-3 py-2"
+            className="u-pressable group relative mt-3 inline-flex max-w-full flex-wrap items-center gap-x-4 gap-y-1.5 rounded-control px-3 py-2"
           >
-            {/* The detection bracket: the one thing on this page to look at. */}
+            {/* The detection bracket: the one thing on this page to look at.
+                Wraps, so on a 320px phone Copy drops under the code instead of
+                pushing the card wider than the screen. */}
             <CornerBrackets size={12} thickness={1.5} className="text-ink/45 transition-colors duration-150 group-hover:text-ink" />
             <span className="select-text font-mono text-[clamp(2.25rem,1.5rem+3vw,3.25rem)] leading-none font-medium tracking-[0.12em] text-ink">
               {cohort.joinCode}
@@ -422,10 +434,13 @@ function errorText(errors: unknown[], fallback: string): string | null {
 
 function TeamRow({
   team,
+  restricted,
   canAssignTas,
   suggestions,
 }: {
   team: AdminTeamSummary;
+  /** Names and scores were withheld from this response; say so instead of "nobody". */
+  restricted: boolean;
   canAssignTas: boolean;
   suggestions: string[];
 }) {
@@ -552,7 +567,11 @@ function TeamRow({
 
                 <div className="min-w-0">
                   <h3 className="u-label">Members</h3>
-                  {team.members.length === 0 ? (
+                  {restricted ? (
+                    <p className="mt-1.5 text-[14px] text-ink-secondary">
+                      {team.memberCount} {team.memberCount === 1 ? "student" : "students"}. Names are withheld.
+                    </p>
+                  ) : team.members.length === 0 ? (
                     <p className="mt-1.5 text-[14px] text-ink-secondary">Nobody is on this team.</p>
                   ) : (
                     <ul className="mt-1 divide-y divide-rule-soft">
@@ -583,18 +602,20 @@ function TeamRow({
                       ))}
                     </ul>
                   )}
-                  <LoginForm
-                    id={`add-${team.id}`}
-                    label="Add a student"
-                    submit="Add"
-                    busy={addMember.isPending}
-                    suggestions={suggestions}
-                    onSubmit={(login) =>
-                      addMember
-                        .mutateAsync({ teamId: team.id, login })
-                        .then(() => true, () => false)
-                    }
-                  />
+                  {restricted ? null : (
+                    <LoginForm
+                      id={`add-${team.id}`}
+                      label="Add a student"
+                      submit="Add"
+                      busy={addMember.isPending}
+                      suggestions={suggestions}
+                      onSubmit={(login) =>
+                        addMember
+                          .mutateAsync({ teamId: team.id, login })
+                          .then(() => true, () => false)
+                      }
+                    />
+                  )}
                   {memberError && (
                     <p role="alert" className="mt-2 text-[13.5px] text-detect-deep">
                       {memberError}
@@ -654,7 +675,9 @@ function TeamRow({
                     row's widest column to say it. Down here it is a footnote on
                     the team already being read. */}
                 <p className="u-tnum border-t border-rule-soft pt-3 font-mono text-[12.5px] text-ink-faint sm:col-span-2">
-                  {team.published
+                  {restricted
+                    ? "Published scores are withheld under the restricted staff setting."
+                    : team.published
                     ? `Latest published score ${team.published.score.toFixed(3)} · ${team.published.benchmarkName ?? "benchmark not in the catalog"} v${team.published.benchmarkVersion}`
                     : "Nothing published yet"}
                 </p>

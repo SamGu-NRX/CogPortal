@@ -1,0 +1,87 @@
+<!doctype html>
+<!--
+  Discord client double, for the real-journeys suite. It stands where the
+  Discord client stands around an Activity: it frames the Activity with the
+  query parameters Discord adds (frame_id, instance_id, platform) and answers
+  the embedded SDK's postMessage RPC (handshake, READY, AUTHORIZE,
+  AUTHENTICATE, SUBSCRIBE, OPEN_EXTERNAL_LINK, CAPTURE_LOG). It never talks to
+  discord.com. AUTHORIZE hands back the code the journey minted at the Discord
+  double (stack/doubles.mjs), so the Activity's code exchange is the real one.
+
+  Everything the Activity asks for is recorded in window.__rjDiscord, and
+  OPEN_EXTERNAL_LINK is recorded rather than opened, the way a journey reads
+  which link Discord would have opened.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Discord client double</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1e1f22; }
+      iframe { display: block; width: 100%; height: 100%; border: 0; }
+    </style>
+  </head>
+  <body data-cogportal-double="discord-client">
+    <iframe id="activity" title="Cog live bench"></iframe>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const state = (window.__rjDiscord = {
+        authorizeCode: params.get("code"),
+        user: JSON.parse(params.get("user") || "{}"),
+        commands: [],
+        opened: [],
+        subscriptions: [],
+      });
+      const frame = document.getElementById("activity");
+      frame.src = `${location.origin}/?frame_id=rj-frame&instance_id=rj-instance&platform=desktop`;
+
+      const send = (payload) => frame.contentWindow.postMessage([1, payload], location.origin);
+      window.__rjDiscordDispatch = (evt, data) => send({ cmd: "DISPATCH", evt, nonce: null, data });
+
+      addEventListener("message", (event) => {
+        if (event.source !== frame.contentWindow || !Array.isArray(event.data)) return;
+        const [opcode, payload] = event.data;
+        if (opcode === 0) {
+          state.commands.push("HANDSHAKE");
+          window.__rjDiscordDispatch("READY", {
+            v: 1,
+            config: { api_endpoint: "//discord-double.invalid/api", environment: "cogportal-real-journeys-double" },
+          });
+          return;
+        }
+        if (opcode !== 1) return;
+        state.commands.push(payload.cmd);
+        const reply = (data) => send({ cmd: payload.cmd, data, evt: null, nonce: payload.nonce });
+        switch (payload.cmd) {
+          case "AUTHORIZE":
+            return reply({ code: state.authorizeCode });
+          case "AUTHENTICATE":
+            return reply({
+              access_token: payload.args.access_token,
+              user: {
+                id: state.user.id,
+                username: state.user.username,
+                discriminator: "0",
+                avatar: null,
+                public_flags: 0,
+                global_name: state.user.global_name ?? null,
+              },
+              scopes: ["identify"],
+              expires: new Date(Date.now() + 604800000).toISOString(),
+              application: { description: "", icon: null, id: "rj-local-discord-client-id", name: "Cog (double)" },
+            });
+          case "SUBSCRIBE":
+            state.subscriptions.push(payload.evt ?? payload.args?.event);
+            return reply({ evt: payload.evt ?? payload.args?.event });
+          case "UNSUBSCRIBE":
+            return reply({ evt: payload.evt ?? payload.args?.event });
+          case "OPEN_EXTERNAL_LINK":
+            state.opened.push(payload.args.url);
+            return reply({ opened: true });
+          default:
+            return reply(null);
+        }
+      });
+    </script>
+  </body>
+</html>

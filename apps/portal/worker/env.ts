@@ -22,6 +22,15 @@ const serverSchema = {
   EXECUTION_PROVIDER: z.enum(["fixture", "modal"]),
   PUBLIC_ORIGIN: z.string().optional(),
   COURSE_GUILD_ID: z.string().optional(),
+  /** Test seam: base URL overrides for outbound provider traffic. Defaults
+   *  are unchanged in every real environment (nothing in wrangler.jsonc or
+   *  the deploy sets them); the real-journeys harness
+   *  (tools/portal-real-journeys) sets them in its own run config to point
+   *  the Worker's real outbound code at labelled provider doubles.
+   *  DISCORD_API_BASE_URL stands for https://discord.com/api (unversioned;
+   *  services/discord-api.ts); GITHUB_API_BASE_URL for https://api.github.com. */
+  DISCORD_API_BASE_URL: z.string().optional(),
+  GITHUB_API_BASE_URL: z.string().optional(),
   /** Secret used only for posting/editing team run bubbles via Discord REST. */
   DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_CLIENT_ID: z.string().optional(),
@@ -58,6 +67,13 @@ const serverSchema = {
    * reading of "no owners were configured", and it fails closed.
    */
   PLATFORM_OWNER_LOGINS: z.string().optional(),
+
+  /**
+   * What TAs read about students: "assigned-teams" (unset means the same) or
+   * "restricted". See services/staff-visibility.ts. Any other value fails every
+   * request here rather than quietly picking one.
+   */
+  STAFF_VISIBILITY: z.enum(["assigned-teams", "restricted"]).optional(),
 
   BETTER_AUTH_SECRET: z.string().min(32).optional(),
   /** Origin used to construct the fixed GitHub OAuth callback. */

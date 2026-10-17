@@ -518,6 +518,21 @@
 
 /* Plan §8: disable all nonessential movement. */
 @media (prefers-reduced-motion: reduce) {
+  /* Nothing moves, fades or slides: every transition and keyframe animation
+     lands on its end state at once. The rules below for named classes set
+     end states the keyframes would have reached; this one catches the rest,
+     which included the hover and focus colour fades on every link, button and
+     field, and .anim-reveal's fade-in (the real-journeys suite records every
+     animation that starts under reduced motion, m4-pages). */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
   .specimen-trace,
   .specimen-point,
   .specimen-knee {

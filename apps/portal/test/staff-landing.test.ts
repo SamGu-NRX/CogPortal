@@ -103,7 +103,7 @@ async function navigate(
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["session"], value);
   client.setQueryData(["admin", "overview"], {
-    scope: "ta", cohort: { slug: "bwsi", name: "BWSI", joinCode: null, active: true }, teams: [], unassigned: [],
+    scope: "ta", view: "full", cohort: { slug: "bwsi", name: "BWSI", joinCode: null, active: true }, teams: [], unassigned: [],
   });
   client.setQueryData(["connections"], { github: null, discord: null, cliDevices: [] });
   const container = window.document.createElement("div");

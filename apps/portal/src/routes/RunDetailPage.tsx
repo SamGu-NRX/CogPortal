@@ -107,7 +107,11 @@ export function RunDetailPage() {
   const live = !isTerminal(run.status);
   const failed = run.status === "failed";
   const failureCopy = run.failure
-    ? resolveFailureCopy(run.failure.category, { benchmarkId: run.benchmarkId, module: runModule })
+    ? resolveFailureCopy(run.failure.category, {
+        benchmarkId: run.benchmarkId,
+        module: runModule,
+        detail: run.failure.detail,
+      })
     : null;
   // Retry belongs on the failure it answers, not a page away on the console.
   // A refusal says what to change in the code, so it is never offered there.

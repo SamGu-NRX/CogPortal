@@ -6,10 +6,7 @@ import { requireTeam } from "../auth/session";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { buildRunSurfaceSnapshot, getRunSurfaceRow, listTeamRunSurfaceSnapshots } from "../services/run-surfaces";
-import { actorFromAuth, performRunSurfaceMutation } from "../services/run-actions";
-
-const MUTATIONS = ["verify_hosted", "promote_official", "publish_result", "rerun_hosted", "retry"] as const;
-const MutationSchema = z.enum(MUTATIONS);
+import { actorFromAuth, performRunSurfaceMutation, runSurfaceMutation } from "../services/run-actions";
 
 async function requireTeamSurface(env: AppEnv["Bindings"], teamId: string, surfaceId: string) {
   const surface = await getRunSurfaceRow(env, surfaceId);
@@ -37,7 +34,7 @@ export function registerRunSurfaceRoutes(app: Hono<AppEnv>): void {
     const auth = await requireTeam(c);
     const surfaceId = c.req.param("id");
     await requireTeamSurface(c.env, auth.team.id, surfaceId);
-    const action = MutationSchema.parse(c.req.param("action"));
+    const action = runSurfaceMutation(c.req.param("action"));
     const snapshot = await performRunSurfaceMutation(
       c.env,
       actorFromAuth(auth),

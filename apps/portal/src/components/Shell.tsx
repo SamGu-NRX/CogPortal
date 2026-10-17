@@ -108,7 +108,12 @@ export function Shell() {
       )}
       {onboarding && session && <Tab to={nextStagePath(session)}>Get started</Tab>}
       <Tab to="/leaderboard">Leaderboard</Tab>
-      {isStaff && <Tab to="/admin">Admin</Tab>}
+      {isStaff && (
+        <>
+          <Tab to="/admin">Admin</Tab>
+          <Tab to="/desk" also={["/desk/"]}>Desk</Tab>
+        </>
+      )}
     </>
   );
 

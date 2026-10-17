@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+// Runs the whole suite N times in a row (default 3), each a fresh stack and
+// fresh databases, zero retries, and writes one receipt per run binding the
+// result to the commit it ran on:
+//
+//   node stack/acceptance.mjs [--runs 3] [--out <dir>] [--grep <pattern>]
+//
+// A receipt records the commit and tree, that the worktree was clean, start
+// and end times, Playwright's exit code, the policy matrices' mode, and every
+// test's title, status, retry count, duration and annotations, from
+// Playwright's JSON reporter. A dirty worktree is refused: a receipt has to
+// name exactly what ran. `--grep` narrows a run (for a witness); such a
+// receipt says `full: false` and is not an acceptance run.
+//
+// The policy matrices always enforce here. RJ_MATRIX_OBSERVE in the caller's
+// environment is refused rather than dropped, since whoever set it expected
+// observer output; the suite's environment never carries it, and carries
+// RJ_ACCEPTANCE=1, under which the matrices refuse observe mode themselves.
+// Each matrix test must report `matrix-mode: enforce`, or its run fails.
+
+import { spawnSync, execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SUITE = path.resolve(HERE, "..");
+const REPO = path.resolve(SUITE, "..", "..");
+const args = process.argv.slice(2);
+const option = (name, fallback) => {
+  const index = args.indexOf(`--${name}`);
+  return index === -1 ? fallback : args[index + 1];
+};
+const runs = Number(option("runs", "3"));
+const out = path.resolve(option("out", path.join(SUITE, "test-results", "receipts")));
+const grep = option("grep", null);
+
+if (process.env.RJ_MATRIX_OBSERVE) {
+  console.error("refusing: RJ_MATRIX_OBSERVE is set; acceptance runs check the policy matrices and never only record them. Unset it.");
+  process.exit(2);
+}
+const MODE = "enforce";
+/** Journeys whose test must carry `matrix-mode: enforce`. */
+const MATRIX_FILES = ["s5-route-matrix.journey.mjs", "s5-page-matrix.journey.mjs"];
+
+const git = (...argv) => execFileSync("git", argv, { cwd: REPO, encoding: "utf8" }).trim();
+const dirty = git("status", "--porcelain", "--untracked-files=no");
+if (dirty) {
+  console.error(`refusing: the worktree has uncommitted changes to tracked files:\n${dirty}`);
+  process.exit(2);
+}
+const commit = git("rev-parse", "HEAD");
+const tree = git("rev-parse", "HEAD^{tree}");
+fs.mkdirSync(out, { recursive: true });
+
+function flatten(suite, file = suite.file) {
+  const tests = [];
+  for (const spec of suite.specs ?? []) {
+    for (const t of spec.tests) {
+      // Annotations sit on the test in older reporters and on each result in newer ones.
+      const annotations = [...(t.annotations ?? []), ...t.results.flatMap((r) => r.annotations ?? [])];
+      tests.push({
+        file: spec.file ?? file,
+        title: spec.title,
+        status: t.status,
+        annotations: annotations.filter((a, i) => annotations.findIndex((b) => b.type === a.type && b.description === a.description) === i),
+        results: t.results.map((r) => ({ status: r.status, retry: r.retry, durationMs: r.duration })),
+      });
+    }
+  }
+  for (const child of suite.suites ?? []) tests.push(...flatten(child, child.file ?? file));
+  return tests;
+}
+
+/** Matrix tests that ran and did not report enforcing mode. */
+function unenforced(tests) {
+  return tests
+    .filter((t) => MATRIX_FILES.includes(path.basename(t.file)) && t.results.length > 0)
+    .filter((t) => !t.annotations.some((a) => a.type === "matrix-mode" && a.description === MODE))
+    .map((t) => `${t.file}: ${t.title}`);
+}
+
+const suiteEnv = { ...process.env, RJ_ACCEPTANCE: "1" };
+delete suiteEnv.RJ_MATRIX_OBSERVE;
+
+let failed = false;
+for (let n = 1; n <= runs; n += 1) {
+  const startedAt = new Date().toISOString();
+  const report = path.join(out, `run-${n}.playwright.json`);
+  const argv = ["playwright", "test", "--retries=0", "--reporter=list,json", ...(grep ? ["--grep", grep] : [])];
+  const result = spawnSync("npx", argv, {
+    cwd: SUITE,
+    stdio: ["ignore", "inherit", "inherit"],
+    env: { ...suiteEnv, PLAYWRIGHT_JSON_OUTPUT_FILE: report },
+  });
+  const finishedAt = new Date().toISOString();
+  const json = fs.existsSync(report) ? JSON.parse(fs.readFileSync(report, "utf8")) : { suites: [], stats: null };
+  const tests = json.suites.flatMap((suite) => flatten(suite));
+  const notEnforced = unenforced(tests);
+  const receipt = {
+    run: n,
+    of: runs,
+    commit,
+    tree,
+    worktreeClean: true,
+    full: grep === null,
+    grep,
+    matrixMode: MODE,
+    suiteEnv: { RJ_ACCEPTANCE: suiteEnv.RJ_ACCEPTANCE, RJ_MATRIX_OBSERVE: suiteEnv.RJ_MATRIX_OBSERVE ?? null },
+    matrixTestsNotEnforced: notEnforced,
+    startedAt,
+    finishedAt,
+    exitCode: result.status,
+    retries: 0,
+    stats: json.stats,
+    passed: tests.filter((t) => t.status === "expected").length,
+    total: tests.length,
+    tests,
+  };
+  fs.writeFileSync(path.join(out, `run-${n}.receipt.json`), `${JSON.stringify(receipt, null, 2)}\n`);
+  fs.rmSync(report, { force: true });
+  console.log(`run ${n}/${runs} at ${commit.slice(0, 8)} (matrices ${MODE}): exit ${result.status}, ${receipt.passed}/${receipt.total} passed`);
+  if (notEnforced.length) console.error(`matrix tests that did not report enforcing mode:\n  ${notEnforced.join("\n  ")}`);
+  if (result.status !== 0 || notEnforced.length || tests.length === 0) {
+    // The bar is consecutive passes; a failed run ends the attempt.
+    failed = true;
+    break;
+  }
+}
+process.exit(failed ? 1 : 0);

@@ -119,8 +119,9 @@ test("a comparison that arrives late keeps an open reading open and focused", as
   stillOpen();
 
   await deliver(() => client.setQueryData(["run", before.id], before));
-  // The previous run's record has reached the rows: Text MRR now carries its change.
-  assert.match(row.textContent, /\+0\.08/);
+  // The previous run's record has reached the rows: Text MRR now carries its
+  // change, in the row's value beside the label that toggles it.
+  assert.match(row.closest("dl > div")!.textContent, /\+0\.08/);
   stillOpen();
 });
 

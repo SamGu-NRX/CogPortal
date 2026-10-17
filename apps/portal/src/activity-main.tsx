@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Common, DiscordSDK, Events } from "@discord/embedded-app-sdk";
 import { z } from "zod";
@@ -120,6 +120,11 @@ function ActivityApp() {
   const [gatePhase, setGatePhase] = useState<GatePhase>("idle");
   const [checkResult, setCheckResult] = useState<GateOutcome | null>(null);
   const [gateError, setGateError] = useState<string | null>(null);
+  // Set when a link check lets the student in. The gate and its Check button
+  // leave the page then, focus falls to the document, and a keyboard user
+  // would start the bench from the top; it goes to the bench's heading.
+  const benchFocusPending = useRef(false);
+  const benchMain = useRef<HTMLElement>(null);
 
   /**
    * Take a session and everything that depends on it. Surfaces load first, so a
@@ -180,7 +185,10 @@ function ActivityApp() {
       toEntryScreen(caught);
       return;
     }
-    if (outcome === "linked") return;
+    if (outcome === "linked") {
+      benchFocusPending.current = true;
+      return;
+    }
     setGatePhase(outcome === "advanced" ? "idle" : "away");
     setCheckResult(outcome);
   };
@@ -257,6 +265,19 @@ function ActivityApp() {
   );
   const compact = layoutMode === Common.LayoutModeTypeObject.PIP || layoutMode === Common.LayoutModeTypeObject.GRID;
 
+  useEffect(() => {
+    if (!benchFocusPending.current || session?.linked !== true) return;
+    const root = benchMain.current;
+    const heading = root?.querySelector<HTMLElement>("h1, h2") ?? root;
+    if (!heading) return;
+    benchFocusPending.current = false;
+    // Focus someone already moved elsewhere stays where they put it.
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+    heading.focus({ preventScroll: true });
+  });
+
   if (!embedded) {
     return (
       <main className="activity-safe grid min-h-dvh place-items-center p-5">
@@ -297,7 +318,7 @@ function ActivityApp() {
   return (
     <div className="activity-shell" data-layout-mode={layoutMode}>
       <ActivityHeader session={session} surfaces={surfaces} selectedId={selectedId} onSelect={setSelectedId} compact={compact} />
-      <main className="activity-scroller">
+      <main ref={benchMain} className="activity-scroller">
         {stream.snapshot ? (
           <RunConsole
             embedded
