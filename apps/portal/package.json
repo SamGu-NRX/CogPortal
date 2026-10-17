@@ -11,6 +11,7 @@
     "build": "tsc -b && vite build && node scripts/scrub-dist-secrets.mjs",
     "check": "tsc -b",
     "test": "TSX_TSCONFIG_PATH=tsconfig.app.json tsx --test test/*.test.ts",
+    "test:security": "pnpm --filter @cogworks/portal-security-journeys journeys",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cogportal-db --local",
     "db:seed:local": "wrangler d1 execute cogportal-db --local --file scripts/seed-local.sql",

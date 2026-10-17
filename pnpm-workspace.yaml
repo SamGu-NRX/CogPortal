@@ -2,6 +2,7 @@ packages:
   - "apps/portal"
   - "apps/discord-bot"
   - "packages/*"
+  - "tools/portal-security-journeys"
 
 onlyBuiltDependencies:
   - esbuild
