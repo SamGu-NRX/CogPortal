@@ -1,0 +1,7 @@
+# Suite state never commits: databases, snapshots, caches, generated shim/config.
+state/
+.cache/
+.generated/
+node_modules/
+test-results/
+playwright-report/
