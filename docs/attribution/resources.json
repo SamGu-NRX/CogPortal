@@ -1,6 +1,6 @@
 {
   "baseBranch": "fix/device-link-recovery-20261004",
-  "baseRevision": "421f45f610eb16c2a85ec2920963101c9065fd22",
+  "baseRevision": "abe7ccda88a8367eec0ea318cb9db63a81cae402",
   "branch": "obv/products-l3-benchmark-data-attribution-20261010",
   "repo": "SamGu-NRX/CogPortal",
   "resources": [
@@ -324,7 +324,7 @@
           {
             "evidenceState": "verified",
             "path": "docs/decisions/week1-corpus-determinism.md",
-            "quote": "",
+            "quote": "for a fingerprint matcher. So `synth.py` renders seeded synthetic music, and",
             "relationship": "decision-record"
           }
         ]
@@ -510,14 +510,14 @@
           {
             "evidenceState": "verified",
             "path": "apps/runner-modal/tests/fixtures/saved_environments/README.md",
-            "quote": "- `pr8_week2_payload.py`: the same CogPortal commit, `apps/runner-modal/src/cogworks_runner/week2_payload.py`.",
+            "quote": "- `c177_vision_drivers.py`: Week 2 benchmark `c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2`, `facial_recognition_benchmark/drivers.py`. Its shuffled-query path can execute the newer controller's recognition allocation.",
             "relationship": "readme-statement"
           }
         ]
       },
       "source": {
         "evidenceState": "verified",
-        "pin": "unrecorded",
+        "pin": "c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
         "pinSource": "apps/runner-modal/tests/fixtures/saved_environments/README.md recorded commit",
         "urls": [
           "file://apps/runner-modal/tests/fixtures/saved_environments/README.md"
@@ -556,7 +556,7 @@
           {
             "evidenceState": "verified",
             "path": "benchmarks/vision-recognition/DEPRECATED.md",
-            "quote": "",
+            "quote": "This synthetic v1 fixture is retained temporarily for history only. Active Week",
             "relationship": "readme-statement"
           }
         ]
@@ -585,6 +585,10 @@
       "sha256": "3bb4782d9d94363bf6070dedcb5eced8213d6a8a26e660d8066a1f3609903a8e"
     },
     {
+      "path": "apps/runner-modal/tests/fixtures/saved_environments/LICENSE-week2-benchmark",
+      "sha256": "de2ae02fd4fdefebce0a3a87756800526e4f2a3cb187cb9bec65159eb4c1dfd7"
+    },
+    {
       "path": "apps/runner-modal/tests/fixtures/saved_environments/README.md",
       "sha256": "137d7b423de41dbcbfd2b9ac6a3bf74429f44b292de16ad3a2f3c35935516e6b"
     },
@@ -595,6 +599,42 @@
     {
       "path": "benchmarks/vision-recognition/src/cogworks_vision_benchmark/descriptor.json",
       "sha256": "b50b035b217d23caae76e507e8cb6a3f7129fb279053b7362622f08c0fa7ca79"
+    },
+    {
+      "path": "benchmarks/week1/audio_identification_benchmark/manifests/public-evaluation.json",
+      "sha256": "8f29d5a676501e572f592deea0ff06423a05248c76e7c8dee1b103d071e98e8e"
+    },
+    {
+      "path": "benchmarks/week1/audio_identification_benchmark/manifests/public-test.json",
+      "sha256": "77ddd8a6316eec559f5670253baa237122e472963ca1ce451ab558130ff78bc3"
+    },
+    {
+      "path": "benchmarks/week2/LICENSE",
+      "sha256": "de2ae02fd4fdefebce0a3a87756800526e4f2a3cb187cb9bec65159eb4c1dfd7"
+    },
+    {
+      "path": "benchmarks/week2/docs/data-and-scoring.md",
+      "sha256": "b94c259a10e0ed43edd5bb038bd16e201cdd0dbc12e3a7632d1274a03203a2c8"
+    },
+    {
+      "path": "benchmarks/week2/facial_recognition_benchmark/manifests/public-evaluation.json",
+      "sha256": "737a54403ecd5a7e095ec956dc89a462716a4616fb6df1660e376f01377cf3e6"
+    },
+    {
+      "path": "benchmarks/week2/facial_recognition_benchmark/manifests/public-test.json",
+      "sha256": "8ed57bc3f56b7b5b04bbebb4c88c1fae0b52c41b2db14181d29cfca09751fc46"
+    },
+    {
+      "path": "benchmarks/week2/facial_recognition_benchmark/model-lock.json",
+      "sha256": "867b08b3687c9273fc797b8a0b8ecd40dcd7b5bce70d708046b76a196837aff0"
+    },
+    {
+      "path": "benchmarks/week3/LICENSE",
+      "sha256": "3bb4782d9d94363bf6070dedcb5eced8213d6a8a26e660d8066a1f3609903a8e"
+    },
+    {
+      "path": "benchmarks/week3/language_search_benchmark/datasets.py",
+      "sha256": "3212dc38a76f6251e2e786dbf5f2584f2e0dde489f1981f7ef0b5135a5ff9139"
     },
     {
       "path": "docs/capstones/README.md",

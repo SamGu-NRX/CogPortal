@@ -1,6 +1,6 @@
 {
   "baseBranch": "fix/device-link-recovery-20261004",
-  "baseRevision": "421f45f610eb16c2a85ec2920963101c9065fd22",
+  "baseRevision": "abe7ccda88a8367eec0ea318cb9db63a81cae402",
   "branch": "obv/products-l3-benchmark-data-attribution-20261010",
   "countsScope": "per source group; evidence states describe what was observed, never permission",
   "groups": [

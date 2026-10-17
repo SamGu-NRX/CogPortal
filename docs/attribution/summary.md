@@ -5,7 +5,7 @@ repo: SamGu-NRX/CogPortal  branch: obv/products-l3-benchmark-data-attribution-20
 per source group; evidence states describe what was observed, never permission
 
 | source group | resources | verified refs | secondary refs | unknown refs | verified reuse | secondary reuse | unknown reuse | unresolved terms | urls reachable | unreachable | unverified |
-|---|---|---|---|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|---|---|---|---|
 | bundled-corpus | 1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
 | deprecated-fixture | 1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
 | pinned-submodule | 8 | 2 | 2 | 0 | 2 | 1 | 5 | 5 | 11 | 0 | 0 |
