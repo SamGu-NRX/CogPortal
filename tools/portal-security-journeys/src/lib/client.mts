@@ -102,7 +102,11 @@ export async function linkDevice(api: Api, deviceName: string): Promise<string |
   if (approve.status !== 200 && approve.status !== 201) return new Error(`device approve: ${approve.status} ${approve.text.slice(0, 200)}`);
   for (let i = 0; i < 6; i++) {
     const token = await api.req("POST", "/api/v1/cli/device/token", { json: { deviceCode } });
-    if (token.status === 200 && token.json()?.accessToken) return token.json().accessToken as string;
+    const body = token.status === 200 ? (token.json() as { status?: string; token?: string } | null) : null;
+    // The wire contract (DeviceTokenResponseSchema) grants { status:
+    // "authorized", token }. Reading any other field misses the one-time
+    // grant and the next poll gets 410 — the device checks never run.
+    if (token.status === 200 && body?.status === "authorized" && typeof body.token === "string") return body.token;
     if (token.status !== 200) return new Error(`device token: ${token.status} ${token.text.slice(0, 200)}`);
     await new Promise((r) => setTimeout(r, 1000));
   }

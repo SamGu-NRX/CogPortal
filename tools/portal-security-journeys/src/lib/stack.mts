@@ -150,12 +150,19 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
   const devVars: Record<string, string> = {
     ENVIRONMENT: "development",
     DEV_AUTH: opts.devAuth === false ? "disabled" : "enabled",
+    // The checkout's wrangler.jsonc vars carry GITHUB_CLIENT_ID (staging) with
+    // no secret; a half-configured pair makes createAuth throw on every boot.
+    // Development-auth journeys clear BOTH values explicitly so the worker
+    // falls back to dev sign-in; the GitHub-configured variant sets both.
     ...(opts.withGithubConfig
       ? {
           GITHUB_CLIENT_ID: "Iv23li0000000journey-placeholder",
           GITHUB_CLIENT_SECRET: "sec-journeys-placeholder-not-a-real-secret",
         }
-      : {}),
+      : {
+          GITHUB_CLIENT_ID: "",
+          GITHUB_CLIENT_SECRET: "",
+        }),
     BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
     BETTER_AUTH_URL: `http://127.0.0.1:${port}`,
     PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
@@ -231,15 +238,35 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
   const baseUrl = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 120_000;
   let up = false;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`vite exited early (${child.exitCode}): ${out.slice(-400)}`);
-    if (await portAccepts(port)) {
-      up = true;
-      break;
+  try {
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error(`vite exited early (${child.exitCode}): ${out.slice(-400)}`);
+      if (await portAccepts(port)) {
+        up = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
     }
-    await new Promise((r) => setTimeout(r, 1000));
+    if (!up) throw new Error(`stack never became ready (port ${port} never accepted connections): ${out.slice(-400)}`);
+  } catch (err) {
+    // A failed boot must not leak the vite child: kill it and drop the temp
+    // state before the error reaches the runner, or later journeys inherit
+    // live servers and open handles.
+    child.kill("SIGTERM");
+    setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }, 3000);
+    try {
+      rmSync(stateDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+    throw err;
   }
-  if (!up) throw new Error(`stack never became ready (port ${port} never accepted connections): ${out.slice(-400)}`);
 
   log(`stack ready at ${baseUrl}`);
   const stack: Stack = {
@@ -247,6 +274,7 @@ export async function bootStack(journeyId: string, log: (line: string) => void, 
     port,
     root,
     log,
+    d1: (command: string) => runWrangler(portal, ["d1 execute", dbName, ...wranglerStateArgs, `--command "${command}"`], "D1 execute"),
     teardown: async () => {
       child.kill("SIGTERM");
       setTimeout(() => {

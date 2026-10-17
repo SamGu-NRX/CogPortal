@@ -74,11 +74,14 @@ export const j10: Journey = {
     } catch (err) {
       log(`git ls-files failed: ${String(err).slice(0, 120)}`);
     }
-    const enabledTracked = tracked.filter((f) => f.endsWith("/.dev.vars") || f === ".dev.vars" || f.endsWith("/.dev.vars.local"));
+    // The name of this check is the assertion: ANY tracked dev-vars file other
+    // than the example — .dev.vars, .dev.vars.local, .dev.vars.<anything> —
+    // is an enabling file shipped to the repository, whatever its suffix.
+    const unapproved = tracked.filter((f) => !f.endsWith(".dev.vars.example"));
     checks.push(
-      tracked.includes("apps/portal/.dev.vars.example") && enabledTracked.length === 0
+      tracked.includes("apps/portal/.dev.vars.example") && unapproved.length === 0
         ? { name: ".dev.vars.example is the only tracked dev-vars file and no .dev.vars is committed", ok: true, detail: tracked.join(", ") || "(none)" }
-        : { name: ".dev.vars.example is the only tracked dev-vars file and no .dev.vars is committed", ok: false, detail: `tracked: ${tracked.join(", ") || "none"}; enabling files: ${enabledTracked.join(", ") || "none"}` },
+        : { name: ".dev.vars.example is the only tracked dev-vars file and no .dev.vars is committed", ok: false, detail: `tracked: ${tracked.join(", ") || "none"}; unapproved: ${unapproved.join(", ") || "none"}` },
     );
 
     const example = readFileSync(join(portalDir, ".dev.vars.example"), "utf8");

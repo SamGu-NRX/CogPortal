@@ -20,6 +20,14 @@ export type Stack = {
   root: string; // repo root
   log: (line: string) => void;
   teardown: () => Promise<void>;
+  /**
+   * Run a raw D1 SQL command against THIS journey's isolated local database
+   * (the same persist directory the booted stack reads). Post-boot data
+   * seeding — a cross-team fixture row, an expiry acceleration — must go
+   * through this, never a checkout-default `wrangler d1 execute --local`,
+   * which would read and write the developer's own local state.
+   */
+  d1: (command: string) => string;
 };
 
 export type Journey = {
@@ -101,12 +109,45 @@ export function assertEq(actual: unknown, expected: unknown, name: string, detai
   return { name: `${name} — expected ${String(expected)}, got ${String(actual)}${detail ? ` (${detail})` : ""}`, ok };
 }
 
-export class SkipJourney extends Error {}
+/**
+ * A journey that cannot finish an arm throws SkipJourney. Checks already
+ * collected before the skip MUST ride along: a late optional arm (an
+ * unexercisable expiry path, an unavailable double) must not erase earlier
+ * failures or let the process exit green past them.
+ */
+export class SkipJourney extends Error {
+  checks?: Check[];
+  constructor(message: string, checks: Check[] = []) {
+    super(message);
+    this.name = "SkipJourney";
+    this.checks = checks;
+  }
+}
+
+/**
+ * The result row for a skipped journey: status "fail" when any completed
+ * check failed (a skip must not convert failures into a passing process),
+ * "skip" when every completed check passed and only the late arm was lost.
+ */
+export function skipJourneyResult(journey: { id: string; title: string; fixedInput: string }, err: SkipJourney, ms: number): JourneyResult {
+  const checks = err.checks ?? [];
+  const failed = checks.some((c) => !c.ok);
+  return {
+    id: journey.id,
+    title: journey.title,
+    fixedInput: journey.fixedInput,
+    status: failed ? "fail" : "skip",
+    checks,
+    skippedBecause: err.message,
+    ms,
+  };
+}
 
 /**
  * Fresh-stack wrapper: boots an isolated local stack, runs the journey,
- * tears everything down. A journey that cannot get its stack throws
- * SkipJourney, which run-all turns into status=skip with the reason —
+ * tears everything down. A journey that cannot get its stack or finish a
+ * late optional arm throws SkipJourney, which run-all records with the
+ * reason AND any checks already collected — a failed check stays failed,
  * never a fabricated pass.
  */
 export async function withStack(

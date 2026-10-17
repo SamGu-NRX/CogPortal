@@ -6,11 +6,11 @@
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SkipJourney, summarize, type Journey, type JourneyResult, type Stack } from "./lib/framework.mts";
+import { SkipJourney, skipJourneyResult, summarize, type Journey, type JourneyResult, type Stack } from "./lib/framework.mts";
 
 // Journeys boot their own stack via withStack; this stub only satisfies the
 // signature for future runner-injected stacks.
-const stub: Stack = { baseUrl: "", port: 0, root: process.cwd(), log: () => {}, teardown: async () => {} };
+const stub: Stack = { baseUrl: "", port: 0, root: process.cwd(), log: () => {}, teardown: async () => {}, d1: () => "" };
 
 async function loadJourneys(): Promise<Journey[]> {
   const dir = fileURLToPath(new URL("./journeys", import.meta.url));
@@ -43,7 +43,9 @@ export async function main(filter?: string): Promise<JourneyResult[]> {
     } catch (err) {
       results.push(
         err instanceof SkipJourney
-          ? { id: j.id, title: j.title, fixedInput: j.fixedInput, status: "skip", checks: [], skippedBecause: err.message, ms: Date.now() - t0 }
+          ? // Preserve the checks collected before the skip; a failed check
+            // keeps the journey (and the process) failed.
+            skipJourneyResult(j, err, Date.now() - t0)
           : {
               id: j.id,
               title: j.title,

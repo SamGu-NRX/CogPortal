@@ -42,7 +42,10 @@ export const j1: Journey = {
 
       const started = await owner.api.req("POST", "/api/runs/practice", { json: { benchmarkId: bench.id, branch: "main", teamId } });
       if (started.status !== 200 && started.status !== 201) throw new Error(`owner practice start failed: ${started.status} ${started.text.slice(0, 200)}`);
-      const runId = started.json().id as string;
+      // The start wire contract (StartRunResponseSchema) carries the id under
+      // `runId`; reading any other field leaves runId undefined and every
+      // later run lookup polls a dead URL until timeout.
+      const runId = started.json().runId as string;
       await waitForRunStatus(owner.api, runId, "succeeded");
       const runRes = await owner.api.req("GET", `/api/runs/${runId}`);
       const surfaceId = (runRes.json()?.surfaceId as string | undefined) ?? "";

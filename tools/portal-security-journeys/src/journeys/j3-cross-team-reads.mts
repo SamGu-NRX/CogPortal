@@ -1,5 +1,5 @@
 import { Api, newStudent, waitForRunStatus } from "../lib/client.mts";
-import { allowed, refused, withStack, type Check, type Journey } from "../lib/framework.mts";
+import { allowed, refused, SkipJourney, withStack, type Check, type Journey } from "../lib/framework.mts";
 
 /**
  * J3 — cross-team reads, with exact refusals and owner-side controls.
@@ -7,9 +7,10 @@ import { allowed, refused, withStack, type Check, type Journey } from "../lib/fr
  * The fixture stack serves exactly one connectable repository
  * (cogworks-demo/face-finder), so two students in one cohort land on ONE
  * shared team — a second team cannot be created through the product flow.
- * The real other-identity objects are the seeded teams' runs:
- * run_ghost_eigen belongs to seeded team_eigenfaces. Bob (on the shared
- * team, holding only his own session) probes those seeded other-team
+ * The real other-identity objects are the seeded teams' runs plus a real
+ * run_surfaces row the journey inserts for team_eigenfaces (see the surface
+ * arm below): run_ghost_eigen belongs to seeded team_eigenfaces. Bob (on the
+ * shared team, holding only his own session) probes those seeded other-team
  * objects; Alice's own run provides the positive controls.
  */
 export const j3: Journey = {
@@ -33,7 +34,10 @@ export const j3: Journey = {
       if (started.status !== 200 && started.status !== 201) {
         throw new Error(`alice practice start failed: ${started.status} ${started.text.slice(0, 200)}`);
       }
-      const runId = started.json().id as string;
+      // The start wire contract (StartRunResponseSchema) carries the id under
+      // `runId`; reading any other field leaves runId undefined and the
+      // status poll dead-loops on /api/runs/undefined until timeout.
+      const runId = started.json().runId as string;
       const status = await waitForRunStatus(alice.api, runId, "succeeded");
       const runRes = await alice.api.req("GET", `/api/runs/${runId}`);
       const surfaceId = (runRes.json()?.surfaceId as string | undefined) ?? "";
@@ -64,10 +68,33 @@ export const j3: Journey = {
           : { name: "GET /api/dashboard (Bob) shows no seeded other-team names", ok: false, detail: `HTTP ${dash.status}; eigenfaces leak: ${dash.text.includes("Eigenfaces United")}` },
       );
 
-      // Surfaces: no other-team surfaces exist in the fixture stack (the seed
-      // creates none), so the unknown-id probe asserts the scoped-lookup 404.
-      const ghostSurface = await bob.api.req("GET", "/api/run-surfaces/surface_00000000000000000000");
-      checks.push(refused("GET /api/run-surfaces/<unknown-surface> refuses for Bob", ghostSurface.status, ghostSurface.text, { status: 404, code: "not_found" }));
+      // Surfaces: the seed creates no other-team surface, and the shared-team
+      // constraint means the product flow cannot mint one — so the journey
+      // inserts a REAL run_surfaces row for the seeded other-team team
+      // (team_eigenfaces) through the journey's isolated D1 (stack.d1), with
+      // Alice's real user id satisfying the users FK. Probing an unknown id
+      // proves nothing about ownership: 404 answers "does not exist" exactly
+      // as it answers "not yours", so only a real foreign row exercises the
+      // scoped lookup (getRunSurfaceRow -> surface.teamId !== auth.team.id).
+      const sessionRes = await alice.api.req("GET", "/api/auth/get-session");
+      const aliceUserId = (sessionRes.json()?.user?.id as string | undefined) ?? "";
+      if (!aliceUserId) throw new SkipJourney("cross-team surface arm unexercisable: no user id in Alice's session", checks);
+      let ghostSeeded = true;
+      try {
+        stack.d1(
+          `INSERT INTO run_surfaces (id, team_id, created_by_user_id, benchmark_id, benchmark_version, created_at, updated_at) VALUES ('surface_ghost_eigen', 'team_eigenfaces', '${aliceUserId}', '${benchmarkId}', 1, ${Date.now()}, ${Date.now()})`,
+        );
+      } catch (err) {
+        ghostSeeded = false;
+        log(`ghost-surface insert failed: ${String(err).slice(0, 200)}`);
+      }
+      if (!ghostSeeded) {
+        throw new SkipJourney("cross-team surface arm unexercisable: the isolated D1 insert of the other-team surface row failed", checks);
+      }
+      const ghostSurface = await bob.api.req("GET", "/api/run-surfaces/surface_ghost_eigen");
+      checks.push(refused("GET /api/run-surfaces/surface_ghost_eigen refuses for Bob (real seeded other-team surface, scoped-lookup 404)", ghostSurface.status, ghostSurface.text, { status: 404, code: "not_found" }));
+      const ghostSurfaceAction = await bob.api.req("POST", "/api/run-surfaces/surface_ghost_eigen/actions/pause");
+      checks.push(refused("POST /api/run-surfaces/surface_ghost_eigen/actions/pause refuses for Bob (real seeded other-team surface)", ghostSurfaceAction.status, ghostSurfaceAction.text, { status: 404, code: "not_found" }));
 
       // Positive controls: Alice, the legitimate owner, reads her own objects.
       const ownRun = await alice.api.req("GET", `/api/runs/${runId}`);

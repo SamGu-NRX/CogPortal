@@ -36,7 +36,10 @@ export const j4: Journey = {
       if (started.status !== 200 && started.status !== 201) {
         throw new Error(`alice practice start failed: ${started.status} ${started.text.slice(0, 200)}`);
       }
-      const runId = started.json().id as string;
+      // The start wire contract (StartRunResponseSchema) carries the id under
+      // `runId`; reading any other field leaves runId undefined and the
+      // status poll dead-loops on /api/runs/undefined until timeout.
+      const runId = started.json().runId as string;
       await waitForRunStatus(alice.api, runId, "succeeded");
       log(`alice run ${runId} succeeded`);
 

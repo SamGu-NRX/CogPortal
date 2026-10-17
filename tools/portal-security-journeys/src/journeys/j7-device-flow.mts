@@ -1,5 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { join } from "node:path";
 import { Api } from "../lib/client.mts";
 import { refused, SkipJourney, withStack, type Check, type Journey } from "../lib/framework.mts";
 
@@ -162,23 +160,23 @@ export const j7: Journey = {
       if (!code2 || !user2) {
         throw new SkipJourney("expiry arm unexercisable: POST /api/v1/cli/device/start stopped issuing codes");
       }
-      let accelerated = true;
+      // The TTL is a fixed 10-minute source constant, so accelerate expiry by
+      // rewriting expires_at in THIS journey's isolated D1 via stack.d1 (the
+      // same persist directory the booted stack reads) — never a
+      // checkout-default `wrangler d1 execute --local`, which would read and
+      // write the developer's own local state instead.
       let accelDetail = "";
       try {
-        execFileSync(
-          "pnpm",
-          ["exec", "wrangler", "d1", "execute", "cogportal-db", "--local", "--command", `UPDATE device_authorizations SET expires_at = 1 WHERE user_code = '${user2}'`],
-          { cwd: join(stack.root, "apps", "portal"), stdio: "pipe", timeout: 60_000 },
-        );
-        log(`expired code ${user2} via local D1 write`);
+        stack.d1(`UPDATE device_authorizations SET expires_at = 1 WHERE user_code = '${user2}'`);
+        log(`expired code ${user2} via the journey's isolated D1 write`);
       } catch (err) {
-        accelerated = false;
         accelDetail = String(err).slice(0, 200);
       }
-      if (!accelerated) {
+      if (accelDetail) {
         // Per the journey contract: a skipped arm carries the observed reason
-        // instead of a fabricated pass. The checks above stay in the log.
-        throw new SkipJourney(`expiry arm unexercisable: local D1 write failed — ${accelDetail}. Observed TTL from source: 10 minutes (connections.ts DEVICE_AUTH_TTL_MS).`);
+        // instead of a fabricated pass — and the checks collected so far ride
+        // along, so a failure among them keeps the run failed.
+        throw new SkipJourney(`expiry arm unexercisable: isolated D1 write failed — ${accelDetail}. Observed TTL from source: 10 minutes (connections.ts DEVICE_AUTH_TTL_MS).`, checks);
       }
       const expiredApprove = await bob.req("POST", "/api/v1/cli/device/approve", { json: { userCode: user2, deviceName: "j7-expired-box" } });
       checks.push(refused("POST /api/v1/cli/device/approve of an expired code refuses (D1-accelerated expiry)", expiredApprove.status, expiredApprove.text));

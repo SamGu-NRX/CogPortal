@@ -82,19 +82,23 @@ export const j8: Journey = {
       );
 
       // --- sign-out then reuse: the old session must actually revoke ---
+      // Snapshot the LIVE session cookie first: sign-out rewrites the jar
+      // (the deletion Set-Cookie empties it), so a post-sign-out replay from
+      // the jar would prove nothing about server-side revocation.
+      const preLogoutCookie = alice.cookieHeader();
       const signedOut = await alice.req("POST", "/api/auth/sign-out");
       checks.push(
-        signedOut.status < 400
+        signedOut.status >= 200 && signedOut.status < 300
           ? { name: "POST /api/auth/sign-out succeeds for the live session", ok: true, detail: `HTTP ${signedOut.status}` }
           : { name: "POST /api/auth/sign-out succeeds for the live session", ok: false, detail: `HTTP ${signedOut.status}: ${signedOut.text.slice(0, 160)}` },
       );
-      const after = await alice.req("GET", "/api/team");
-      checks.push(refused("GET /api/team with the signed-out session refuses", after.status, after.text));
-      const authState = await alice.req("GET", "/api/auth/get-session");
+      const after = await alice.req("GET", "/api/team", { headers: { cookie: preLogoutCookie } });
+      checks.push(refused("GET /api/team with the replayed pre-logout session cookie refuses — sign-out revoked it server-side", after.status, after.text));
+      const authState = await alice.req("GET", "/api/auth/get-session", { headers: { cookie: preLogoutCookie } });
       checks.push(
         authState.status >= 400 || authState.text.trim() === "null" || authState.text.trim() === ""
-          ? { name: "GET /api/auth/get-session after sign-out reports no authenticated user", ok: true, detail: `HTTP ${authState.status}, body ${authState.text.slice(0, 60)}` }
-          : { name: "GET /api/auth/get-session after sign-out reports no authenticated user", ok: false, detail: `HTTP ${authState.status}, body ${authState.text.slice(0, 120)}` },
+          ? { name: "GET /api/auth/get-session with the replayed pre-logout cookie reports no authenticated user", ok: true, detail: `HTTP ${authState.status}, body ${authState.text.slice(0, 60)}` }
+          : { name: "GET /api/auth/get-session with the replayed pre-logout cookie reports no authenticated user", ok: false, detail: `HTTP ${authState.status}, body ${authState.text.slice(0, 120)}` },
       );
       // The refusal above must be the revocation, not a transient backend
       // error: a fresh sign-in on the same stack still authenticates.
@@ -113,7 +117,7 @@ export const j8: Journey = {
       // documented idempotent success (no leak of session existence).
       const secondSignOut = await alice.req("POST", "/api/auth/sign-out");
       checks.push(
-        secondSignOut.status === 200 || secondSignOut.status >= 500
+        secondSignOut.status >= 200 && secondSignOut.status < 300
           ? { name: "POST /api/auth/sign-out again is the documented idempotent success (does not leak session existence)", ok: true, detail: `HTTP ${secondSignOut.status}` }
           : { name: "POST /api/auth/sign-out again is the documented idempotent success (does not leak session existence)", ok: false, detail: `HTTP ${secondSignOut.status}` },
       );
