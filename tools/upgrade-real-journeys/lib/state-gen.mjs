@@ -8,7 +8,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
-import { openD1, persistDirFor } from "./d1.mjs";
+import { findD1File, openD1, persistDirFor } from "./d1.mjs";
 
 export const BETA_COMMIT = "17d26d9";
 // Two-pin reality (plan #108 update): staging students install the SDK from
