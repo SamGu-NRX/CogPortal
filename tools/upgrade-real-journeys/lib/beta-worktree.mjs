@@ -19,24 +19,26 @@ function run(cmd, args, opts = {}) {
 
 /**
  * Ensure beta is checked out and its deps installed.
- * @param {{ repoDir: string, suiteDir: string }} p
+ * @param {{ repoDir: string, suiteDir: string, betaCommit?: string }} p
  * @returns {Promise<{ checkoutDir: string, reused: boolean }>}
  */
-export async function ensureBetaWorktree({ repoDir, suiteDir }) {
+export async function ensureBetaWorktree({ repoDir, suiteDir, betaCommit = BETA_COMMIT }) {
   const checkoutDir = path.join(suiteDir, ".cache", "beta-worktree");
   const depsMarker = path.join(suiteDir, ".cache", "beta-worktree.deps-done");
   mkdirSync(path.dirname(checkoutDir), { recursive: true });
 
   if (!existsSync(path.join(checkoutDir, ".git"))) {
-    run("git", ["-C", repoDir, "worktree", "add", "--detach", checkoutDir, BETA_COMMIT]);
+    run("git", ["-C", repoDir, "worktree", "add", "--detach", checkoutDir, betaCommit]);
   }
   const head = run("git", ["-C", checkoutDir, "rev-parse", "HEAD"]);
-  if (!head.startsWith(BETA_COMMIT)) {
-    throw new Error(`beta-worktree: expected ${BETA_COMMIT}, found ${head}`);
+  if (!head.startsWith(betaCommit)) {
+    throw new Error(`beta-worktree: expected ${betaCommit}, found ${head}`);
   }
-  run("git", ["-C", checkoutDir, "config", "user.name", "Sam Gu"]);
-  run("git", ["-C", checkoutDir, "config", "user.email", "127461594+SamGu-NRX@users.noreply.github.com"]);
-
+  // No `git config user.*` here: a linked worktree shares the main clone's
+  // repository config, so an identity written in the worktree silently
+  // rewrites every later commit in that clone. Generating test state makes no
+  // commits; anything that must commit (the CLI fixture repos) sets a
+  // per-repository identity inside its own new .git instead.
   if (!existsSync(depsMarker)) {
     run("pnpm", ["install", "--prefer-offline"], { cwd: checkoutDir });
     writeFileSync(depsMarker, new Date().toISOString());

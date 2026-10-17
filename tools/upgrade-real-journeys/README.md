@@ -21,6 +21,7 @@ slice of that plan.
 ```
 node bin/upgrade-suite.mjs            # all stages
 node bin/upgrade-suite.mjs journeys   # one stage
+node bin/test.mjs                     # suite unit tests under Node 24
 ```
 
 Stages run in order and stop at the first failure. Every stage writes a receipt under
@@ -31,7 +32,7 @@ failure** (plan metric M1 - no fabricated passes).
 
 | Stage | Script | Does | Pass bar |
 |---|---|---|---|
-| 1 `generate` | `suites/generate.mjs` | Builds a beta-shaped local D1 (beta's migrations + seed) and creates realistic course state **only through beta's real paths** - its SPA/API as dev-auth users and the pinned CLI (`064400e`): cohorts, teams, joins/leaves, forks, device links, synced local reports, hosted fixture runs, published official attempts, staff/TA assignments. Snapshots to `state/beta-snapshot/`. | Fresh-clone run exits 0; `receipts/generate.json` lists every entity class with counts; zero real student data. |
+| 1 `generate` | `suites/generate.mjs` | Builds a beta-shaped local D1 (beta's migrations + seed) and creates realistic course state **only through beta's real paths** - its SPA/API as dev-auth users and the pinned CLI (`064400e`): cohorts, teams, joins/leaves, forks, device links, synced local reports, hosted fixture runs, published official attempts, staff/TA assignments. Staff accounts are rostered **and signed in** through beta's real login path (roster rows alone create no user rows, and beta's TA route refuses logins without a user row before its github-login lookup). Benchmark ids come from each week package's `cogworks.benchmarks.v1/v2` pyproject entry points (check/run take plugin ids, not directory names); the CLI's fixture projects are standalone git repos carrying the connected fixture repo as their `origin`. Snapshots to `state/beta-snapshot/`. | Fresh-clone run exits 0; `receipts/generate.json` lists every entity class with counts; zero real student data. |
 | 2 `journeys` | `suites/journeys.mjs` | Restores the snapshot, applies **alpha's** migrations in deployment order, starts alpha's built Worker+SPA, drives every existing user's journey with Playwright and asserts the data shown matches the snapshot's rows (nothing lost, duplicated, or misattributed). | Every journey x role passes, zero retries, `receipts/journeys.json` written. |
 | 3 `clients` | `suites/clients.mjs` | Pinned CLI vs **alpha** Worker (link, sync, status, `run --live`) and **alpha** CLI vs beta Worker (out-of-step deploy window). Wire defects get a committed witness with repro command; the fix belongs to the CLI task (PR #110). | Per-direction, per-command results in `receipts/clients.json`; exit code reflects pass. |
 | 4 `failures` | `suites/failures.mjs` | (1) migration interrupted halfway then re-run; (2) migrations applied twice (incl. the deployed duplicate `0039`/`0040` pairs - never renumber); (3) alpha Worker started before `0047`-`0049` apply; (4) beta Worker against a post-alpha database (rollback). | Every scenario has a witness + outcome: passes / fixed by an additive migration / handed to the owning task. |
@@ -47,10 +48,49 @@ lib/d1.mjs              local D1 lifecycle: find / migrate / snapshot / restore 
 lib/servers.mjs         .dev.vars (fixture provider + dev-auth) + build + vite preview
 lib/measure.mjs         generated worker-entry shim + counting D1 proxy (stage 5)
 suites/*.mjs            one file per stage (see each file's header contract)
+tests/*.test.mjs        unit tests for the suite's own invariants (node --test)
 receipts/               committed evidence: JSON receipts, volume.md, witnesses/
 state/                  NEVER COMMITTED: sqlite snapshots, scaled databases
 .cache/                 NEVER COMMITTED: worktree, node cache, logs
 ```
+
+## Invariants the unit tests pin
+
+Every fix from the PR #115 review round is a standing invariant with a committed
+regression test (`node bin/test.mjs`); each test was proven to fail with its fix
+mutated away.
+
+- **D1 discovery is scoped.** `lib/d1.mjs` reads only `v3/d1/<key>/db.sqlite`
+  under the persist dir - never miniflare's own `v3/d1/metadata.sqlite` (its
+  newest file) and never Durable Object storage under `v3/do/`
+  (`tests/d1-discovery.test.mjs`).
+- **Rostered staff hold user rows.** After `/api/admin/staff`, each staff login
+  also signs in through `/api/dev/login`; the TA-assignment attempt through
+  `/api/admin/teams/:id/tas` is still made and its 404 recorded (dev-auth logins
+  carry no `githubLogin`) (`tests/state-gen-admin.test.mjs`).
+- **Device linking follows beta's contract.** The approval posts to
+  `/api/v1/cli/device/approve`; the child-exit promise is registered before any
+  await (a CLI that exits while approval is in flight resolves, not hangs);
+  `PYTHONUNBUFFERED=1` is set at the spawn site (piped Python stdout is
+  block-buffered - the CLI prints the code and then polls, so an unflushed
+  buffer deadlocks the stage to its 45s kill) (`tests/state-gen-cli.test.mjs`).
+- **Benchmark ids are plugin ids.** Read from the week package's
+  `cogworks.benchmarks.v1/v2` entry points; a package without them is refused
+  (`tests/state-gen-cli.test.mjs`).
+- **CLI fixture repos carry the team's identity.** Each example is copied into a
+  standalone git repository whose `origin` is the connected fixture repo, with a
+  per-repository commit identity - the CLI reports the repository it walks up
+  to, and the suite's clone is never that repo
+  (`tests/state-gen-cli.test.mjs`).
+- **WebSocket upgrades pass the shim untouched.** A 101 is not a constructible
+  status and rebuilding it would drop the socket workerd paired; only plain
+  responses get the measurement header. The measured Vite config is generated
+  inside `apps/portal/` so its plugin imports resolve in that package's pnpm
+  context (`tests/measure-shim.test.mjs`).
+- **Worktree setup touches no git identity.** A linked worktree shares the main
+  clone's repository config, so `git config user.*` through the worktree would
+  silently rewrite every later commit in that clone
+  (`tests/beta-worktree.test.mjs`).
 
 ## Honesty rules (from the plan's benchmark checklist)
 

@@ -29,6 +29,107 @@ export function readCogbenchPin(fromDir) {
 export const FIXTURE_REPO_FULL = "cogworks-demo/face-finder";
 export const COHORT_JOIN_CODE = "VISION26";
 
+// ── CLI-phase helpers shared with the tests ───────────────────────────────
+
+export const FIXTURE_ORIGIN = "https://github.com/cogworks-demo/face-finder.git";
+
+/**
+ * The benchmark plugin id a benchmark package declares through its
+ * cogworks.benchmarks.v1/v2 entry point (week1 declares
+ * audio-identification). `cogworks check`/`run` take plugin ids like
+ * audio-identification, not the submodule directory name week1, so the id is
+ * read from the package's own pyproject instead of guessed from the path.
+ */
+export function benchmarkPluginId(benchDir) {
+  const file = path.join(benchDir, "pyproject.toml");
+  const src = readFileSync(file, "utf8");
+  const section = /^\[project\.entry-points\."cogworks\.benchmarks\.v[12]"\]\s*$/m;
+  if (!section.test(src)) {
+    throw new Error(`${file} declares no cogworks.benchmarks.v1/v2 entry-point section`);
+  }
+  const lines = src.split("\n");
+  const start = lines.findIndex((line) => section.test(line));
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^\s*\[/.test(lines[i])) break;
+    const m = /^\s*([A-Za-z0-9_.-]+)\s*=/.exec(lines[i]);
+    if (m) return m[1];
+  }
+  throw new Error(`${file} has an empty cogworks.benchmarks entry-point section`);
+}
+
+/**
+ * Copy an example project and make it the standalone committed git repository
+ * the pinned CLI expects: its own .git (repository_state resolves the
+ * repository it stands in by walking up to the nearest .git, so a copy inside
+ * a worktree would report the enclosing checkout's origin), origin naming the
+ * team's connected fixture repository, and one clean commit. Identity is set
+ * with per-repository config only - never the enclosing clone's shared
+ * config.
+ */
+export function makeFixtureRepo(exampleDir, project, { origin = FIXTURE_ORIGIN } = {}) {
+  if (existsSync(path.join(project, ".git"))) return project;
+  rmSync(project, { recursive: true, force: true });
+  cpSync(exampleDir, project, { recursive: true });
+  rmSync(path.join(project, ".git"), { recursive: true, force: true });
+  const git = (args) => runChecked("git", args, { cwd: project, timeoutMs: 60_000 });
+  git(["init", "-b", "main"]);
+  git(["config", "user.name", "Upgrade Suite"]);
+  git(["config", "user.email", "upgrade-suite@dev.local"]);
+  git(["remote", "add", "origin", origin]);
+  git(["add", "-A"]);
+  git(["commit", "-m", "fixture project snapshot"]);
+  return project;
+}
+
+/**
+ * Drive one pinned-CLI device link. The child runs with piped stdout and
+ * Python output unbuffered (the CLI prints the confirmation code and then
+ * polls; block-buffered piped stdout would deadlock the stage until the 45s
+ * kill). The exit wait is registered BEFORE approval is posted:
+ * ChildProcess events are not replayed, and a CLI that observes the approval
+ * and exits while the approval request is still in flight would hang a
+ * promise registered after the await forever.
+ */
+export async function linkDeviceProcess({ argv, cwd, env, deviceName, approve, spawnImpl = spawn }) {
+  const [cmd, ...args] = argv;
+  // Piped stdout is block-buffered in Python: the CLI prints the confirmation
+  // code and then polls, so without PYTHONUNBUFFERED the code line can sit in
+  // the child's buffer and the stage deadlocks until the 45s kill. The
+  // invariant lives here, where the spawn happens, not in each caller.
+  const child = spawnImpl(cmd, args, { cwd, env: { ...env, PYTHONUNBUFFERED: "1" }, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  // Registered before any await: a fast exit cannot be lost.
+  const exitCode = new Promise((resolve) => {
+    child.once("exit", (code, signal) => resolve(code === null ? `signal:${signal}` : code));
+  });
+  const userCode = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`cogworks link never printed a user code (stdout: ${stdout.slice(-300)})`));
+    }, 45_000);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      const m = /user_code=([^&\s]+)|confirm code ([A-Z0-9-]+)/.exec(stdout);
+      if (m) {
+        clearTimeout(timer);
+        resolve(m[1] ?? m[2]);
+      }
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`cogworks link exited early (${code}): ${stdout.slice(-300)}`));
+    });
+  });
+  await approve("/api/v1/cli/device/approve", {
+    method: "POST",
+    body: { userCode, deviceName },
+  });
+  const exit = await exitCode;
+  if (exit !== 0) throw new Error(`cogworks link failed (${exit}): ${stdout.slice(-400)}`);
+  return userCode;
+}
+
+
 /** Every handle the stage creates - generated suite accounts, never real. */
 export const ROSTER = {
   owner: "upg-staff-01",
@@ -170,11 +271,16 @@ export function seedLocal({ checkoutDir, nodeDir }) {
 }
 
 // ── Phase: staff + TA assignment (owner-gated admin routes) ──────────────
-async function adminPhase({ baseUrl, teamId, log }) {
+export async function adminPhase({ baseUrl, teamId, log }) {
   const owner = makeClient(baseUrl);
   await devLogin(owner, ROSTER.owner); // owner via .dev.vars PLATFORM_OWNER_LOGINS
   for (const login of ROSTER.staff) {
     await owner("/api/admin/staff", { method: "POST", body: { login } });
+    // Rostering creates no user row (an owner names staff before they sign
+    // in); the staff user rows come from beta's real login path - beta's
+    // TA-assignment route refuses logins with no user row even before its
+    // github-login lookup, and the stage's user-count pass bar counts users.
+    await devLogin(makeClient(baseUrl), login);
   }
   const tas = [];
   let tasAssigned = 0;
@@ -332,8 +438,14 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
 
   // Pick the first public week whose benchmark installs and checks on this
   // host; the chosen week is recorded in the receipt either way.
+  // `cogworks check` only probes INSTALLED plugin entry points, so the
+  // benchmark package is pip-installed into the stage's venv before the
+  // probe, and the real plugin id comes from the package's declared entry
+  // point (week1 is audio-identification) - not from the submodule directory
+  // name.
   const examples = readdirSync(path.join(pinDir, "examples"));
   let week = null;
+  let pluginId = null;
   let exampleDir = null;
   for (const candidate of ["week1", "week2", "week3"]) {
     const dir = examples.find((d) => d.startsWith(candidate));
@@ -346,58 +458,44 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
     }
     const example = path.join(pinDir, "examples", dir);
     try {
-      runChecked(cogworks, ["check", "--benchmark", candidate, "--json"], { cwd: example, timeoutMs: 420_000 });
+      const id = benchmarkPluginId(path.join(pinDir, "benchmarks", candidate));
+      runChecked(path.join(venvDir, "bin", "pip"), ["install", "--quiet", path.join(pinDir, "benchmarks", candidate)], { timeoutMs: 600_000 });
+      runChecked(cogworks, ["check", "--benchmark", id, "--json"], { cwd: example, timeoutMs: 420_000 });
       week = candidate;
+      pluginId = id;
       exampleDir = example;
       break;
     } catch (error) {
-      quirks.push(`week ${candidate}: cogworks check failed on this host (${String(error).split("\n")[0].slice(0, 200)})`);
+      quirks.push(`week ${candidate}: benchmark install or check failed on this host (${String(error).split("\n")[0].slice(0, 200)})`);
     }
   }
-  if (!week) throw new Error("no public week benchmark passed `cogworks check` on this host");
-  log(`CLI: pinned cogworks installed; week ${week} selected from real public data`);
+  if (!week || !pluginId) throw new Error("no public week benchmark installed and passed `cogworks check` on this host");
+  log(`CLI: pinned cogworks installed; week ${week} (benchmark ${pluginId}) selected from real public data`);
 
-  // One linked device per student, each with its own config + project copy.
+  // One linked device per student, each with its own CLI config and project
+  // copy. The copy becomes its own committed git repository whose origin
+  // names the team's connected fixture repository: the pinned CLI reports the
+  // repository it stands in (repository_state walks up to the nearest .git),
+  // and beta's /api/v1/local-runs refuses reports whose repositoryFullName is
+  // not the team's connected repo. A plain copy inside the cli-pin worktree
+  // would report CogPortal's own origin instead.
   const device = (login) => {
     const configDir = path.join(cacheDir, "devices", login);
     mkdirSync(configDir, { recursive: true });
-    const project = path.join(pinDir, "examples", `${path.basename(exampleDir)}-upg-${login}`);
-    if (!existsSync(project)) cpSync(exampleDir, project, { recursive: true });
+    const project = path.join(cacheDir, "projects", login);
+    makeFixtureRepo(exampleDir, project);
     return { login, configDir, project, env: { ...process.env, COGBENCH_CONFIG: path.join(configDir, "config.json") } };
   };
 
   async function linkDevice(login) {
     const d = device(login);
-    const child = spawn(cogworks, ["link", "--portal", baseUrl, "--no-browser"], {
+    await linkDeviceProcess({
+      argv: [cogworks, "link", "--portal", baseUrl, "--no-browser"],
       cwd: d.project,
       env: d.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      deviceName: `${login} suite laptop`,
+      approve: (route, opts) => clients.get(login)(route, opts),
     });
-    let stdout = "";
-    const userCode = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        child.kill("SIGKILL");
-        reject(new Error(`cogworks link never printed a user code (stdout: ${stdout.slice(-300)})`));
-      }, 45_000);
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk;
-        const m = /user_code=([^&\s]+)|confirm code ([A-Z0-9-]+)/.exec(stdout);
-        if (m) {
-          clearTimeout(timer);
-          resolve(m[1] ?? m[2]);
-        }
-      });
-      child.once("exit", (code) => {
-        clearTimeout(timer);
-        reject(new Error(`cogworks link exited early (${code}): ${stdout.slice(-300)}`));
-      });
-    });
-    await clients.get(login)("/v1/cli/device/approve", {
-      method: "POST",
-      body: { userCode, deviceName: `${login} suite laptop` },
-    });
-    const exit = await new Promise((resolve) => child.once("exit", (code) => resolve(code)));
-    if (exit !== 0) throw new Error(`cogworks link failed (${exit}): ${stdout.slice(-400)}`);
   }
 
   for (const login of ["upg-stu-02", "upg-stu-03", "upg-stu-05"]) await linkDevice(login);
@@ -407,13 +505,13 @@ async function cliPhase({ repoDir, suiteDir, baseUrl, clients, log, stagingPin }
     return runChecked(cogworks, args, { cwd: d.project, env: d.env, timeoutMs });
   };
   // run --live: local benchmark run + live progress bubble + report upload.
-  cli("upg-stu-02", ["run", "--benchmark", week, "--live", "--portal", baseUrl, "--json"], 420_000);
+  cli("upg-stu-02", ["run", "--benchmark", pluginId, "--live", "--portal", baseUrl, "--json"], 420_000);
   // Plain run saves a report; sync posts it (with weights) to the Worker.
-  cli("upg-stu-03", ["run", "--benchmark", week, "--json"], 420_000);
+  cli("upg-stu-03", ["run", "--benchmark", pluginId, "--json"], 420_000);
   cli("upg-stu-03", ["sync", "--portal", baseUrl], 120_000);
   cli("upg-stu-05", ["status", "--portal", baseUrl], 30_000);
   log("CLI: 3 devices linked; run --live + run + sync + status completed against the Worker");
-  return { quirks, week };
+  return { quirks, week, benchmarkId: pluginId };
 }
 
 // ── Orchestrator for the phase sequence ──────────────────────────────────

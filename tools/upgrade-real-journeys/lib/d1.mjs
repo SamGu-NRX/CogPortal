@@ -9,18 +9,33 @@ import { DatabaseSync } from "node:sqlite";
 
 export const DATABASE_ID = "cogportal-db";
 
-/** Newest *.sqlite file under a wrangler persist dir (walks mnt/, v3/, d1/...). */
+/**
+ * Find the actual D1 database file under a wrangler persist dir. Miniflare
+ * keeps each database at `v3/d1/<unique-key>/db.sqlite` and its own
+ * bookkeeping at `v3/d1/metadata.sqlite`; Durable Object storage lives under
+ * `v3/do/`. Only the per-database files under `v3/d1/` are D1 databases - a
+ * walk of every *.sqlite under the persist dir admits metadata.sqlite and DO
+ * sandboxes, and picking the most recently modified file would follow the
+ * last server activity into whatever non-D1 database it touched.
+ */
 export function findD1File(persistDir) {
-  if (!existsSync(persistDir)) throw new Error(`findD1File: ${persistDir} does not exist`);
+  const d1Dir = path.join(persistDir, "v3", "d1");
+  if (!existsSync(d1Dir)) {
+    throw new Error(`findD1File: ${d1Dir} does not exist (no D1 storage in ${persistDir})`);
+  }
   const hits = [];
   (function walk(dir) {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith(".sqlite")) hits.push({ file: p, mtime: statSync(p).mtimeMs });
+      else if (e.name.endsWith(".sqlite") && e.name !== "metadata.sqlite") {
+        hits.push({ file: p, mtime: statSync(p).mtimeMs });
+      }
     }
-  })(persistDir);
-  if (hits.length === 0) throw new Error(`findD1File: no *.sqlite under ${persistDir}`);
+  })(d1Dir);
+  if (hits.length === 0) {
+    throw new Error(`findD1File: no D1 database file under ${d1Dir}`);
+  }
   hits.sort((a, b) => b.mtime - a.mtime);
   return hits[0].file;
 }

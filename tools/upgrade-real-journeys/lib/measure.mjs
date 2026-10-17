@@ -26,6 +26,7 @@ export function writeShim(checkoutDir) {
 // request. Nothing else changes: same routes, same services, same D1 file.
 import realWorker from "${rel}";
 import { countD1Proxy } from "./d1-proxy";
+import { echoResponse } from "./response-echo";
 
 type Env = { DB: unknown } & Record<string, unknown>;
 
@@ -35,9 +36,7 @@ export default {
     const env: Env = { ...rawEnv, DB: countD1Proxy(rawEnv.DB, state) };
     try {
       const res = await realWorker.fetch(request, env as never, ctx);
-      const headers = new Headers(res.headers);
-      headers.set("x-upgrade-suite-queries", String(state.statements));
-      return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+      return echoResponse(res, state.statements);
     } catch (e) {
       console.error("[upgrade-suite] request failed:", (e as Error).message);
       throw e;
@@ -84,15 +83,40 @@ export function countD1Proxy(db: D1Database, state: { statements: number }): D1D
 }
 `,
   );
+  writeFileSync(
+    path.join(shimDir, "response-echo.ts"),
+    `// Replays a Worker response with the measurement header attached, without
+// breaking the responses the standard Response constructor cannot represent.
+// WebSocket upgrades (Cloudflare pairs the client socket in \`webSocket\`,
+// status 101) must pass through untouched: a 101 is not a constructible
+// status, and rebuilding the response would drop the paired socket.
+export function echoResponse(res: Response, queries: number): Response {
+  const upgraded = res as Response & { webSocket?: unknown };
+  if (res.status === 101 || upgraded.webSocket) {
+    return res;
+  }
+  const headers = new Headers(res.headers);
+  headers.set("x-upgrade-suite-queries", String(queries));
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+`,
+  );
   return shim;
 }
 
 /** Instrumented vite config: app plugins with the shim as the worker main. */
 export function writeInstrumentedViteConfig(checkoutDir, shimPath) {
   const portal = path.join(checkoutDir, "apps", "portal");
-  const cfgDir = path.join(SUITE, ".generated");
-  const cfg = path.join(cfgDir, `vite.config.measured.${path.basename(checkoutDir)}.mjs`);
-  const rel = path.relative(cfgDir, portal).replaceAll("\\", "/");
+  // The config must be generated INSIDE the target portal package: under the
+  // pnpm layout the plugins it imports (@vitejs/plugin-react,
+  // @tailwindcss/vite, @cloudflare/vite-plugin) are declared only by
+  // apps/portal, so a config generated under the suite's own .generated
+  // directory cannot resolve them. From inside the package, Node resolves the
+  // imports through the portal's own node_modules.
+  const cfgDir = path.join(portal, ".upgrade-suite");
+  mkdirSync(cfgDir, { recursive: true });
+  const cfg = path.join(cfgDir, `vite.config.measured.mjs`);
+  const rel = path.relative(cfgDir, portal).replaceAll("\\\\", "/");
   writeFileSync(
     cfg,
     `import { defineConfig, mergeConfig } from "vite";

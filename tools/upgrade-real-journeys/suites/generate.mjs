@@ -127,6 +127,9 @@ async function runGeneration() {
       package: "python/cogbench",
       install: `pip install from a local git worktree at ${stagingPin} (commit present in this repo's history; no network install)`,
       week: state.cliWeek,
+      benchmarkId: state.cliBenchmarkId,
+      benchmarkIdSource:
+        "the chosen week's pyproject cogworks.benchmarks.v1/v2 entry point (check/run take plugin ids, not directory names)",
     },
     executionProvider: "fixture",
     measurement: {
@@ -144,10 +147,10 @@ async function runGeneration() {
       "/api/cohorts/join (code VISION26); /api/github/connect with the fixture repo (creates the one fork-provenance team); " +
       "/api/team/join for self-serve joins; /api/admin/staff for staff rostering (owner PLATFORM_OWNER_LOGINS in .dev.vars); " +
       "TA assignment attempted via /api/admin/teams/:id/tas and recorded as unreachable (it matches users.github_login, " +
-      "which dev-auth accounts never hold); /api/runs/practice, /api/runs/:id and " +
+      "which dev-auth accounts never hold; rostered staff still sign in so their user rows exist); /api/runs/practice, /api/runs/:id and " +
       "/api/runs/:id/promote for hosted fixture runs and published official attempts; the pinned staging CLI (beta's benchmark-packages.ts COGBENCH_SOURCE pin) linked via " +
-      "/v1/cli/device/* and produced local reports with cogworks run --live, cogworks run + cogworks sync against real " +
-      "public week data (benchmarks/week* submodule). No real student handles or submissions anywhere; no discord.com, " +
+      "/api/v1/cli/device/* and produced local reports with cogworks run --live, cogworks run + cogworks sync against real " +
+      "public week data (benchmarks/week* submodule, its benchmark package pip-installed and the plugin id taken from its pyproject entry points). No real student handles or submissions anywhere; no discord.com, " +
       "no real GitHub OAuth, no Modal, no dev/prod Workers/D1/R2.",
     counts,
     generated,
