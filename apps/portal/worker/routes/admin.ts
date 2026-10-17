@@ -50,10 +50,10 @@ function memberRole(role: string): TeamMember["role"] {
 }
 
 /** The ids of the teams `teamWhere` selects, as a subquery for an IN. */
-function selectTeamIds(db: Database, teamWhere: SQL) {
+export function selectTeamIds(db: Database, teamWhere: SQL) {
   return db.select({ id: teams.id }).from(teams).where(teamWhere);
 }
-type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
+export type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
 
 /** When the last run's outcome was known: its finish, or its start while it
  *  is still going and has none. */
@@ -64,8 +64,8 @@ const runSettledAt = sql<number>`coalesce(${runs.finishedAt}, ${runs.createdAt})
  * join on (id, version), the catalog's key, so it adds at most one row per run.
  * The id stands in when the catalog has no such row.
  */
-const runBenchmarkTitle = sql<string>`coalesce(${benchmarks.title}, ${runs.benchmarkId})`;
-const runBenchmark = and(
+export const runBenchmarkTitle = sql<string>`coalesce(${benchmarks.title}, ${runs.benchmarkId})`;
+export const runBenchmark = and(
   eq(benchmarks.id, runs.benchmarkId),
   eq(benchmarks.version, runs.benchmarkVersion),
 );
@@ -96,7 +96,7 @@ const onConnectedRepository = eq(runs.repositoryId, teams.repoId);
  * execution/sync.ts); substituting the start time let an undated row take
  * first place from a run that really finished first.
  */
-function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
+export function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
   // Never null here: the where clause below drops unfinished rows.
   const finishedAt = sql<number>`${runs.finishedAt}`;
   const ranked = db
@@ -395,13 +395,13 @@ async function getStaffRoster(db: Database, env: Env): Promise<AdminStaffRoster>
   };
 }
 
-type AdminScope = {
+export type AdminScope = {
   auth: AuthState;
   isOwner: boolean;
   teamIds: string[];
 };
 
-async function getAdminScope(c: Parameters<typeof requireStaff>[0]): Promise<AdminScope> {
+export async function getAdminScope(c: Parameters<typeof requireStaff>[0]): Promise<AdminScope> {
   const auth = await requireStaff(c);
   const isOwner = isPlatformOwner(c.env, authorizationLogin(c.env, auth.user));
   if (isOwner) return { auth, isOwner, teamIds: [] };
@@ -420,7 +420,7 @@ async function requireOwner(c: Parameters<typeof requireStaff>[0]): Promise<Auth
   return scope.auth;
 }
 
-async function requireTeamScope(
+export async function requireTeamScope(
   c: Parameters<typeof requireStaff>[0],
   teamId: string,
 ): Promise<AdminScope> {

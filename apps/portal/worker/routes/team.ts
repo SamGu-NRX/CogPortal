@@ -261,14 +261,16 @@ export function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 
-const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
+export const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
   audio: "week1",
   vision: "week2",
   language: "week3",
 };
 
 /** Reading history costs up to 41 of a Worker's 50 subrequests. */
-const COMMIT_HISTORY_CACHE_MS = 30 * 60 * 1000;
+/** The team page's own cache window; the staff desk's staleness reading
+ *  mirrors it so both surfaces call the same stored read fresh or stale. */
+export const COMMIT_HISTORY_CACHE_MS = 30 * 60 * 1000;
 
 /** Below D1's 2,000,000-byte row limit, which 40 commits of 300 long paths
  *  can pass. A failed write would fail the response, so larger history is
@@ -484,7 +486,7 @@ export async function scoredRunRecords(
  * knows which of those belong to this team; the fetch that reads the
  * trailers (`../github/commits.ts`) has no roster to check them against.
  */
-async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]> {
+export async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]> {
   const rows = await db
     .select({ login: users.githubLogin, email: users.email })
     .from(teamMembers)
