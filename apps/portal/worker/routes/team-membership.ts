@@ -20,7 +20,7 @@ import { getDb } from "../db/client";
 import { insertWhere } from "../db/insert-where";
 import type { Database } from "../db/client";
 import { teamMembers, teams, users } from "../db/schema";
-import { RealGitHubClient } from "../github/client";
+import { RealGitHubClient, GitHubApiError } from "../github/client";
 import { teamRole } from "../github/permissions";
 import type { TeamRole } from "../github/permissions";
 import { ApiHttpError } from "../http/errors";
@@ -74,6 +74,72 @@ function repoAccessRequired(adminLogin: string | null): ApiHttpError {
     "repo_access_required",
     `Ask ${adminLogin ?? "a team admin"} to add you as a collaborator on GitHub, then accept the invitation GitHub emails you (github.com/notifications) and press Join again. They can also add you here from Team settings.`,
   );
+}
+
+/** The refusals for adding a member whose role could not be verified. The
+ *  person who can act is standing at the screen, so each message names the
+ *  step that unblocks the add. */
+function notACollaboratorOnGithub(login: string, repoFullName: string): ApiHttpError {
+  return new ApiHttpError(
+    403,
+    "repo_access_required",
+    `@${login} isn't a collaborator on ${repoFullName} on GitHub yet. Add them as a collaborator there first (they'll need to accept the invitation GitHub emails them), then add them here.`,
+  );
+}
+
+function githubDidNotAnswer(login: string, repoFullName: string): ApiHttpError {
+  return new ApiHttpError(
+    503,
+    "github_unreachable",
+    `GitHub didn't answer when the portal checked @${login}'s access to ${repoFullName}. Nothing was added; try again in a moment.`,
+  );
+}
+
+/**
+ * The role a member's row stores when someone else adds them, checked the
+ * way Join checks the joiner: against what GitHub says about that person on
+ * the team's repository. The row is what the portal's own gates read --
+ * publishing, official attempts, team settings -- so it is written only
+ * after a read verified it. Adding someone here never makes them a
+ * collaborator on GitHub, and when GitHub cannot be asked at all, the add
+ * is refused rather than stored on a guess. The local fixture has no one to
+ * ask, and answers like Join does.
+ */
+export async function checkedNewMemberRole(
+  c: Parameters<typeof requireUser>[0],
+  team: { repoFullName: string },
+  user: { id: string; githubLogin: string },
+): Promise<TeamRole> {
+  // A dev-auth deployment (development, DEV_AUTH, no GitHub OAuth) has no
+  // token to check with for anyone -- the same ground Join's fixture branch
+  // stands on. Production always has GitHub configured and never takes this
+  // branch, so the check below is what a real course runs.
+  if (devAuthAvailable(c.env)) return "write";
+  const token = githubConfigured(c.env)
+    ? await getGithubToken(authFor(c), user.id)
+    : null;
+  if (!token) throw notACollaboratorOnGithub(user.githubLogin, team.repoFullName);
+  let permission: string;
+  try {
+    permission = await new RealGitHubClient().getPermission(
+      team.repoFullName,
+      user.githubLogin,
+      token,
+    );
+  } catch (error) {
+    if (error instanceof GitHubApiError) {
+      // GitHub answers 404 for someone who isn't a collaborator at all; a
+      // rate limit or an outage is a retryable "didn't answer", not a no.
+      if (error.status === 404 && !error.rateLimited) {
+        throw notACollaboratorOnGithub(user.githubLogin, team.repoFullName);
+      }
+      throw githubDidNotAnswer(user.githubLogin, team.repoFullName);
+    }
+    throw error;
+  }
+  const mapped = teamRole(permission);
+  if (!mapped) throw notACollaboratorOnGithub(user.githubLogin, team.repoFullName);
+  return mapped;
 }
 
 export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
@@ -300,13 +366,17 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       );
     }
 
+    // The row stores what GitHub says about this person on the team's
+    // repository, checked here where the admin who can act is standing.
+    const role = await checkedNewMemberRole(c, auth.team, { id: user.id, githubLogin });
+
     try {
       // Only while the actor is still an admin of this team; checked in the
       // write, so a leave or demotion since the gate adds nobody.
       const added = await insertWhere(db, teamMembers, {
         teamId: auth.team.id,
         userId: user.id,
-        role: "write",
+        role,
       }, actorIsTeamAdmin(db, auth.team.id, auth.user.id));
       if (!added.meta.changes) throw new ApiHttpError(403, "forbidden", TEAM_AUTHORITY_LOST);
     } catch (error) {

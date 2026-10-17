@@ -31,12 +31,19 @@ export async function getLeaderboardReadModel(
   teamId?: string,
 ): Promise<Leaderboard> {
   const db = getDb(env);
+  // A benchmark id can name several versions. The board must open on the
+  // newest version that is still active: an inactive newest version (a
+  // scorer or track withdrawn mid-course) must not outrank the active one,
+  // or a leaderboard link would silently resolve to a measure that is no
+  // longer in force. Ordering active first, then version, keeps that
+  // guarantee in one statement; when no version is active the same order
+  // still reaches the newest row, which is what an archive board shows.
   const [benchmark] = benchmarkId
     ? await db
         .select()
         .from(benchmarks)
         .where(eq(benchmarks.id, benchmarkId))
-        .orderBy(desc(benchmarks.version))
+        .orderBy(desc(benchmarks.active), desc(benchmarks.version))
         .limit(1)
     : await db
         .select()

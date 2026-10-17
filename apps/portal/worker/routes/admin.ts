@@ -33,6 +33,7 @@ import {
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";
+import { checkedNewMemberRole } from "./team-membership";
 import { readUsedRunsByTeam } from "../services/run-accounting";
 import { rankingRefusal } from "../services/run-eligibility";
 
@@ -536,12 +537,12 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     await requireTeamScope(c, teamId);
     const [[team], [user]] = await Promise.all([
       db
-        .select({ id: teams.id, cohortId: teams.cohortId })
+        .select({ id: teams.id, cohortId: teams.cohortId, repoFullName: teams.repoFullName })
         .from(teams)
         .where(eq(teams.id, teamId))
         .limit(1),
       db
-        .select({ id: users.id, cohortId: users.cohortId })
+        .select({ id: users.id, cohortId: users.cohortId, githubLogin: users.githubLogin })
         .from(users)
         .where(sql`lower(${users.githubLogin}) = lower(${body.login})`)
         .limit(1),
@@ -573,8 +574,13 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
           : `@${body.login} is already on team ${membership.teamName ?? "another team"}.`,
       );
     }
+    // The row stores what GitHub says about this person on the team's
+    // repository, checked here where the staff member who can act is
+    // standing. Staff can no longer add someone GitHub doesn't list on the
+    // repository; the check is the same one Join runs on the student.
+    const role = await checkedNewMemberRole(c, team, { id: user.id, githubLogin: user.githubLogin ?? body.login });
     try {
-      await db.insert(teamMembers).values({ teamId, userId: user.id, role: "write" });
+      await db.insert(teamMembers).values({ teamId, userId: user.id, role });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         throw new ApiHttpError(409, "already_on_team", `@${body.login} is already on a team.`);

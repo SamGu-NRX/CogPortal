@@ -1,4 +1,5 @@
 import {
+  focusManager,
   queryOptions,
   useMutation,
   useQuery,
@@ -153,13 +154,41 @@ export function useDeviceLinkStatus(userCode: string | undefined) {
   });
 }
 
+/** How the connections query polls while nothing is linked yet. A student
+ *  mid-link is watching a page, so the first minute polls briskly; a page
+ *  left open that keeps finding nothing backs off, and stops inside the ten
+ *  minutes a device code can live (DEVICE_AUTH_TTL_MS on the worker) — past
+ *  that no code can be approved, so no poll can be answered. Returning to
+ *  the tab re-arms the quick poll: that is the moment someone is about to
+ *  link a machine. A device appearing ends the poll entirely; the page's
+ *  own mutations refresh the cache from there. */
+const CONNECT_LINK_POLL_MS = 4_000;
+const CONNECT_LINK_BACKOFF_MS = 30_000;
+const CONNECT_LINK_BACKOFF_AFTER_MS = 60_000;
+const CONNECT_LINK_POLL_WINDOW_MS = 11 * 60_000;
+let connectEmptyPollStartedAt: number | null = null;
+focusManager.subscribe((focused: boolean) => {
+  if (focused) connectEmptyPollStartedAt = null;
+});
+
 export function useConnections() {
   return useQuery({
     queryKey: ["connections"],
     queryFn: api.connections,
     staleTime: 30_000,
-    refetchInterval: (query) =>
-      query.state.data && query.state.data.cliDevices.length > 0 ? false : 4_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // The first read is still landing; poll while it does.
+      if (!data) return CONNECT_LINK_POLL_MS;
+      if (data.cliDevices.length > 0) {
+        connectEmptyPollStartedAt = null;
+        return false;
+      }
+      if (connectEmptyPollStartedAt === null) connectEmptyPollStartedAt = Date.now();
+      const waited = Date.now() - connectEmptyPollStartedAt;
+      if (waited >= CONNECT_LINK_POLL_WINDOW_MS) return false;
+      return waited >= CONNECT_LINK_BACKOFF_AFTER_MS ? CONNECT_LINK_BACKOFF_MS : CONNECT_LINK_POLL_MS;
+    },
   });
 }
 
