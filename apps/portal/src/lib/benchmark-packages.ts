@@ -35,9 +35,14 @@ export interface BenchmarkPackage {
  * Pin a commit whose CLI install advice names the same benchmark commits as
  * this file, so a student told to install a missing benchmark gets the one
  * this page describes.
+ *
+ * ac8ddafa is the previous pin's CLI (ecae6171; python/cogbench is identical)
+ * plus one change: the CLI turns off the `datasets` download-count request to
+ * s3.amazonaws.com that Week 2 sent during offline runs. CogPortal PR #110's
+ * egress journeys caught it. See python/cogbench/tests/test_dependency_telemetry.py.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@ecae6171521d59cc3e66a737df154c7e2c2bb5d1#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@ac8ddafa014ac72613bf8f291f945344a914cc63#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
