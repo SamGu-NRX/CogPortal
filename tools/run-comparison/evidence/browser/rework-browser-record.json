@@ -1,0 +1,124 @@
+{
+  "before": {
+    "animations": 0,
+    "axe": {
+      "incomplete_count": 1,
+      "passes_count": 23,
+      "violations": [],
+      "violations_count": 0
+    },
+    "chip_texts": [
+      "changed",
+      "same"
+    ],
+    "focusable": 0,
+    "headings": [
+      "H1",
+      "H2",
+      "H2",
+      "H2",
+      "H2",
+      "H2",
+      "H3",
+      "H3",
+      "H2",
+      "H2",
+      "H2",
+      "H3",
+      "H3"
+    ],
+    "landmarks": [
+      "main",
+      "footer"
+    ],
+    "lang": "en",
+    "layout_shift_entries": [],
+    "narrow_clientWidth": 390,
+    "narrow_scrollWidth": 877,
+    "reduced_motion_animations": 0,
+    "th_scope_col": 14,
+    "th_scope_row": 13
+  },
+  "canonical": {
+    "animations": 0,
+    "axe": {
+      "incomplete_count": 0,
+      "passes_count": 23,
+      "violations": [],
+      "violations_count": 0
+    },
+    "chip_texts": [
+      "changed",
+      "unknown",
+      "same"
+    ],
+    "focusable": 0,
+    "headings": [
+      "H1",
+      "H2",
+      "H2",
+      "H2",
+      "H2",
+      "H2",
+      "H3",
+      "H3",
+      "H2",
+      "H2",
+      "H2",
+      "H3",
+      "H3"
+    ],
+    "landmarks": [
+      "main",
+      "footer"
+    ],
+    "lang": "en",
+    "layout_shift_entries": [],
+    "narrow_clientWidth": 390,
+    "narrow_scrollWidth": 390,
+    "reduced_motion_animations": 0,
+    "th_scope_col": 14,
+    "th_scope_row": 16
+  },
+  "stress": {
+    "animations": 0,
+    "axe": {
+      "incomplete_count": 0,
+      "passes_count": 23,
+      "violations": [],
+      "violations_count": 0
+    },
+    "chip_texts": [
+      "changed",
+      "unknown",
+      "same"
+    ],
+    "focusable": 0,
+    "headings": [
+      "H1",
+      "H2",
+      "H2",
+      "H2",
+      "H2",
+      "H2",
+      "H3",
+      "H3",
+      "H2",
+      "H2",
+      "H2",
+      "H3",
+      "H3"
+    ],
+    "landmarks": [
+      "main",
+      "footer"
+    ],
+    "lang": "en",
+    "layout_shift_entries": [],
+    "narrow_clientWidth": 390,
+    "narrow_scrollWidth": 390,
+    "reduced_motion_animations": 0,
+    "th_scope_col": 14,
+    "th_scope_row": 16
+  }
+}

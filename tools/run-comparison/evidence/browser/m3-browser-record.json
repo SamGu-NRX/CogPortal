@@ -1,0 +1,92 @@
+{
+  "exercise": "M3 browser exercise of the committed run-comparison evidence views, loaded offline over file://",
+  "date_utc": "2026-10-11T17:55:52Z",
+  "browser": "playwright headless chromium",
+  "checks": [
+    {
+      "what": "canonical committed view loads offline over file://",
+      "url": "file:///home/user/work/CogPortal-m3/tools/run-comparison/evidence/view-01-run-a-vs-02-run-b.html",
+      "title": "Run comparison \u2014 offline workbench",
+      "screenshot": "m3-view-desktop-1440x900.png"
+    },
+    {
+      "what": "keyboard access: count of focusable elements in the view",
+      "focusable_elements": [],
+      "focusable_count": 0
+    },
+    {
+      "what": "responsive behavior at 390x844 (narrow viewport)",
+      "overflow_measurement": {
+        "docScroll": 877,
+        "docClient": 390,
+        "bodyScroll": 877,
+        "bodyClient": 390,
+        "horizontal_overflow": true
+      },
+      "screenshot": "m3-view-narrow-390x844.png"
+    },
+    {
+      "what": "keyboard access: Tab walk (6 presses) at narrow size with focus outline style",
+      "walk": [
+        {
+          "tag": "BODY",
+          "id": null,
+          "outlineStyle": "none",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "BODY",
+          "id": null,
+          "outlineStyle": "none",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "BODY",
+          "id": null,
+          "outlineStyle": "none",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "BODY",
+          "id": null,
+          "outlineStyle": "none",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "BODY",
+          "id": null,
+          "outlineStyle": "none",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "BODY",
+          "id": null,
+          "outlineStyle": "none",
+          "outlineWidth": "3px"
+        }
+      ]
+    },
+    {
+      "what": "reduced motion (prefers-reduced-motion: reduce emulation)",
+      "running_animations": 0,
+      "view_css_declares_reduced_motion_rule": false
+    },
+    {
+      "what": "committed stress-evidence view (comparable=False pair) loads and renders at narrow size",
+      "url": "file:///home/user/work/CogPortal-m3/tools/run-comparison/evidence-stress/view-s10-accepted-test-command-vs-s11-accepted-weight-receipts.html",
+      "overflow_measurement": {
+        "docScroll": 888,
+        "docClient": 390
+      },
+      "screenshot": "m3-stress-view-narrow-390x844.png"
+    }
+  ],
+  "deferred": [
+    "axe-core accessibility rule sweep: no vendored axe.min.js in the repository and no network fetch is permitted; keyboard focus count, Tab walk and reduced-motion behavior were measured directly instead"
+  ],
+  "screenshots": [
+    "m3-view-desktop-1440x900.png",
+    "m3-view-narrow-390x844.png",
+    "m3-stress-view-narrow-390x844.png"
+  ]
+}
