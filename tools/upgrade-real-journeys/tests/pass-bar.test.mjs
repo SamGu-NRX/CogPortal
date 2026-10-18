@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { REQUIRED_MIN } from "../lib/state-gen.mjs";
 
-// The suite's designed platform-failure run refunds its official attempt
-// outright (migration 0029), so official_attempts goes 1 -> 0 during generate.
-// A minimum above 0 re-makes the bar unmeetable; the refund itself is what the
-// bar must pin.
-test("pass bar pins the attempt refund, not an unreachable attempts floor", () => {
+// Beta's worker never writes official_attempts in this flow (no runtime code
+// touches the table; the seeded demo attempt stays put), and the designed
+// practice-mode failure never promotes, so no refund fires. Any floor above 0
+// makes the bar unmeetable; the receipt keeps counting both for observability.
+test("pass bar pins no new attempts and no refunds, not an unreachable floor", () => {
   assert.equal(REQUIRED_MIN.officialAttempts, 0);
-  assert.equal(REQUIRED_MIN.refundedRuns, 1);
+  assert.equal(REQUIRED_MIN.refundedRuns, 0);
 });
