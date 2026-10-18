@@ -200,7 +200,8 @@ export const ROSTER = {
 export const REQUIRED_MIN = {
   users: 13, students: 8, staff: 2, tas: 0, teams: 1, memberships: 7, forks: 1,
   deviceLinks: 3, localReports: 2, localRunSessions: 1,
-  hostedRuns: 5, hostedRunsSucceeded: 4, officialRuns: 4, officialAttempts: 1,
+  hostedRuns: 5, hostedRunsSucceeded: 4, officialRuns: 4,
+  officialAttempts: 0, refundedRuns: 1,
 };
 
 const TERMINAL_RUN_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
@@ -278,6 +279,7 @@ export function countEntities(dbFile) {
     hostedRunsSucceeded: one("SELECT COUNT(*) AS n FROM runs WHERE mode='practice' AND status='succeeded'"),
     officialRuns: one("SELECT COUNT(*) AS n FROM runs WHERE mode='official'"),
     officialAttempts: one("SELECT COUNT(*) AS n FROM official_attempts"),
+    refundedRuns: one("SELECT COUNT(*) AS n FROM runs WHERE refunded_at IS NOT NULL"),
   };
   db.close();
   return counts;
@@ -627,7 +629,7 @@ export async function generateBetaState({ checkoutDir, baseUrl, repoDir, suiteDi
     "device approval requires an on-team session (requireTeam), so devices link after team joins",
     "dev-auth accounts never hold users.github_login (nulled on every dev login; reserved for real GitHub identities), so member add/remove and TA assignment routes that match on it are unreachable in dev-auth mode",
     "fixture runs advance on read by wall clock (~21s end to end); promotion requires the parent practice run to have succeeded",
-    "beta's worker writes no official_attempts rows (no route touches the table; the real grading pipeline owns it), so the pass bar pins only the seeded attempt row - hosted-run promotion is measured by officialRuns instead",
+    "official_attempts is created empty: no beta route seeds rows, and the suite's designed platform-failure run (upg-stu-03) refunds its attempt outright (migration 0029, worker/execution/sync.ts), taking the count 1 -> 0 - the pass bar pins the refund via runs.refunded_at and measures promotion by officialRuns instead",
   );
 
   return { teamId: team.teamId, quirks, timings, cliWeek: cli.week };
