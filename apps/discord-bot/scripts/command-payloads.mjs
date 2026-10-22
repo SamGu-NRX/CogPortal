@@ -26,5 +26,6 @@ export const entryPointCommand = {
   description: "Open the CogWorks live bench",
   handler: 1,
   integration_types: [0, 1],
-  contexts: [0, 1, 2],
+  // The launch handler requires COURSE_GUILD_ID; DMs have no guild to authorize.
+  contexts: [0],
 };
