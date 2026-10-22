@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { test } from "node:test";
 import type { PortalRpcContract } from "@cogworks/contracts/discord";
 import type { RunSurfaceSnapshot } from "@cogworks/contracts/schema";
@@ -17,6 +18,7 @@ import {
   type InteractionResponse,
 } from "../src/interaction.ts";
 import { verifyDiscordRequest } from "../src/verify.ts";
+import worker from "../src/index.ts";
 
 const guildId = "course-guild";
 const portalOrigin = "https://portal.example";
@@ -461,6 +463,53 @@ test("Activity launch responses use Discord callback type 12", () => {
 test("the Activity Entry Point is app-handled to avoid an extra channel message", () => {
   assert.equal(entryPointCommand.type, 4);
   assert.equal(entryPointCommand.handler, 1);
+});
+
+test("Activity registration offers only contexts the signed launch handler accepts", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicJwk = publicKey.export({ format: "jwk" });
+  assert.ok(publicJwk.x);
+  const env = {
+    DISCORD_PUBLIC_KEY: Buffer.from(publicJwk.x, "base64url").toString("hex"),
+    COURSE_GUILD_ID: guildId,
+    PORTAL_ORIGIN: portalOrigin,
+    PORTAL: basePortal,
+  };
+  const executionContext = {
+    waitUntil() { throw new Error("Activity launches must answer immediately"); },
+    passThroughOnException() { throw new Error("Unexpected exception passthrough"); },
+    get exports(): never { throw new Error("Unexpected Worker exports access"); },
+    get props(): never { throw new Error("Unexpected Worker props access"); },
+    get tracing(): never { throw new Error("Unexpected tracing access"); },
+  } satisfies ExecutionContext;
+
+  for (const context of [0, 1, 2]) {
+    const interaction = command();
+    interaction.guild_id = context === 0 ? guildId : undefined;
+    interaction.data = { name: entryPointCommand.name, type: entryPointCommand.type };
+    const body = JSON.stringify(interaction);
+    const timestamp = "1750000000";
+    const signature = sign(null, Buffer.from(timestamp + body), privateKey).toString("hex");
+    const response = await worker.fetch(new Request("https://bot.example/interactions", {
+      method: "POST",
+      headers: {
+        "X-Signature-Ed25519": signature,
+        "X-Signature-Timestamp": timestamp,
+      },
+      body,
+    }), env, executionContext);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.ok(result !== null && typeof result === "object" && "type" in result);
+    assert.equal(result.type === RESPONSE_LAUNCH_ACTIVITY,
+      entryPointCommand.contexts?.includes(context),
+      `registered interaction context ${context} must match launch availability`);
+    if (context === 0) {
+      assert.equal(result.type, RESPONSE_LAUNCH_ACTIVITY);
+    } else {
+      assert.match(JSON.stringify(result), /only enabled inside the CogWorks course server/);
+    }
+  }
 });
 
 test("team channel setup is explicit and binds only after confirmation", async () => {
