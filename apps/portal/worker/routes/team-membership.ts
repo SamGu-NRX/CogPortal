@@ -24,7 +24,7 @@ import { RealGitHubClient, GitHubApiError } from "../github/client";
 import { teamRole } from "../github/permissions";
 import type { TeamRole } from "../github/permissions";
 import { ApiHttpError } from "../http/errors";
-import { parseBody, respond } from "../http/respond";
+import { guardField, parseBody, respond } from "../http/respond";
 import {
   getTeamDetail,
   isUniqueConstraintError,
@@ -333,8 +333,8 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/team/members", async (c) => {
+    const auth = await requireAdminOfShownTeam(c, await guardField(c, "teamId"));
     const body = await parseBody(c, AddTeamMemberRequestSchema);
-    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     const [user] = await db
       .select()

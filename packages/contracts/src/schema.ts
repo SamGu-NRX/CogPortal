@@ -1454,11 +1454,32 @@ export const StartRunResponseSchema = z.object({ runId: z.string() });
 
 /* ── Admin console (staff only, deliberately small) ───────────────────── */
 
+/**
+ * What a staff response carries about students, set by the Worker's
+ * STAFF_VISIBILITY setting (apps/portal/worker/services/staff-visibility.ts).
+ *
+ * - "full": today's behaviour. A TA reads their assigned teams' member
+ *   logins, run counts, latest published score and process findings.
+ * - "restricted": a proposal awaiting the owner, never the default. For a TA,
+ *   student names, scores, metrics and findings are withheld; team-level
+ *   counts, run states and failure categories remain. Owners always read
+ *   "full".
+ *
+ * Logs, diagnostics and submissions reach no staff surface under either.
+ */
+export const STAFF_VISIBILITY_SETTINGS = ["assigned-teams", "restricted"] as const;
+export const StaffVisibilitySettingSchema = z.enum(STAFF_VISIBILITY_SETTINGS);
+export type StaffVisibilitySetting = z.infer<typeof StaffVisibilitySettingSchema>;
+export const StaffViewSchema = z.enum(["full", "restricted"]);
+export type StaffView = z.infer<typeof StaffViewSchema>;
+
 export const AdminTeamSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
   provenance: TeamProvenanceSchema,
   repoFullName: z.string(),
+  /** Always present; `members` is empty under a restricted view. */
+  memberCount: z.number().int().nonnegative(),
   members: z.array(
     z.object({
       login: z.string(),
@@ -1564,6 +1585,7 @@ export type AdminTeamSummary = z.infer<typeof AdminTeamSummarySchema>;
 /** GET /api/admin/overview */
 export const AdminOverviewSchema = z.object({
   scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
   cohort: z.object({
     slug: z.string(),
     name: z.string(),
@@ -1635,6 +1657,185 @@ export type AdminStaffRoster = z.infer<typeof AdminStaffRosterSchema>;
 
 /** POST /api/admin/staff */
 export const AdminAddStaffRequestSchema = AdminAddMemberRequestSchema;
+
+/* ── Staff process desk ────────────────────────────────────────────────── */
+
+/**
+ * Read projections for the staff process desk (GET /api/admin/desk/*).
+ *
+ * The desk shows staff what the portal has already observed — stored commit
+ * history, run rows, first lights — and never re-fetches GitHub on their
+ * behalf. These schemas carry that boundary out of the worker: a stored
+ * history read can be missing (never read), stale (older than the team
+ * page's cache window), or about a repository the team has left, and those
+ * are three different sentences. Run rows carry statuses, timestamps and
+ * failure enums, never a run's own text: no failure detail, log, refusal,
+ * sweep or diagnostics payload leaves the maintenance surfaces.
+ */
+
+/**
+ * Where a team's stored commit-history read stands.
+ *
+ * - `never_read`: no stored read; nobody on the team has opened the Team page.
+ * - `unreadable`: a stored row that is not a valid history read (malformed
+ *   JSON, an older format, a stored failure). Nothing in it is used.
+ * - `other_repository` / `other_branch`: a valid read of a repository or
+ *   branch the team is no longer connected to. Never served as this team's.
+ * - `fresh` / `stale`: a valid read of the connected repository and branch,
+ *   younger or older than the Team page's cache window.
+ */
+export const StaffDeskHistoryStatusSchema = z.enum([
+  "never_read",
+  "unreadable",
+  "other_repository",
+  "other_branch",
+  "fresh",
+  "stale",
+]);
+export type StaffDeskHistoryStatus = z.infer<typeof StaffDeskHistoryStatusSchema>;
+
+/** How a team's stored commit-history read stands, as the desk reports it. */
+export const StaffDeskHistoryStateSchema = z.object({
+  status: StaffDeskHistoryStatusSchema,
+  /** When the stored read was taken; null when there is no valid read. */
+  checkedAt: z.number().nullable(),
+  /** status === "stale". */
+  stale: z.boolean(),
+  /** status is "fresh" or "stale": the read is of the connected repository and branch. */
+  forConnectedRepository: z.boolean(),
+});
+export type StaffDeskHistoryState = z.infer<typeof StaffDeskHistoryStateSchema>;
+
+/** A team's first succeeded run from its connected repository. */
+export const StaffDeskFirstLightSchema = z.object({
+  benchmarkId: z.string(),
+  benchmarkTitle: z.string(),
+  at: z.number(),
+});
+export type StaffDeskFirstLight = z.infer<typeof StaffDeskFirstLightSchema>;
+
+// The desk serves the Team page's own projection, so it uses the Team page's
+// own stage schema. A separate copy here once required distinctAuthorCount,
+// and every team whose history is a single bulk upload (where the builder
+// reports null for an unknowable stage) answered 500.
+const StaffDeskStageActivitySchema = StageActivitySchema;
+
+const StaffDeskHistoryQualitySchema = HistoryQualitySchema;
+const StaffDeskWeekLabelSchema = z.enum(["week1", "week2", "week3"]);
+
+/** One scoped team on the desk list. */
+export const StaffDeskTeamRowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  cohortId: z.string(),
+  repo: z.object({ fullName: z.string(), defaultBranch: z.string() }),
+  memberCount: z.number().int().nonnegative(),
+  taLogins: z.array(z.string()),
+  /** The stored read's quality; null unless `history.forConnectedRepository`. */
+  historyQuality: StaffDeskHistoryQualitySchema.nullable(),
+  history: StaffDeskHistoryStateSchema,
+  weekLabel: StaffDeskWeekLabelSchema.nullable(),
+  firstLight: StaffDeskFirstLightSchema.nullable(),
+  /** Scored runs from the connected repository only. */
+  scoredRunCount: z.number().int().nonnegative(),
+  /** True when scored runs exist but none from the connected repository. */
+  runsElsewhere: z.boolean(),
+});
+export type StaffDeskTeamRow = z.infer<typeof StaffDeskTeamRowSchema>;
+
+/** GET /api/admin/desk/teams */
+export const StaffDeskTeamListSchema = z.object({
+  scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
+  teams: z.array(StaffDeskTeamRowSchema),
+});
+export type StaffDeskTeamList = z.infer<typeof StaffDeskTeamListSchema>;
+
+/**
+ * GET /api/admin/desk/teams/:teamId
+ *
+ * `commitSignals` is the team page's own process projection — the same
+ * builders (`buildProcessSignals`, `findingSentences`) over the stored
+ * read — or null unless `history.forConnectedRepository`, and always null
+ * under a restricted view, as are the member logins. The run-derived
+ * readings (weekLabel, firstLight, runsElsewhere) stay top level and
+ * independent of commit history.
+ */
+export const StaffDeskTeamDetailSchema = z.object({
+  scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
+  team: z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().nullable(),
+    repo: z.object({ fullName: z.string(), defaultBranch: z.string() }),
+    memberCount: z.number().int().nonnegative(),
+    members: z.array(z.object({ login: z.string(), role: z.string() })),
+    tas: z.array(z.object({ login: z.string() })),
+  }),
+  commitSignals: z
+    .object({
+      historyQuality: StaffDeskHistoryQualitySchema,
+      historyWindow: z
+        .object({ commits: z.number().int().nonnegative(), truncated: z.boolean() })
+        .nullable(),
+      weekLabel: StaffDeskWeekLabelSchema.nullable(),
+      stageFootprint: z.record(z.string(), StaffDeskStageActivitySchema),
+      ownershipBreadth: z.record(z.string(), z.array(z.string())),
+      findingSentences: z.array(z.string()),
+    })
+    .nullable(),
+  history: StaffDeskHistoryStateSchema,
+  weekLabel: StaffDeskWeekLabelSchema.nullable(),
+  firstLight: StaffDeskFirstLightSchema.nullable(),
+  runsElsewhere: z.boolean(),
+});
+export type StaffDeskTeamDetail = z.infer<typeof StaffDeskTeamDetailSchema>;
+
+/** One run on the desk drill-down: enums and clocks, never run text. */
+export const StaffDeskRunRowSchema = z.object({
+  runId: z.string(),
+  status: RunStatusSchema,
+  mode: RunModeSchema,
+  benchmarkId: z.string(),
+  benchmarkTitle: z.string(),
+  attemptNumber: z.number().int().nullable(),
+  createdAt: z.number(),
+  finishedAt: z.number().nullable(),
+  /**
+   * The runner-activity clock, mirrored from the maintenance sweep: a live
+   * run the sweep would fail reads "stale", not "in progress". Terminal
+   * runs read "terminal".
+   */
+  activity: z.enum(["active", "stale", "terminal"]),
+  /**
+   * Which repository the run stands for: the connected one, a different
+   * one (evidence that belongs elsewhere), or no recorded repository
+   * (pre-0013 rows).
+   */
+  evidence: z.enum(["connected", "elsewhere", "unrecorded"]),
+  repositoryFullName: z.string().nullable(),
+  failurePhase: RunPhaseSchema.nullable(),
+  failureCategory: FailureCategorySchema.nullable(),
+  /** Presence and a digest — never the snapshot's contents. */
+  preparedSnapshot: z.object({
+    recorded: z.boolean(),
+    environmentDigest: z.string().nullable(),
+  }),
+});
+export type StaffDeskRunRow = z.infer<typeof StaffDeskRunRowSchema>;
+
+/** GET /api/admin/desk/teams/:teamId/runs */
+export const StaffDeskRunListSchema = z.object({
+  scope: z.enum(["owner", "ta"]),
+  view: StaffViewSchema,
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
+  runs: z.array(StaffDeskRunRowSchema),
+});
+export type StaffDeskRunList = z.infer<typeof StaffDeskRunListSchema>;
 
 /* ── Error envelope ───────────────────────────────────────────────────── */
 

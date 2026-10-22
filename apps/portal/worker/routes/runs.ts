@@ -13,7 +13,7 @@ import { getDb } from "../db/client";
 import { runs } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
 import { ApiHttpError } from "../http/errors";
-import { parseBody, respond } from "../http/respond";
+import { guardField, parseBody, respond } from "../http/respond";
 import { buildRunSummary, readPrimaryMetrics, serializeRunDetail } from "../http/serializers";
 import { actorFromAuth, promotePracticeRun, startPracticeRun } from "../services/run-actions";
 import { verifyRunnerSignature } from "./runner-events";
@@ -26,8 +26,8 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
   // Discord and the console start runs through startPracticeRun with an actor
   // they resolved themselves, so they are not gated here.
   app.post("/runs/practice", async (c) => {
+    const auth = await requireShownTeam(c, await guardField(c, "teamId"));
     const body = await parseBody(c, StartPracticeRequestSchema);
-    const auth = await requireShownTeam(c, body.teamId);
     const result = await startPracticeRun(c.env, actorFromAuth(auth), {
       benchmarkId: body.benchmarkId,
       branch: body.branch,

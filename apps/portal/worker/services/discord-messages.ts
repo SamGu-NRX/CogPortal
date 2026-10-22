@@ -23,10 +23,13 @@ import { stageRail } from "@cogworks/discord-kit/rails";
 import { effectivePhase, failureTrace, loaderLine, loaderSteps } from "@cogworks/discord-kit/steps";
 import type { Env } from "../env";
 import { eq } from "drizzle-orm";
+import { discordApiRoot } from "./discord-api";
 import { getDb } from "../db/client";
 import { runSurfaces } from "../db/schema";
 
-const DISCORD_API = "https://discord.com/api/v10";
+function discordApi(env: Env): string {
+  return `${discordApiRoot(env)}/v10`;
+}
 
 interface DiscordMessage {
   id: string;
@@ -54,7 +57,7 @@ async function discordRequest<T>(
 ): Promise<T> {
   if (!env.DISCORD_BOT_TOKEN) throw new Error("Discord message delivery is not configured.");
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch(`${DISCORD_API}${path}`, {
+    const response = await fetch(`${discordApi(env)}${path}`, {
       method,
       headers: {
         Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,

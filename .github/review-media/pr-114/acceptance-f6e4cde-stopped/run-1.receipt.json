@@ -1,0 +1,551 @@
+{
+  "run": 1,
+  "of": 3,
+  "commit": "f6e4cde8626c26925ddfb428cf2d1e9ca6c832c5",
+  "tree": "d5de7d60d9b6f415f13bdff99ab02526ca861fc0",
+  "worktreeClean": true,
+  "startedAt": "2026-10-12T09:20:50.683Z",
+  "finishedAt": "2026-10-12T09:38:24.179Z",
+  "exitCode": 0,
+  "retries": 0,
+  "stats": {
+    "startTime": "2026-10-12T09:20:51.344Z",
+    "duration": 1052744.349,
+    "expected": 44,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "passed": 44,
+  "total": 44,
+  "tests": [
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "a slow start keeps the button busy and starts one run",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 13555
+        }
+      ]
+    },
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "a start whose request is lost says so, keeps the page usable, and starts nothing",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 9581
+        }
+      ]
+    },
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "a start whose answer is lost says so, and a reload shows the run that did start",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 10402
+        }
+      ]
+    },
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "two renames that reach the Worker in the opposite order leave the page showing what was stored",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 16617
+        }
+      ]
+    },
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "a tab left open after leaving the team in another can't start a run on it",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 9408
+        }
+      ]
+    },
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "a Runs page loaded before an owner removed the student refuses to start and recovers on reload",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 10460
+        }
+      ]
+    },
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "reports the contract can't hold are refused in words, store nothing, and the Runs page still renders",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 12338
+        }
+      ]
+    },
+    {
+      "file": "adversarial.journey.mjs",
+      "title": "a team named in mixed scripts at the length limit reads correctly everywhere it appears",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 19741
+        }
+      ]
+    },
+    {
+      "file": "m4-keyboard.journey.mjs",
+      "title": "a new student signs in, joins and starts a team by keyboard alone",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 8760
+        }
+      ]
+    },
+    {
+      "file": "m4-keyboard.journey.mjs",
+      "title": "a practice run is started, opened and its console's publish question answered by keyboard",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 53786
+        }
+      ]
+    },
+    {
+      "file": "m4-pages.journey.mjs",
+      "title": "every S1 to S6 page passes axe, contrast and overflow at 1440x900",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 47557
+        }
+      ]
+    },
+    {
+      "file": "m4-pages.journey.mjs",
+      "title": "every S1 to S6 page passes axe, contrast and overflow at 390x844",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 44125
+        }
+      ]
+    },
+    {
+      "file": "m4-pages.journey.mjs",
+      "title": "every S1 to S6 page passes axe, contrast and overflow at 320x640",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 45619
+        }
+      ]
+    },
+    {
+      "file": "m4-pages.journey.mjs",
+      "title": "under reduced motion nothing on any S1 to S6 page is still moving once it settles",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 11696
+        }
+      ]
+    },
+    {
+      "file": "m4-pages.journey.mjs",
+      "title": "the embedded Activity's gate and bench pass axe, contrast and overflow at 1440x900",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 2660
+        }
+      ]
+    },
+    {
+      "file": "m4-pages.journey.mjs",
+      "title": "the embedded Activity's gate and bench pass axe, contrast and overflow at 390x844",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 2505
+        }
+      ]
+    },
+    {
+      "file": "m4-pages.journey.mjs",
+      "title": "the embedded Activity's gate and bench pass axe, contrast and overflow at 320x640",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 2507
+        }
+      ]
+    },
+    {
+      "file": "ops-restart-and-production.journey.mjs",
+      "title": "a session minted before a Worker restart still works after it",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 9721
+        }
+      ]
+    },
+    {
+      "file": "ops-restart-and-production.journey.mjs",
+      "title": "a production-configured Worker refuses dev sign-in, and the next fresh boot restores it",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 19068
+        }
+      ]
+    },
+    {
+      "file": "s1-signed-out.journey.mjs",
+      "title": "landing and leaderboard render signed out and pass axe at 1440px",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 1539
+        }
+      ]
+    },
+    {
+      "file": "s1-signed-out.journey.mjs",
+      "title": "landing and leaderboard render signed out and pass axe at 390px",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 1413
+        }
+      ]
+    },
+    {
+      "file": "s1-signed-out.journey.mjs",
+      "title": "landing and leaderboard render signed out and pass axe at 320px",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 1360
+        }
+      ]
+    },
+    {
+      "file": "s1-signed-out.journey.mjs",
+      "title": "a deep link into a team page sends a signed-out visitor to sign in",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 453
+        }
+      ]
+    },
+    {
+      "file": "s1-signed-out.journey.mjs",
+      "title": "an unknown address says there is nothing there and shows the address",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 400
+        }
+      ]
+    },
+    {
+      "file": "s1-signed-out.journey.mjs",
+      "title": "the skip link is the first stop by keyboard and lands in the page's content",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 433
+        }
+      ]
+    },
+    {
+      "file": "s2-onboarding-and-cli.journey.mjs",
+      "title": "a new student signs in, joins, starts a team, and links the CLI",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 15658
+        }
+      ]
+    },
+    {
+      "file": "s2-onboarding-and-cli.journey.mjs",
+      "title": "a wrong join code is refused in words and nothing is joined",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 10043
+        }
+      ]
+    },
+    {
+      "file": "s3-cli-report.journey.mjs",
+      "title": "a real Week 1 run, synced by the CLI, reads back unchanged through the API and the Runs page",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 56789
+        }
+      ]
+    },
+    {
+      "file": "s3-hosted-run.journey.mjs",
+      "title": "a practice run goes from the Runs page to a scored result and into the history",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 38359
+        }
+      ]
+    },
+    {
+      "file": "s3-hosted-run.journey.mjs",
+      "title": "a run that finds no adapter fails with the neutral card and the raw line folded",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 21412
+        }
+      ]
+    },
+    {
+      "file": "s3-publish-leaderboard.journey.mjs",
+      "title": "a published official result shows on the leaderboard for a signed-out visitor",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 55748
+        }
+      ]
+    },
+    {
+      "file": "s4-staff-desk.journey.mjs",
+      "title": "by default a TA's desk shows their team's members, history state and runs",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 12731
+        }
+      ]
+    },
+    {
+      "file": "s4-staff-desk.journey.mjs",
+      "title": "under the restricted setting a TA's pages name no student and say what was withheld",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 12011
+        }
+      ]
+    },
+    {
+      "file": "s5-page-matrix.journey.mjs",
+      "title": "every SPA page lands each person where the policy says",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 219787
+        }
+      ]
+    },
+    {
+      "file": "s5-refusals.journey.mjs",
+      "title": "connecting without a cohort is refused before anything is written",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 8023
+        }
+      ]
+    },
+    {
+      "file": "s5-refusals.journey.mjs",
+      "title": "connecting an unclaimable repository is refused without a GitHub token",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 7336
+        }
+      ]
+    },
+    {
+      "file": "s5-refusals.journey.mjs",
+      "title": "a second connect while already on a team is refused with its own code",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 7541
+        }
+      ]
+    },
+    {
+      "file": "s5-refusals.journey.mjs",
+      "title": "unauthenticated traffic is refused by the real session guard",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 7350
+        }
+      ]
+    },
+    {
+      "file": "s5-route-matrix.journey.mjs",
+      "title": "every Worker route answers every identity exactly as the policy says",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 93662
+        }
+      ]
+    },
+    {
+      "file": "s6-activity-frontend.journey.mjs",
+      "title": "opened outside Discord, the Activity says where to open it and links to the portal",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 8927
+        }
+      ]
+    },
+    {
+      "file": "s6-activity-frontend.journey.mjs",
+      "title": "the link gate sends the student to the portal, and the check opens their team's bench",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 8257
+        }
+      ]
+    },
+    {
+      "file": "s6-activity-frontend.journey.mjs",
+      "title": "a linked student with no team meets the team gate, which sends them to team setup",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 8691
+        }
+      ]
+    },
+    {
+      "file": "s6-activity-frontend.journey.mjs",
+      "title": "the live console follows a hosted practice run to its end",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 32276
+        }
+      ]
+    },
+    {
+      "file": "s6-activity-link.journey.mjs",
+      "title": "a duplicated code exchange and a duplicated confirmation still make exactly one link",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 9994
+        }
+      ]
+    }
+  ]
+}

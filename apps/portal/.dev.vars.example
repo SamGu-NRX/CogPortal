@@ -9,6 +9,10 @@ DEV_AUTH="enabled"
 # Owner-only setup replay/reset controls; safe with real GitHub OAuth because
 # the server also requires PLATFORM_OWNER_LOGINS membership.
 ONBOARDING_DEV_TOOLS="enabled"
+# Keep "fixture" here. Without a .dev.vars at all, `pnpm dev` inherits the
+# deployed staging worker's vars from wrangler.jsonc (EXECUTION_PROVIDER="modal"
+# and the staging MODAL_RUNNER_URL), and the predev guard refuses to start that
+# boot. See "Running against the real Modal runner, locally" below.
 EXECUTION_PROVIDER="fixture"
 # 32+ characters. Signs sessions and the setup page's check-off commands,
 # so a portal without it cannot offer those commands. Any long random
@@ -89,6 +93,14 @@ RUN_STALE_AFTER_SECONDS="3600"
 #
 # Then docs/runbooks/gate-1-modal.md, which is the ordered procedure.
 #
+# ALLOW_MODAL_EXECUTION_IN_DEV
+# Read only by the predev dev-boot guard (scripts/dev-execution-provider-guard.mjs),
+# never by the Worker. `pnpm dev` asks wrangler which EXECUTION_PROVIDER the
+# Worker will get (wrangler.jsonc, then .dev.vars, or .env when there is no
+# .dev.vars, for the CLOUDFLARE_ENV in effect) and refuses to start unless it
+# is exactly "fixture", or "modal" with ALLOW_MODAL_EXECUTION_IN_DEV="1" (or
+# "true") beside it. An empty value opts in to nothing.
+#
 # EXECUTION_PROVIDER
 #   "fixture" or "modal". With "fixture", dispatch() in
 #   worker/services/run-actions.ts returns immediately and no job is ever sent.
@@ -157,6 +169,7 @@ RUN_STALE_AFTER_SECONDS="3600"
 #   rest. Leave it unset unless you know why you are changing it.
 #
 # EXECUTION_PROVIDER="modal"
+# ALLOW_MODAL_EXECUTION_IN_DEV="1"
 # MODAL_RUNNER_URL="https://<workspace>--cogworks-runner-submit-job.modal.run"
 # RUNNER_SIGNING_SECRET=""
 # RUNNER_SIGNING_KEY_ID="runner-v1"

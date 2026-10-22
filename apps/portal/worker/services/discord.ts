@@ -11,9 +11,12 @@ import { ApiHttpError } from "../http/errors";
 import { discordAccounts, teamMembers, teams, users } from "../db/schema";
 import { syncTeamRuns } from "../execution/sync";
 import { serializeRunSummary, serializeTeam } from "../http/serializers";
+import { discordApiRoot } from "./discord-api";
 import { listTeamLocalReports } from "./local-reports";
 
-const DISCORD_API = "https://discord.com/api/v10";
+function discordApi(env: Env): string {
+  return `${discordApiRoot(env)}/v10`;
+}
 const ADMINISTRATOR = 1n << 3n;
 const VIEW_CHANNEL = 1n << 10n;
 const SEND_MESSAGES = 1n << 11n;
@@ -82,7 +85,7 @@ async function discordGet<T>(env: Env, path: string): Promise<T> {
   if (!env.DISCORD_BOT_TOKEN) {
     throw new ApiHttpError(500, "provider_unconfigured", "CogBot channel validation is not configured. Ask course staff to add the bot token.");
   }
-  const response = await fetch(`${DISCORD_API}${path}`, {
+  const response = await fetch(`${discordApi(env)}${path}`, {
     headers: {
       Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
       "User-Agent": "DiscordBot (https://cogportal-dev.sillion.app, 1)",

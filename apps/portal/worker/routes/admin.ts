@@ -30,6 +30,7 @@ import {
   teams,
   users,
 } from "../db/schema";
+import { requireMembershipEdits, staffView, summaryForView } from "../services/staff-visibility";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";
@@ -50,10 +51,10 @@ function memberRole(role: string): TeamMember["role"] {
 }
 
 /** The ids of the teams `teamWhere` selects, as a subquery for an IN. */
-function selectTeamIds(db: Database, teamWhere: SQL) {
+export function selectTeamIds(db: Database, teamWhere: SQL) {
   return db.select({ id: teams.id }).from(teams).where(teamWhere);
 }
-type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
+export type ScopedTeamIds = ReturnType<typeof selectTeamIds>;
 
 /** When the last run's outcome was known: its finish, or its start while it
  *  is still going and has none. */
@@ -64,8 +65,8 @@ const runSettledAt = sql<number>`coalesce(${runs.finishedAt}, ${runs.createdAt})
  * join on (id, version), the catalog's key, so it adds at most one row per run.
  * The id stands in when the catalog has no such row.
  */
-const runBenchmarkTitle = sql<string>`coalesce(${benchmarks.title}, ${runs.benchmarkId})`;
-const runBenchmark = and(
+export const runBenchmarkTitle = sql<string>`coalesce(${benchmarks.title}, ${runs.benchmarkId})`;
+export const runBenchmark = and(
   eq(benchmarks.id, runs.benchmarkId),
   eq(benchmarks.version, runs.benchmarkVersion),
 );
@@ -96,7 +97,7 @@ const onConnectedRepository = eq(runs.repositoryId, teams.repoId);
  * execution/sync.ts); substituting the start time let an undated row take
  * first place from a run that really finished first.
  */
-function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
+export function readFirstLights(db: Database, teamIds: ScopedTeamIds) {
   // Never null here: the where clause below drops unfinished rows.
   const finishedAt = sql<number>`${runs.finishedAt}`;
   const ranked = db
@@ -278,13 +279,14 @@ async function readAdminTeamSummaries(
     const usage = used.get(team.id);
     const first = firstLightByTeam.get(team.id);
     const last = lastRunByTeam.get(team.id);
+    const teamMembersOf = members.filter((member) => member.teamId === team.id);
     return {
       id: team.id,
       name: team.name,
       provenance: team.provenance,
       repoFullName: team.repoFullName,
-      members: members
-        .filter((member) => member.teamId === team.id)
+      memberCount: teamMembersOf.length,
+      members: teamMembersOf
         .map((member) => ({
           login: member.login ?? member.email.split("@")[0],
           name: member.name,
@@ -395,13 +397,13 @@ async function getStaffRoster(db: Database, env: Env): Promise<AdminStaffRoster>
   };
 }
 
-type AdminScope = {
+export type AdminScope = {
   auth: AuthState;
   isOwner: boolean;
   teamIds: string[];
 };
 
-async function getAdminScope(c: Parameters<typeof requireStaff>[0]): Promise<AdminScope> {
+export async function getAdminScope(c: Parameters<typeof requireStaff>[0]): Promise<AdminScope> {
   const auth = await requireStaff(c);
   const isOwner = isPlatformOwner(c.env, authorizationLogin(c.env, auth.user));
   if (isOwner) return { auth, isOwner, teamIds: [] };
@@ -420,7 +422,7 @@ async function requireOwner(c: Parameters<typeof requireStaff>[0]): Promise<Auth
   return scope.auth;
 }
 
-async function requireTeamScope(
+export async function requireTeamScope(
   c: Parameters<typeof requireStaff>[0],
   teamId: string,
 ): Promise<AdminScope> {
@@ -483,15 +485,17 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
       name: user.name,
       joinedAt: user.joinedAt,
     }));
+    const view = staffView(c.env, scope);
     return respond(c, AdminOverviewSchema, {
       scope: scope.isOwner ? "owner" : "ta",
+      view,
       cohort: {
         slug: cohort.slug,
         name: cohort.name,
         joinCode: scope.isOwner ? cohort.joinCode : null,
         active: cohort.active,
       },
-      teams: summaries,
+      teams: summaries.map((summary) => summaryForView(summary, view)),
       unassigned: serializedUnassigned,
     });
   });
@@ -517,24 +521,24 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/admin/teams/:teamId", async (c) => {
+    const teamId = c.req.param("teamId");
+    const view = staffView(c.env, await requireTeamScope(c, teamId));
     const body = await parseBody(c, UpdateTeamRequestSchema);
     const db = getDb(c.env);
-    const teamId = c.req.param("teamId");
-    await requireTeamScope(c, teamId);
     const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
     const updates: { name?: string; description?: string | null } = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     await db.update(teams).set(updates).where(eq(teams.id, teamId));
-    return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+    return respond(c, AdminTeamSummarySchema, summaryForView(await getAdminTeamSummary(db, teamId), view));
   });
 
   app.post("/admin/teams/:teamId/members", async (c) => {
+    const teamId = c.req.param("teamId");
+    requireMembershipEdits(staffView(c.env, await requireTeamScope(c, teamId)));
     const body = await parseBody(c, AdminAddMemberRequestSchema);
     const db = getDb(c.env);
-    const teamId = c.req.param("teamId");
-    await requireTeamScope(c, teamId);
     const [[team], [user]] = await Promise.all([
       db
         .select({ id: teams.id, cohortId: teams.cohortId, repoFullName: teams.repoFullName })
@@ -593,7 +597,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.delete("/admin/teams/:teamId/members/:login", async (c) => {
     const db = getDb(c.env);
     const teamId = c.req.param("teamId");
-    await requireTeamScope(c, teamId);
+    requireMembershipEdits(staffView(c.env, await requireTeamScope(c, teamId)));
     const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
     const [user] = await db

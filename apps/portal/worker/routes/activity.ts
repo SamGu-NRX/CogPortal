@@ -9,9 +9,10 @@ import { getDb } from "../db/client";
 import { discordAccounts, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
+import { discordApiRoot } from "../services/discord-api";
 import { createDiscordLink } from "../services/identity";
 import { getRunSurfaceRow, listTeamRunSurfaceSnapshots } from "../services/run-surfaces";
-import { discordRunActor, performRunSurfaceMutation } from "../services/run-actions";
+import { discordRunActor, performRunSurfaceMutation, runSurfaceMutation } from "../services/run-actions";
 import { randomHex } from "../util/id";
 
 const STATE_COOKIE = "cog_activity_oauth_state";
@@ -34,13 +35,6 @@ const ActivitySessionSchema = z.discriminatedUnion("linked", [
     githubLogin: z.string(),
     team: z.object({ id: z.string(), name: z.string(), discordChannelId: z.string().nullable() }),
   }),
-]);
-const ActivityMutationSchema = z.enum([
-  "verify_hosted",
-  "promote_official",
-  "publish_result",
-  "rerun_hosted",
-  "retry",
 ]);
 
 /**
@@ -125,15 +119,57 @@ function cookieOptions(c: Context<AppEnv>, maxAge: number) {
   return activityCookieOptions(c.req.url, maxAge);
 }
 
-async function activityDiscordId(c: Context<AppEnv>): Promise<string> {
+/**
+ * The signed session cookie's value: the Discord user id, the expiry, and the
+ * username Discord returned, base64url-encoded so a dot in it cannot split
+ * the value. The username is what the portal's link confirmation shows the
+ * student; without it every Activity link read "Discord user". A cookie from
+ * before the third field parses with a null username.
+ */
+function toBase64Url(text: string): string {
+  const binary = String.fromCodePoint(...new TextEncoder().encode(text));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(encoded: string): string {
+  const binary = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.codePointAt(0)!));
+}
+
+export function activitySessionValue(discordUserId: string, expiresAt: number, username: string): string {
+  return `${discordUserId}.${expiresAt}.${toBase64Url(username)}`;
+}
+
+export function parseActivitySession(
+  raw: string,
+): { discordUserId: string; expires: number; username: string | null } | null {
+  const [discordUserId, expires, encoded] = raw.split(".");
+  if (!discordUserId || !expires || !Number.isFinite(Number(expires))) return null;
+  let username: string | null = null;
+  if (encoded) {
+    try {
+      username = fromBase64Url(encoded) || null;
+    } catch {
+      // A malformed third field is a session without a username, not a refusal.
+      username = null;
+    }
+  }
+  return { discordUserId, expires: Number(expires), username };
+}
+
+async function activitySession(c: Context<AppEnv>): Promise<{ discordUserId: string; username: string | null }> {
   const { sessionSecret } = configured(c);
   const raw = await getSignedCookie(c, sessionSecret, SESSION_COOKIE);
   if (!raw) throw new ApiHttpError(401, "unauthorized", "Open the Cog Activity again.");
-  const [discordUserId, expires] = raw.split(".");
-  if (!discordUserId || !expires || Number(expires) <= Date.now()) {
+  const session = parseActivitySession(raw);
+  if (!session || session.expires <= Date.now()) {
     throw new ApiHttpError(401, "unauthorized", "The Cog Activity session expired. Open it again.");
   }
-  return discordUserId;
+  return session;
+}
+
+async function activityDiscordId(c: Context<AppEnv>): Promise<string> {
+  return (await activitySession(c)).discordUserId;
 }
 
 async function activityIdentity(env: AppEnv["Bindings"], discordUserId: string) {
@@ -174,7 +210,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     if (!expected || expected !== body.state) {
       throw new ApiHttpError(400, "invalid_request", "The Discord Activity authorization state expired.");
     }
-    const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
+    const tokenResponse = await fetch(`${discordApiRoot(c.env)}/oauth2/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -193,7 +229,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(401, "unauthorized", rejection.message);
     }
     const token = z.object({ access_token: z.string().min(1) }).parse(await tokenResponse.json());
-    const userResponse = await fetch("https://discord.com/api/v10/users/@me", {
+    const userResponse = await fetch(`${discordApiRoot(c.env)}/v10/users/@me`, {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
     if (!userResponse.ok) {
@@ -209,7 +245,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     await setSignedCookie(
       c,
       SESSION_COOKIE,
-      `${user.id}.${expiresAt}`,
+      activitySessionValue(user.id, expiresAt, user.username),
       config.sessionSecret,
       cookieOptions(c, SESSION_TTL_SECONDS),
     );
@@ -221,10 +257,10 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   });
 
   app.get("/activity/session", async (c) => {
-    const discordUserId = await activityDiscordId(c);
+    const { discordUserId, username } = await activitySession(c);
     const identity = await activityIdentity(c.env, discordUserId);
     if (!identity) {
-      const start = await createDiscordLink(c.env, discordUserId, "Discord user");
+      const start = await createDiscordLink(c.env, discordUserId, username ?? "Discord user");
       const linkUrl = start.url ?? new URL("/connections", c.env.PUBLIC_ORIGIN ?? c.req.url).toString();
       return respond(c, ActivitySessionSchema, { linked: false, linkUrl });
     }
@@ -260,7 +296,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     if (surface.teamId !== identity.team.id) {
       throw new ApiHttpError(404, "not_found", "Run surface not found.");
     }
-    const action = ActivityMutationSchema.parse(c.req.param("action"));
+    const action = runSurfaceMutation(c.req.param("action"));
     const snapshot = await performRunSurfaceMutation(
       c.env,
       await discordRunActor(c.env, discordUserId),

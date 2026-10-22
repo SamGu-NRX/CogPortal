@@ -35,7 +35,7 @@ import { fixtureRepository } from "../github/team";
 import type { ConnectRepository } from "../github/team";
 import { validateTemplateRepository } from "../github/template";
 import { ApiHttpError } from "../http/errors";
-import { parseBody, respond } from "../http/respond";
+import { guardField, parseBody, respond } from "../http/respond";
 import {
   buildProcessSignals,
   classifyHistoryQuality,
@@ -261,14 +261,16 @@ export function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 
-const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
+export const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
   audio: "week1",
   vision: "week2",
   language: "week3",
 };
 
 /** Reading history costs up to 41 of a Worker's 50 subrequests. */
-const COMMIT_HISTORY_CACHE_MS = 30 * 60 * 1000;
+/** The team page's own cache window; the staff desk's staleness reading
+ *  mirrors it so both surfaces call the same stored read fresh or stale. */
+export const COMMIT_HISTORY_CACHE_MS = 30 * 60 * 1000;
 
 /** Below D1's 2,000,000-byte row limit, which 40 commits of 300 long paths
  *  can pass. A failed write would fail the response, so larger history is
@@ -286,7 +288,7 @@ const MAX_STORED_HISTORY_BYTES = 1_000_000;
  * as a complete response, so a rolled-back Worker would have failed the team
  * panel on these rows; with 0 it treats them as expired and recomputes.
  */
-const StoredCommitHistorySchema = z.object({
+export const StoredCommitHistorySchema = z.object({
   kind: z.literal("commit-history.v1"),
   repository: z.string(),
   branch: z.string(),
@@ -484,7 +486,7 @@ export async function scoredRunRecords(
  * knows which of those belong to this team; the fetch that reads the
  * trailers (`../github/commits.ts`) has no roster to check them against.
  */
-async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]> {
+export async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]> {
   const rows = await db
     .select({ login: users.githubLogin, email: users.email })
     .from(teamMembers)
@@ -537,8 +539,8 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/team", async (c) => {
+    const auth = await requireAdminOfShownTeam(c, await guardField(c, "teamId"));
     const body = await parseBody(c, UpdateTeamRequestSchema);
-    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     const updates: { name?: string; description?: string | null } = {};
     if (body.name !== undefined) updates.name = body.name;
@@ -554,8 +556,8 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/team/repository", async (c) => {
+    const auth = await requireAdminOfShownTeam(c, await guardField(c, "teamId"));
     const body = await parseBody(c, ChangeTeamRepoRequestSchema);
-    const auth = await requireAdminOfShownTeam(c, body.teamId);
     const db = getDb(c.env);
     if (body.fullName === auth.team.repoFullName) {
       return respond(

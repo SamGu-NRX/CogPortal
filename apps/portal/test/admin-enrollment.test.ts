@@ -51,7 +51,7 @@ async function mount(t: TestContext, active: boolean) {
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } },
   });
-  client.setQueryData<AdminOverview>(["admin", "overview"], { scope: "owner", cohort, teams: [], unassigned: [] });
+  client.setQueryData<AdminOverview>(["admin", "overview"], { scope: "owner", view: "full", cohort, teams: [], unassigned: [] });
   client.setQueryData(["admin", "staff"], { entries: [], owners: [] });
   const container = window.document.createElement("div");
   window.document.body.append(container);

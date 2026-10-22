@@ -1,0 +1,36 @@
+Running 1 test using 1 worker
+  ✘  1 journeys/adversarial.journey.mjs:83:3 › A1 delayed, lost and reordered traffic › a rename and an added member that answer in the opposite order leave the page showing what was stored (26.3s)
+  1) journeys/adversarial.journey.mjs:83:3 › A1 delayed, lost and reordered traffic › a rename and an added member that answer in the opposite order leave the page showing what was stored 
+    Error: expect(locator).toHaveCount(expected) failed
+    Locator:  getByRole('region').filter({ has: getByRole('heading', { name: 'People' }) }).getByRole('listitem').filter({ hasText: 'rj-a1-invitee' })
+    Expected: 1
+    Received: 0
+    Timeout:  15000ms
+    Call log:
+      - Expect "toHaveCount" getByRole('region').filter({ has: getByRole('heading', { name: 'People' }) }).getByRole('listitem').filter({ hasText: 'rj-a1-invitee' }) with timeout 15000ms
+      - waiting for getByRole('region').filter({ has: getByRole('heading', { name: 'People' }) }).getByRole('listitem').filter({ hasText: 'rj-a1-invitee' })
+        34 × locator resolved to 0 elements
+           - unexpected value "0"
+      130 |     // Before any reload: the page shows both saves, and never dropped the member.
+      131 |     await expect(page.getByRole("heading", { level: 1 })).toHaveText("RJ Held Name");
+    > 132 |     await expect(people.filter({ hasText: "rj-a1-invitee" })).toHaveCount(1);
+          |                                                               ^
+      133 |     await page.waitForTimeout(1000);
+      134 |     expect(await page.evaluate(() => window.__rjMemberLost), "the new member left the page when the older answer arrived").toBe(false);
+      135 |     const stored = await (await page.request.get(`${STACK}/api/team`)).json();
+        at /Users/samgu/Programming Projects/CogPortal-takeover-114/tools/portal-real-journeys/journeys/adversarial.journey.mjs:132:63
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/artifacts/adversarial.journey.mjs-A1-5b5ad-age-showing-what-was-stored/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/artifacts/adversarial.journey.mjs-A1-5b5ad-age-showing-what-was-stored/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+    Error Context: test-results/artifacts/adversarial.journey.mjs-A1-5b5ad-age-showing-what-was-stored/error-context.md
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/artifacts/adversarial.journey.mjs-A1-5b5ad-age-showing-what-was-stored/trace.zip
+    Usage:
+        npx playwright show-trace test-results/artifacts/adversarial.journey.mjs-A1-5b5ad-age-showing-what-was-stored/trace.zip
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  1 failed
+    journeys/adversarial.journey.mjs:83:3 › A1 delayed, lost and reordered traffic › a rename and an added member that answer in the opposite order leave the page showing what was stored 
+before: exit 1

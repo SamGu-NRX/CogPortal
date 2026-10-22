@@ -1,0 +1,4 @@
+  ✓  1 journeys/s5-route-matrix.journey.mjs:421:1 › every Worker route answers every identity exactly as the policy says (1.5m)
+  1 passed (1.7m)
+old observe exit: 0
+observed GET /api/admin/staff: {"200": ["taAssigned", "taUnassigned", "owner"], "401 unauthorized: Sign in to continue.": ["signedOut", "revoked", "expired", "deviceA", "deviceRevoked", "deviceExpired", "deviceB", "activityA", "activityNoTeam", "activityUnlinked"], "403 forbidden: Staff access required.": ["joiner", "outsider", "studentA", "teammateA", "studentB", "changedTeam"]}

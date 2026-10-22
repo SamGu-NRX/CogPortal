@@ -1,0 +1,4 @@
+  ✘  1 journeys/s5-route-matrix.journey.mjs:422:1 › every Worker route answers every identity exactly as the policy says (1.5m)
+    Error: observe mode (RJ_MATRIX_OBSERVE) recorded the answers to test-results/evidence/route-matrix-observed.json and did not check them against the policy; this run is not a pass
+    > 84 |   throw new Error(`observe mode (RJ_MATRIX_OBSERVE) recorded the answers to ${out} and did not check them against the policy; this run is not a pass`);
+  1 failed

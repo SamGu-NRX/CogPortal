@@ -1,0 +1,32 @@
+Unhandled API error [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "teamId"
+    ],
+    "message": "Invalid input: expected string, received number"
+  }
+]
+Unhandled API error [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "teamId"
+    ],
+    "message": "Invalid input: expected string, received number"
+  }
+]
+✔ production strips an undeclared private field a route returned (26.826084ms)
+✔ development strips the same field (0.857892ms)
+✔ an answer that fails its schema is the house 500 in production, carrying nothing from the object (2.204583ms)
+✔ an answer that fails its schema refuses loudly in development too (1.229557ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 292.540711

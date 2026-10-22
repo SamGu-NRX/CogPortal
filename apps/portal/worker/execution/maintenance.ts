@@ -35,7 +35,14 @@ const QUEUED_STALE_AFTER_SECONDS = 10 * 60;
 
 const STALE_FAILURE_DETAIL = "The execution provider stopped reporting progress.";
 
-function staleAfterMs(env: Env): number {
+/**
+ * How long a live run may go without accepted runner activity before the
+ * sweep fails it. RUN_STALE_AFTER_SECONDS below 900 (or unreadable) falls back
+ * to the hour: a shorter clock would fail runs mid-evaluation. The staff desk
+ * reads the same clock (routes/staff-desk.ts), so a run it calls stale is one
+ * this sweep would fail.
+ */
+export function staleAfterMs(env: Pick<Env, "RUN_STALE_AFTER_SECONDS">): number {
   const configured = Number(env.RUN_STALE_AFTER_SECONDS ?? DEFAULT_STALE_AFTER_SECONDS);
   return Number.isFinite(configured) && configured >= 900
     ? configured * 1_000

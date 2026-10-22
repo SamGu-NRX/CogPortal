@@ -600,9 +600,11 @@ export async function promotePracticeRun(
   return { runId, surfaceId: parent.surfaceId };
 }
 
-export async function publishOfficialRun(env: Env, actor: RunActor, runId: string) {
+/** `runId` undefined is a request that named no run (routes/leaderboard.ts reads it unvalidated). */
+export async function publishOfficialRun(env: Env, actor: RunActor, runId: string | undefined) {
   actor = await withCurrentTeam(env, actor);
   await requireCurrentRepositoryPermission(env, actor);
+  if (runId === undefined) throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
   const db = getDb(env);
   const [row] = await db
     .select()
@@ -804,12 +806,25 @@ export async function retryRun(
   await dispatch(env, runId, actor.team);
 }
 
-export type RunSurfaceMutation =
-  | "verify_hosted"
-  | "promote_official"
-  | "publish_result"
-  | "rerun_hosted"
-  | "retry";
+export const RUN_SURFACE_MUTATIONS = [
+  "verify_hosted",
+  "promote_official",
+  "publish_result",
+  "rerun_hosted",
+  "retry",
+] as const;
+export type RunSurfaceMutation = (typeof RUN_SURFACE_MUTATIONS)[number];
+
+/**
+ * The action named in a `/run-surfaces/:id/actions/:action` path, or a 404.
+ * The routes used to `z.enum(...).parse` it, and an unknown name threw a
+ * ZodError that the error handler answered as a 500 blaming the backend.
+ * An action that doesn't exist is a route that doesn't exist.
+ */
+export function runSurfaceMutation(name: string): RunSurfaceMutation {
+  if ((RUN_SURFACE_MUTATIONS as readonly string[]).includes(name)) return name as RunSurfaceMutation;
+  throw new ApiHttpError(404, "not_found", "API route not found.");
+}
 
 /** Shared mutation boundary for Portal HTTP, the Activity, and CogBot RPC.
  * Every caller supplies a freshly resolved actor; eligibility rendered in a

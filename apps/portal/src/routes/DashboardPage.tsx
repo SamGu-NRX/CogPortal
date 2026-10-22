@@ -445,6 +445,7 @@ function finishedSummary(
     const copy = resolveFailureCopy(run.failure.category, {
       benchmarkId: benchmark.id,
       module: benchmark.module,
+      detail: run.failure.detail,
     });
     const attempt = run.attemptNumber ? `official attempt #${run.attemptNumber}` : "an official attempt";
     const spent =

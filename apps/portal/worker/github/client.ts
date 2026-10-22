@@ -1,7 +1,20 @@
 import { FIXTURE_REPO, FIXTURE_SCENARIOS } from "@cogworks/contracts/fixtures";
 import type { GithubRepo } from "@cogworks/contracts/schema";
 
-const GITHUB_API = "https://api.github.com";
+// The real-journeys harness (tools/portal-real-journeys) points this
+// client's outbound REST traffic at labelled local doubles by setting
+// GITHUB_API_BASE_URL in local bindings; see env.ts. The default is
+// unchanged in every real environment: nothing there sets the variable.
+// Read through globalThis because the worker tsconfig has no node types,
+// while workerd exposes wrangler vars on process.env under nodejs_compat.
+const GITHUB_API_DEFAULT = "https://api.github.com";
+
+function githubApiBase(): string {
+  return (
+    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+      ?.GITHUB_API_BASE_URL || GITHUB_API_DEFAULT
+  );
+}
 const GITHUB_ACCEPT = "application/vnd.github+json";
 
 export type GitHubRepositoryListing = Omit<GithubRepo, "claimedByTeam">;
@@ -155,7 +168,7 @@ export async function githubApiRequest(
   token: string,
   accept = GITHUB_ACCEPT,
 ): Promise<Response> {
-  return fetch(`${GITHUB_API}${path}`, {
+  return fetch(`${githubApiBase()}${path}`, {
     headers: {
       Accept: accept,
       Authorization: `Bearer ${token}`,

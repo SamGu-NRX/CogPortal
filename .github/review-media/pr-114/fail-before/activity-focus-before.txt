@@ -1,0 +1,4 @@
+70-  2) journeys/m4-keyboard.journey.mjs:180:5 › at 1440x900 › the embedded Activity's link gate and bench are worked by keyboard 
+71-
+72:    Error: focus after checking the link fell to the page body
+73-
