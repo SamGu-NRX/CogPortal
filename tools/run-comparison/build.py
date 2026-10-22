@@ -455,14 +455,41 @@ def dataset_verdict(a: Report, b: Report) -> Dict[str, Any]:
     return {"verdict": verdict, "detail": summary, "fields": fields}
 
 
-def _metric_identity(metric: Any) -> Tuple[Any, ...]:
-    return (
-        metric.unit,
-        metric.higher_is_better,
-        metric.role,
-        metric.precision,
-        metric.relates_to,
+def _direction_text(higher_is_better: bool) -> str:
+    return "higher is better" if higher_is_better else "lower is better"
+
+
+def _identity_text(value: Any) -> str:
+    if value is None:
+        return "unrecorded"
+    if value == "":
+        return "empty"
+    return str(value)
+
+
+def _identity_differences(ma: Any, mb: Any) -> List[str]:
+    """Each identity field the two runs record differently, with both values.
+
+    Compared on the raw values, so the list is empty exactly when the
+    metric's identity matches.
+    """
+
+    fields = (
+        ("unit", ma.unit, mb.unit, _identity_text),
+        ("direction", ma.higher_is_better, mb.higher_is_better, _direction_text),
+        ("role", ma.role, mb.role, _identity_text),
+        ("precision", ma.precision, mb.precision, _identity_text),
+        ("floor reference", ma.relates_to, mb.relates_to, _identity_text),
     )
+    return [
+        "{}: {} vs {}".format(name, text(value_a), text(value_b))
+        for name, value_a, value_b, text in fields
+        if value_a != value_b
+    ]
+
+
+def _with_unit(value: str, unit: Optional[str]) -> str:
+    return value + " " + unit if unit else value
 
 
 def _floor_unit_suffix(item: Dict[str, Any]) -> str:
@@ -555,21 +582,24 @@ def metric_sections(
                 }
             )
             continue
+        # Each side keeps its own unit: rendering run B's value under run
+        # A's unit would show 1000.0 ms as 1000.0 s.
+        differences = _identity_differences(ma, mb)
         row: Dict[str, Any] = {
             "key": key,
             "label": ma.label or key,
             "primary": bool(ma.primary or mb.primary),
             "run_a": _fmt(ma.value, ma.precision),
             "run_b": _fmt(mb.value, mb.precision),
-            "unit": ma.unit,
-            "direction": (
-                "lower is better" if not ma.higher_is_better else "higher is better"
-            ),
+            "unit_a": ma.unit,
+            "unit_b": mb.unit,
+            "identity_differences": differences,
+            "direction": _direction_text(ma.higher_is_better),
         }
         if not comparable:
             row["delta"] = None
             row["delta_note"] = "not compared — the runs' conditions do not line up"
-        elif _metric_identity(ma) != _metric_identity(mb):
+        elif differences:
             row["delta"] = None
             row["delta_note"] = (
                 "not compared — the metric's identity (unit, direction, role, "
@@ -835,9 +865,12 @@ def render(
     metric_rows = []
     for row in analysis["shared"]:
         marker = ' <span class="muted">(primary)</span>' if row["primary"] else ""
-        sub = _esc(row["key"]) + (
-            " · " + _esc(row["unit"]) if row["unit"] else ""
-        )
+        sub = _esc(row["key"])
+        if row["identity_differences"]:
+            sub += _esc(
+                " · identity differs between the runs: "
+                + "; ".join(row["identity_differences"])
+            )
         if row["delta"] is None:
             delta_cell = '<span class="muted">— not compared</span><br> <span class="muted">{}</span>'.format(
                 _esc(row["delta_note"])
@@ -854,8 +887,8 @@ def render(
                 label=_esc(row["label"]),
                 marker=marker,
                 sub=sub,
-                va=_esc(row["run_a"]),
-                vb=_esc(row["run_b"]),
+                va=_esc(_with_unit(row["run_a"], row["unit_a"])),
+                vb=_esc(_with_unit(row["run_b"], row["unit_b"])),
                 delta=delta_cell,
             )
         )
@@ -1097,20 +1130,16 @@ def build_sections(
             "pair comparable: no — " + "; ".join(analysis["blockers"])
         )
     for row in analysis["shared"]:
+        run_a = _with_unit(row["run_a"], row["unit_a"])
+        run_b = _with_unit(row["run_b"], row["unit_b"])
         if row["delta"] is None:
             lines["metric_comparison"].append(
-                "{}: {} vs {} — {}".format(
-                    row["key"], row["run_a"], row["run_b"], row["delta_note"]
-                )
+                "{}: {} vs {} — {}".format(row["key"], run_a, run_b, row["delta_note"])
             )
         else:
             lines["metric_comparison"].append(
                 "{}: {} vs {} ({} — {})".format(
-                    row["key"],
-                    row["run_a"],
-                    row["run_b"],
-                    row["delta"],
-                    row["delta_note"],
+                    row["key"], run_a, run_b, row["delta"], row["delta_note"]
                 )
             )
     for item in analysis["context"]:

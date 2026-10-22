@@ -596,6 +596,36 @@ def _identity(metric: Dict[str, Any]) -> Tuple[Any, ...]:
     )
 
 
+def _identity_differences(a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
+    """The builder's per-field identity wording, derived independently."""
+
+    def plain(value: Any) -> str:
+        if value is None:
+            return "unrecorded"
+        return "empty" if value == "" else str(value)
+
+    def direction(value: bool) -> str:
+        return "higher is better" if value else "lower is better"
+
+    differences = []
+    for label, field, text in (
+        ("unit", "unit", plain),
+        ("direction", "higher_is_better", direction),
+        ("role", "role", plain),
+        ("precision", "precision", plain),
+        ("floor reference", "relates_to", plain),
+    ):
+        if a[field] != b[field]:
+            differences.append(
+                "{}: {} vs {}".format(label, text(a[field]), text(b[field]))
+            )
+    return differences
+
+
+def _with_unit(value: str, unit: Optional[str]) -> str:
+    return "{} {}".format(value, unit) if unit else value
+
+
 def _derive_analysis(
     a: Dict[str, Any], b: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -680,6 +710,9 @@ def _derive_analysis(
             "label": metric_a["label"] or key,
             "run_a": _fmt(metric_a["value"], metric_a["precision"]),
             "run_b": _fmt(metric_b["value"], metric_b["precision"]),
+            "unit_a": metric_a["unit"],
+            "unit_b": metric_b["unit"],
+            "identity_differences": _identity_differences(metric_a, metric_b),
             "direction": direction,
         }
         if not comparable:
@@ -1116,7 +1149,16 @@ def main() -> int:
             ),
         )
     for derived_row, receipt_row in zip(derived["shared"], receipt_shared):
-        for field in ("key", "label", "run_a", "run_b", "direction"):
+        for field in (
+            "key",
+            "label",
+            "run_a",
+            "run_b",
+            "unit_a",
+            "unit_b",
+            "identity_differences",
+            "direction",
+        ):
             if receipt_row.get(field) != derived_row[field]:
                 _fail(
                     failures,
@@ -1283,18 +1325,34 @@ def main() -> int:
                 "metric row {} has {} cells, expected 4".format(derived_row["key"], len(cells)),
             )
             continue
-        if cells[1] != derived_row["run_a"]:
+        # Each value cell carries its own run's unit.
+        expected_a = _with_unit(derived_row["run_a"], derived_row["unit_a"])
+        expected_b = _with_unit(derived_row["run_b"], derived_row["unit_b"])
+        if cells[1] != expected_a:
             _fail(
                 failures,
                 "metric row {} run A cell {!r} != derived {!r}".format(
-                    derived_row["key"], cells[1], derived_row["run_a"]
+                    derived_row["key"], cells[1], expected_a
                 ),
             )
-        if cells[2] != derived_row["run_b"]:
+        if cells[2] != expected_b:
             _fail(
                 failures,
                 "metric row {} run B cell {!r} != derived {!r}".format(
-                    derived_row["key"], cells[2], derived_row["run_b"]
+                    derived_row["key"], cells[2], expected_b
+                ),
+            )
+        expected_sub = derived_row["key"]
+        if derived_row["identity_differences"]:
+            expected_sub += " · identity differs between the runs: " + "; ".join(
+                derived_row["identity_differences"]
+            )
+        if not cells[0].endswith(expected_sub):
+            _fail(
+                failures,
+                "metric row {} heading {!r} does not end with the derived "
+                "key and identity line {!r}".format(
+                    derived_row["key"], cells[0], expected_sub
                 ),
             )
         if derived_row["delta"] is None:

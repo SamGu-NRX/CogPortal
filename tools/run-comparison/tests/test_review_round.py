@@ -487,6 +487,40 @@ def test_verify_rejects_swapped_run_column_labels(tmp_path, occurrence, table):
     assert "the {} header".format(table) in checked.stderr
 
 
+def _rewrite_metric(fixtures, name, key, **fields):
+    payload = json.loads((fixtures / name).read_text(encoding="utf-8"))
+    for entry in payload["metrics"]:
+        if entry["key"] == key:
+            entry.update(fields)
+    (fixtures / name).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def test_a_shared_metric_keeps_each_runs_unit(tmp_path):
+    # The shared row carried run A's unit only, so 1.0 s against 1000.0 ms
+    # rendered both values under "s". Each side keeps its own unit and the
+    # row names the identity difference.
+    fixtures = _copy_fixtures(tmp_path)
+    _rewrite_metric(fixtures, "01-run-a.json", "ranking_failure_rate", unit="s", value=1.0)
+    _rewrite_metric(fixtures, "02-run-b.json", "ranking_failure_rate", unit="ms", value=1000.0)
+
+    out, _ = _build_evidence(tmp_path, fixtures=fixtures)
+
+    receipt = json.loads((out / RECEIPT).read_text(encoding="utf-8"))
+    row = {row["key"]: row for row in receipt["metrics"]["shared"]}["ranking_failure_rate"]
+    assert (row["unit_a"], row["unit_b"]) == ("s", "ms")
+    assert row["identity_differences"] == ["unit: s vs ms"]
+    html = (out / VIEW).read_text(encoding="utf-8")
+    assert "<td>1.000 s</td><td>1000.000 ms</td>" in html
+    assert "identity differs between the runs: unit: s vs ms" in html
+
+    _restamp(out, mutate_html=lambda text: text.replace("1000.000 ms", "1000.000 s"))
+    checked = _run_verify(out, fixtures)
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "metric row ranking_failure_rate run B cell" in checked.stderr
+
+
 def test_floorless_pair_states_its_emptiness(tmp_path):
     fixtures = _copy_fixtures(tmp_path)
     for name in ("01-run-a.json", "02-run-b.json"):
