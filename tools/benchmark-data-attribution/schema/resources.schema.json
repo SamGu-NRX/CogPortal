@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SamGu-NRX/CogPortal/tools/benchmark-data-attribution/schema/resources.schema.json",
+  "title": "Benchmark data attribution inventory",
+  "description": "Committed evidence inventory for third-party data, models, and mirrors used by the CogWorks benchmarks. Every claim is observational: what committed repository metadata states, never an interpretation of permission.",
+  "type": "object",
+  "required": ["schemaVersion", "schema", "repo", "branch", "baseBranch", "baseRevision", "sources", "resources"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "schema": { "type": "string", "const": "schema/resources.schema.json" },
+    "repo": { "type": "string" },
+    "branch": { "type": "string" },
+    "baseBranch": { "type": "string" },
+    "baseRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sources": {
+      "description": "Committed files this inventory was derived from, with content hashes, so a reader can re-derive everything.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource" }
+    }
+  },
+  "$defs": {
+    "evidenceState": {
+      "description": "verified: stated by committed repository metadata quoted here. secondary: a committed pointer to terms held elsewhere. unknown: no committed notice was found; recorded, never guessed.",
+      "type": "string",
+      "enum": ["verified", "secondary", "unknown"]
+    },
+    "noticeReference": {
+      "type": "object",
+      "required": ["path", "relationship", "evidenceState", "quote"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "relationship": {
+          "type": "string",
+          "enum": ["repository-license", "upstream-license", "terms-pointer", "readme-statement", "decision-record"]
+        },
+        "evidenceState": { "$ref": "#/$defs/evidenceState" },
+        "quote": {
+          "description": "Verbatim, whitespace-collapsed line from the referenced file, bounded to 300 characters. Observational only.",
+          "type": "string",
+          "maxLength": 300
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "required": ["id", "kind", "label", "sourceGroup", "version", "source", "entryPoints", "reuse", "attribution", "declaredBy", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$" },
+        "kind": {
+          "type": "string",
+          "enum": ["dataset", "model-checkpoint", "code-submodule", "documentation-mirror", "bundled-corpus", "repository-fixture", "deprecated-fixture"]
+        },
+        "label": { "type": "string", "maxLength": 120 },
+        "sourceGroup": {
+          "type": "string",
+          "enum": ["pinned-submodule", "bundled-corpus", "repository-fixture", "deprecated-fixture"]
+        },
+        "version": {
+          "description": "The pin actually observed: gitlink, lockfile hash, release tag, or 'unversioned' when nothing is committed.",
+          "type": "string",
+          "maxLength": 120
+        },
+        "source": {
+          "type": "object",
+          "required": ["urls", "pin", "pinSource", "evidenceState"],
+          "additionalProperties": false,
+          "properties": {
+            "urls": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+            "pin": { "type": "string", "maxLength": 120 },
+            "pinSource": { "type": "string", "maxLength": 120 },
+            "evidenceState": { "$ref": "#/$defs/evidenceState" }
+          }
+        },
+        "entryPoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "role", "evidenceState"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "type": "string", "maxLength": 120 },
+              "evidenceState": { "$ref": "#/$defs/evidenceState" }
+            }
+          }
+        },
+        "reuse": {
+          "type": "object",
+          "required": ["evidenceState", "noticeReferences"],
+          "additionalProperties": false,
+          "properties": {
+            "evidenceState": { "$ref": "#/$defs/evidenceState" },
+            "noticeReferences": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/noticeReference" }
+            }
+          }
+        },
+        "attribution": {
+          "type": "object",
+          "required": ["statement", "evidenceState"],
+          "additionalProperties": false,
+          "properties": {
+            "statement": {
+              "description": "Observational statement of what committed metadata says. Must not claim permission or approval.",
+              "type": "string",
+              "maxLength": 600
+            },
+            "evidenceState": { "$ref": "#/$defs/evidenceState" }
+          }
+        },
+        "declaredBy": {
+          "description": "Committed files that declare this resource.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string", "maxLength": 600 }
+      }
+    }
+  }
+}
