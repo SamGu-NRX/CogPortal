@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { z } from "zod";
 import { generateCookie } from "hono/cookie";
 import { Hono } from "hono";
 import { activityCookieOptions, activityTokenRejection, registerActivityRoutes } from "../worker/routes/activity.ts";
@@ -7,6 +8,7 @@ import type { AppEnv } from "../worker/env.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
 import { RetryRunRequestSchema } from "@cogworks/contracts/schema";
 import { parseBody } from "../worker/http/respond.ts";
+import { activityJsonRequest } from "../src/lib/activity-request.ts";
 
 test("Activity OAuth cookies survive Discord's cross-site iframe", () => {
   const cookie = generateCookie(
@@ -32,6 +34,27 @@ test("local Activity development keeps a first-party Lax cookie", () => {
   assert.match(cookie, /SameSite=Lax/);
   assert.doesNotMatch(cookie, /Partitioned/);
   assert.doesNotMatch(cookie, /Secure/);
+});
+
+test("the Activity client request wrapper sends its header on reads and writes", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Request[] = [];
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(typeof input === "string" ? new URL(input, "https://activity.example") : input, init));
+    return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    await activityJsonRequest("/.proxy/api", "/activity/session", z.object({ ok: z.literal(true) }));
+    await activityJsonRequest("/.proxy/api", "/activity/run-surfaces/x/actions/retry", z.object({ ok: z.literal(true) }), {
+      method: "POST",
+      body: { runId: "run_test" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(requests.map((request) => request.headers.get("X-Cog-Activity")), ["1", "1"]);
+  assert.equal(requests[0]!.headers.get("Content-Type"), null);
+  assert.equal(requests[1]!.headers.get("Content-Type"), "application/json");
 });
 
 test("Retry body parsing requires an explicit execution ID and preserves it", async () => {
@@ -75,6 +98,7 @@ test("Activity Retry still requires its signed session before parsing or mutatin
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-Cog-Activity": "1",
         Origin: "https://activity-client.discordsays.com",
         ...(cookie ? { Cookie: cookie } : {}),
       },
