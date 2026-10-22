@@ -74,15 +74,26 @@ function formatBytes(bytes: number): string {
  * already used up. If something read the body through Hono first, that
  * copy is measured instead: it was buffered whole, but the limit still
  * decides whether the route goes on.
+ *
+ * A body that can't be read is a 400. The stream fails when the client
+ * drops mid-upload, and the cached copy fails when the guard's own read
+ * did, for that reason or for malformed JSON. Either way the fault is in
+ * the request, so a 500 would blame the Worker for it.
  */
 export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promise<string> {
   const max = BODY_LIMITS[limit];
   const tooLarge = () =>
     new ApiHttpError(413, "invalid_request", `The request body is over the ${formatBytes(max)} this endpoint accepts.`);
+  const unreadable = () => new ApiHttpError(400, "invalid_request", "The request body could not be read.");
   if (Number(c.req.header("Content-Length")) > max) throw tooLarge();
 
   if (Object.keys(c.req.bodyCache).length > 0) {
-    const text = await c.req.text();
+    let text: string;
+    try {
+      text = await c.req.text();
+    } catch {
+      throw unreadable();
+    }
     if (new TextEncoder().encode(text).byteLength > max) throw tooLarge();
     return text;
   }
@@ -92,12 +103,20 @@ export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promis
   const chunks: Uint8Array[] = [];
   let received = 0;
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      throw unreadable();
+    }
+    const { done, value } = chunk;
     if (done) break;
     received += value.byteLength;
     if (received > max) {
-      // The refusal stands whether or not the stream closes cleanly.
-      await reader.cancel().catch(() => undefined);
+      // Not awaited: the source's cancel can take as long as it likes, and
+      // the 413 doesn't depend on it. The catch keeps a failed cancel from
+      // surfacing as an unhandled rejection.
+      reader.cancel().catch(() => undefined);
       throw tooLarge();
     }
     chunks.push(value);

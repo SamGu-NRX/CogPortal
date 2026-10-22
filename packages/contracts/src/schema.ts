@@ -540,11 +540,6 @@ export const DeviceTokenResponseSchema = z.discriminatedUnion("status", [
 ]);
 export type DeviceTokenResponse = z.infer<typeof DeviceTokenResponseSchema>;
 
-// Workers caps request bodies at 100 MB on Free and Pro plans, and this
-// account's plan is not established. The largest trained weight in the 2026
-// corpus is 411 KB. Week 3's separate 200 MiB discovery probe is unchanged.
-export const MAX_WEIGHT_BYTES = 100 * 1024 * 1024;
-
 /** A weight a report scored that the CLI must upload, as stored and answered. */
 const WeightUploadSchema = z.object({
   path: z.string().min(1).max(500),
@@ -559,11 +554,15 @@ const WeightUploadSchema = z.object({
  * (services/weights.ts), so `size` is checked here and then dropped, and
  * the stored entry stays path and digest, as it was when zod stripped
  * `size` unread.
+ *
+ * `size` has no upper bound. The 100 MiB cap applies to the upload PUT that
+ * carries the bytes. A report only describes the file, and refusing it here
+ * would lose the whole report over a number the portal throws away.
  */
 const WeightUploadInputSchema = z.object({
   path: z.string().min(1).max(500),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  size: z.number().int().nonnegative().max(MAX_WEIGHT_BYTES).optional(),
+  size: z.number().int().nonnegative().optional(),
 }).strict().transform(({ path, sha256 }) => ({ path, sha256 }));
 
 /** A report's fields, in one order for the synced report and the stored one.

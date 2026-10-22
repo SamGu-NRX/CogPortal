@@ -3,11 +3,7 @@ import { z } from "zod";
 // fails Node's type stripping, which wants an extension, and "./schema.ts"
 // fails the portal's tsconfig, which has no allowImportingTsExtensions. The
 // package's own exports map satisfies both, so the role list has one owner.
-import { MAX_WEIGHT_BYTES, METRIC_ROLES } from "@cogworks/contracts/schema";
-
-// Defined in schema.ts, whose report weight entries are bounded by it too;
-// schema.ts can't import this file without a cycle.
-export { MAX_WEIGHT_BYTES };
+import { METRIC_ROLES } from "@cogworks/contracts/schema";
 
 export const RUNNER_PROTOCOL_VERSION = "1" as const;
 export const RunnerProtocolVersionSchema = z.literal(RUNNER_PROTOCOL_VERSION);
@@ -146,6 +142,11 @@ export const RefusalSchema = z.object({
   errors: z.array(RaisedSchema).max(16).default([]),
 });
 export type Refusal = z.infer<typeof RefusalSchema>;
+
+// Workers caps request bodies at 100 MB on Free and Pro plans, and this
+// account's plan is not established. The largest trained weight in the 2026
+// corpus is 411 KB. Week 3's separate 200 MiB discovery probe is unchanged.
+export const MAX_WEIGHT_BYTES = 100 * 1024 * 1024;
 
 export const WeightFileSchema = z.object({
   path: z.string().min(1).max(500),

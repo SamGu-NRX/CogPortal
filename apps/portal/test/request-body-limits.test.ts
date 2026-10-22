@@ -376,6 +376,83 @@ test("a body a guard already read through Hono is still held to the limit, and s
   assert.equal(await unguarded.text(), `${body(10).length} 10`);
 });
 
+/** A POST whose body stream sends `first` and then fails, as a client that
+ *  drops mid-upload does. */
+function brokenRequest(path: string, first: string): Request {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(first));
+    },
+    pull(controller) {
+      controller.error(new Error("connection reset"));
+    },
+  });
+  return new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: stream,
+    duplex: "half",
+  } as RequestInit);
+}
+
+test("a body stream that fails partway is a 400, read directly or after a guard", async () => {
+  const app = new Hono<AppEnv>();
+  app.post("/read", async (c) => c.text(await readBodyText(c, "control")));
+  app.post("/guarded", async (c) => {
+    await c.req.json().catch(() => undefined);
+    return c.text(await readBodyText(c, "control"));
+  });
+  app.onError(handleError);
+  const env = { ENVIRONMENT: "development" } as Env;
+
+  for (const path of ["/read", "/guarded"]) {
+    const response = await app.fetch(brokenRequest(path, '{"a":'), env);
+    assert.equal(response.status, 400, path);
+    assert.deepEqual(await errorOf(response), {
+      code: "invalid_request",
+      message: "The request body could not be read.",
+    });
+  }
+});
+
+test("the 413 is sent without waiting for the body stream to finish cancelling", async () => {
+  const app = new Hono<AppEnv>();
+  app.post("/read", async (c) => c.text(await readBodyText(c, "control")));
+  app.onError(handleError);
+  const env = { ENVIRONMENT: "development" } as Env;
+  // One chunk over the limit, from a source whose cancel never settles.
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(BODY_LIMITS.control + 1));
+    },
+    cancel: () => new Promise<void>(() => {}),
+  });
+  const incoming = new Request("http://localhost/read", { method: "POST", body: stream, duplex: "half" } as RequestInit);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), 1_000);
+  });
+  const response = await Promise.race([app.fetch(incoming, env), late]);
+  clearTimeout(timer);
+  assert.notEqual(response, "late", "no answer within a second: the 413 waited on cancel()");
+  assert.equal((response as Response).status, 413);
+});
+
+test("a report's weight entry may describe a file over the upload's 100 MiB cap", async (t) => {
+  // The cap belongs to the PUT that carries the bytes (services/weights.ts).
+  // The report only describes the file, and refusing it here would lose the
+  // whole report over a number the portal drops.
+  const { send, sqlite } = await world(t);
+  const report = structuredClone(reportSync(wires[0]!));
+  (report.weightsUploaded as Array<Record<string, unknown>>)[0]!.size = 200 * 1024 * 1024;
+  const response = await send(request("/api/v1/local-reports", JSON.stringify(report)));
+  assert.equal(response.status, 201, await response.clone().text());
+  const stored = sqlite.prepare("SELECT weights_uploaded_json AS json FROM local_reports WHERE report_id = ?")
+    .get(report.reportId as string) as { json: string } | undefined;
+  assert.equal(stored?.json, JSON.stringify([{ path: "models/W_embed.npy", sha256: "c".repeat(64) }]));
+});
+
 /* ── Unknown fields ────────────────────────────────────────────────────── */
 
 test("a report with a field the portal does not declare is refused by name and not stored", async (t) => {
