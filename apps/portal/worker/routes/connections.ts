@@ -253,26 +253,45 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
 
     const rawToken = `cog_${randomHex(32)}`;
     const expiresAt = now + DEVICE_TOKEN_TTL_MS;
+    const db = getDb(c.env);
     try {
-      await getDb(c.env).insert(cliDevices).values({
-        id: newId("cli_"),
-        userId: authorization.userId,
-        name: authorization.deviceName,
-        tokenHash: await sha256Hex(rawToken),
-        createdAt: now,
-        lastUsedAt: null,
-        expiresAt,
-        revokedAt: null,
-      });
+      // A link replaces this account's live device of the same name. Without
+      // the revoke, each re-link left the previous token valid for its full
+      // 60 days, though the CLI had overwritten it on disk. The name is what
+      // the approver typed (default "CogWorks CLI"), not a machine id, so two
+      // machines linked under one name share a slot. One batch, so a failed
+      // insert also leaves the old device working.
+      await db.batch([
+        db
+          .update(cliDevices)
+          .set({ revokedAt: now })
+          .where(
+            and(
+              eq(cliDevices.userId, authorization.userId),
+              eq(cliDevices.name, authorization.deviceName),
+              isNull(cliDevices.revokedAt),
+            ),
+          ),
+        db.insert(cliDevices).values({
+          id: newId("cli_"),
+          userId: authorization.userId,
+          name: authorization.deviceName,
+          tokenHash: await sha256Hex(rawToken),
+          createdAt: now,
+          lastUsedAt: null,
+          expiresAt,
+          revokedAt: null,
+        }),
+      ]);
     } catch (error) {
-      // The claim above and this insert are two writes. If the second fails
+      // The claim above and this batch are two writes. If the second fails
       // the code is marked consumed with no device behind it: the CLI gets an
       // error, its next poll gets link_expired, and the approve endpoint,
       // which reads consumedAt as "the terminal finished linking", reports
-      // success. Not a batch, because a batch would also commit the device
-      // row when the claim matched nothing. Releasing the claim lets the
-      // CLI's next poll try again.
-      await getDb(c.env)
+      // success. The claim stays outside the batch, because a batch would
+      // also commit the device row when the claim matched nothing. Releasing
+      // the claim lets the CLI's next poll try again.
+      await db
         .update(deviceAuthorizations)
         .set({ consumedAt: null })
         .where(and(eq(deviceAuthorizations.deviceCodeHash, codeHash), eq(deviceAuthorizations.consumedAt, now)));
