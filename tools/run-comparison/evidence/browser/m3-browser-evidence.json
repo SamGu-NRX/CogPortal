@@ -1,0 +1,53 @@
+{
+  "url": "http://127.0.0.1:8811/view.html",
+  "title": "Run comparison — offline workbench",
+  "focusableCount": 0,
+  "keyboardWalk": [
+    {
+      "step": 1,
+      "tag": "BODY",
+      "id": null,
+      "outline": "none 3px"
+    },
+    {
+      "step": 2,
+      "tag": "BODY",
+      "id": null,
+      "outline": "none 3px"
+    },
+    {
+      "step": 3,
+      "tag": "BODY",
+      "id": null,
+      "outline": "none 3px"
+    },
+    {
+      "step": 4,
+      "tag": "BODY",
+      "id": null,
+      "outline": "none 3px"
+    },
+    {
+      "step": 5,
+      "tag": "BODY",
+      "id": null,
+      "outline": "none 3px"
+    },
+    {
+      "step": 6,
+      "tag": "BODY",
+      "id": null,
+      "outline": "none 3px"
+    }
+  ],
+  "cssAnimations": false,
+  "runningAnimations": 0,
+  "reducedMotionAnimations": 0,
+  "layoutShifts": [],
+  "clsTotal": 0,
+  "axe": {
+    "passes": 10,
+    "violations": []
+  },
+  "ok": true
+}
