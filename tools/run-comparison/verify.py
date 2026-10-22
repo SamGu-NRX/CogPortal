@@ -330,9 +330,8 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
     metrics: List[Dict[str, Any]] = []
     raw_metrics = value["metrics"]
     if not isinstance(raw_metrics, list):
-        record["reasons"].append(
-            "bad_field_type: metrics must be a list, not {!r}".format(raw_metrics)
-        )
+        # Already refused by the top-level type check above; the reader
+        # names it once, so this derivation must too.
         raw_metrics = []
     seen_keys = set()
     for index, entry in enumerate(raw_metrics):

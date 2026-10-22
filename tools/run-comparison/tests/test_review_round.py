@@ -556,6 +556,32 @@ def test_a_floor_missing_from_the_other_report_is_rendered(tmp_path):
     assert "receipt floor rows (0) != derived floor rows (1)" in checked.stderr
 
 
+def test_a_refused_metrics_object_verifies_beside_accepted_reports(tmp_path):
+    # "metrics": {} is refused once by the reader. The verifier reported it
+    # twice — at the top-level type check and again before reading the
+    # metrics — so a correct receipt failed verification.
+    fixtures = _copy_fixtures(tmp_path)
+    payload = json.loads((fixtures / "01-run-a.json").read_text(encoding="utf-8"))
+    payload["metrics"] = {}
+    (fixtures / "12-refused-metrics-object.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    out = tmp_path / "evidence"
+
+    built = _run_build(out, fixtures, extra=("--replay",))
+    assert built.returncode == 0, built.stdout + built.stderr
+    receipt = json.loads((out / RECEIPT).read_text(encoding="utf-8"))
+    excluded = {entry["file"]: entry["reasons"] for entry in receipt["excluded"]}
+    assert excluded["12-refused-metrics-object.json"] == [
+        "bad_field_type: metrics must be a list, not {}"
+    ]
+    assert receipt["compared"] == ["01-run-a.json", "02-run-b.json"]
+
+    checked = _run_verify(out, fixtures)
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+
 def test_floorless_pair_states_its_emptiness(tmp_path):
     fixtures = _copy_fixtures(tmp_path)
     for name in ("01-run-a.json", "02-run-b.json"):
