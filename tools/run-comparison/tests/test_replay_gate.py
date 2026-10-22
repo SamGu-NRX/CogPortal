@@ -10,10 +10,13 @@ catch the same tampering with a ``misrendered:`` line. ``--force`` is
 the one path past the gate, and it must hand back a green one.
 """
 
+import fcntl
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 WORKBENCH = Path(__file__).resolve().parents[1]
 FIXTURES = WORKBENCH / "fixtures"
@@ -90,6 +93,38 @@ def test_first_gated_build_writes_and_a_second_gate_is_byte_idempotent(tmp_path)
     assert second.returncode == 0, second.stdout + second.stderr
     assert "existing evidence validated against a fresh build" in second.stdout
     assert _snapshot(out) == before
+
+
+def test_replay_waits_for_the_output_directory_lock(tmp_path):
+    """A second builder cannot validate and publish over an active build."""
+
+    out = tmp_path / "evidence"
+    lock_path = tmp_path / ".evidence.lock"
+    with lock_path.open("a+") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(WORKBENCH / "build.py"),
+                "--fixtures",
+                str(FIXTURES),
+                "--out",
+                str(out),
+                "--replay",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        try:
+            with pytest.raises(subprocess.TimeoutExpired):
+                process.communicate(timeout=0.3)
+        finally:
+            fcntl.flock(held.fileno(), fcntl.LOCK_UN)
+        stdout, stderr = process.communicate(timeout=10)
+
+    assert process.returncode == 0, stdout + stderr
 
 
 def test_gated_replay_refuses_a_tampered_view_and_preserves_all_evidence(tmp_path):

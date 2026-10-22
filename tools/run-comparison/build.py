@@ -24,6 +24,11 @@ and each other's bytes, so stale evidence is detectable, never silent.
 from __future__ import annotations
 
 import argparse
+import contextlib
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows CI
+    fcntl = None
 import hashlib
 import html
 import json
@@ -1304,32 +1309,35 @@ def replay_gate_disagreements(
 # --------------------------------------------------------------------------
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--fixtures",
-        required=True,
-        action="append",
-        help="a fixture file or a directory of them (repeatable)",
-    )
-    parser.add_argument("--out", required=True, help="directory for the built view and receipts")
-    parser.add_argument(
-        "--replay",
-        action="store_true",
-        help="validate existing artifacts against a fresh build before "
-        "writing; refuse and preserve them on any disagreement",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="with --replay: replace existing evidence even when validation "
-        "finds a disagreement (deliberate regeneration after a fixture or "
-        "tool change)",
-    )
-    arguments = parser.parse_args()
-    if arguments.force and not arguments.replay:
-        parser.error("--force is only meaningful with --replay")
+@contextlib.contextmanager
+def output_lock(out: Path):
+    """Hold an exclusive lock across replay validation and publication."""
 
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = out.parent / ("." + out.name + ".lock")
+    with lock_path.open("a+") as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        else:  # pragma: no cover - exercised on Windows CI
+            import msvcrt
+
+            lock_file.seek(0)
+            lock_file.write("\0")
+            lock_file.flush()
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            else:  # pragma: no cover - exercised on Windows CI
+                import msvcrt
+
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _build(arguments) -> int:
     out = Path(arguments.out)
     if out.is_dir() and not arguments.replay:
         # A bare build must not overwrite or mix evidence: an out directory
@@ -1563,6 +1571,35 @@ def main() -> int:
         replay_path.write_bytes(replay_bytes)
         print("replay: byte-identical rebuild -> {}".format(replay_path))
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--fixtures",
+        required=True,
+        action="append",
+        help="a fixture file or a directory of them (repeatable)",
+    )
+    parser.add_argument("--out", required=True, help="directory for the built view and receipts")
+    parser.add_argument(
+        "--replay",
+        action="store_true",
+        help="validate existing artifacts against a fresh build before "
+        "writing; refuse and preserve them on any disagreement",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="with --replay: replace existing evidence even when validation "
+        "finds a disagreement (deliberate regeneration after a fixture or "
+        "tool change)",
+    )
+    arguments = parser.parse_args()
+    if arguments.force and not arguments.replay:
+        parser.error("--force is only meaningful with --replay")
+    with output_lock(Path(arguments.out)):
+        return _build(arguments)
 
 
 if __name__ == "__main__":
