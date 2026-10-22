@@ -684,6 +684,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: true,
+            simulated: false,
             publicSweep: null,
           },
           {
@@ -698,6 +699,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: false,
+            simulated: true,
             publicSweep: null,
           },
         ],
@@ -709,6 +711,9 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
   assert.match(body, /\*\*Analytical Engines\*\*/);
   assert.match(body, /0\.913/);
   assert.doesNotMatch(body, /bbbbbbb|ccccccc/);
+  // Only the fixture-provider row says it was simulated.
+  assert.equal(body.split("simulated").length - 1, 1);
+  assert.match(body, /Face Finder.*simulated/);
 });
 
 test("the leaderboard asks for the student's own board and marks their row only in private", async () => {

@@ -335,7 +335,12 @@ async function leaderboardView(
     // A shared post is public, and marking a team there would tell the
     // channel which team the person who shared it is on.
     const name = entry.isYou && !shared ? `**${entry.teamName}**` : entry.teamName;
-    return metaLine([`${rankMark(entry.rank, fmt)} ${name}`, `**${metricValue(entry.primaryMetric)}**`]);
+    return metaLine([
+      `${rankMark(entry.rank, fmt)} ${name}`,
+      `**${metricValue(entry.primaryMetric)}**`,
+      // The same word the run status message uses (discord-messages.ts).
+      entry.simulated && "simulated",
+    ]);
   });
   const body = lines.length
     ? lines.join("\n")

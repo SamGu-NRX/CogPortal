@@ -19,7 +19,7 @@ const SESSION_COOKIE = "cog_activity_session";
 const SESSION_TTL_SECONDS = 60 * 60;
 
 const StateSchema = z.object({ state: z.string().min(32) });
-const TokenRequestSchema = z.object({ code: z.string().min(1).max(512), state: z.string().min(32) });
+const TokenRequestSchema = z.object({ code: z.string().min(1).max(512), state: z.string().min(32) }).strict();
 const TokenResponseSchema = z.object({
   accessToken: z.string().min(1),
   user: z.object({ id: z.string(), username: z.string(), globalName: z.string().nullable() }),
