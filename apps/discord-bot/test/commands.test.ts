@@ -256,6 +256,7 @@ test("Connect keeps the portal recovery link when the account is already linked"
               id: "team-1",
               name: "Analytical Engines",
               description: null,
+              provenance: "live",
               repo: null,
             } : null,
             discordChannelId: null,
