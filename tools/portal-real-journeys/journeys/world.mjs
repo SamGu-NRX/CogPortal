@@ -8,6 +8,7 @@
 // Requests are plain HTTP with explicit cookies and tokens, so one identity
 // can't borrow another's session the way a shared browser context would.
 
+import { heard } from "./answer-scan.mjs";
 import { ACTIVITY, STACK, control, doubles } from "./helpers.mjs";
 
 /** Synthetic logins; none is a real person's handle. */
@@ -36,7 +37,11 @@ function cookieHeader(response) {
     .join("; ");
 }
 
-/** One HTTP call as an identity. `who` carries `cookie` and/or `bearer`. */
+/**
+ * One HTTP call as an identity. `who` carries `cookie` and/or `bearer`. Every
+ * answer is reported to answer-scan.mjs, which the route matrix's canary scan
+ * reads; the same goes for devLogin's and activitySession's own requests.
+ */
 export async function call(method, path, { who = {}, body, base = STACK, headers = {} } = {}) {
   const response = await fetch(`${base}${path}`, {
     method,
@@ -57,7 +62,9 @@ export async function call(method, path, { who = {}, body, base = STACK, headers
   } catch {
     json = null;
   }
-  return { status: response.status, json, text, response };
+  const result = { status: response.status, json, text, response };
+  heard({ method, path, who }, result);
+  return result;
 }
 
 async function ok(result, what) {
@@ -71,8 +78,10 @@ export async function devLogin(login, { demo = false } = {}) {
     headers: { "content-type": "application/json", origin: STACK },
     body: JSON.stringify({ login, demo }),
   });
-  if (!response.ok) throw new Error(`dev login ${login}: ${response.status} ${await response.text()}`);
-  return { cookie: cookieHeader(response), session: await response.json() };
+  const text = await response.text();
+  heard({ method: "POST", path: "/api/dev/login" }, { status: response.status, text });
+  if (!response.ok) throw new Error(`dev login ${login}: ${response.status} ${text}`);
+  return { cookie: cookieHeader(response), session: JSON.parse(text) };
 }
 
 const sqlText = (value) => `'${String(value).replaceAll("'", "''")}'`;
@@ -97,13 +106,17 @@ export async function activitySession(discordUser, code, { linkWith } = {}) {
   await doubles.discordCode(code, discordUser);
   const state = await fetch(`${ACTIVITY}/api/activity/oauth/state`, { headers: { origin: ACTIVITY } });
   const stateCookie = cookieHeader(state);
-  const { state: value } = await state.json();
+  const stateText = await state.text();
+  heard({ method: "GET", path: "/api/activity/oauth/state" }, { status: state.status, text: stateText });
+  const { state: value } = JSON.parse(stateText);
   const token = await fetch(`${ACTIVITY}/api/activity/oauth/token`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: ACTIVITY, cookie: stateCookie },
     body: JSON.stringify({ code, state: value }),
   });
-  if (!token.ok) throw new Error(`activity token: ${token.status} ${await token.text()}`);
+  const tokenText = await token.text();
+  heard({ method: "POST", path: "/api/activity/oauth/token" }, { status: token.status, text: tokenText });
+  if (!token.ok) throw new Error(`activity token: ${token.status} ${tokenText}`);
   const who = { cookie: cookieHeader(token) };
   if (linkWith) {
     const session = await ok(await call("GET", "/api/activity/session", { who, base: ACTIVITY }), "activity session");
