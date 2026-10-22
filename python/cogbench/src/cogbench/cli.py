@@ -1287,7 +1287,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     }, indent=2))
                 else:
                     print("{} · LOCAL · NO RESULT".format(args.benchmark))
-                    print("The run did not finish: {}.".format(outcome.detail))
+                    print("The run did not finish: {}".format(outcome.detail))
                     print("No score was produced.")
                 return 2
             # `_run_view` returns the report as JSON text. A completed
@@ -1431,6 +1431,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not token:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             value = device_status(portal, token)
+            required = (
+                "githubLogin",
+                "teamName",
+                "repositoryFullName",
+                "deviceName",
+                "deviceExpiresAt",
+            )
+            if any(key not in value for key in required):
+                raise PortalError(
+                    "CogPortal returned incomplete device status. "
+                    "Run `cogworks link` again and retry."
+                )
             print("GitHub   @{}".format(value["githubLogin"]))
             print("Team     {}".format(value["teamName"]))
             print("Repo     {}".format(value["repositoryFullName"]))

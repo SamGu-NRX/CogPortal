@@ -386,17 +386,18 @@ def render_check(
                 lines.extend(_wrapped(note))
 
     lines.append("")
-    lines.append(verdict.headline)
+    lines.extend(_wrapped(verdict.headline))
     for note in verdict.notes:
-        lines.append(note)
+        lines.extend(_wrapped(note))
     # The files that could not be read and the lines their code raised
     # on. Taken from the verdict rather than formatted here, so `cogworks
     # check` and a run page cannot come to print two different reports
     # out of one record.
-    lines.extend(verdict.problems())
+    for problem in verdict.problems():
+        lines.extend(_wrapped(problem))
     if verdict.next_step:
         lines.append("")
-        lines.append(verdict.next_step)
+        lines.extend(_wrapped(verdict.next_step))
 
     if submission.ready:
         lines.append("")
