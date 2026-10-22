@@ -1,0 +1,68 @@
+{
+  "boundaryChurn": [],
+  "firstLight": {
+    "firstScoredAtMs": 1791104400000,
+    "scoredRunCount": 2
+  },
+  "historyQuality": "bulk_upload",
+  "ownershipBreadth": {},
+  "stageFootprint": {
+    "database": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+    },
+    "fanout": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+    },
+    "peaks": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+    },
+    "query": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+    },
+    "spectrogram": {
+      "available": false,
+      "commitCount": null,
+      "distinctAuthorCount": null,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": "one commit holds more than 60% of all changed files, so per-commit attribution would be noise"
+    }
+  },
+  "tsOnly": {
+    "historyFetchFailureReason": null,
+    "historyWindow": {
+      "commits": 3,
+      "truncated": false
+    },
+    "runsElsewhere": false,
+    "stageMapResolved": [
+      "spectrogram",
+      "peaks",
+      "fanout",
+      "database",
+      "query"
+    ],
+    "weekLabel": "week1"
+  },
+  "windowCommits": 3
+}

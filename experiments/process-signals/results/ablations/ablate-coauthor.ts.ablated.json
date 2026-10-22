@@ -1,0 +1,94 @@
+{
+  "historyQuality": "usable",
+  "stageFootprint": {
+    "spectrogram": {
+      "commitCount": 2,
+      "distinctAuthorCount": 3,
+      "firstTouchAtMs": 1790848800000,
+      "lastTouchAtMs": 1791025200000,
+      "available": true,
+      "unavailableReason": null
+    },
+    "peaks": {
+      "commitCount": 1,
+      "distinctAuthorCount": 2,
+      "firstTouchAtMs": 1790848800000,
+      "lastTouchAtMs": 1790848800000,
+      "available": true,
+      "unavailableReason": null
+    },
+    "fanout": {
+      "commitCount": 0,
+      "distinctAuthorCount": 0,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "available": true,
+      "unavailableReason": null
+    },
+    "database": {
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790866800000,
+      "lastTouchAtMs": 1790866800000,
+      "available": true,
+      "unavailableReason": null
+    },
+    "query": {
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790933400000,
+      "lastTouchAtMs": 1790933400000,
+      "available": true,
+      "unavailableReason": null
+    }
+  },
+  "firstLight": {
+    "firstScoredAtMs": 1791136800000,
+    "scoredRunCount": 3
+  },
+  "boundaryChurn": [
+    {
+      "sha": "s1c6",
+      "authorLogin": "ada",
+      "authoredAtMs": 1791218700000,
+      "files": [
+        "benchmark_adapter.py"
+      ]
+    }
+  ],
+  "ownershipBreadth": {
+    "spectrogram": [
+      "ada",
+      "blake",
+      "chandra"
+    ],
+    "peaks": [
+      "ada",
+      "blake"
+    ],
+    "fanout": [],
+    "database": [
+      "blake"
+    ],
+    "query": [
+      "ada"
+    ]
+  },
+  "windowCommits": 6,
+  "tsOnly": {
+    "historyWindow": {
+      "commits": 6,
+      "truncated": true
+    },
+    "runsElsewhere": false,
+    "historyFetchFailureReason": null,
+    "weekLabel": "week1",
+    "stageMapResolved": [
+      "spectrogram",
+      "peaks",
+      "fanout",
+      "database",
+      "query"
+    ]
+  }
+}

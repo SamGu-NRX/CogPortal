@@ -1,0 +1,76 @@
+{
+  "boundaryChurn": [
+    {
+      "authorLogin": "ada",
+      "authoredAtMs": 1791218700000,
+      "files": [
+        "benchmark_adapter.py"
+      ],
+      "sha": "s1c6"
+    }
+  ],
+  "firstLight": {
+    "firstScoredAtMs": 1791136800000,
+    "scoredRunCount": 3
+  },
+  "historyQuality": "usable",
+  "ownershipBreadth": {
+    "database": [
+      "blake"
+    ],
+    "fanout": [],
+    "peaks": [
+      "ada"
+    ],
+    "query": [
+      "ada"
+    ],
+    "spectrogram": [
+      "ada",
+      "chandra"
+    ]
+  },
+  "stageFootprint": {
+    "database": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790866800000,
+      "lastTouchAtMs": 1790866800000,
+      "unavailableReason": null
+    },
+    "fanout": {
+      "available": true,
+      "commitCount": 0,
+      "distinctAuthorCount": 0,
+      "firstTouchAtMs": null,
+      "lastTouchAtMs": null,
+      "unavailableReason": null
+    },
+    "peaks": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790848800000,
+      "lastTouchAtMs": 1790848800000,
+      "unavailableReason": null
+    },
+    "query": {
+      "available": true,
+      "commitCount": 1,
+      "distinctAuthorCount": 1,
+      "firstTouchAtMs": 1790933400000,
+      "lastTouchAtMs": 1790933400000,
+      "unavailableReason": null
+    },
+    "spectrogram": {
+      "available": true,
+      "commitCount": 2,
+      "distinctAuthorCount": 2,
+      "firstTouchAtMs": 1790848800000,
+      "lastTouchAtMs": 1791025200000,
+      "unavailableReason": null
+    }
+  },
+  "windowCommits": 6
+}
