@@ -97,7 +97,7 @@ async function homeView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
-  portalOrigin?: string,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const status = await portal.getTeamStatus(guildId, user.id);
   if (!status.linked) return connectView(interaction, portal, guildId, user, portalOrigin);
@@ -237,7 +237,7 @@ async function connectView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
-  portalOrigin?: string,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const start = await portal.createDiscordLink(guildId, user.id, discordIdentity(user));
   if (start.alreadyLinked) return homeView(interaction, portal, guildId, user, portalOrigin);
@@ -358,10 +358,10 @@ async function localView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
-  portalOrigin?: string,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const result = await portal.getLocalReports(guildId, user.id);
-  if (!result.linked) return connectView(interaction, portal, guildId, user);
+  if (!result.linked) return connectView(interaction, portal, guildId, user, portalOrigin);
   const fmt = emojiFormatter(interaction.application_id);
   const shown = result.reports.slice(0, 8);
   const lines = shown.map((report) => {
