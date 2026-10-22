@@ -9,6 +9,7 @@ import { buttonClass } from "@/components/Button";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { PageHeader } from "@/components/Note";
+import { SimulatedChip } from "@/components/SimulatedChip";
 import { formatDateTime, formatMetricValue } from "@/lib/format";
 import { useAccountRevealed } from "@/components/RestoreGate";
 import { EASE_OUT } from "@/lib/motion";
@@ -474,6 +475,7 @@ function EntryRow({
         {entry.provenance === "archive" && (
           <span className="text-[13px] text-ink-faint">2026 cohort, anonymized</span>
         )}
+        {entry.simulated && <SimulatedChip />}
       </div>
 
       {entry.publicSweep ? (
