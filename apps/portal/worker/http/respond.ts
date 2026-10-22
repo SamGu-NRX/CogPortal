@@ -46,6 +46,14 @@ export const BODY_LIMITS = {
    * text has no length cap, so this limit is the only bound on it.
    */
   report: 1 * MiB,
+  /** GitHub documents a 25 MB webhook payload cap.
+   * https://docs.github.com/en/webhooks/webhook-events-and-payloads#webhook-payloads
+   */
+  githubWebhook: 25 * MiB,
+  /** Better Auth has no documented request-body maximum. Keep its request
+   * below 1 MiB while preserving its own body parser through a bounded clone.
+   */
+  auth: 1 * MiB,
   /**
    * Every other JSON body: forms, team and admin actions, device linking,
    * setup evidence and the live-run start. The largest the CLI sends is
@@ -169,12 +177,13 @@ export async function parseBody<T>(
   limit: BodyLimit = "control",
 ): Promise<T> {
   const text = await readBodyText(c, limit);
-  let parsed: ReturnType<typeof schema.safeParse>;
+  let value: unknown;
   try {
-    parsed = schema.safeParse(JSON.parse(text));
+    value = JSON.parse(text);
   } catch {
     throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
   }
+  const parsed = schema.safeParse(value);
   if (parsed.success) return parsed.data;
   const unknown = unknownFields(parsed.error);
   if (unknown.length > 0) {

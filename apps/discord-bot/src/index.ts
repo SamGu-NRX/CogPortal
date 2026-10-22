@@ -15,6 +15,38 @@ import { verifyDiscordRequest } from "./verify.ts";
 import { validateBotEnv } from "./env.ts";
 import type { Env } from "./env.ts";
 
+// Discord's interaction documentation does not publish a maximum request size.
+// Keep this endpoint at 1 MiB, which is far above the documented interaction
+// object fields and prevents an unsigned upload from consuming the Worker.
+// https://discord.com/developers/docs/interactions/receiving-and-responding
+const MAX_INTERACTION_BODY_BYTES = 1 * 1024 * 1024;
+
+async function readBoundedBody(request: Request): Promise<ArrayBuffer | null> {
+  const declared = Number(request.headers.get("Content-Length"));
+  if (declared > MAX_INTERACTION_BODY_BYTES) return null;
+  if (!request.body) return new ArrayBuffer(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > MAX_INTERACTION_BODY_BYTES) {
+      reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer;
+}
+
 async function editDeferredResponse(
   interaction: DiscordInteraction,
   env: Env,
@@ -69,7 +101,8 @@ export default {
   async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     if (request.method !== "POST") return new Response("Not found", { status: 404 });
     validateBotEnv(env);
-    const body = await request.arrayBuffer();
+    const body = await readBoundedBody(request);
+    if (!body) return new Response("Request body too large", { status: 413 });
     const valid = await verifyDiscordRequest(
       env.DISCORD_PUBLIC_KEY,
       request.headers.get("X-Signature-Ed25519"),

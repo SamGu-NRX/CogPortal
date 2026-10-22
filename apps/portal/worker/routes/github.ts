@@ -30,7 +30,7 @@ import type { ConnectRepository } from "../github/team";
 import { validateTemplateRepository } from "../github/template";
 import { parseCogportalToml } from "../github/toml";
 import { ApiHttpError } from "../http/errors";
-import { parseBody, respond } from "../http/respond";
+import { parseBody, readBodyText, respond } from "../http/respond";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -257,7 +257,7 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
         "GitHub App webhook is not configured in the fixture slice.",
       );
     }
-    const body = await c.req.text();
+    const body = await readBodyText(c, "githubWebhook");
     const key = await crypto.subtle.importKey(
       "raw",
       new TextEncoder().encode(secret),
