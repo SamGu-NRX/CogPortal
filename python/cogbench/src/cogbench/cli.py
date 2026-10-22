@@ -1444,11 +1444,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     for key in required_text
                 )
                 expires = value.get("deviceExpiresAt")
+                discord_id = value.get("discordChannelId")
                 valid = valid and (
                     isinstance(expires, int)
                     and not isinstance(expires, bool)
                     and expires >= 0
+                    and (isinstance(discord_id, str) or discord_id is None)
                 )
+            if valid:
+                try:
+                    expiry = _format_expiry(expires)
+                except (OverflowError, ValueError, OSError):
+                    valid = False
             if not valid:
                 raise PortalError(
                     "CogPortal returned incomplete device status. "
@@ -1463,7 +1470,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             )
             print("Device   {}".format(value["deviceName"]))
-            print("Expires  {}".format(_format_expiry(int(value["deviceExpiresAt"]))))
+            print("Expires  {}".format(expiry))
             print("Portal   {}".format(portal))
             return 0
     except KeyboardInterrupt:

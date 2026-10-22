@@ -40,24 +40,19 @@ def _wrapped(text: str, width: int = 78) -> List[str]:
     import re
     import textwrap
 
-    protected = []
+    sentinel = "\x01"
 
-    def protect(match):
-        protected.append(match.group(0))
-        return "\x00COGWORKS{}\x00".format(len(protected) - 1)
+    def protect_code(match):
+        return match.group(0).replace(" ", sentinel)
 
-    text = re.sub(r"`[^`]*`|https?://[^\s]+", protect, text)
+    text = re.sub(r"`[^`]*`", protect_code, text)
     lines = textwrap.wrap(
         text,
         width=width,
         break_long_words=False,
         break_on_hyphens=False,
     ) or [""]
-    for index, line in enumerate(lines):
-        for protected_index, value in enumerate(protected):
-            line = line.replace("\x00COGWORKS{}\x00".format(protected_index), value)
-        lines[index] = line
-    return lines
+    return [line.replace(sentinel, " ") for line in lines]
 
 
 def render_survey(record: Dict[str, object]) -> List[str]:

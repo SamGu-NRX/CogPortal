@@ -310,6 +310,8 @@ class StatusFormattingTests(unittest.TestCase):
             dict(base, githubLogin=None),
             dict(base, deviceExpiresAt=None),
             dict(base, deviceExpiresAt="tomorrow"),
+            dict(base, deviceExpiresAt=10 ** 100),
+            dict(base, discordChannelId=7),
         )
         expected = (
             "cogworks: CogPortal returned incomplete device status. "

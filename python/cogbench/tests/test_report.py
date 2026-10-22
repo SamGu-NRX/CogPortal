@@ -301,11 +301,13 @@ class CheckTests(unittest.TestCase):
 
         self.assertIn(command, text)
         self.assertIn(url, text)
-        self.assertTrue(any(len(line) < 78 for line in text.splitlines()))
-        command_line = next(line for line in text.splitlines() if command in line)
-        url_line = next(line for line in text.splitlines() if url in line)
+        lines = text.splitlines()
+        self.assertTrue(any(len(line) < 78 for line in lines))
+        command_line = next(line for line in lines if command in line)
+        url_line = next(line for line in lines if url in line)
         self.assertIn("--output predictions/very-long-output-file-name.json`", command_line)
-        self.assertTrue(url_line.endswith(url))
+        self.assertEqual(url_line, url)
+        self.assertTrue(all(len(line) <= 78 or line in (command, url) for line in lines))
 
     def test_a_refusal_ends_with_the_next_step_and_no_run_command(self):
         submission = Submission(
