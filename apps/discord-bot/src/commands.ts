@@ -322,13 +322,19 @@ async function leaderboardView(
   interaction: DiscordInteraction,
   portal: PortalRpcContract,
   guildId: string,
+  user: DiscordUser,
   portalOrigin?: string,
   shared = false,
 ): Promise<InteractionResponse> {
-  const leaderboard = await portal.getLeaderboard(guildId);
+  // The user lets the portal find the team: its row is marked, and the board
+  // is the benchmark the team last ran. Sharing sends the user too, so the
+  // channel gets the board the student was looking at.
+  const leaderboard = await portal.getLeaderboard(guildId, undefined, user.id);
   const fmt = emojiFormatter(interaction.application_id);
   const lines = leaderboard.entries.slice(0, 10).map((entry) => {
-    const name = entry.isYou ? `**${entry.teamName}**` : entry.teamName;
+    // A shared post is public, and marking a team there would tell the
+    // channel which team the person who shared it is on.
+    const name = entry.isYou && !shared ? `**${entry.teamName}**` : entry.teamName;
     return metaLine([`${rankMark(entry.rank, fmt)} ${name}`, `**${metricValue(entry.primaryMetric)}**`]);
   });
   const body = lines.length
@@ -547,6 +553,10 @@ async function surfaceActionView(
   const action = request.action as SurfaceMutation;
   if (!request.confirmed) {
     const attempt = snapshot.nextOfficialAttempt;
+    // The portal counts a hosted practice run against the limit only once it
+    // has succeeded (portal worker/services/run-accounting.ts,
+    // acceptedRunPredicate); failed and cancelled runs never count.
+    const practiceCost = "a run that fails or is cancelled doesn't count.";
     const copy: Record<
       SurfaceMutation,
       { title: string; detail: string; label: string; style: 1 | 4; extra?: string[] }
@@ -559,7 +569,7 @@ async function surfaceActionView(
       },
       verify_hosted: {
         title: "Verify this exact commit?",
-        detail: "A hosted run scores this exact commit on the course machines and records what it sees. It's practice, and it uses one of this benchmark's hosted practice runs.",
+        detail: `A hosted run scores this exact commit on the course machines and records what it sees. It's practice, and it uses one of this benchmark's hosted practice runs only if it finishes scoring; ${practiceCost}`,
         label: `Verify ${snapshot.shortSha} hosted`,
         style: 1,
       },
@@ -583,7 +593,7 @@ async function surfaceActionView(
       },
       rerun_hosted: {
         title: "Start a new hosted run?",
-        detail: "This starts a fresh hosted run on the same commit, which uses another of this benchmark's hosted practice runs. The current run stays as history.",
+        detail: `This starts a fresh hosted run on the same commit. It uses another of this benchmark's hosted practice runs only if it finishes scoring; ${practiceCost} The current run stays as history.`,
         label: "Start hosted run",
         style: 1,
       },
@@ -663,9 +673,9 @@ export async function executeCommand(
     case "benchmarks":
       return benchmarksView(interaction, portal, guildId, portalOrigin);
     case "leaderboard":
-      return leaderboardView(interaction, portal, guildId, portalOrigin);
+      return leaderboardView(interaction, portal, guildId, user, portalOrigin);
     case "share:leaderboard":
-      return leaderboardView(interaction, portal, guildId, portalOrigin, true);
+      return leaderboardView(interaction, portal, guildId, user, portalOrigin, true);
     case "bind-channel":
       return bindChannelView(interaction);
     case "bind-channel:confirm":

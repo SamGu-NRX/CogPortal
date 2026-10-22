@@ -305,8 +305,10 @@ export function RunConsole({
       setPendingAction(action as Mutation);
     }
   };
+  // Only a succeeded run counts against the practice limit
+  // (worker/services/run-accounting.ts, acceptedRunPredicate).
   const confirmation = pendingAction === "verify_hosted"
-    ? `Run ${snapshot.shortSha} on the hosted benchmark? This uses one of the team's shared practice runs.`
+    ? `Run ${snapshot.shortSha} on the hosted benchmark? It uses one of the team's shared practice runs only if it finishes scoring; a run that fails or is cancelled doesn't count.`
     : pendingAction === "promote_official"
     ? `Use ${snapshot.nextOfficialAttempt === null ? "an official attempt" : `official attempt ${snapshot.nextOfficialAttempt} of ${OFFICIAL_LIMIT}`} for ${snapshot.benchmark.title} at ${snapshot.shortSha}?`
     : pendingAction === "publish_result"
