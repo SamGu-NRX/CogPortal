@@ -47,7 +47,7 @@ class PrepareFailureClassificationTests(unittest.TestCase):
 
     def test_prepare_uses_the_evaluation_timeout_threshold(self):
         prepare = function("_prepare")
-        source = ast.unparse(prepare)
+        source = ast.get_source_segment(SOURCE, prepare)  # ast.unparse needs 3.9; week CI runs 3.8
         self.assertIn('_timed_out(job, started)', source)
 
 
