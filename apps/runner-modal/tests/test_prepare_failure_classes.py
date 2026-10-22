@@ -30,16 +30,20 @@ def runner_failure_categories(node: ast.AST) -> set[str]:
 
 
 class PrepareFailureClassificationTests(unittest.TestCase):
-    def test_benchmark_version_mismatch_is_a_contract_failure(self):
+    def test_benchmark_version_mismatch_is_a_provider_failure(self):
         load_benchmark = function("_load_benchmark")
-        self.assertIn("contract_invalid", runner_failure_categories(load_benchmark))
-        self.assertNotIn("data_download", runner_failure_categories(load_benchmark))
+        self.assertIn("provider", runner_failure_categories(load_benchmark))
+        self.assertNotIn("contract_invalid", runner_failure_categories(load_benchmark))
+        failures = (ROOT / "packages/contracts/src/failures.ts").read_text(encoding="utf-8")
+        provider_copy = failures.split("  provider: {", 1)[1].split("  },", 1)[0]
+        self.assertIn('remedy: "retry"', provider_copy)
+        self.assertNotIn("push a new commit", provider_copy)
 
-    def test_prepare_classifies_timeout_and_memory_limits(self):
+    def test_prepare_classifies_timeout_and_provider_failures(self):
         prepare = function("_prepare")
         categories = runner_failure_categories(prepare)
         self.assertIn("timeout", categories)
-        self.assertIn("memory_limit", categories)
+        self.assertIn("provider", categories)
 
     def test_prepare_uses_the_evaluation_timeout_threshold(self):
         prepare = function("_prepare")

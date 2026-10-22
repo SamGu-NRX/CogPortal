@@ -1320,7 +1320,7 @@ def _load_benchmark(job: Dict[str, Any]) -> Any:
     for attribute, value in expected.items():
         if getattr(benchmark, attribute, None) != value:
             raise RunnerFailure(
-                "contract_invalid",
+                "provider",
                 "contract_check",
                 "Trusted benchmark plugin version does not match the run job.",
                 True,
@@ -1568,7 +1568,6 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
         if callback.hostname and callback.hostname not in allowlist:
             allowlist.append(callback.hostname)
         image = _sandbox_image(job)
-        started = time.time()
         sandbox = modal.Sandbox.create(
             image=image,
             app=app,
@@ -1580,6 +1579,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
         # Modal 1.5.5 rejects direct hydration of a named image. Sandbox.create
         # resolves this same handle, so its base image id is available only now.
         base_image_id = image.object_id
+        started = time.time()
         reporter.status("preparing")
         # Only this pristine image is platform-owned. Neither the archive nor
         # an installer has run. Preserve the observation in controller memory;
@@ -1663,15 +1663,6 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
     except RunnerFailure:
         raise
     except Exception as error:
-        normalized = str(error).lower()
-        if "timeout" in normalized or "timed out" in normalized:
-            raise RunnerFailure(
-                "timeout", "preparing", "Preparation timed out.", False
-            ) from error
-        if "memory" in normalized or "oom" in normalized:
-            raise RunnerFailure(
-                "memory_limit", "preparing", "Preparation exceeded memory.", False
-            ) from error
         raise RunnerFailure(
             "provider",
             "preparing",

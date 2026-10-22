@@ -275,14 +275,16 @@ class PrepareAttribution(unittest.TestCase):
         self.assertEqual((failure.category, failure.phase, failure.infrastructure),
                          ("dependency_install", "installing", False))
 
-    def test_provider_memory_exception_is_a_prepare_resource_failure(self):
-        failure, _ = self.controller_failure(
-            create_failure=RuntimeError("sandbox memory limit exceeded")
-        )
-        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
-                         ("memory_limit", "preparing", False))
+    def test_provider_limit_words_remain_infrastructure_failures(self):
+        for message in ("sandbox memory limit exceeded", "HTTP read timeout"):
+            with self.subTest(message=message):
+                failure, _ = self.controller_failure(
+                    create_failure=RuntimeError(message)
+                )
+                self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                                 ("provider", "preparing", True))
 
-    def test_timeout_after_slow_setup_uses_sandbox_creation_start(self):
+    def test_timeout_after_slow_creation_is_not_a_prepare_timeout(self):
         class Clock:
             current = 0
 
@@ -292,7 +294,7 @@ class PrepareAttribution(unittest.TestCase):
         result = types.SimpleNamespace(returncode=137, stdout="", stderr="")
         failure, _ = self.controller_failure(result, {}, clock=Clock())
         self.assertEqual((failure.category, failure.phase, failure.infrastructure),
-                         ("timeout", "preparing", False))
+                         ("dependency_install", "installing", False))
 
     def test_adapter_markers_in_final_detail_keep_classification(self):
         for detail in ("RuntimeError: No adapter found.",
