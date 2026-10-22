@@ -646,7 +646,38 @@ def _derive_analysis(
     b_by_key = {metric["key"]: metric for metric in b["metrics"]}
     shared: List[Dict[str, Any]] = []
     floors: List[Dict[str, Any]] = []
-    for key in sorted(set(a_by_key) & set(b_by_key)):
+    # A floor recorded by one report only still gets a floor row, with the
+    # other side's value "not recorded".
+    a_only_floors = {
+        key for key, metric in a_by_key.items()
+        if metric["role"] == "floor" and key not in b_by_key
+    }
+    b_only_floors = {
+        key for key, metric in b_by_key.items()
+        if metric["role"] == "floor" and key not in a_by_key
+    }
+    for key in sorted((set(a_by_key) & set(b_by_key)) | a_only_floors | b_only_floors):
+        if key in a_only_floors or key in b_only_floors:
+            metric = a_by_key[key] if key in a_only_floors else b_by_key[key]
+            value = _fmt(metric["value"], metric["precision"])
+            side_a = key in a_only_floors
+            floors.append(
+                {
+                    "key": key,
+                    "label": metric["label"] or key,
+                    "value_a": value if side_a else "not recorded",
+                    "value_b": value if not side_a else "not recorded",
+                    "unit_a": (metric["unit"] or "") if side_a else "",
+                    "unit_b": (metric["unit"] or "") if not side_a else "",
+                    "relates_to_a": (metric["relates_to"] or "") if side_a else "",
+                    "relates_to_b": (metric["relates_to"] or "") if not side_a else "",
+                    "differs": True,
+                    "value_differs": False,
+                    "identity_differs": False,
+                    "absent_on": "run B" if side_a else "run A",
+                }
+            )
+            continue
         metric_a, metric_b = a_by_key[key], b_by_key[key]
         if (metric_a["role"] == "floor") != (metric_b["role"] == "floor"):
             value_differs = (metric_a["value"], metric_a["precision"]) != (
@@ -1197,12 +1228,13 @@ def main() -> int:
             "unit_b",
             "relates_to_a",
             "relates_to_b",
+            "absent_on",
         ):
-            if receipt_row.get(field) != derived_row[field]:
+            if receipt_row.get(field) != derived_row.get(field):
                 _fail(
                     failures,
                     "receipt floors[{}].{} = {!r} != derived {!r}".format(
-                        derived_row["key"], field, receipt_row.get(field), derived_row[field]
+                        derived_row["key"], field, receipt_row.get(field), derived_row.get(field)
                     ),
                 )
 
@@ -1433,6 +1465,20 @@ def main() -> int:
                     "differ" if derived_row["value_differs"] else "match",
                 ),
             )
+        absent_on = derived_row.get("absent_on")
+        for side in ("run A", "run B"):
+            has_absent_chip = "not recorded on {}".format(side) in cells[3]
+            if has_absent_chip is not (absent_on == side):
+                _fail(
+                    failures,
+                    "floor row {} 'not recorded on {}' chip is {} but the "
+                    "floor is {}".format(
+                        derived_row["key"],
+                        side,
+                        "shown" if has_absent_chip else "absent",
+                        "missing there" if absent_on == side else "recorded there",
+                    ),
+                )
         has_identity_chip = "floor identity differs between the runs" in cells[3]
         if has_identity_chip is not derived_row["identity_differs"]:
             _fail(

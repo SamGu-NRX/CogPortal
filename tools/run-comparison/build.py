@@ -496,6 +496,10 @@ def _floor_unit_suffix(item: Dict[str, Any]) -> str:
     # The unit is part of a floor's identity: when the two runs recorded
     # different units, the view says so instead of silently showing one.
     a, b = item["unit_a"], item["unit_b"]
+    if item.get("absent_on"):
+        # Only one run records the metric at all; its unit is the only one.
+        unit = a or b
+        return " · " + unit if unit else ""
     if a != b:
         return " · unit differs: run A {} vs run B {}".format(
             a or "unrecorded", b or "unrecorded"
@@ -504,6 +508,12 @@ def _floor_unit_suffix(item: Dict[str, Any]) -> str:
 
 
 def _floor_relates_text(item: Dict[str, Any]) -> str:
+    if item.get("absent_on"):
+        present = "run A" if item["absent_on"] == "run B" else "run B"
+        reference = item["relates_to_a"] or item["relates_to_b"]
+        return "{} records this metric as a scoring floor{}; {} does not record it".format(
+            present, " of " + reference if reference else "", item["absent_on"]
+        )
     if item.get("one_sided"):
         return (
             "{} records this metric as a scoring floor; "
@@ -525,7 +535,37 @@ def metric_sections(
     b_by_key = {metric.key: metric for metric in b.metrics}
     shared: List[Dict[str, Any]] = []
     context: List[Dict[str, Any]] = []
-    for key in sorted(set(a_by_key) & set(b_by_key)):
+    # Floors come from the union of both reports: a floor only one report
+    # records still belongs in the floor table, with its missing
+    # counterpart shown, not behind a "no floors" empty state.
+    floors_on_one_report = {
+        key
+        for here, there in ((a_by_key, b_by_key), (b_by_key, a_by_key))
+        for key, metric in here.items()
+        if metric.role == "floor" and key not in there
+    }
+    for key in sorted((set(a_by_key) & set(b_by_key)) | floors_on_one_report):
+        if key in floors_on_one_report:
+            on_a = key in a_by_key
+            present = a_by_key[key] if on_a else b_by_key[key]
+            value = _fmt(present.value, present.precision)
+            context.append(
+                {
+                    "key": key,
+                    "label": present.label or key,
+                    "value_a": value if on_a else "not recorded",
+                    "value_b": "not recorded" if on_a else value,
+                    "unit_a": (present.unit or "") if on_a else "",
+                    "unit_b": "" if on_a else (present.unit or ""),
+                    "relates_to_a": (present.relates_to or "") if on_a else "",
+                    "relates_to_b": "" if on_a else (present.relates_to or ""),
+                    "differs": True,
+                    "value_differs": False,
+                    "identity_differs": False,
+                    "absent_on": "run B" if on_a else "run A",
+                }
+            )
+            continue
         ma, mb = a_by_key[key], b_by_key[key]
         if (ma.role == "floor") != (mb.role == "floor"):
             # One side records this metric as a scoring floor and the
@@ -919,6 +959,13 @@ def render(
                     + (
                         ' <span class="chip chip-changed">floor identity differs between the runs</span>'
                         if item["identity_differs"]
+                        else ""
+                    )
+                    + (
+                        ' <span class="chip chip-unknown">not recorded on {}</span>'.format(
+                            _esc(item["absent_on"])
+                        )
+                        if item.get("absent_on")
                         else ""
                     )
                 ),

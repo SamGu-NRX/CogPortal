@@ -521,6 +521,41 @@ def test_a_shared_metric_keeps_each_runs_unit(tmp_path):
     assert "metric row ranking_failure_rate run B cell" in checked.stderr
 
 
+def test_a_floor_missing_from_the_other_report_is_rendered(tmp_path):
+    # The floor table was built from metrics both reports record, so a
+    # floor present on run A only rendered "No floor metrics recorded."
+    # while the conditions said it was recorded on run A only.
+    fixtures = _copy_fixtures(tmp_path)
+    payload = json.loads((fixtures / "02-run-b.json").read_text(encoding="utf-8"))
+    payload["metrics"] = [m for m in payload["metrics"] if m["key"] != "chance_top1"]
+    (fixtures / "02-run-b.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    out, _ = _build_evidence(tmp_path, fixtures=fixtures)
+
+    receipt = json.loads((out / RECEIPT).read_text(encoding="utf-8"))
+    [floor] = receipt["metrics"]["floors"]
+    assert (floor["key"], floor["value_a"], floor["value_b"], floor["absent_on"]) == (
+        "chance_top1",
+        "0.033",
+        "not recorded",
+        "run B",
+    )
+    html = (out / VIEW).read_text(encoding="utf-8")
+    assert "No floor metrics recorded." not in html
+    assert '<tr data-floor-key="chance_top1">' in html
+    assert "not recorded on run B" in html
+
+    def drop_floors(receipt):
+        receipt["metrics"]["floors"] = []
+
+    _restamp(out, mutate_receipt=drop_floors)
+    checked = _run_verify(out, fixtures)
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "receipt floor rows (0) != derived floor rows (1)" in checked.stderr
+
+
 def test_floorless_pair_states_its_emptiness(tmp_path):
     fixtures = _copy_fixtures(tmp_path)
     for name in ("01-run-a.json", "02-run-b.json"):
