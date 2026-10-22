@@ -4,7 +4,7 @@ import test from "node:test";
 import { MAX_SIGNATURE_AGE_SECONDS, verifyDiscordRequest } from "../src/verify.ts";
 
 const keys = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
-const publicKeyHex = Buffer.from(await crypto.subtle.exportKey("raw", keys.publicKey)).toString("hex");
+const publicKeyHex = Buffer.from((await crypto.subtle.exportKey("raw", keys.publicKey)) as ArrayBuffer).toString("hex");
 const body = new TextEncoder().encode(JSON.stringify({ type: 1 }));
 const now = 1_800_000_000;
 
