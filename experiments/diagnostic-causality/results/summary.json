@@ -1,0 +1,71 @@
+{
+  "cause_class_counts": {
+    "claimed": {
+      "hash_space": 4,
+      "name_error": 1,
+      "shape_pairs": 1,
+      "signature": 1
+    },
+    "true": {
+      "empty_result": 1,
+      "fingerprint_space": 2,
+      "name_error": 1,
+      "ranking_direction": 1,
+      "shape_pairs": 1,
+      "signature": 1
+    }
+  },
+  "indistinguishable_pairs": [],
+  "misleading_witnesses": [
+    {
+      "claimed_class": "hash_space",
+      "evidence": "in different hash spaces",
+      "repair_restored_control": false,
+      "true_class": "empty_result",
+      "variant": "empty_result"
+    },
+    {
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_freq_sign"
+    },
+    {
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_swap"
+    },
+    {
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
+      "repair_restored_control": false,
+      "true_class": "ranking_direction",
+      "variant": "wrong_order"
+    }
+  ],
+  "totals": {
+    "claimed_class_matches_true": 3,
+    "diagnoses_correct": 3,
+    "multi_defect_restored": 0,
+    "multi_defect_variants": 3,
+    "single_defect_variants": 7
+  },
+  "unmeasured_tracks": [
+    {
+      "reason": "unmeasured: needs the [data] extra (HF datasets + face dataset download) and the recognition model weights, which were not fetched in this offline study; the week2 benchmark also requires python <3.13 while the host is 3.13.14.",
+      "track": "vision-recognition"
+    },
+    {
+      "reason": "unmeasured: missing-data track - [data] extra and public image dataset not fetched; requires python <3.13 on a 3.13.14 host.",
+      "track": "vision-clustering"
+    },
+    {
+      "reason": "unmeasured: missing-data/weights track - requires python <3.13 on a 3.13.14 host; GloVe data extra not fetched.",
+      "track": "language-search"
+    }
+  ],
+  "wrong_repair_probe_oracle_agrees": true
+}

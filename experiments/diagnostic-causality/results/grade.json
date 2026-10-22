@@ -1,0 +1,173 @@
+{
+  "cause_class_counts": {
+    "claimed": {
+      "hash_space": 4,
+      "name_error": 1,
+      "shape_pairs": 1,
+      "signature": 1
+    },
+    "true": {
+      "empty_result": 1,
+      "fingerprint_space": 2,
+      "name_error": 1,
+      "ranking_direction": 1,
+      "shape_pairs": 1,
+      "signature": 1
+    }
+  },
+  "indistinguishable_pairs": [],
+  "misleading_witnesses": [
+    {
+      "claimed_class": "hash_space",
+      "evidence": "in different hash spaces",
+      "repair_restored_control": false,
+      "true_class": "empty_result",
+      "variant": "empty_result"
+    },
+    {
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_freq_sign"
+    },
+    {
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_swap"
+    },
+    {
+      "claimed_class": "hash_space",
+      "evidence": "Retrieval, not ranking, is what is failing",
+      "repair_restored_control": false,
+      "true_class": "ranking_direction",
+      "variant": "wrong_order"
+    }
+  ],
+  "multi_defect": [
+    {
+      "claimed_classes_by_round": [
+        "hash_space"
+      ],
+      "restored": false,
+      "rounds_recorded": 1,
+      "true_classes": [
+        "empty_result",
+        "fingerprint_space"
+      ],
+      "true_defects": [
+        "empty_result",
+        "fp_freq_sign"
+      ],
+      "variant": "multi_empty_sign"
+    },
+    {
+      "claimed_classes_by_round": [
+        "name_error",
+        "hash_space"
+      ],
+      "restored": false,
+      "rounds_recorded": 2,
+      "true_classes": [
+        "name_error",
+        "ranking_direction"
+      ],
+      "true_defects": [
+        "name_error",
+        "wrong_order"
+      ],
+      "variant": "multi_name_order"
+    },
+    {
+      "claimed_classes_by_round": [
+        "signature",
+        "undiagnosed"
+      ],
+      "restored": false,
+      "rounds_recorded": 2,
+      "true_classes": [
+        "signature",
+        "fingerprint_space"
+      ],
+      "true_defects": [
+        "signature",
+        "fp_swap"
+      ],
+      "variant": "multi_signature_swap"
+    }
+  ],
+  "single_defect": [
+    {
+      "claimed_class": "hash_space",
+      "claimed_points_at_true": false,
+      "diagnosis_correct": false,
+      "non_actionable": true,
+      "repair_restored_control": false,
+      "true_class": "empty_result",
+      "variant": "empty_result"
+    },
+    {
+      "claimed_class": "hash_space",
+      "claimed_points_at_true": false,
+      "diagnosis_correct": false,
+      "non_actionable": true,
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_freq_sign"
+    },
+    {
+      "claimed_class": "hash_space",
+      "claimed_points_at_true": false,
+      "diagnosis_correct": false,
+      "non_actionable": true,
+      "repair_restored_control": false,
+      "true_class": "fingerprint_space",
+      "variant": "fp_swap"
+    },
+    {
+      "claimed_class": "name_error",
+      "claimed_points_at_true": true,
+      "diagnosis_correct": true,
+      "non_actionable": false,
+      "repair_restored_control": true,
+      "true_class": "name_error",
+      "variant": "name_error"
+    },
+    {
+      "claimed_class": "shape_pairs",
+      "claimed_points_at_true": true,
+      "diagnosis_correct": true,
+      "non_actionable": false,
+      "repair_restored_control": true,
+      "true_class": "shape_pairs",
+      "variant": "shape_pairs"
+    },
+    {
+      "claimed_class": "signature",
+      "claimed_points_at_true": true,
+      "diagnosis_correct": true,
+      "non_actionable": false,
+      "repair_restored_control": true,
+      "true_class": "signature",
+      "variant": "signature"
+    },
+    {
+      "claimed_class": "hash_space",
+      "claimed_points_at_true": false,
+      "diagnosis_correct": false,
+      "non_actionable": true,
+      "repair_restored_control": false,
+      "true_class": "ranking_direction",
+      "variant": "wrong_order"
+    }
+  ],
+  "totals": {
+    "claimed_class_matches_true": 3,
+    "diagnoses_correct": 3,
+    "multi_defect_restored": 0,
+    "multi_defect_variants": 3,
+    "single_defect_variants": 7
+  }
+}
