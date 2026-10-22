@@ -97,10 +97,10 @@ async function homeView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
-  portalOrigin?: string,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const status = await portal.getTeamStatus(guildId, user.id);
-  if (!status.linked) return connectView(interaction, portal, guildId, user);
+  if (!status.linked) return connectView(interaction, portal, guildId, user, portalOrigin);
 
   if (!status.team) {
     const portalUrl = safePortalUrl(portalOrigin, "/connect");
@@ -230,9 +230,10 @@ async function connectView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const start = await portal.createDiscordLink(guildId, user.id, discordIdentity(user));
-  if (start.alreadyLinked) return homeView(interaction, portal, guildId, user);
+  if (start.alreadyLinked) return homeView(interaction, portal, guildId, user, portalOrigin);
   if (!start.url) return message("I couldn't make a connection link just now. Nothing changed—try again in a moment.");
 
   return componentMessage(
@@ -350,10 +351,10 @@ async function localView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
-  portalOrigin?: string,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const result = await portal.getLocalReports(guildId, user.id);
-  if (!result.linked) return connectView(interaction, portal, guildId, user);
+  if (!result.linked) return connectView(interaction, portal, guildId, user, portalOrigin);
   const fmt = emojiFormatter(interaction.application_id);
   const lines = result.reports.slice(0, 8).map((report) => {
     const primary = report.metrics.find((metric) => metric.primary);
@@ -606,7 +607,7 @@ export async function executeCommand(
     case "home":
       return homeView(interaction, portal, guildId, user, portalOrigin);
     case "connect":
-      return connectView(interaction, portal, guildId, user);
+      return connectView(interaction, portal, guildId, user, portalOrigin);
     case "benchmarks":
       return benchmarksView(interaction, portal, guildId, portalOrigin);
     case "leaderboard":
