@@ -214,6 +214,49 @@ test("linked students land on a warm, private team snapshot", async () => {
   assert.ok(buttons(response).some((item) => item.label === "Open Cog*Portal"));
 });
 
+test("Connect keeps the portal recovery link when the account is already linked", async () => {
+  for (const hasTeam of [false, true]) {
+    for (const view of ["connect", "home"]) {
+      let firstStatus = true;
+      const portal = portalWith({
+        async createDiscordLink() {
+          return { alreadyLinked: true, url: null, expiresAt: null };
+        },
+        async getTeamStatus() {
+          // The account can become linked between Home's read and link creation.
+          if (view === "home" && firstStatus) {
+            firstStatus = false;
+            return { linked: false };
+          }
+          return {
+            linked: true,
+            githubLogin: "ada-lovelace",
+            team: hasTeam ? {
+              id: "team-1",
+              name: "Analytical Engines",
+              description: null,
+              repo: null,
+            } : null,
+            discordChannelId: null,
+            canManageDiscordChannel: false,
+            activeRun: null,
+            latestHosted: null,
+            latestOfficial: null,
+          };
+        },
+      });
+
+      const response = await executeCommand(command(view), portal, guildId, portalOrigin);
+      const links = buttons(response).filter((item) => item.style === 5);
+      assert.deepEqual(links.map(({ label, url }) => ({ label, url })), [{
+        label: hasTeam ? "Open Cog*Portal" : "Choose your repository",
+        url: `${portalOrigin}/${hasTeam ? "dashboard" : "connect"}`,
+      }], `${view}, team=${hasTeam}`);
+      assert.match(responseText(response), /Analytical Engines|One small step left/);
+    }
+  }
+});
+
 test("/cog shows the one useful next run action instead of a bulky menu", async () => {
   const latest = surfaceSnapshot();
   const portal = portalWith({

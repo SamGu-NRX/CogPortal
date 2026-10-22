@@ -100,7 +100,7 @@ async function homeView(
   portalOrigin?: string,
 ): Promise<InteractionResponse> {
   const status = await portal.getTeamStatus(guildId, user.id);
-  if (!status.linked) return connectView(interaction, portal, guildId, user);
+  if (!status.linked) return connectView(interaction, portal, guildId, user, portalOrigin);
 
   if (!status.team) {
     const portalUrl = safePortalUrl(portalOrigin, "/connect");
@@ -230,9 +230,10 @@ async function connectView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
+  portalOrigin?: string,
 ): Promise<InteractionResponse> {
   const start = await portal.createDiscordLink(guildId, user.id, discordIdentity(user));
-  if (start.alreadyLinked) return homeView(interaction, portal, guildId, user);
+  if (start.alreadyLinked) return homeView(interaction, portal, guildId, user, portalOrigin);
   if (!start.url) return message("I couldn't make a connection link just now. Nothing changed—try again in a moment.");
 
   return componentMessage(
@@ -606,7 +607,7 @@ export async function executeCommand(
     case "home":
       return homeView(interaction, portal, guildId, user, portalOrigin);
     case "connect":
-      return connectView(interaction, portal, guildId, user);
+      return connectView(interaction, portal, guildId, user, portalOrigin);
     case "benchmarks":
       return benchmarksView(interaction, portal, guildId, portalOrigin);
     case "leaderboard":
