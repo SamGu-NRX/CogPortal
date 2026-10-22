@@ -123,23 +123,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.6125",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.150",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -218,23 +222,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -290,7 +298,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run B",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "identification_score",
+            "relates_to_b": "",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "0.033",
+            "value_b": "not recorded",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [
           {
             "key": "chance_top1",
@@ -305,23 +328,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.4810",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.255",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -399,23 +426,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -493,23 +524,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -587,23 +622,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -681,23 +720,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5875",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.188",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -775,23 +818,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -869,23 +916,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -964,23 +1015,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1059,23 +1114,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1131,7 +1190,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run B",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "identification_score",
+            "relates_to_b": "",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "0.033",
+            "value_b": "not recorded",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [
           {
             "key": "chance_top1",
@@ -1146,23 +1220,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.4810",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.255",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1240,23 +1318,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1334,23 +1416,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1428,23 +1514,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1522,23 +1612,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5875",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.188",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1616,23 +1710,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1710,23 +1808,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1805,23 +1907,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.6125",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.150",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1878,7 +1984,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run B",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "identification_score",
+            "relates_to_b": "",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "0.033",
+            "value_b": "not recorded",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [
           {
             "key": "chance_top1",
@@ -1893,23 +2014,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.4810",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.255",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -1988,23 +2113,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2083,23 +2212,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2178,23 +2311,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2273,23 +2410,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5875",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.188",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2368,23 +2509,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2463,23 +2608,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2558,23 +2707,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2630,7 +2783,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run A",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "",
+            "relates_to_b": "identification_score",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "not recorded",
+            "value_b": "0.033",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [],
         "only_in_b": [
           {
@@ -2645,23 +2813,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.4810",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.255",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2717,7 +2889,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run A",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "",
+            "relates_to_b": "identification_score",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "not recorded",
+            "value_b": "0.033",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [],
         "only_in_b": [
           {
@@ -2732,23 +2919,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.4810",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.255",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2804,7 +2995,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run A",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "",
+            "relates_to_b": "identification_score",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "not recorded",
+            "value_b": "0.033",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [],
         "only_in_b": [
           {
@@ -2819,23 +3025,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.4810",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.255",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2891,7 +3101,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run A",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "",
+            "relates_to_b": "identification_score",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "not recorded",
+            "value_b": "0.033",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [],
         "only_in_b": [
           {
@@ -2906,23 +3131,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.4810",
             "run_b": "0.5875",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.255",
             "run_b": "0.188",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -2978,7 +3207,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run A",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "",
+            "relates_to_b": "identification_score",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "not recorded",
+            "value_b": "0.033",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [],
         "only_in_b": [
           {
@@ -2993,23 +3237,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.4810",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.255",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3065,7 +3313,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run A",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "",
+            "relates_to_b": "identification_score",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "not recorded",
+            "value_b": "0.033",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [],
         "only_in_b": [
           {
@@ -3080,23 +3343,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.4810",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.255",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3153,7 +3420,22 @@
         "While any blocker stands, a metric difference is not evidence of a source effect."
       ],
       "metrics": {
-        "context": [],
+        "context": [
+          {
+            "absent_on": "run A",
+            "differs": true,
+            "identity_differs": false,
+            "key": "chance_top1",
+            "label": "Chance",
+            "relates_to_a": "",
+            "relates_to_b": "identification_score",
+            "unit_a": "",
+            "unit_b": "",
+            "value_a": "not recorded",
+            "value_b": "0.033",
+            "value_differs": false
+          }
+        ],
         "only_in_a": [],
         "only_in_b": [
           {
@@ -3168,23 +3450,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.4810",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.255",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3262,23 +3548,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3356,23 +3646,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3450,23 +3744,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5875",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.188",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3544,23 +3842,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3638,23 +3940,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3733,23 +4039,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3827,23 +4137,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -3921,23 +4235,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5875",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.188",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4015,23 +4333,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4109,23 +4431,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4204,23 +4530,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4298,23 +4628,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5875",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.188",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4392,23 +4726,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4486,23 +4824,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4581,23 +4923,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4675,23 +5021,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5875",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.188",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4769,23 +5119,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5875",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.188",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4864,23 +5218,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5875",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.188",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -4958,23 +5316,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -5053,23 +5415,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -5148,23 +5514,27 @@
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "higher is better",
+            "identity_differences": [],
             "key": "identification_score",
             "label": "Identification score",
             "primary": true,
             "run_a": "0.5375",
             "run_b": "0.5375",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           },
           {
             "delta": null,
             "delta_note": "not compared \u2014 the runs' conditions do not line up",
             "direction": "lower is better",
+            "identity_differences": [],
             "key": "ranking_failure_rate",
             "label": "Wrong song ranked first",
             "primary": false,
             "run_a": "0.212",
             "run_b": "0.212",
-            "unit": null
+            "unit_a": null,
+            "unit_b": null
           }
         ]
       }
@@ -5286,8 +5656,8 @@
   ],
   "tool_source": {
     "files": {
-      "all_pairs_checks.py": "ecb283ddfd857f99bf501d50e1acc97c4e0a585e2bf913a27cdcae580bbf6db9",
-      "build.py": "fe37878e714100fae345adb72383e6d7662f1cedca2e24cddb99f6deaee13d9d",
+      "all_pairs_checks.py": "9e71d88d44395bbcb7fdacbfe176c960674f64aab39bb3248eaa9f475c46629a",
+      "build.py": "2e6d872d521754abca14e3a4e1a403534ff57d473b1a5ec7d91620933874348a",
       "report_reader.py": "6dbd05fc4292602170cea0e4e13e350f7b22e2930077ae0fbdd6ab8116e2bbdd"
     }
   },

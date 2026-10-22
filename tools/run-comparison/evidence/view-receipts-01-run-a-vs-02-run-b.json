@@ -148,23 +148,27 @@
         "delta": null,
         "delta_note": "not compared \u2014 the runs' conditions do not line up",
         "direction": "higher is better",
+        "identity_differences": [],
         "key": "identification_score",
         "label": "Identification score",
         "primary": true,
         "run_a": "0.5375",
         "run_b": "0.6125",
-        "unit": null
+        "unit_a": null,
+        "unit_b": null
       },
       {
         "delta": null,
         "delta_note": "not compared \u2014 the runs' conditions do not line up",
         "direction": "lower is better",
+        "identity_differences": [],
         "key": "ranking_failure_rate",
         "label": "Wrong song ranked first",
         "primary": false,
         "run_a": "0.212",
         "run_b": "0.150",
-        "unit": null
+        "unit_a": null,
+        "unit_b": null
       }
     ]
   },
@@ -219,7 +223,7 @@
   },
   "tool_source": {
     "files": {
-      "build.py": "fe37878e714100fae345adb72383e6d7662f1cedca2e24cddb99f6deaee13d9d",
+      "build.py": "2e6d872d521754abca14e3a4e1a403534ff57d473b1a5ec7d91620933874348a",
       "report_reader.py": "6dbd05fc4292602170cea0e4e13e350f7b22e2930077ae0fbdd6ab8116e2bbdd"
     }
   }
