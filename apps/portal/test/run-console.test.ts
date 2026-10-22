@@ -463,7 +463,8 @@ test("no state of the console attributes its result to the person who started it
   assert.match(html, /0\.913/, "the score itself still shows");
 });
 
-test("the hosted-run confirmation states accepted and active practice-run rules", async (t) => {
+for (const [action, label] of [["verify_hosted", "Verify hosted"], ["rerun_hosted", "Rerun hosted"]] as const) {
+  test(`${label} confirmation states accepted and active practice-run rules`, async (t) => {
   const window = new Window({ url: "https://portal.example" });
   const globals = { window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
@@ -483,15 +484,16 @@ test("the hosted-run confirmation states accepted and active practice-run rules"
       else Reflect.deleteProperty(globalThis, key);
     }
   });
-  const ready = { ...snapshot("succeeded"), actions: ["open_console", "open_portal", "verify_hosted"] as RunSurfaceSnapshot["actions"] };
+  const ready = { ...snapshot("succeeded"), actions: ["open_console", "open_portal", action] as RunSurfaceSnapshot["actions"] };
   await act(async () => root.render(React.createElement(RunConsole, { snapshot: ready, streamState: "closed" })));
-  const verify = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("Verify hosted"));
-  assert.ok(verify);
-  await act(async () => verify.click());
+  const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes(label));
+  assert.ok(trigger);
+  await act(async () => trigger.click());
   const text = container.querySelector("dialog")?.textContent ?? "";
   // This matches acceptedRunPredicate and activeRunPredicate in
   // worker/services/run-accounting.ts.
   assert.match(text, /only if it finishes scoring/);
   assert.match(text, /While it's running it holds a slot/);
   assert.match(text, /fails, is cancelled or is refunded, it doesn't count/);
-});
+  });
+}

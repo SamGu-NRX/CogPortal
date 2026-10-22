@@ -175,7 +175,7 @@ export async function getDiscordLeaderboard(
       .select({ benchmarkId: runs.benchmarkId, benchmarkVersion: runs.benchmarkVersion })
       .from(runs)
       .where(eq(runs.teamId, membership.teamId))
-      .orderBy(desc(runs.createdAt))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
       .limit(1);
     if (latest) {
       const [activeBenchmark] = await db

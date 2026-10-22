@@ -191,19 +191,57 @@ test("the newest run on a retired benchmark falls back instead of choosing an ol
 
 test("a late event on an older run does not replace the newest run's board", async () => {
   const { rpc, db, target, fallback } = await seeded();
-  await db.insert(runs).values({
-    id: "team_ada_new_run", teamId: "team_ada", benchmarkId: target.id, benchmarkVersion: target.version,
-    contractVersion: target.contractVersion, mode: "practice", status: "succeeded", branch: "main",
-    sha: "e".repeat(40), createdAt: 200, finishedAt: 210, provider: "fixture", scorerVersion: target.scorerVersion,
+  await db.insert(runSurfaces).values({
+    id: "surface_ada_old_run", teamId: "team_ada", createdByUserId: "user_ada",
+    benchmarkId: fallback.id, benchmarkVersion: fallback.version, createdAt: 100, updatedAt: 9_999,
   });
-  await db.insert(runs).values({
-    id: "team_ada_old_run", teamId: "team_ada", benchmarkId: fallback.id, benchmarkVersion: fallback.version,
-    contractVersion: fallback.contractVersion, mode: "practice", status: "succeeded", branch: "main",
-    sha: "f".repeat(40), createdAt: 100, finishedAt: 110, provider: "fixture", scorerVersion: fallback.scorerVersion,
-  });
-  await db.update(runSurfaces).set({ updatedAt: 9_999 }).where(eq(runSurfaces.id, "surface_ada"));
+  await db.insert(runs).values([
+    {
+      id: "team_ada_new_run", teamId: "team_ada", benchmarkId: target.id, benchmarkVersion: target.version,
+      contractVersion: target.contractVersion, mode: "practice", status: "succeeded", branch: "main",
+      sha: "e".repeat(40), createdAt: 200, finishedAt: 210, provider: "fixture", scorerVersion: target.scorerVersion,
+    },
+    {
+      id: "team_ada_old_run", teamId: "team_ada", benchmarkId: fallback.id, benchmarkVersion: fallback.version,
+      contractVersion: fallback.contractVersion, mode: "practice", status: "succeeded", branch: "main",
+      sha: "f".repeat(40), createdAt: 100, finishedAt: 110, provider: "fixture", scorerVersion: fallback.scorerVersion,
+      surfaceId: "surface_ada_old_run",
+    },
+  ]);
   const board = await rpc.getLeaderboard(GUILD, undefined, "discord_ada");
   assert.equal(board.benchmark.id, target.id);
+});
+
+test("a creation-time tie uses the run id as a stable board choice", async () => {
+  const { rpc, db, target, fallback } = await seeded();
+  await db.insert(runs).values([
+    {
+      id: "team_ada_tie_a", teamId: "team_ada", benchmarkId: target.id, benchmarkVersion: target.version,
+      contractVersion: target.contractVersion, mode: "official", status: "succeeded", branch: "main",
+      sha: "g".repeat(40), createdAt: 500, finishedAt: 510, provider: "fixture", scorerVersion: target.scorerVersion,
+    },
+    {
+      id: "team_ada_tie_z", teamId: "team_ada", benchmarkId: fallback.id, benchmarkVersion: fallback.version,
+      contractVersion: fallback.contractVersion, mode: "official", status: "succeeded", branch: "main",
+      sha: "h".repeat(40), createdAt: 500, finishedAt: 510, provider: "fixture", scorerVersion: fallback.scorerVersion,
+    },
+  ]);
+  const board = await rpc.getLeaderboard(GUILD, undefined, "discord_ada");
+  assert.equal(board.benchmark.id, fallback.id);
+});
+
+test("a team with no runs gets the default board", async () => {
+  const { rpc, db, fallback } = await seeded();
+  await db.insert(teams).values({
+    id: "team_empty", cohortId: "cohort_test", name: "Empty Team", description: null,
+    repoName: "empty", repoFullName: "o/empty", repoUrl: "https://github.com/o/empty",
+    repoOwner: "o", defaultBranch: "main",
+  });
+  await db.insert(users).values({ id: "user_empty", name: "Empty", email: "empty@example.test", githubLogin: "empty", cohortId: "cohort_test" });
+  await db.insert(teamMembers).values({ teamId: "team_empty", userId: "user_empty", role: "write" });
+  await db.insert(discordAccounts).values({ discordUserId: "discord_empty", userId: "user_empty", username: "empty", linkedAt: 1 });
+  const board = await rpc.getLeaderboard(GUILD, undefined, "discord_empty");
+  assert.equal(board.benchmark.id, fallback.id);
 });
 
 test("a Discord account that is not linked still gets the public board, with no row marked", async () => {
