@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover - exercised on Windows CI
 import hashlib
 import html
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -1309,32 +1310,67 @@ def replay_gate_disagreements(
 # --------------------------------------------------------------------------
 
 
+LOCK_NAME = ".build.lock"
+STAGING_PREFIX = ".staging-"
+
+
 @contextlib.contextmanager
 def output_lock(out: Path):
-    """Hold an exclusive lock across replay validation and publication."""
+    """Hold an exclusive lock on ``out`` across the gates and publication.
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = out.parent / ("." + out.name + ".lock")
-    with lock_path.open("a+") as lock_file:
+    Without it, two builds into one directory both pass the gates against
+    the same empty or stale state and then both write. The lock file lives
+    inside the output directory and is never deleted: unlinking it while a
+    second builder waits on it would let a third lock a fresh file.
+    """
+
+    out.mkdir(parents=True, exist_ok=True)
+    with (out / LOCK_NAME).open("a+") as lock_file:
         if fcntl is not None:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        else:  # pragma: no cover - exercised on Windows CI
+        else:  # pragma: no cover - Windows
             import msvcrt
 
             lock_file.seek(0)
-            lock_file.write("\0")
-            lock_file.flush()
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            while True:
+                try:
+                    # LK_LOCK gives up after ten one-second retries.
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    continue
         try:
             yield
         finally:
             if fcntl is not None:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            else:  # pragma: no cover - exercised on Windows CI
+            else:  # pragma: no cover - Windows
                 import msvcrt
 
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def publish(out: Path, artifacts: List[Tuple[Path, bytes]]) -> None:
+    """Write every artifact to a staging file, then rename each into place.
+
+    A write that fails part-way (full disk, permissions) publishes nothing
+    and removes its staging files. The renames are separate operations, so
+    a crash between two of them can still leave a mixed set; the lock keeps
+    other builders out meanwhile, and the replay gate refuses a mixed set.
+    """
+
+    out.mkdir(parents=True, exist_ok=True)
+    staged = [(out / (STAGING_PREFIX + target.name), target) for target, _ in artifacts]
+    try:
+        for (stage, _), (_, data) in zip(staged, artifacts):
+            stage.write_bytes(data)
+    except BaseException:
+        for stage, _ in staged:
+            stage.unlink(missing_ok=True)
+        raise
+    for stage, target in staged:
+        os.replace(stage, target)
 
 
 def _build(arguments) -> int:
@@ -1561,14 +1597,14 @@ def _build(arguments) -> int:
     # The write happens only after every gate above has passed: on any
     # disagreement the function has already returned and nothing on disk
     # was touched.
-    out.mkdir(parents=True, exist_ok=True)
-    html_path.write_bytes(html_bytes)
-    receipt_path.write_bytes(receipt_bytes)
+    artifacts = [(html_path, html_bytes), (receipt_path, receipt_bytes)]
+    if replay_bytes is not None:
+        artifacts.append((replay_path, replay_bytes))
+    publish(out, artifacts)
     print(
         "built {} ({} bytes) and {}".format(html_path, len(html_bytes), receipt_path)
     )
     if replay_bytes is not None:
-        replay_path.write_bytes(replay_bytes)
         print("replay: byte-identical rebuild -> {}".format(replay_path))
     return 0
 
