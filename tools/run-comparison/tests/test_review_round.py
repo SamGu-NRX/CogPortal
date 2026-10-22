@@ -80,14 +80,14 @@ def _build_evidence(tmp_path, fixtures=None, out=None):
     return out, fixtures
 
 
-def _restamp(out, mutate_html=None, mutate_receipt=None):
+def _restamp(out, mutate_html=None, mutate_receipt=None, stem=PAIR_STEM):
     """Rewrite the view and/or receipt, then re-stamp every digest so the
     tampered set is digest-consistent — reaching the verifier's wording
     checks, which would otherwise be answered by the digest checks."""
 
-    html_path = out / VIEW
-    receipt_path = out / RECEIPT
-    replay_path = out / REPLAY
+    html_path = out / "view-{}.html".format(stem)
+    receipt_path = out / "view-receipts-{}.json".format(stem)
+    replay_path = out / "replay-{}.json".format(stem)
 
     html = html_path.read_text(encoding="utf-8")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -197,6 +197,87 @@ def test_same_named_reports_from_two_roots_bind_in_path_order(tmp_path):
     checked = _run_verify(first, a_root, b_root)
     assert checked.returncode == 1, checked.stdout + checked.stderr
     assert "receipt inputs do not match the fixture bytes in order" in checked.stderr
+
+
+def _same_named_roots(tmp_path):
+    """Two roots that each hold an accepted run.json and a refused bad.json.
+
+    The two copies of each name differ in content, and the two bad.json
+    files are refused for different reasons.
+    """
+
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "run.json").write_bytes((FIXTURES / "01-run-a.json").read_bytes())
+    (right / "run.json").write_bytes((FIXTURES / "02-run-b.json").read_bytes())
+    (left / "bad.json").write_bytes(
+        (FIXTURES / "07-refused-future-contract.json").read_bytes()
+    )
+    (right / "bad.json").write_bytes(
+        (FIXTURES / "08-refused-unknown-command.json").read_bytes()
+    )
+    return left, right
+
+
+def test_all_pairs_keeps_same_named_inputs_apart(tmp_path):
+    # The record keyed inputs by file name, so left/run.json and
+    # right/run.json collapsed into one digest and the pair read
+    # ["run.json", "run.json"]. Each input needs its own identity, and
+    # the record must not depend on argument order.
+    from all_pairs_checks import collect
+
+    left, right = _same_named_roots(tmp_path)
+
+    record = collect([left, right])
+
+    assert sorted(record["inputs"]) == [
+        "left/bad.json",
+        "left/run.json",
+        "right/bad.json",
+        "right/run.json",
+    ]
+    assert record["inputs"]["left/run.json"] == _sha((left / "run.json").read_bytes())
+    assert record["inputs"]["right/run.json"] == _sha((right / "run.json").read_bytes())
+    assert record["accepted_files"] == ["left/run.json", "right/run.json"]
+    assert [entry["file"] for entry in record["refused_files"]] == [
+        "left/bad.json",
+        "right/bad.json",
+    ]
+    assert [pair["files"] for pair in record["pairs"]] == [
+        ["left/run.json", "right/run.json"]
+    ]
+    assert collect([right, left]) == record
+
+
+def test_verify_binds_each_same_named_refusal_to_its_own_reasons(tmp_path):
+    # The verifier mapped refusal reasons by file name, so two refused
+    # bad.json files from different roots collapsed into one entry and a
+    # correct receipt failed verification against the other file's
+    # reasons.
+    left, right = _same_named_roots(tmp_path)
+    out = tmp_path / "evidence"
+
+    built = _run_build(out, left, right, extra=("--replay",))
+    assert built.returncode == 0, built.stdout + built.stderr
+    receipt = json.loads(
+        (out / "view-receipts-run-vs-run.json").read_text(encoding="utf-8")
+    )
+    reasons = [entry["reasons"][0].split(":")[0] for entry in receipt["excluded"]]
+    assert reasons == ["unsupported_contract", "unknown_command"]
+
+    checked = _run_verify(out, left, right)
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+    def swap(receipt):
+        receipt["excluded"].reverse()
+
+    _restamp(out, mutate_receipt=swap, stem="run-vs-run")
+    swapped = _run_verify(out, left, right)
+    assert swapped.returncode == 1, swapped.stdout + swapped.stderr
+    assert "receipt refusal reasons" in swapped.stderr
 
 
 def test_replay_refuses_a_receipt_attesting_a_different_pair(tmp_path):

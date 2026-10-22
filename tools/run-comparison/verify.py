@@ -1002,11 +1002,10 @@ def main() -> int:
     elif isinstance(excluded_entries, list):
         # The reasons the reader refused each file, word for word: a
         # receipt that paraphrases a refusal is evidence that the reader
-        # did not write it.
-        derived_refusal_reasons = {
-            record["file"]: record["reasons"] for record in refused
-        }
-        for entry in excluded_entries:
+        # did not write it. Matched by position, not by name: the file
+        # list above already matched in order, and two roots may each
+        # hold a refused file of the same name.
+        for position, (entry, record) in enumerate(zip(excluded_entries, refused)):
             if not isinstance(entry, dict) or "reasons" not in entry:
                 _fail(
                     failures,
@@ -1021,15 +1020,14 @@ def main() -> int:
                         entry.get("file")
                     ),
                 )
-            elif recorded_reasons != derived_refusal_reasons.get(
-                entry.get("file")
-            ):
+            elif recorded_reasons != record["reasons"]:
                 _fail(
                     failures,
-                    "receipt refusal reasons for {!r}: receipt {!r} != independently derived {!r}".format(
+                    "receipt refusal reasons for {!r} (excluded[{}]): receipt {!r} != independently derived {!r}".format(
                         entry.get("file"),
+                        position,
                         recorded_reasons,
-                        derived_refusal_reasons.get(entry.get("file")),
+                        record["reasons"],
                     ),
                 )
 
