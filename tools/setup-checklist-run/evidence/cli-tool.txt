@@ -1,0 +1,14 @@
+<f8f291f945344a914cc63#subdirectory=python/cogbench"
+Collecting cogworks-benchmark@ git+https://github.com/SamGu-NRX/CogPortal.git@ac8ddafa014ac72613bf8f291f945344a914cc63#subdirectory=python/cogbench
+  Using cached cogworks_benchmark-0.2.0-py3-none-any.whl
+Installing collected packages: cogworks-benchmark
+  Attempting uninstall: cogworks-benchmark
+    Found existing installation: cogworks-benchmark 0.2.0
+    Uninstalling cogworks-benchmark-0.2.0:
+      Successfully uninstalled cogworks-benchmark-0.2.0
+Successfully installed cogworks-benchmark-0.2.0
+
+[notice] A new release of pip is available: 24.0 -> 26.2.1
+[notice] To update, run: pip install --upgrade pip
+~/work/burst14-seat/face-finder $ echo "
+exit=0

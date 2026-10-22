@@ -1,0 +1,47 @@
+Skip to content
+Cog*Portal
+Face Finder Video QA
+Runs
+Setup
+Team
+Leaderboard
+B
+burst14-student
+Account menu for burst14-student
+Your account
+Connections
+
+Approve this device
+
+It sends check results, synced local reports and runs you share live. It can't touch your repository, start a hosted run or publish a result.
+
+Approve only if your terminal shows this code.
+
+99EB-A16E-7A1B
+
+Device name
+Approve device
+GitHub
+
+Discord and the CogWorks tool never receive your GitHub token.
+
+No GitHub identity; development sign-ins don't carry one.
+
+Discord
+
+When you use Cog, the course's Discord bot, it can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you.
+
+Not linked. Run /cog in the course server to get a link.
+
+CogWorks tool
+
+A linked device sends check results, synced local reports and runs you share live. It can't touch your repository or start a hosted run.
+
+No devices linked. Run this in your project folder:
+
+cogworks link --portal http://[::1]:5173
+Copy command
+
+Don't have the tool yet? Install it from Setup.
+
+Cog*Portal runs the CogWorks capstone benchmarks for MIT Beaver Works Summer Institute.

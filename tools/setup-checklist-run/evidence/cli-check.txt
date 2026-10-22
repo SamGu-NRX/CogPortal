@@ -1,0 +1,10 @@
+<check --benchmark vision-recognition --update-setup
+benchmark              vision-recognition
+python                 3.11.17
+hosted python          3.11 (the hidden evaluation runs on this)
+repository             cogworks-demo/face-finder
+
+Your benchmark_adapter.py at the repository root was used, so nothing was searched for.
+setup: updated clone, environment, project, wiring
+~/work/burst14-seat/face-finder $ echo "
+exit=0

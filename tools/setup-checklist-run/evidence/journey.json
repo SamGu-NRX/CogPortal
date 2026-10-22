@@ -1,0 +1,181 @@
+{
+  "startedAt": "2026-10-16T19:03:14.292Z",
+  "portal": "http://[::1]:5173",
+  "login": "burst14-student",
+  "steps": [
+    {
+      "at": 8,
+      "milestone": "page-open",
+      "state": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      }
+    },
+    {
+      "at": 31,
+      "command": "clone",
+      "before": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "after": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "ticked": false,
+      "secondsToChange": 15,
+      "changedLive": false,
+      "exit": 0
+    },
+    {
+      "at": 48,
+      "command": "tool",
+      "before": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "after": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "ticked": false,
+      "secondsToChange": 15,
+      "changedLive": false,
+      "exit": 0
+    },
+    {
+      "at": 66,
+      "command": "benchmark",
+      "before": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "after": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "ticked": false,
+      "secondsToChange": 15,
+      "changedLive": false,
+      "exit": 0
+    },
+    {
+      "at": 73,
+      "command": "link",
+      "before": {
+        "count": "v2",
+        "rows": {
+          "clone": "pending",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "pending",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "after": {
+        "count": "v2",
+        "rows": {
+          "clone": "verified",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "verified",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "ticked": true,
+      "secondsToChange": 2,
+      "changedLive": true,
+      "exit": 0,
+      "deviceCode": "99EB-A16E-7A1B"
+    },
+    {
+      "at": 83,
+      "command": "check",
+      "before": {
+        "count": "v2",
+        "rows": {
+          "clone": "verified",
+          "tool": "pending",
+          "benchmark": "pending",
+          "link": "verified",
+          "check": "pending"
+        },
+        "watching": true
+      },
+      "after": {
+        "count": "v2",
+        "rows": {
+          "clone": "verified",
+          "tool": "verified",
+          "benchmark": "verified",
+          "link": "verified",
+          "check": "verified"
+        },
+        "watching": false
+      },
+      "ticked": true,
+      "secondsToChange": 2,
+      "changedLive": true,
+      "exit": 0
+    }
+  ],
+  "screenshots": [
+    "checklist-0of5-1440.png",
+    "checklist-0of5-390.png",
+    "checklist-mid-1440.png",
+    "checklist-mid-390.png",
+    "checklist-5of5-1440.png",
+    "checklist-5of5-390.png"
+  ]
+}
