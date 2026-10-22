@@ -144,10 +144,6 @@ function requireActivityHeader(c: Context<AppEnv>): void {
   }
 }
 
-function requireActivityFetchHeader(c: Context<AppEnv>): void {
-  if (c.req.header("Sec-Fetch-Mode") !== "navigate") requireActivityHeader(c);
-}
-
 function requireActivityJson(c: Context<AppEnv>): void {
   const contentType = c.req.header("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/json") {
@@ -195,9 +191,7 @@ async function requireActivityTeam(c: Context<AppEnv>) {
 
 export function registerActivityRoutes(app: Hono<AppEnv>): void {
   app.get("/activity/oauth/state", async (c) => {
-    // A navigation can start OAuth without fetch headers. The Activity client
-    // uses fetch and therefore must provide the custom header.
-    requireActivityFetchHeader(c);
+    requireActivityHeader(c);
     const { sessionSecret } = configured(c);
     const state = randomHex(24);
     await setSignedCookie(c, STATE_COOKIE, state, sessionSecret, cookieOptions(c, 10 * 60));

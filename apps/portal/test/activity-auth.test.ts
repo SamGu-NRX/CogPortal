@@ -36,6 +36,24 @@ test("local Activity development keeps a first-party Lax cookie", () => {
   assert.doesNotMatch(cookie, /Secure/);
 });
 
+test("OAuth state navigation without the Activity header sets no cookie", async () => {
+  const app = new Hono<AppEnv>();
+  app.onError((error, c) => {
+    assert.ok(error instanceof ApiHttpError);
+    return c.json({ code: error.code }, error.status);
+  });
+  registerActivityRoutes(app);
+  const response = await app.request("https://activity.example/activity/oauth/state", {
+    headers: { "Sec-Fetch-Mode": "navigate" },
+  }, {
+    DISCORD_CLIENT_ID: "activity-client",
+    DISCORD_CLIENT_SECRET: "activity-secret",
+    ACTIVITY_SESSION_SECRET: "activity-session-secret-long-enough",
+  } as AppEnv["Bindings"]);
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.get("Set-Cookie"), null);
+});
+
 test("the Activity client request wrapper sends its header on reads and writes", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Request[] = [];
