@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import http.client
 import io
+import socket
 import sys
 import unittest
 import urllib.error
@@ -13,6 +15,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 from cogbench.client import (
     PortalError,
     USER_AGENT,
+    default_device_name,
     poll_device_link,
     request_json,
     send_local_run_event_batch,
@@ -53,6 +56,33 @@ class PortalClientTests(unittest.TestCase):
         sleep.assert_called_once_with(0.25)
 
     @patch("cogbench.client.time.sleep")
+    def test_a_dropped_connection_retries_like_any_transient_failure(self, sleep):
+        # A server or proxy that closes the connection before answering
+        # raises from getresponse(), outside urlopen's URLError wrapping. The
+        # cli-real-journeys shaper's "drop" fault showed `cogworks sync`
+        # failing on the first one with no retry.
+        for dropped in (
+            ConnectionResetError(54, "Connection reset by peer"),
+            http.client.RemoteDisconnected("Remote end closed connection without response"),
+            socket.timeout("timed out"),
+        ):
+            with self.subTest(dropped=type(dropped).__name__):
+                sleep.reset_mock()
+                with patch("cogbench.client.urllib.request.urlopen", side_effect=[dropped, _JsonResponse()]) as urlopen:
+                    self.assertEqual(request_json("https://portal.example", "/api/test", {}, retry=True), {"ok": True})
+                self.assertEqual(urlopen.call_count, 2)
+                sleep.assert_called_once_with(0.25)
+
+    @patch("cogbench.client.time.sleep")
+    def test_a_dropped_connection_on_a_non_retried_request_is_a_portal_error(self, sleep):
+        dropped = http.client.RemoteDisconnected("Remote end closed connection without response")
+        with patch("cogbench.client.urllib.request.urlopen", side_effect=dropped) as urlopen:
+            with self.assertRaisesRegex(PortalError, "Could not reach CogPortal: Remote end closed"):
+                request_json("https://portal.example", "/api/v1/cli/device/token", {})
+        urlopen.assert_called_once()
+        sleep.assert_not_called()
+
+    @patch("cogbench.client.time.sleep")
     def test_authorization_errors_fail_without_retrying(self, sleep):
         error = urllib.error.HTTPError(
             "https://portal.example/api/test",
@@ -70,12 +100,25 @@ class PortalClientTests(unittest.TestCase):
     def test_device_authorization_posts_are_never_generically_retried(self):
         with patch("cogbench.client.request_json") as request:
             request.return_value = {"deviceCode": "device-code"}
-            start_device_link("https://portal.example")
+            start_device_link("https://portal.example", "macos-a1b2c3")
             request.assert_called_once_with(
                 "https://portal.example",
                 "/api/v1/cli/device/start",
-                {},
+                {"deviceName": "macos-a1b2c3"},
             )
+
+    def test_default_device_name_carries_no_hostname_fragment(self):
+        # The lead's report: a campus machine's name is its reverse-DNS
+        # address, and a name built from it would put the student's network
+        # identity in portal data. Both stdlib hostname reads are pointed at
+        # such a machine; the default may not echo any of it back.
+        distinctive = "wireless-10-148-67-40.public.utexas.edu"
+        with patch("socket.gethostname", return_value=distinctive), \
+                patch("platform.node", return_value=distinctive):
+            name = default_device_name()
+        for fragment in (distinctive, "wireless", "10-148-67-40", "utexas"):
+            self.assertNotIn(fragment, name)
+        self.assertRegex(name, r"^[a-z]+-[0-9a-f]{6}$")
 
     @patch("cogbench.client.time.sleep")
     @patch("cogbench.client.time.time", side_effect=[1.0, 1.0])

@@ -1,0 +1,138 @@
+name: CLI real journeys
+
+on:
+  pull_request:
+    paths:
+      - "tools/cli-real-journeys/**"
+      - "python/cogbench/**"
+      - ".github/workflows/cli-real-journeys.yml"
+  push:
+    branches: [alpha]
+    paths:
+      - "tools/cli-real-journeys/**"
+      - "python/cogbench/**"
+      - ".github/workflows/cli-real-journeys.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-real-journeys-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The suite's Python helpers on every interpreter the course supports,
+  # including native Windows, whose site-packages layout (Lib/site-packages)
+  # the installed-commit reader must handle.
+  helpers:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.8"
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.8"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m unittest discover -v -s tools/cli-real-journeys/tests -p "test_*.py"
+
+  # The suite's own TypeScript and shell tests (no stack).
+  suite-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - run: npm ci --no-audit --no-fund
+        working-directory: tools/cli-real-journeys
+      - run: npx tsc -p .
+        working-directory: tools/cli-real-journeys
+      - run: bash tests/run.sh
+        working-directory: tools/cli-real-journeys
+        env:
+          PYTHON: python
+
+  # Three full passes at the pushed commit, each on a fresh runner: new
+  # virtual environments, a new D1, new data downloads, zero retries. Each
+  # pass uploads its receipts and summary, every receipt naming this commit.
+  full-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    strategy:
+      fail-fast: false
+      matrix:
+        pass: [1, 2, 3]
+    steps:
+      - name: Free disk for the Week 2 model stack and Week 3 data
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      # The PR's head commit itself, not the merge with alpha that
+      # pull_request checks out by default: the receipts name the commit
+      # they tested, and that has to be the one pushed to this branch.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - uses: pnpm/action-setup@f68f5791346aaeb8b9d7ea636c1bcf61c15511ed # v6.0.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.11
+            3.13
+            3.8
+      - run: pnpm install --frozen-lockfile
+      # pnpm rewrote pnpm-lock.yaml during this frozen install in every pass
+      # at 8bca6f6 (results/git-status.txt: " M pnpm-lock.yaml"), so each run
+      # reported a dirty tree. A frozen install fails rather than resolve
+      # differently, so the rewrite cannot change what was installed. Print
+      # it for the record, then restore the committed file so the run tests
+      # exactly the pushed commit; run-all.sh still records anything else.
+      - name: Show and undo the lockfile rewrite
+        run: |
+          git diff --stat
+          git diff -- pnpm-lock.yaml | head -60
+          git checkout -- pnpm-lock.yaml
+      - run: npm ci --no-audit --no-fund
+        working-directory: tools/cli-real-journeys
+      - run: npx playwright-core install --with-deps chromium-headless-shell
+        working-directory: tools/cli-real-journeys
+      - name: Run every journey once from fresh state
+        working-directory: tools/cli-real-journeys
+        env:
+          RUN_TAG: ci-pass-${{ matrix.pass }}
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          PY38=$(command -v python3.8) PY311=$(command -v python3.11) PY313=$(command -v python3.13) \
+            bash run-all.sh
+      - name: Upload this pass's receipts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: cli-real-journeys-${{ github.event.pull_request.head.sha || github.sha }}-pass-${{ matrix.pass }}
+          path: |
+            tools/cli-real-journeys/results/
+            !tools/cli-real-journeys/results/**/state/**
+          if-no-files-found: warn
+          retention-days: 30
