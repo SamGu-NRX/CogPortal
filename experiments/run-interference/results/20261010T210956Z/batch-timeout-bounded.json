@@ -1,0 +1,1344 @@
+{
+ "baselines": {
+  "slow_sleeper": {
+   "output_digest": null,
+   "status": "timed_out"
+  }
+ },
+ "batch_id": "timeout-bounded",
+ "counts": {
+  "fds": {
+   "after_batch": 7,
+   "before_batch": 7
+  },
+  "files": {
+   "after": {
+    "count": 0,
+    "names": []
+   },
+   "after_cleanup": {
+    "count": 0,
+    "names": []
+   },
+   "before": {
+    "count": 0,
+    "names": []
+   },
+   "during_max_per_run": 0
+  },
+  "processes": {
+   "after": 0,
+   "before": 0,
+   "during_max": 1
+  }
+ },
+ "limits": {
+  "capture_bytes": 262144,
+  "child_memory_bytes": 1073741824,
+  "flood_bytes": 131072,
+  "run_timeout_seconds": 10.0,
+  "sample_interval_seconds": 0.02
+ },
+ "limits_enforcement": {
+  "children": "enforced (child runs setsid; cogbench.isolate kills the process group, which reaches children the child spawned)",
+  "cpu": "enforced (RLIMIT_CPU soft/hard via cogbench.isolate._cpu_limit)",
+  "handles": "observed in-child; the boundary destroys them with the child",
+  "memory": "enforced (RLIMIT_AS, when the platform honors it)",
+  "note": "a descendant that escapes the group (setsid of its own) is outside what cogbench.isolate claims to reach; the supervisor's sweep would still see it here",
+  "output": "observed in-child (capped); result payload bounded by the isolate transport",
+  "wall_clock": "enforced (cogbench.isolate kills the child at the deadline)"
+ },
+ "module_state_series": [],
+ "runs": [
+  {
+   "adapter": "slow_sleeper",
+   "baseline_output_digest": null,
+   "capture": {
+    "bytes": 0,
+    "dropped_bytes": 0,
+    "head": "",
+    "lines": 0,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 4
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 28
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 52
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 75
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 99
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 123
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 146
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 170
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 193
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 217
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 240
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 265
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 289
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 313
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 337
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 361
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 384
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 410
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 434
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 458
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 481
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 505
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 529
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 555
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 581
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 607
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 632
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 658
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 684
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 710
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 736
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 762
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 787
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 813
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 839
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 864
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 888
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 912
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 936
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7733,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23796,
+     "scratch_files": 0,
+     "t_ms": 961
+    }
+   ],
+   "expect_clean": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": false,
+     "by_kind": {},
+     "count": null,
+     "targets": {}
+    },
+    "before": {
+     "available": false,
+     "by_kind": {},
+     "count": null,
+     "targets": {}
+    },
+    "source": "in-child"
+   },
+   "index": 0,
+   "inputs": {
+    "after": null,
+    "before": null
+   },
+   "isolate_diagnostics": {
+    "alarmFired": true,
+    "detail": "stopped because the wall-clock time limit expired (result pipe: alarm)",
+    "limits": {
+     "cpuHardSeconds": 21,
+     "cpuSeconds": 16,
+     "memoryBytes": 1073741824,
+     "wallSeconds": 2
+    },
+    "readReason": "alarm",
+    "signal": null,
+    "status": "timed_out"
+   },
+   "memory": {
+    "child_rss_series_kb": []
+   },
+   "mode": "isolated",
+   "output": {
+    "detail": "stopped because the wall-clock time limit expired (result pipe: alarm)",
+    "metrics": [],
+    "predictions_digest": null,
+    "status": "timed_out"
+   },
+   "requested_timeout_seconds": 2.0,
+   "run_id": "timeout-bounded/run-000",
+   "scratch": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 2.0113
+  },
+  {
+   "adapter": "slow_sleeper",
+   "baseline_output_digest": null,
+   "capture": {
+    "bytes": 0,
+    "dropped_bytes": 0,
+    "head": "",
+    "lines": 0,
+    "overflowed": false
+   },
+   "children": {
+    "after": [],
+    "before_count": 0,
+    "reaped": [],
+    "remaining_after_sweep": []
+   },
+   "during_samples": [
+    {
+     "descendant_count": 0,
+     "descendants": [],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 7
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 31
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 55
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 90
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 119
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 148
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 179
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 209
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 239
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 266
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 299
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 323
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 347
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 371
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 396
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 420
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 444
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 470
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 496
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 522
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 549
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 575
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 601
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 627
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 654
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 678
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 704
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 728
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 753
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 776
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 800
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 824
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 848
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 872
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 896
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 920
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 944
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 967
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 991
+    },
+    {
+     "descendant_count": 1,
+     "descendants": [
+      {
+       "cmdline": "python experiments/run-interference/run.py --manifest experiments/run-interference/manifest.json",
+       "pid": 7736,
+       "ppid": 7612
+      }
+     ],
+     "fd_count": 8,
+     "rss_kb": 23812,
+     "scratch_files": 0,
+     "t_ms": 1015
+    }
+   ],
+   "expect_clean": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "expect_flagged": [],
+   "fds": {
+    "after": {
+     "available": false,
+     "by_kind": {},
+     "count": null,
+     "targets": {}
+    },
+    "before": {
+     "available": false,
+     "by_kind": {},
+     "count": null,
+     "targets": {}
+    },
+    "source": "in-child"
+   },
+   "index": 1,
+   "inputs": {
+    "after": null,
+    "before": null
+   },
+   "isolate_diagnostics": {
+    "alarmFired": true,
+    "detail": "stopped because the wall-clock time limit expired (result pipe: alarm)",
+    "limits": {
+     "cpuHardSeconds": 21,
+     "cpuSeconds": 16,
+     "memoryBytes": 1073741824,
+     "wallSeconds": 2
+    },
+    "readReason": "alarm",
+    "signal": null,
+    "status": "timed_out"
+   },
+   "memory": {
+    "child_rss_series_kb": []
+   },
+   "mode": "isolated",
+   "output": {
+    "detail": "stopped because the wall-clock time limit expired (result pipe: alarm)",
+    "metrics": [],
+    "predictions_digest": null,
+    "status": "timed_out"
+   },
+   "requested_timeout_seconds": 2.0,
+   "run_id": "timeout-bounded/run-001",
+   "scratch": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "removed_by_supervisor": true
+   },
+   "wall_seconds": 2.0121
+  }
+ ],
+ "spec": {
+  "adapters": [
+   "slow_sleeper"
+  ],
+  "concurrency": 1,
+  "id": "timeout-bounded",
+  "interrupt_after_seconds": null,
+  "mode": "isolated",
+  "purpose": "wall-clock timeout enforcement and cleanup",
+  "runs": 2,
+  "timeout_seconds": 2.0
+ },
+ "supervision": {
+  "reaped": [],
+  "remaining_after_sweep": []
+ }
+}

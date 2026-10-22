@@ -1,0 +1,514 @@
+{
+ "answer_agreements": [
+  {
+   "agrees_with_expectation": true,
+   "concurrent": "concurrent-clean",
+   "expect": "identical",
+   "id": "clean",
+   "matched_identities": [
+    {
+     "adapter": "clean_reuse",
+     "agree": true,
+     "digests_first": [
+      "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa"
+     ],
+     "digests_second": [
+      "ee295a3a8ee08cbd3eeeeb20dd76d5d8b0f8d05b5e7fe07d7948a104beeececa"
+     ],
+     "inputs": [
+      {
+       "n": 3,
+       "xs": [
+        1,
+        2,
+        3
+       ]
+      },
+      {
+       "n": 4,
+       "xs": [
+        10,
+        20,
+        30,
+        40
+       ]
+      },
+      {
+       "n": 5,
+       "xs": [
+        5,
+        5,
+        5,
+        5,
+        5
+       ]
+      }
+     ]
+    }
+   ],
+   "sequential": "sequential-clean",
+   "verdict": "identical"
+  },
+  {
+   "agrees_with_expectation": true,
+   "concurrent": "control-conc",
+   "expect": "differs",
+   "id": "different-answer-control",
+   "matched_identities": [
+    {
+     "adapter": "mode_variant",
+     "agree": false,
+     "digests_first": [
+      "a5412f5fd8e5c4096cbe7ab7f5e87c8ce263aeae548220985b3010ac1e58c741"
+     ],
+     "digests_second": [
+      "b6f5d6e73cdeebaa7fa49ab9841ed3e547057d6afe386e332f6de40eb8c98d55"
+     ],
+     "inputs": [
+      {
+       "n": 3,
+       "xs": [
+        1,
+        2,
+        3
+       ]
+      },
+      {
+       "n": 4,
+       "xs": [
+        10,
+        20,
+        30,
+        40
+       ]
+      },
+      {
+       "n": 5,
+       "xs": [
+        5,
+        5,
+        5,
+        5,
+        5
+       ]
+      }
+     ]
+    }
+   ],
+   "sequential": "control-seq",
+   "verdict": "differs"
+  }
+ ],
+ "batches": [
+  {
+   "adapters": [
+    "contaminated_all",
+    "clean_reuse",
+    "clean_reuse",
+    "clean_reuse"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-sequential-mixed.json",
+   "artifact_sha256": "2b95840e2af06d630cce8ad079c7cca0c79cba97c6f49a3fe4ca0c097783a6cc",
+   "concurrency": 1,
+   "distinct_output_digests": 2,
+   "fds": {
+    "after_batch": 10,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [
+    "leftover_children",
+    "module_globals",
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "id": "sequential-mixed",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 1
+   },
+   "purpose": "cross-adapter inheritance in one process (sequential)",
+   "remaining_after_sweep": 0,
+   "runs": 4,
+   "status_counts": {
+    "completed": 4
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "clean_reuse"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-sequential-clean.json",
+   "artifact_sha256": "134a13d6b4272469aa008e98e72cbc12e5078a6c69d233309b11c59e6a686160",
+   "concurrency": 1,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 10
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [],
+   "id": "sequential-clean",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 0
+   },
+   "purpose": "clean sequential control",
+   "remaining_after_sweep": 0,
+   "runs": 3,
+   "status_counts": {
+    "completed": 3
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "clean_reuse"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-concurrent-clean.json",
+   "artifact_sha256": "5ec4f6930031a8ed30e616b2366637e63c1884d462999d44d96b0fe33a5af51b",
+   "concurrency": 2,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [],
+   "id": "concurrent-clean",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 0
+   },
+   "purpose": "clean concurrent control",
+   "remaining_after_sweep": 0,
+   "runs": 4,
+   "status_counts": {
+    "completed": 4
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "contaminated_all"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-isolated-contaminated.json",
+   "artifact_sha256": "11f67c42ce2058b906fcfb0321bd0a5581bdbafc75edb6916e677f297cf4ca51",
+   "concurrency": 1,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 3
+   },
+   "flagged_signals": [
+    "mutated_arrays",
+    "output_flooding",
+    "unclosed_handles"
+   ],
+   "id": "isolated-contaminated",
+   "interruption": null,
+   "mode": "isolated",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 2
+   },
+   "purpose": "isolation containment of the contaminated control",
+   "remaining_after_sweep": 0,
+   "runs": 3,
+   "status_counts": {
+    "completed": 3
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "slow_sleeper"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-timeout-bounded.json",
+   "artifact_sha256": "56ba75612edb06d522844a545e63cd75c2983c80d558ebdf4752e77e375ad054",
+   "concurrency": 1,
+   "distinct_output_digests": 0,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 0
+   },
+   "flagged_signals": [],
+   "id": "timeout-bounded",
+   "interruption": null,
+   "mode": "isolated",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 1
+   },
+   "purpose": "wall-clock timeout enforcement and cleanup",
+   "remaining_after_sweep": 0,
+   "runs": 2,
+   "status_counts": {
+    "timed_out": 2
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "quick_sleeper"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-interrupted-batch.json",
+   "artifact_sha256": "167c249ad35e0e458fdb297f8c7336f692ebbacbc5f85728afb80ac01116e53a",
+   "concurrency": 1,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 0
+   },
+   "flagged_signals": [],
+   "id": "interrupted-batch",
+   "interruption": {
+    "completed_runs": 2,
+    "orphans_found": [],
+    "planned_runs": 6,
+    "reaped_after_interrupt": [],
+    "remaining_after_sweep": [],
+    "signal": "SIGINT"
+   },
+   "mode": "isolated",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 1
+   },
+   "purpose": "SIGINT mid-batch: what is orphaned, what the supervisor reaps",
+   "remaining_after_sweep": 0,
+   "runs": 2,
+   "status_counts": {
+    "completed": 2
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "mode_variant"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-control-seq.json",
+   "artifact_sha256": "d3cfbbf78bf517d4a207be7238c49a0e91c31e732fb4c9e7fc7f97a83cb749bd",
+   "concurrency": 1,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 0
+   },
+   "flagged_signals": [],
+   "id": "control-seq",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 0
+   },
+   "purpose": "different-answer control, sequential leg (constant answer A)",
+   "remaining_after_sweep": 0,
+   "runs": 1,
+   "status_counts": {
+    "completed": 1
+   },
+   "supervision_reaped": 0
+  },
+  {
+   "adapters": [
+    "mode_variant"
+   ],
+   "agrees_with_expectation": true,
+   "artifact": "20261010T215633Z/batch-control-conc.json",
+   "artifact_sha256": "eac12df9dc2a13bab928e402c4ef3d00888b113a87b83ed9077c6905ab150c8e",
+   "concurrency": 2,
+   "distinct_output_digests": 1,
+   "fds": {
+    "after_batch": 7,
+    "before_batch": 7
+   },
+   "files": {
+    "after": {
+     "count": 0,
+     "names": []
+    },
+    "after_cleanup": {
+     "count": 0,
+     "names": []
+    },
+    "before": {
+     "count": 0,
+     "names": []
+    },
+    "during_max_per_run": 0
+   },
+   "flagged_signals": [],
+   "id": "control-conc",
+   "interruption": null,
+   "mode": "inprocess",
+   "processes": {
+    "after": 0,
+    "before": 0,
+    "during_max": 0
+   },
+   "purpose": "different-answer control, concurrent leg (constant answer B) - proves the digest-identity comparison can fail",
+   "remaining_after_sweep": 0,
+   "runs": 1,
+   "status_counts": {
+    "completed": 1
+   },
+   "supervision_reaped": 0
+  }
+ ],
+ "finished_utc": "2026-10-10T21:56:41Z",
+ "host": {
+  "after": {
+   "descendants": 0,
+   "study_scratch_dirs": 0,
+   "utc": "2026-10-10T21:56:41Z"
+  },
+  "before": {
+   "descendants": 0,
+   "study_scratch_dirs": 0,
+   "utc": "2026-10-10T21:56:33Z"
+  },
+  "post_run_sweep": {
+   "reaped": [],
+   "remaining": []
+  },
+  "study_scratch_dirs_delta": 0
+ },
+ "manifest": "experiments/run-interference/manifest.json",
+ "manifest_sha256": "458fbdc721aec900253a228e84c783e10d17456e47e3fc014acf4d8c0f3ffdcb",
+ "results_dir": {
+  "files_written": 8,
+  "prior_runs": [
+   "20261010T210956Z",
+   "20261010T215633Z"
+  ]
+ },
+ "run": "20261010T215633Z",
+ "started_utc": "2026-10-10T21:56:33Z",
+ "wall_seconds": 8.261
+}
