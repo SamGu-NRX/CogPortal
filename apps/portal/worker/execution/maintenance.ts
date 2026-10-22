@@ -12,8 +12,9 @@ import {
 } from "../db/schema";
 import { openPhases } from "../services/run-phases";
 
-/** Active phases after the sandbox first reports. */
-const REPORTING_PHASES: RunPhase[] = [
+/** Active phases after the sandbox first reports. Shared with the staff
+ *  desk's read-only clock (`routes/staff-desk.ts`). */
+export const REPORTING_PHASES: RunPhase[] = [
   "preparing",
   "installing",
   "contract_check",
@@ -31,11 +32,11 @@ const DEFAULT_STALE_AFTER_SECONDS = 60 * 60;
  * and an hour of "queued" on the dashboard is an hour a student cannot tell
  * from a slow run.
  */
-const QUEUED_STALE_AFTER_SECONDS = 10 * 60;
+export const QUEUED_STALE_AFTER_SECONDS = 10 * 60;
 
 const STALE_FAILURE_DETAIL = "The execution provider stopped reporting progress.";
 
-function staleAfterMs(env: Env): number {
+export function staleAfterMs(env: Env): number {
   const configured = Number(env.RUN_STALE_AFTER_SECONDS ?? DEFAULT_STALE_AFTER_SECONDS);
   return Number.isFinite(configured) && configured >= 900
     ? configured * 1_000
