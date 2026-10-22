@@ -24,9 +24,9 @@ const MiB = 1024 * KiB;
  * mean anything is refused with 413 instead of being buffered and stored.
  *
  * The weight upload (PUT /v1/local-reports/:id/weights/*) streams to R2 under
- * its own 100 MiB cap (services/weights.ts). The GitHub webhook and Better
- * Auth read their own bodies and are not counted here: their real sizes have
- * not been measured.
+ * its own 100 MiB cap (services/weights.ts). GitHub webhooks and Better Auth
+ * use the byte reader below so signature verification and auth parsing keep
+ * the original bytes.
  */
 export const BODY_LIMITS = {
   /**
@@ -46,6 +46,16 @@ export const BODY_LIMITS = {
    * text has no length cap, so this limit is the only bound on it.
    */
   report: 1 * MiB,
+  /** GitHub documents a 25 MB webhook payload cap.
+   * https://docs.github.com/en/webhooks/webhook-events-and-payloads#webhook-payloads
+   */
+  githubWebhook: 25_000_000,
+  /** Sender maximum unverified: Better Auth documents no request-body cap.
+   * https://www.better-auth.com/docs/concepts/api
+   * 1 MiB allows room for sign-in fields and OAuth tokens without buffering
+   * an arbitrary upload. This allowance has not been measured on real traffic.
+   */
+  auth: 1 * MiB,
   /**
    * Every other JSON body: forms, team and admin actions, device linking,
    * setup evidence and the live-run start. The largest the CLI sends is
@@ -63,24 +73,23 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * The request body as text, refused with 413 past its limit.
+ * The request body as bytes, refused with 413 past its limit.
  *
  * The bytes are counted as they arrive. A declared Content-Length over the
  * limit is refused before anything is read; a missing or understated one
  * can't get past the count, and reading stops at the first byte over.
  *
- * The text goes into Hono's body cache, so a later `c.req.json()` or
- * `c.req.text()` reads this bounded copy rather than a stream that is
- * already used up. If something read the body through Hono first, that
- * copy is measured instead: it was buffered whole, but the limit still
- * decides whether the route goes on.
+ * The bytes go into Hono's body cache, so later reads use the bounded copy.
+ * If something read the body through Hono first, that cached copy is
+ * measured instead. Auth and signature routes must call this before any
+ * text parser, since decoding can discard a BOM or replace invalid UTF-8.
  *
  * A body that can't be read is a 400. The stream fails when the client
  * drops mid-upload, and the cached copy fails when the guard's own read
  * did, for that reason or for malformed JSON. Either way the fault is in
  * the request, so a 500 would blame the Worker for it.
  */
-export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promise<string> {
+export async function readBodyBytes(c: Context<AppEnv>, limit: BodyLimit): Promise<Uint8Array<ArrayBuffer>> {
   const max = BODY_LIMITS[limit];
   const tooLarge = () =>
     new ApiHttpError(413, "invalid_request", `The request body is over the ${formatBytes(max)} this endpoint accepts.`);
@@ -88,17 +97,17 @@ export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promis
   if (Number(c.req.header("Content-Length")) > max) throw tooLarge();
 
   if (Object.keys(c.req.bodyCache).length > 0) {
-    let text: string;
+    let bytes: Uint8Array<ArrayBuffer>;
     try {
-      text = await c.req.text();
+      bytes = new Uint8Array(await c.req.arrayBuffer());
     } catch {
       throw unreadable();
     }
-    if (new TextEncoder().encode(text).byteLength > max) throw tooLarge();
-    return text;
+    if (bytes.byteLength > max) throw tooLarge();
+    return bytes;
   }
   const stream = c.req.raw.body;
-  if (!stream) return "";
+  if (!stream) return new Uint8Array();
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let received = 0;
@@ -113,9 +122,7 @@ export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promis
     if (done) break;
     received += value.byteLength;
     if (received > max) {
-      // Not awaited: the source's cancel can take as long as it likes, and
-      // the 413 doesn't depend on it. The catch keeps a failed cancel from
-      // surfacing as an unhandled rejection.
+      // Do not wait for a slow or rejected cancellation before returning 413.
       reader.cancel().catch(() => undefined);
       throw tooLarge();
     }
@@ -127,11 +134,14 @@ export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promis
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  const text = new TextDecoder().decode(bytes);
   // SAFETY: Hono types the cache as plain values, but its runtime stores the
   // promise and calls .then on it (hono/dist/request.js, #cachedBody).
-  (c.req.bodyCache as { text?: Promise<string> }).text = Promise.resolve(text);
-  return text;
+  (c.req.bodyCache as { arrayBuffer?: Promise<ArrayBuffer> }).arrayBuffer = Promise.resolve(bytes.buffer);
+  return bytes;
+}
+
+export async function readBodyText(c: Context<AppEnv>, limit: BodyLimit): Promise<string> {
+  return new TextDecoder().decode(await readBodyBytes(c, limit));
 }
 
 /** A 400 names at most this many unknown fields, each cut to this many
@@ -169,12 +179,13 @@ export async function parseBody<T>(
   limit: BodyLimit = "control",
 ): Promise<T> {
   const text = await readBodyText(c, limit);
-  let parsed: ReturnType<typeof schema.safeParse>;
+  let value: unknown;
   try {
-    parsed = schema.safeParse(JSON.parse(text));
+    value = JSON.parse(text);
   } catch {
     throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
   }
+  const parsed = schema.safeParse(value);
   if (parsed.success) return parsed.data;
   const unknown = unknownFields(parsed.error);
   if (unknown.length > 0) {
