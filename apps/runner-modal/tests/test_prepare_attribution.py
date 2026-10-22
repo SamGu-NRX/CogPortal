@@ -79,7 +79,7 @@ class PrepareAttribution(unittest.TestCase):
         )
 
     def controller_failure(self, result=None, record=None, pristine=None,
-                          create_failure=None, clock=None):
+                          create_failure=None, clock=None, timed_out=None):
         events = []
 
         class Files:
@@ -127,7 +127,10 @@ class PrepareAttribution(unittest.TestCase):
             _student_python=lambda job: sys.executable, PREPARE_SCRIPT=prepare_script(),
             StatusHeartbeat=lambda *args: contextlib.nullcontext(), LiveReporter=Reporter,
             time=clock or __import__("time"),
+            **({"_timed_out": timed_out} if timed_out is not None else {}),
         )
+        if timed_out is not None:
+            space["_timed_out"] = timed_out
         with self.assertRaises(space["RunnerFailure"]) as raised:
             space["_prepare"](job(), Reporter(job()))
         return raised.exception, events
@@ -283,6 +286,12 @@ class PrepareAttribution(unittest.TestCase):
                 )
                 self.assertEqual((failure.category, failure.phase, failure.infrastructure),
                                  ("provider", "preparing", True))
+
+    def test_prepare_timeout_uses_timed_out_helper(self):
+        result = types.SimpleNamespace(returncode=137, stdout="", stderr="")
+        failure, _ = self.controller_failure(result, {}, timed_out=lambda job, started: True)
+        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                         ("timeout", "preparing", False))
 
     def test_timeout_after_slow_creation_is_not_a_prepare_timeout(self):
         class Clock:

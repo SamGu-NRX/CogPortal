@@ -48,8 +48,7 @@ class PrepareFailureClassificationTests(unittest.TestCase):
     def test_prepare_uses_the_evaluation_timeout_threshold(self):
         prepare = function("_prepare")
         source = ast.unparse(prepare)
-        self.assertIn('time.time() - started', source)
-        self.assertIn('* 0.95', source)
+        self.assertIn('_timed_out(job, started)', source)
 
 
 if __name__ == "__main__":
