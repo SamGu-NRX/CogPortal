@@ -2,6 +2,9 @@ export const cogCommand = {
   type: 1,
   name: "cog",
   description: "Open your CogWorks lab bench",
+  // Guild install only (0). The app is course-guild-only (README); a user install (1) would offer
+  // CogBot in servers and DMs where every request is refused for lacking the course guild.
+  integration_types: [0],
   options: [
     {
       type: 3,
@@ -25,7 +28,8 @@ export const entryPointCommand = {
   name: "launch",
   description: "Open the CogWorks live bench",
   handler: 1,
-  integration_types: [0, 1],
+  // Guild install only, for the same reason as /cog above.
+  integration_types: [0],
   // The launch handler requires COURSE_GUILD_ID; DMs have no guild to authorize.
   contexts: [0],
 };

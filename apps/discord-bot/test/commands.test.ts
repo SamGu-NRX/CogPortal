@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { test } from "node:test";
 import type { PortalRpcContract } from "@cogworks/contracts/discord";
 import type { RunSurfaceSnapshot } from "@cogworks/contracts/schema";
-import { entryPointCommand } from "../scripts/command-payloads.mjs";
+import { cogCommand, entryPointCommand } from "../scripts/command-payloads.mjs";
 import { executeCommand } from "../src/commands.ts";
 import type { DiscordButton } from "@cogworks/discord-kit/components";
 import {
@@ -509,6 +509,12 @@ test("Activity registration offers only contexts the signed launch handler accep
     } else {
       assert.match(JSON.stringify(result), /only enabled inside the CogWorks course server/);
     }
+  }
+});
+
+test("every registered command installs to the course guild only, never as a user app", () => {
+  for (const payload of [cogCommand, entryPointCommand]) {
+    assert.deepEqual(payload.integration_types, [0], payload.name);
   }
 });
 
