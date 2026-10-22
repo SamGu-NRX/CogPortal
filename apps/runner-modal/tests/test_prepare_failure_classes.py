@@ -41,10 +41,11 @@ class PrepareFailureClassificationTests(unittest.TestCase):
         self.assertIn("timeout", categories)
         self.assertIn("memory_limit", categories)
 
-    def test_prepare_uses_the_evaluation_timeout_signal(self):
+    def test_prepare_uses_the_evaluation_timeout_threshold(self):
         prepare = function("_prepare")
-        names = {node.id for node in ast.walk(prepare) if isinstance(node, ast.Name)}
-        self.assertIn("_timed_out", names)
+        source = ast.unparse(prepare)
+        self.assertIn('time.time() - started', source)
+        self.assertIn('* 0.95', source)
 
 
 if __name__ == "__main__":

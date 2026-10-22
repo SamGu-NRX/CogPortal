@@ -1620,7 +1620,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             process.wait()
         if process.returncode != 0:
             stderr_text = process.stderr.read().decode("utf-8", "replace")
-            if _timed_out(job, started):
+            if time.time() - started >= float(job["runtime"]["timeoutSeconds"]) * 0.95:
                 raise RunnerFailure(
                     "timeout",
                     "preparing",
