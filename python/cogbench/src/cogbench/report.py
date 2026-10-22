@@ -35,16 +35,24 @@ def _plural(count: int, one: str, many: Optional[str] = None) -> str:
 
 
 def _wrapped(text: str, width: int = 78) -> List[str]:
-    """A paragraph broken to terminal width.
+    """Break prose at terminal width without splitting commands or URLs."""
 
-    A paragraph printed as one line wraps at whatever the terminal happens to
-    be and breaks mid-package-name, which is the one part of this report a
-    student is meant to read carefully.
-    """
-
+    import re
     import textwrap
 
-    return textwrap.wrap(text, width=width) or [""]
+    sentinel = "\x01"
+
+    def protect_code(match):
+        return match.group(0).replace(" ", sentinel)
+
+    text = re.sub(r"`[^`]*`", protect_code, text)
+    lines = textwrap.wrap(
+        text,
+        width=width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [""]
+    return [line.replace(sentinel, " ") for line in lines]
 
 
 def render_survey(record: Dict[str, object]) -> List[str]:
@@ -386,17 +394,18 @@ def render_check(
                 lines.extend(_wrapped(note))
 
     lines.append("")
-    lines.append(verdict.headline)
+    lines.extend(_wrapped(verdict.headline))
     for note in verdict.notes:
-        lines.append(note)
+        lines.extend(_wrapped(note))
     # The files that could not be read and the lines their code raised
     # on. Taken from the verdict rather than formatted here, so `cogworks
     # check` and a run page cannot come to print two different reports
     # out of one record.
-    lines.extend(verdict.problems())
+    for problem in verdict.problems():
+        lines.extend(_wrapped(problem))
     if verdict.next_step:
         lines.append("")
-        lines.append(verdict.next_step)
+        lines.extend(_wrapped(verdict.next_step))
 
     if submission.ready:
         lines.append("")

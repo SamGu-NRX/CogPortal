@@ -329,7 +329,12 @@ async function leaderboardView(
   const fmt = emojiFormatter(interaction.application_id);
   const lines = leaderboard.entries.slice(0, 10).map((entry) => {
     const name = entry.isYou ? `**${entry.teamName}**` : entry.teamName;
-    return metaLine([`${rankMark(entry.rank, fmt)} ${name}`, `**${metricValue(entry.primaryMetric)}**`]);
+    return metaLine([
+      `${rankMark(entry.rank, fmt)} ${name}`,
+      `**${metricValue(entry.primaryMetric)}**`,
+      // The same word the run status message uses (discord-messages.ts).
+      entry.simulated && "simulated",
+    ]);
   });
   const body = lines.length
     ? lines.join("\n")
