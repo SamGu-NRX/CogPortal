@@ -78,7 +78,8 @@ class PrepareAttribution(unittest.TestCase):
             env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
         )
 
-    def controller_failure(self, result=None, record=None, pristine=None):
+    def controller_failure(self, result=None, record=None, pristine=None,
+                          create_failure=None, clock=None):
         events = []
 
         class Files:
@@ -112,15 +113,20 @@ class PrepareAttribution(unittest.TestCase):
 
         def create(**kwargs):
             kwargs["image"].resolve()
+            if create_failure is not None:
+                raise create_failure
+            if clock is not None:
+                clock.current = 900
             return Sandbox()
 
         space = functions(
-            "_prepare", "_last_error_line", "_refusal_from",
+            "_prepare", "_timed_out", "_last_error_line", "_refusal_from",
             "_fit", "_take_units", "_receiver_units",
             modal=types.SimpleNamespace(Sandbox=types.SimpleNamespace(create=create)),
             app=object(), _sandbox_image=lambda job: LazyImage(events),
             _student_python=lambda job: sys.executable, PREPARE_SCRIPT=prepare_script(),
             StatusHeartbeat=lambda *args: contextlib.nullcontext(), LiveReporter=Reporter,
+            time=clock or __import__("time"),
         )
         with self.assertRaises(space["RunnerFailure"]) as raised:
             space["_prepare"](job(), Reporter(job()))
@@ -261,6 +267,32 @@ class PrepareAttribution(unittest.TestCase):
                 self.assertIsNone(failure.refusal)
                 self.assertEqual(events, ["resolve-image", "probe", "write-prepare",
                                           "student-install", "terminate"])
+
+    def test_student_install_output_cannot_claim_memory_failure(self):
+        result = types.SimpleNamespace(returncode=1, stdout="",
+            stderr="No room left on device while installing dependencies.")
+        failure, _ = self.controller_failure(result, {})
+        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                         ("dependency_install", "installing", False))
+
+    def test_provider_memory_exception_is_a_prepare_resource_failure(self):
+        failure, _ = self.controller_failure(
+            create_failure=RuntimeError("sandbox memory limit exceeded")
+        )
+        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                         ("memory_limit", "preparing", False))
+
+    def test_timeout_after_slow_setup_uses_sandbox_creation_start(self):
+        class Clock:
+            current = 0
+
+            def time(self):
+                return self.current
+
+        result = types.SimpleNamespace(returncode=137, stdout="", stderr="")
+        failure, _ = self.controller_failure(result, {}, clock=Clock())
+        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                         ("timeout", "preparing", False))
 
     def test_adapter_markers_in_final_detail_keep_classification(self):
         for detail in ("RuntimeError: No adapter found.",

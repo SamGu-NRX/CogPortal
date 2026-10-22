@@ -1568,6 +1568,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
         if callback.hostname and callback.hostname not in allowlist:
             allowlist.append(callback.hostname)
         image = _sandbox_image(job)
+        started = time.time()
         sandbox = modal.Sandbox.create(
             image=image,
             app=app,
@@ -1603,7 +1604,6 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             ) from error
         sandbox.filesystem.write_text(PREPARE_SCRIPT, "/tmp/cog-prepare.py")
         reporter.status("installing")
-        started = time.time()
         with StatusHeartbeat(reporter, "installing"):
             process = sandbox.exec(
                 _student_python(job),
@@ -1627,13 +1627,6 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
                     "Preparation ran past its {} second budget and was stopped.".format(
                         job["runtime"]["timeoutSeconds"]
                     ),
-                    False,
-                )
-            if "memory" in stderr_text.lower() or "oom" in stderr_text.lower():
-                raise RunnerFailure(
-                    "memory_limit",
-                    "preparing",
-                    "Preparation exceeded memory.",
                     False,
                 )
             # The exception message, not the tail of the traceback. Slicing the
@@ -1670,6 +1663,15 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
     except RunnerFailure:
         raise
     except Exception as error:
+        normalized = str(error).lower()
+        if "timeout" in normalized or "timed out" in normalized:
+            raise RunnerFailure(
+                "timeout", "preparing", "Preparation timed out.", False
+            ) from error
+        if "memory" in normalized or "oom" in normalized:
+            raise RunnerFailure(
+                "memory_limit", "preparing", "Preparation exceeded memory.", False
+            ) from error
         raise RunnerFailure(
             "provider",
             "preparing",
