@@ -11,8 +11,13 @@ import { LOCAL_ORIGIN } from './local-origin.ts';
 export const STUDENT = 'e2e-pilot-a';
 export const TEAMMATE = 'e2e-pilot-b';
 export const TEAM = 'E2E Pilot Team';
-/** The name ConnectionsPage prefills. */
+/** The name ConnectionsPage prefills when the link carries no `device_name`. */
 export const DEFAULT_DEVICE_NAME = 'CogWorks CLI';
+
+/** The name the approval form starts from for this printed link: the CLI's suggestion, else the default. */
+export function prefilledDeviceName(link: PrintedLink): string {
+  return new URL(link.path, LOCAL_ORIGIN).searchParams.get('device_name')?.trim() || DEFAULT_DEVICE_NAME;
+}
 
 export function devLogin(browser: Browser, login: string): Promise<number> {
   return browser.evaluate(
@@ -112,8 +117,10 @@ export async function expectCurrentApproval(options: {
   startedAt: number;
 }): Promise<void> {
   const { browser, home, link, devicesBefore, startedAt } = options;
+  const name = prefilledDeviceName(link);
   expect(await link.cli.exited(60_000), link.cli.output()).toBe(0);
-  expect(link.cli.output()).toContain('Linked ');
+  // One name everywhere: the terminal, Connections and `status` (B-32).
+  expect(link.cli.output()).toContain(`Linked ${name}. `);
   expect((await stat(join(home.path, '.cogbench'))).mode & 0o777).toBe(0o700);
   expect((await stat(join(home.path, '.cogbench', 'config.json'))).mode & 0o777).toBe(0o600);
 
@@ -121,12 +128,12 @@ export async function expectCurrentApproval(options: {
   expect(fresh, 'exactly one device appeared for this approval').toHaveLength(1);
   // SAFETY: toHaveLength(1) above throws unless there is exactly one.
   const device = fresh[0]!;
-  expect(device.name).toBe(DEFAULT_DEVICE_NAME);
+  expect(device.name).toBe(name);
   expect(device.createdAt).toBeGreaterThanOrEqual(startedAt);
 
   const status = home.start(['status', '--portal', LOCAL_ORIGIN]);
   expect(await status.exited(30_000), status.output()).toBe(0);
-  expect(status.output()).toContain(`Device   ${DEFAULT_DEVICE_NAME}`);
+  expect(status.output()).toContain(`Device   ${name}`);
   expect(status.output()).toContain(`Team     ${TEAM}`);
 
   // Devices belong to the person, not the team.

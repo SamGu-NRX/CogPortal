@@ -77,6 +77,15 @@ class PortalClientTests(unittest.TestCase):
                 {},
             )
 
+    def test_device_link_start_sends_the_suggested_name_only_when_there_is_one(self):
+        with patch("cogbench.client.request_json", return_value={}) as request:
+            start_device_link("https://portal.example", "lab-03")
+            start_device_link("https://portal.example", None)
+        self.assertEqual(
+            [call.args[2] for call in request.call_args_list],
+            [{"deviceName": "lab-03"}, {}],
+        )
+
     @patch("cogbench.client.time.sleep")
     @patch("cogbench.client.time.time", side_effect=[1.0, 1.0])
     def test_device_token_poll_does_not_retry_issuance_request(self, _time, sleep):

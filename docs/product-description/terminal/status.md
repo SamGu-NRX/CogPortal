@@ -24,7 +24,7 @@ The command exits 0. Nothing changed anywhere; running it twice prints the same 
 
 The `Discord` line is a yes or a no: `team channel chosen` when the team has bound a channel and `team channel not chosen` when it has not (`python/cogbench/src/cogbench/cli.py:1347`). It never names the channel.
 
-The `Device` line is the name typed in the browser when the link was approved, which defaults to `CogWorks CLI` (`apps/portal/src/routes/ConnectionsPage.tsx:46`). It is not the hostname `cogworks link` printed; see [`link.md`](link.md#edge-cases).
+The `Device` line is the name approved in the browser, which starts as the machine's short hostname that `cogworks link` suggested (`CogWorks CLI` when the link carried none). It is the same name `cogworks link` printed; see [`link.md`](link.md#edge-cases).
 
 The `Expires` line is a short date followed by one of `(today)`, `(in 1 day)`, `(in N days)`, `(1 day ago)`, or `(N days ago)` (`python/cogbench/src/cogbench/cli.py:263`). Both the date and the day count are worked out in UTC, so a student far enough west, late enough in the evening, reads a date one day ahead of their own. A link lasts sixty days from approval (`apps/portal/worker/routes/connections.ts:39`).
 

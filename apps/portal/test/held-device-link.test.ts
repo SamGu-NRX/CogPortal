@@ -66,7 +66,13 @@ function withThrowingMethods(methods: Array<"getItem" | "setItem" | "removeItem"
 }
 
 test("the CLI's approval path is held for the account that opened it, exactly as printed", () => {
-  for (const path of ["/connections?user_code=ABCD-EFGH", "/connections?user_code=abcd-efgh&return_to=setup"]) {
+  for (const path of [
+    "/connections?user_code=ABCD-EFGH",
+    "/connections?user_code=abcd-efgh&return_to=setup",
+    // The CLI's suggested device name, encoded as the worker writes it.
+    "/connections?user_code=ABCD-EFGH&return_to=setup&device_name=lab-03",
+    `/connections?user_code=ABCD-EFGH&return_to=setup&device_name=${encodeURIComponent("Ada’s laptop (2)")}`,
+  ]) {
     withStorage(() => {
       holdDeviceLink(path, "octocat");
       assert.deepEqual(heldDeviceLink("octocat"), { path, userCode: "ABCD-EFGH", login: "octocat" });
@@ -83,6 +89,10 @@ test("anything other than the CLI's relative approval path is refused and leaves
     "/connections?return_to=setup&user_code=ABCD-EFGH",
     "/connections?user_code=ABCD-EFGH&next=//evil.example",
     "/connections?user_code=ABCD-EFGH&return_to=dashboard",
+    "/connections?user_code=ABCD-EFGH&return_to=setup&device_name=",
+    "/connections?user_code=ABCD-EFGH&return_to=setup&device_name=a/b",
+    "/connections?user_code=ABCD-EFGH&return_to=setup&device_name=lab&next=//evil.example",
+    "/connections?user_code=ABCD-EFGH&device_name=lab-03&return_to=setup",
     "/connections?user_code=ABCD%2FEFGH",
     "/connections?user_code=ABCD/EFGH",
     "/connections?user_code=ABCD-EFGH#x",

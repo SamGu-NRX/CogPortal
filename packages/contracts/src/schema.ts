@@ -499,6 +499,20 @@ export const DiscordLinkPreviewSchema = z.object({
   expiresAt: z.number().int(),
 });
 
+/** The approval form's limit on a device name, shared by the CLI's suggestion and the approval. */
+export const DEVICE_NAME_MAX_LENGTH = 80;
+const DeviceNameSchema = z.string().trim().min(1).max(DEVICE_NAME_MAX_LENGTH);
+
+/**
+ * `cogworks link` suggests a name for the approval form (the machine's short
+ * hostname). Optional: CLIs before it send `{}`, and the form then falls back
+ * to its generic default.
+ */
+export const DeviceAuthorizationStartRequestSchema = z.object({
+  deviceName: DeviceNameSchema.optional(),
+});
+export type DeviceAuthorizationStartRequest = z.infer<typeof DeviceAuthorizationStartRequestSchema>;
+
 export const DeviceAuthorizationStartResponseSchema = z.object({
   deviceCode: z.string().min(32),
   // Three groups since the 48-bit entropy hardening (6 bytes → 12 hex chars);
@@ -514,7 +528,7 @@ export type DeviceAuthorizationStartResponse = z.infer<
 
 export const ApproveDeviceRequestSchema = z.object({
   userCode: z.string().trim().toUpperCase(),
-  deviceName: z.string().trim().min(1).max(80),
+  deviceName: DeviceNameSchema,
 });
 
 export const RevokeDeviceRequestSchema = z.object({
@@ -531,6 +545,8 @@ export const DeviceTokenResponseSchema = z.discriminatedUnion("status", [
     status: z.literal("authorized"),
     token: z.string().min(32),
     expiresAt: z.number().int(),
+    /** The name approved on the form, so the terminal prints what Connections lists. */
+    deviceName: z.string(),
   }),
 ]);
 export type DeviceTokenResponse = z.infer<typeof DeviceTokenResponseSchema>;

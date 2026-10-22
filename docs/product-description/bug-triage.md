@@ -269,6 +269,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `fix`. One sentence on stderr would be enough.
 - **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification), [`portal/setup.md`](portal/setup.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Same on beta.
+- **Status, 2026-10-22:** fixed in source by `b904dec6` and in the setup page's pinned CLI (`ac8ddaf`): a failed check with the flag prints "setup: not updated, because the check didn't pass. Fix what it reported and run this command again." on stderr. `python/cogbench/tests/test_cli.py` pins the whole line.
 
 ### B-19: The Discord bot replaces every actionable portal error with one generic sentence
 
@@ -674,6 +675,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `low`. **Decision needed:** `fix`.
 - **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`terminal/status.md`](terminal/status.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Same on beta.
+- **Status, 2026-10-22:** fixed in source; not yet in the setup page's pinned CLI (`ac8ddaf`), which still prints the hostname. `cogworks link` sends the short hostname, the approval link carries it as `device_name`, the form starts from it, and the terminal prints the name the token answer returns. The default is the hostname rather than `CogWorks CLI` because a re-link that replaces the live device of the same name needs one machine to keep one name and two machines to differ. Evidence: `apps/portal/test/device-link-name.test.ts`, `connections-device-name.test.ts`, `held-device-link.test.ts`, and `LinkDeviceNameTests` in `python/cogbench/tests/test_cli.py`.
 
 ### B-33: `--json` output is followed by a plain-text line
 

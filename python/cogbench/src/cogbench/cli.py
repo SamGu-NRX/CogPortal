@@ -156,6 +156,24 @@ def _portal(value: Optional[str]) -> str:
     return portal
 
 
+#: The approval form's limit on a device name (contracts DEVICE_NAME_MAX_LENGTH).
+_DEVICE_NAME_MAX_LENGTH = 80
+
+
+def _suggested_device_name() -> Optional[str]:
+    """This machine's short hostname, offered as the approval form's name.
+
+    The name is how Connections tells devices apart, and a completed link can
+    replace the account's live device of the same name, so the default has to
+    be the same on one machine every time and different on two. The domain is
+    dropped (`lab-03.cs.example.edu` is offered as `lab-03`). None when there
+    is no hostname; the form then uses its generic default.
+    """
+
+    name = platform.node().strip().split(".")[0].strip()
+    return name[:_DEVICE_NAME_MAX_LENGTH].strip() or None
+
+
 def _setup_payload(
     checks: Sequence[str], project_root: Path, benchmark: Optional[str] = None
 ) -> dict:
@@ -1335,13 +1353,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             # Linking sends setup facts on its own. A report goes up from
             # `sync` and from the end of `run --live` (`_LiveRun.completed`);
             # weight files only from `sync`.
-            print("CogPortal receives setup check names, package versions, and your GitHub repository.")
+            print(
+                "CogPortal receives this machine's name, setup check names, package versions, "
+                "and your GitHub repository."
+            )
             print(
                 "A report's scores and notes go up when you run `cogworks sync` or "
                 "`cogworks run --live`, and weights only with `cogworks sync`. Source, logs, "
                 "predictions, and environment variables stay on this machine."
             )
-            start = start_device_link(portal)
+            start = start_device_link(portal, _suggested_device_name())
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
             if not args.no_browser:
                 webbrowser.open(start["verificationUri"])
@@ -1352,7 +1373,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 int(start["expiresAt"]),
             )
             save_token(portal, result["token"], int(result["expiresAt"]))
-            print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
+            # The name approved in the browser, which Connections and `status`
+            # show. A portal from before the field sends none, and printing
+            # the hostname instead would disagree with both.
+            approved_name = result.get("deviceName")
+            print("Linked {}. Local commands still work offline.".format(
+                approved_name if isinstance(approved_name, str) and approved_name else "this device"
+            ))
             repository = repository_state(project_root)
             if repository.full_name:
                 try:

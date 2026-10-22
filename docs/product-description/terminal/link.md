@@ -14,19 +14,19 @@ The student pastes `cogworks link --portal https://cogportal.example` and reads 
 
 ```
 Connecting to https://cogportal.example
-CogPortal receives setup check names, package versions, and your GitHub repository.
+CogPortal receives this machine's name, setup check names, package versions, and your GitHub repository.
 A report's scores and notes go up when you run `cogworks sync` or `cogworks run --live`, and weights only with `cogworks sync`. Source, logs, predictions, and environment variables stay on this machine.
-Open https://cogportal.example/connections?user_code=A3F9-2C81-D40B&return_to=setup and confirm code A3F9-2C81-D40B.
+Open https://cogportal.example/connections?user_code=A3F9-2C81-D40B&return_to=setup&device_name=ada-macbook and confirm code A3F9-2C81-D40B.
 ```
 
 That is this tree's CLI (`cli.py:1250` to `:1261`). The CLI the candidate's setup page installs, `40d31a2` (`apps/portal/src/lib/benchmark-packages.ts:40`), prints one consent line instead: "CogPortal receives setup check names, package versions, and your GitHub repository; never source, paths, logs, predictions, scores, or environment variables." That sentence is false: `cogworks sync` and the end of `cogworks run --live` both send a report's scores. Commit `b30a93e` corrected it after the pin was taken.
 
-A browser opens on the URL. The Connections page leads with a panel labelled "Approve this device": "It can upload the local reports you choose to sync. It gets no access to your repository and can't run or promote a benchmark." Under it, "Check that your terminal shows the same code before you approve it.", the code in large type inside the detection-box corners, a "Device name" field pre-filled with `CogWorks CLI` and the hint "So you can tell your machines apart in the list below.", and an "Approve device" button (`ConnectionsPage.tsx:153` to `:216`).
+A browser opens on the URL. The Connections page leads with a panel labelled "Approve this device": "It can upload the local reports you choose to sync. It gets no access to your repository and can't run or promote a benchmark." Under it, "Check that your terminal shows the same code before you approve it.", the code in large type inside the detection-box corners, a "Device name" field pre-filled with the name the CLI put in the link (the machine's short hostname, `ada-macbook`; `CogWorks CLI` when the link has none) and the hint "So you can tell your machines apart in the list below.", and an "Approve device" button (`ConnectionsPage.tsx:153` to `:216`).
 
 The student presses it, and the page says "Device approved. You can return to the terminal; returning to Setup…" (`ConnectionsPage.tsx:225`). 900 ms later it moves to the setup page. Within five seconds the terminal prints:
 
 ```
-Linked ada-macbook.local. Local commands still work offline.
+Linked ada-macbook. Local commands still work offline.
 setup: updated clone
 ```
 
@@ -127,7 +127,7 @@ Then the command looks at the directory it started in. In a GitHub worktree it r
 
 ## Edge cases
 
-- **The device has two names.** The terminal prints the hostname (`cli.py:1271`); the portal stores what was typed, default `CogWorks CLI` (`ConnectionsPage.tsx:46`), and that is what Connections and `cogworks status` show.
+- **The device has one name, chosen on the form.** The CLI sends its short hostname with the start request, the link carries it as `device_name`, and the form starts from it; the token answer returns the name approved, which is what the terminal prints and what Connections and `cogworks status` show (`connections.ts`, `ConnectionsPage.tsx`, `cli.py` `_suggested_device_name`). A link without `device_name`, from an older CLI or a code typed by hand, starts the form at `CogWorks CLI`, and a portal that returns no name gets "Linked this device."
 - **Every link returns to the setup guide.** `return_to=setup` is in every verification URL (`connections.ts:164`), so re-linking months later still lands on Setup.
 - **Re-linking leaves the old device live.** Each handshake inserts a new device row (`connections.ts:257`) and nothing revokes the previous one, which stays valid for sixty days. The list now shows "Last used" for each, updated on every authenticated request (`apps/portal/worker/auth/device.ts:41`), so the one the terminal holds is the one most recently used. Revoke asks first: "Confirm, it stops reporting" (`ConnectionsPage.tsx:325`).
 - **A revoked device fails at its next command.** The CLI checks only the stored expiry (`storage.py:151`); the portal then answers "This CogWorks connection expired or was revoked. Run `cogworks link` to connect this machine again." (`device.ts:38`).

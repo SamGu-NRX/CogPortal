@@ -2,6 +2,7 @@ import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { DEVICE_NAME_MAX_LENGTH } from "@cogworks/contracts/schema";
 import { CornerBrackets } from "@/components/Brackets";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -37,6 +38,9 @@ type DeviceOutcome = {
   /** The code as submitted, or null when it is too long to show usefully. */
   shownCode: string | null;
 };
+
+/** The form's name when the link carries no suggestion: a CLI from before it, or a code typed in by hand. */
+const DEFAULT_DEVICE_NAME = "CogWorks CLI";
 
 /** Longer than any code the CLI prints; past it the sentence names no code. */
 const SHOWN_CODE_LIMIT = 64;
@@ -83,7 +87,6 @@ export function ConnectionsPage() {
   const [searchParams] = useSearchParams();
   const [discordToken, setDiscordToken] = useState<string | null>(() => fragmentToken());
   const [linkedDiscord, setLinkedDiscord] = useState<string | null>(null);
-  const [deviceName, setDeviceName] = useState("CogWorks CLI");
   const location = useLocation();
   const login = useSession().data?.user?.login;
   const preview = useDiscordLinkPreview(discordToken);
@@ -95,6 +98,22 @@ export function ConnectionsPage() {
   // the code shown, sent and recorded is one value. A code that is only
   // whitespace is no code.
   const userCode = useMemo(() => searchParams.get("user_code")?.trim().toUpperCase() || null, [searchParams]);
+  // The name approved here is the one Connections, `cogworks status` and the
+  // terminal show. It starts from the machine's short hostname, which
+  // `cogworks link` puts in the link, so one machine keeps one name across
+  // re-links and two machines don't both arrive as the generic default.
+  const suggestedName = useMemo(
+    () => searchParams.get("device_name")?.trim().slice(0, DEVICE_NAME_MAX_LENGTH) || DEFAULT_DEVICE_NAME,
+    [searchParams],
+  );
+  const [deviceName, setDeviceName] = useState(suggestedName);
+  // Another code opened in this visit is another terminal: its form starts
+  // from its own suggestion, not the name typed for the last one.
+  const [deviceNameFor, setDeviceNameFor] = useState(userCode);
+  if (deviceNameFor !== userCode) {
+    setDeviceNameFor(userCode);
+    setDeviceName(suggestedName);
+  }
   // The committed entry, read inside an approval's callbacks, which can run
   // after the page has moved to another entry, code or account. Written in a
   // layout effect so a render React throws away never becomes the target.
@@ -291,6 +310,7 @@ export function ConnectionsPage() {
                   // callback was created with, so nothing else is lost.
                   const next = new URLSearchParams(onScreen.current.search);
                   next.delete("user_code");
+                  next.delete("device_name");
                   const search = next.toString();
                   navigate(
                     { search: search ? `?${search}` : "" },
@@ -320,7 +340,7 @@ export function ConnectionsPage() {
                 id="device-name"
                 value={deviceName}
                 onChange={(event) => setDeviceName(event.target.value)}
-                maxLength={80}
+                maxLength={DEVICE_NAME_MAX_LENGTH}
                 className="u-field mt-1.5"
               />
               <Button type="submit" className="mt-4" busy={approveDevice.isPending && attemptHere} disabled={!deviceName.trim()}>
