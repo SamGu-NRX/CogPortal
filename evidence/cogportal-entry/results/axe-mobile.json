@@ -1,0 +1,20 @@
+{
+  "landing-mobile": {
+    "url": "http://localhost:5173/",
+    "violations": [],
+    "passes": 23,
+    "incomplete": 1
+  },
+  "signin-mobile": {
+    "url": "http://localhost:5173/signin",
+    "violations": [],
+    "passes": 27,
+    "incomplete": 1
+  },
+  "leaderboard-mobile": {
+    "url": "http://localhost:5173/leaderboard",
+    "violations": [],
+    "passes": 23,
+    "incomplete": 1
+  }
+}

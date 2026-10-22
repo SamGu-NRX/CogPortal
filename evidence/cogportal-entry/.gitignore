@@ -1,0 +1,4 @@
+# Local installs and transient test output for the standalone evidence
+# package. Committed artifacts in results/ stay tracked.
+node_modules/
+test-results/
