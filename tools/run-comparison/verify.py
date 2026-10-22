@@ -153,6 +153,7 @@ def _bool_field(value: Any) -> bool:
 def _parse_fixture(path: Path) -> Dict[str, Any]:
     record: Dict[str, Any] = {
         "file": path.name,
+        "sha256": None,
         "accepted": False,
         "reasons": [],
         "value": None,
@@ -167,6 +168,9 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
     except OSError as error:
         record["reasons"].append("unreadable: {}".format(error))
         return record
+    # The digest checked against the receipt comes from the same read as
+    # the parse, so the two cannot describe different versions of a file.
+    record["sha256"] = _sha_bytes(data)
     try:
         value = json.loads(data.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as error:
@@ -840,9 +844,7 @@ def main() -> int:
         print("misrendered: the receipt does not parse as JSON ({})".format(error), file=sys.stderr)
         return 1
 
-    expected_inputs = [
-        (path.name, _sha_bytes(path.read_bytes())) for path in files
-    ]
+    expected_inputs = [(record["file"], record["sha256"]) for record in parsed]
     receipt_inputs = _inputs_list(receipt.get("inputs"))
     if receipt_inputs is None:
         _fail(failures, "the receipt records no well-formed inputs list")

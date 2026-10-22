@@ -38,7 +38,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from report_reader import ReadReport as Report, read_report
+from report_reader import ReadReport as Report, read_payload
 
 # --------------------------------------------------------------------------
 # pair analysis
@@ -1421,11 +1421,13 @@ def _build(arguments) -> int:
 
     loaded: List[Tuple[str, Report]] = []
     excluded: List[Dict[str, Any]] = []
-    inputs = [
-        {"file": path.name, "sha256": _sha(path.read_bytes())} for path in files
-    ]
+    inputs: List[Dict[str, str]] = []
     for path in files:
-        report = read_report(path)
+        # One read per input: the receipt's digest and the rendered
+        # analysis must describe the same bytes, even if the file is
+        # rewritten while the build runs.
+        report = read_payload(path.read_bytes(), file=path.name)
+        inputs.append({"file": path.name, "sha256": report.file_sha256})
         if report.accepted:
             loaded.append((path.name, report))
         else:

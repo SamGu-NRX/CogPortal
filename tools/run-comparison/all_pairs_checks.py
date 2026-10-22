@@ -54,8 +54,12 @@ def collect(fixtures_roots: List[Path]) -> Dict[str, Any]:
     loaded: List[Any] = []
     accepted_files: List[str] = []
     refused: List[Dict[str, Any]] = []
+    inputs: Dict[str, str] = {}
     for path in files:
+        # One read: the recorded digest and the analysed report are the
+        # same bytes.
         report = read_report(path)
+        inputs[path.name] = report.file_sha256
         if report.accepted:
             loaded.append((path.name, report))
             accepted_files.append(path.name)
@@ -103,7 +107,7 @@ def collect(fixtures_roots: List[Path]) -> Dict[str, Any]:
         "total_pairs": len(pairs),
         "comparable_pairs": comparable_count,
         "pairs": pairs,
-        "inputs": {path.name: _sha(path.read_bytes()) for path in files},
+        "inputs": inputs,
         "tool_source": {"files": tool_source_digests()},
     }
 
