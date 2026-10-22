@@ -136,6 +136,36 @@ async function activityDiscordId(c: Context<AppEnv>): Promise<string> {
   return discordUserId;
 }
 
+const ACTIVITY_HEADER = "X-Cog-Activity";
+
+function requireActivityHeader(c: Context<AppEnv>): void {
+  if (c.req.header(ACTIVITY_HEADER) !== "1") {
+    throw new ApiHttpError(403, "forbidden", "This request must come from the Cog Activity.");
+  }
+}
+
+function requireActivityJson(c: Context<AppEnv>): void {
+  const contentType = c.req.header("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
+    throw new ApiHttpError(415, "invalid_request", "Activity actions require an application/json request body.");
+  }
+}
+
+/**
+ * The Activity proxy may omit Origin, so Origin is an extra check rather than
+ * the CSRF defense. Keep the exact-match allowlist when a proxy supplies it.
+ */
+function requireActivityOrigin(c: Context<AppEnv>, clientId: string): void {
+  const allowed = new Set([
+    `https://${clientId}.discordsays.com`,
+    ...[c.env.PUBLIC_ORIGIN, c.env.ACTIVITY_ORIGIN].flatMap((value) => (value ? [new URL(value).origin] : [])),
+  ]);
+  const origin = c.req.header("Origin");
+  if (origin && !allowed.has(origin)) {
+    throw new ApiHttpError(403, "forbidden", "Run actions can only be started from the Cog Activity or Cog*Portal.");
+  }
+}
+
 async function activityIdentity(env: AppEnv["Bindings"], discordUserId: string) {
   const [row] = await getDb(env)
     .select({
@@ -161,6 +191,7 @@ async function requireActivityTeam(c: Context<AppEnv>) {
 
 export function registerActivityRoutes(app: Hono<AppEnv>): void {
   app.get("/activity/oauth/state", async (c) => {
+    requireActivityHeader(c);
     const { sessionSecret } = configured(c);
     const state = randomHex(24);
     await setSignedCookie(c, STATE_COOKIE, state, sessionSecret, cookieOptions(c, 10 * 60));
@@ -168,6 +199,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/activity/oauth/token", async (c) => {
+    requireActivityHeader(c);
     const config = configured(c);
     const body = await parseBody(c, TokenRequestSchema);
     const expected = await getSignedCookie(c, config.sessionSecret, STATE_COOKIE);
@@ -221,6 +253,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   });
 
   app.get("/activity/session", async (c) => {
+    requireActivityHeader(c);
     const discordUserId = await activityDiscordId(c);
     const identity = await activityIdentity(c.env, discordUserId);
     if (!identity) {
@@ -253,6 +286,11 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/activity/run-surfaces/:id/actions/:action", async (c) => {
+    // A custom header forces cross-site browser callers to preflight. The Worker
+    // grants no CORS permission, unlike the SameSite=None session cookie.
+    requireActivityHeader(c);
+    requireActivityOrigin(c, configured(c).clientId);
+    requireActivityJson(c);
     const discordUserId = await activityDiscordId(c);
     const identity = await requireActivityTeam(c);
     const surfaceId = c.req.param("id");

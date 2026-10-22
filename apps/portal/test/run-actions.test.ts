@@ -38,6 +38,7 @@ import { serializeRunDetail } from "../worker/http/serializers.ts";
 import { insertRunWithCapacity, readRunAccounting } from "../worker/services/run-accounting.ts";
 import type { Database } from "../worker/db/client.ts";
 import {
+  accountLinkTokens,
   benchmarks,
   cliDevices,
   cohorts,
@@ -2633,6 +2634,105 @@ test("a single console with no run still answers 404", async () => {
     status: 404, code: "not_found", message: "Run surface has no run.",
   });
   assert.equal((await lists.one(emptyId)).status, 404);
+});
+
+/* ── Activity mutations sent by another site ───────────────────────────── */
+
+// The Activity's session cookie is SameSite=None so it survives Discord's
+// iframe, which also means a browser attaches it to a POST another page sends.
+// A text/plain body with no custom header is what a form or a no-cors fetch
+// sends, and neither is preflighted.
+
+const ACTIVITY_ACTOR_ID = "discord_actor";
+const ACTIVITY_PROXY_ORIGIN = "https://activity-client.discordsays.com";
+
+async function activityRetry(origin: string | null, activityHeader = "1", contentType = "application/json") {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.insert(discordAccounts).values({
+    discordUserId: ACTIVITY_ACTOR_ID, userId: "user_test", username: "ada", linkedAt: NOW,
+  });
+  await db.update(runs).set({
+    status: "failed", provider: "fixture", finishedAt: NOW + 2_000,
+    failureCategory: "student_runtime", failureDetail: "Original failure",
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const runtime: Env = {
+    ...env(binding, "fixture"),
+    ACTIVITY_ORIGIN: "https://cogactivity.example",
+    DISCORD_CLIENT_ID: "activity-client",
+    DISCORD_CLIENT_SECRET: "activity-secret",
+    ACTIVITY_SESSION_SECRET,
+  };
+  const cookie = (await generateSignedCookie(
+    "cog_activity_session",
+    `${ACTIVITY_ACTOR_ID}.${Date.now() + 60 * 60 * 1000}`,
+    ACTIVITY_SESSION_SECRET,
+  )).split(";")[0]!;
+  const app = new Hono<AppEnv>();
+  registerActivityRoutes(app);
+  app.onError(handleError);
+  const response = await app.fetch(new Request(`https://cogactivity.example/activity/run-surfaces/${SURFACE_ID}/actions/retry`, {
+    method: "POST",
+    headers: {
+      cookie,
+      "Content-Type": contentType,
+      ...(activityHeader === "1" ? { "X-Cog-Activity": activityHeader } : {}),
+      ...(origin === null ? {} : { Origin: origin }),
+    },
+    body: JSON.stringify({ runId: PRACTICE_RUN_ID }),
+  }), runtime);
+  const successors = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+  return { status: response.status, body: await response.json() as unknown, successors: successors.length };
+}
+
+test("an Activity mutation without its custom header is refused before it runs", async () => {
+  const result = await activityRetry(ACTIVITY_PROXY_ORIGIN, "missing");
+  assert.equal(result.status, 403, JSON.stringify(result.body));
+  assert.equal(result.successors, 0, "a request without the header started a Retry");
+});
+
+test("an Activity mutation from a foreign origin is refused before it runs", async () => {
+  const result = await activityRetry("https://evil.example");
+  assert.equal(result.status, 403, JSON.stringify(result.body));
+  assert.equal(result.successors, 0, "a foreign request started a Retry");
+});
+
+test("an Activity mutation without Origin still runs with its custom header", async () => {
+  const result = await activityRetry(null);
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.successors, 1);
+});
+
+test("an Activity mutation rejects a non-JSON body before it runs", async () => {
+  const result = await activityRetry(ACTIVITY_PROXY_ORIGIN, "1", "text/plain;charset=UTF-8");
+  assert.equal(result.status, 415, JSON.stringify(result.body));
+  assert.equal(result.successors, 0, "a text/plain request started a Retry");
+});
+
+test("an Activity mutation from the Activity client path goes through", async () => {
+  const result = await activityRetry(ACTIVITY_PROXY_ORIGIN);
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.successors, 1);
+});
+
+test("an Activity session request without its custom header inserts no link token", async () => {
+  const { db, binding } = freshDb();
+  const runtime = {
+    ...env(binding, "fixture"),
+    PUBLIC_ORIGIN: "https://portal.example",
+    ACTIVITY_SESSION_SECRET,
+  } as Env;
+  const cookie = (await generateSignedCookie(
+    "cog_activity_session",
+    `unlinked_actor.${Date.now() + 60 * 60 * 1000}`,
+    ACTIVITY_SESSION_SECRET,
+  )).split(";")[0]!;
+  const app = new Hono<AppEnv>();
+  registerActivityRoutes(app);
+  app.onError(handleError);
+  const response = await app.fetch(new Request("https://cogactivity.example/activity/session", { headers: { cookie } }), runtime);
+  assert.equal(response.status, 403);
+  assert.equal((await db.select().from(accountLinkTokens)).length, 0);
 });
 
 /** Runs `before` with the console's id ahead of each hub request, so a test can
