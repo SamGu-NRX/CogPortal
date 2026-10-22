@@ -536,6 +536,7 @@ test("the overview reads every team at once and keeps each team's figures on its
     [2, 0, 0],
     "failed runs are executions, never charged usage",
   );
+  assert.deepEqual([a.failedRuns, b.failedRuns, failedOnly.failedRuns, empty.failedRuns], [0, 0, 2, 0]);
   assert.equal(a.published?.score, 0.9);
   assert.equal(b.published, null);
   assert.deepEqual(
@@ -652,6 +653,7 @@ const TEAM = {
   practiceUsed: 3,
   officialUsed: 1,
   hostedRuns: 6,
+  failedRuns: 2,
   refundsGiven: 0,
   firstLight: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1 },
   lastHostedRun: { benchmarkId: "test_vision", benchmarkTitle: "Face recognition", at: 1, status: "succeeded", finishRecorded: true, failure: null },
@@ -701,12 +703,19 @@ test("staff with no assignments is not told the cohort is empty", () => {
 });
 
 test("a team whose runs all failed reads and sorts as one that ran, not one that never started", () => {
-  const never = { ...TEAM, id: "team_never", name: "Zeta never ran", practiceUsed: 0, officialUsed: 0, hostedRuns: 0, firstLight: null, lastHostedRun: null };
-  const failed = { ...TEAM, id: "team_failed", name: "Alpha all failed", practiceUsed: 0, officialUsed: 0, hostedRuns: 2, firstLight: null };
-  const counted = { ...TEAM, id: "team_counted", name: "Beta counted", practiceUsed: 1, officialUsed: 0, hostedRuns: 1 };
+  const never = { ...TEAM, id: "team_never", name: "Zeta never ran", practiceUsed: 0, officialUsed: 0, hostedRuns: 0, failedRuns: 0, firstLight: null, lastHostedRun: null };
+  const failed = { ...TEAM, id: "team_failed", name: "Alpha all failed", practiceUsed: 0, officialUsed: 0, hostedRuns: 2, failedRuns: 2, firstLight: null };
+  const counted = { ...TEAM, id: "team_counted", name: "Beta counted", practiceUsed: 1, officialUsed: 0, hostedRuns: 1, failedRuns: 0 };
   const html = renderAdmin(overviewFixture({ teams: [counted, failed, never] }));
 
   assert.match(html, /2 hosted runs · none counted</, "the failed team's activity is shown");
+  // B-53: say that the runs failed, not only that none completed.
+  const failedRow = html.split("<li").find((row) => row.includes(">Alpha all failed<"));
+  assert.ok(failedRow);
+  assert.match(failedRow, /Every hosted run failed/);
+  assert.doesNotMatch(failedRow, /No hosted runs yet|No completion recorded/);
+  const one = renderAdmin(overviewFixture({ teams: [{ ...failed, hostedRuns: 1, failedRuns: 1 }] }));
+  assert.match(one, /Hosted run failed/);
   assert.match(html, /1 hosted run · 1 practice and 0\u00a0official\u00a0counted</);
   assert.equal((html.match(/No hosted runs yet/g) ?? []).length, 1, "only the team that never ran says so");
   // Never-ran first, then the rest by name: the failed team is among those that ran.
@@ -998,10 +1007,11 @@ test("only teams with no completion recorded carry the attention mark, and they 
     { ...TEAM, id: "t_scored", name: "Alpha scored", lastHostedRun: ran },
     { ...TEAM, id: "t_going", name: "Beta going", lastHostedRun: { ...ran, status: "evaluating" as const, finishRecorded: false } },
     {
-      ...TEAM, id: "t_not_yet", name: "Gamma not yet", practiceUsed: 0, officialUsed: 0, hostedRuns: 2, firstLight: null,
+      // One failed and one cancelled: nothing completed, but not every run failed.
+      ...TEAM, id: "t_not_yet", name: "Gamma not yet", practiceUsed: 0, officialUsed: 0, hostedRuns: 2, failedRuns: 1, firstLight: null,
       lastHostedRun: { ...ran, status: "failed" as const, failure: { phase: "contract_check" as const, category: "adapter_missing" as const } },
     },
-    { ...TEAM, id: "t_never", name: "Zeta never", practiceUsed: 0, officialUsed: 0, hostedRuns: 0, firstLight: null, lastHostedRun: null },
+    { ...TEAM, id: "t_never", name: "Zeta never", practiceUsed: 0, officialUsed: 0, hostedRuns: 0, failedRuns: 0, firstLight: null, lastHostedRun: null },
   ];
   const html = renderAdmin(overviewFixture({ scope: "ta", teams }));
   const rows = html.split("<li").slice(1);

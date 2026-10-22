@@ -68,6 +68,7 @@ function run(overrides: Partial<RunSummary> & { id: string }): RunSummary {
       higherIsBetter: true, primary: true, precision: 3,
     },
     failure: null,
+    simulated: false,
     ...overrides,
   });
 }

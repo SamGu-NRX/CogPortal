@@ -108,7 +108,7 @@ test("the browser schema drops one malformed curve without failing the board", (
   const entry = (teamName: string, publicSweep: unknown) => ({
     rank: 1, teamName, teamDescription: null, provenance: "live", repoUrl: null, sha: "", shortSha: "",
     primaryMetric: { key: "overall", label: "Overall", value: 0.5, unit: null, higherIsBetter: true, primary: true, precision: 4 },
-    supportingMetrics: [], completedAt: 1, isYou: false, publicSweep,
+    supportingMetrics: [], completedAt: 1, isYou: false, simulated: false, publicSweep,
   });
   const good = projectPublicSweep({ ...LANGUAGE, sweepJson: storedCurve(RUNGS) }, PUBLISHED);
   const board = LeaderboardSchema.parse({
@@ -353,4 +353,50 @@ test("a curve that contradicts its run's published metric is withheld for that e
   // A neighbour's coherent curve is untouched, and so is every entry's place.
   assert.deepEqual(board.entries.find((entry) => entry.teamName === "team_archive")?.publicSweep?.points, RUNGS.map(({ x, y }) => ({ x, y })));
   assert.deepEqual(board.entries.map((entry) => [entry.rank, entry.teamName]), [[1, "team_good"], [2, "team_bad"], [3, "team_none"], [4, "team_archive"]]);
+});
+
+/* ── Simulated results ──────────────────────────────────────────────────── */
+
+test("each entry says whether its own run was simulated, whatever the deployment runs now", async () => {
+  const env = await seeded();
+  const db = drizzle(env.DB);
+  // The seeded runs take the column default, "fixture". Archive rows store
+  // "archive" (scripts/seed-staging-archive.sql) and were scored for real.
+  await db.update(runs).set({ provider: "modal" }).where(eq(runs.id, "run_team_good"));
+  await db.update(runs).set({ provider: "archive" as never }).where(eq(runs.id, "run_team_archive"));
+  const board = LeaderboardSchema.parse(await getLeaderboardReadModel(env, "language-search"));
+  assert.deepEqual(
+    board.entries.map((entry) => [entry.teamName, entry.simulated]),
+    [["team_good", false], ["team_bad", true], ["team_none", true], ["team_archive", false]],
+  );
+});
+
+test("a Vision Overall entry is simulated when any of its component runs was", async () => {
+  const env = await seeded();
+  const db = drizzle(env.DB);
+  const components = [
+    { id: "run_rec", benchmarkId: "vision-recognition", scorerVersion: "recognition-v2", metrics: ["recognition_score", "known_identification", "unknown_lifecycle"] },
+    { id: "run_clu", benchmarkId: "vision-clustering", scorerVersion: "clustering-v2", metrics: ["clustering_pairwise_f1"] },
+  ];
+  for (const component of components) {
+    await db.insert(runs).values({
+      id: component.id, teamId: "team_good", benchmarkId: component.benchmarkId, benchmarkVersion: 2,
+      scorerVersion: component.scorerVersion, contractVersion: "cogworks.submissions.v2", mode: "official",
+      status: "succeeded", branch: "main", sha: SHA, repositoryId: 42, repositoryFullName: "some-student/team_good",
+      attemptNumber: 1, createdAt: 10, finishedAt: 50, provider: "modal",
+    });
+    for (const key of component.metrics) {
+      await db.insert(runMetrics).values({
+        runId: component.id, key, label: key, value: 0.7, higherIsBetter: true, isPrimary: key === component.metrics[0], precision: 3, role: "scored",
+      });
+    }
+    await db.insert(leaderboardSelections).values({
+      teamId: "team_good", benchmarkId: component.benchmarkId, benchmarkVersion: 2, runId: component.id, selectedAt: 60,
+    });
+  }
+  const simulated = async () =>
+    (await getFamilyLeaderboardReadModel(env, "vision-overall")).entries.map((entry) => [entry.teamName, entry.simulated]);
+  assert.deepEqual(await simulated(), [["team_good", false]]);
+  await db.update(runs).set({ provider: "fixture" }).where(eq(runs.id, "run_clu"));
+  assert.deepEqual(await simulated(), [["team_good", true]]);
 });

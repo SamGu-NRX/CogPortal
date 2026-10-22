@@ -197,6 +197,10 @@ export const RunSummarySchema = z.object({
   attemptNumber: z.number().int().nullable(),
   primaryMetric: MetricSchema.nullable(),
   failure: RunFailureSchema.nullable(),
+  /** The fixture provider scripted this run's result (`runs.provider`). Read
+   *  from the run, not the deployment's current provider, so the label stays
+   *  with the result after the provider changes. */
+  simulated: z.boolean(),
 });
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
@@ -434,7 +438,8 @@ export const AuthConfigSchema = z.object({
   appSlug: z.string().nullable(),
   /** Course template repository (owner/name); submissions must fork it. */
   templateRepo: z.string().nullable(),
-  /** Active execution provider — "fixture" runs are simulated (pre-M0). */
+  /** Active execution provider for new runs. Whether an existing result was
+   *  simulated is the run's own `simulated` flag, not this. */
   executionProvider: z.enum(["fixture", "modal"]),
 });
 export type AuthConfig = z.infer<typeof AuthConfigSchema>;
@@ -1026,6 +1031,10 @@ export const LeaderboardEntrySchema = z.object({
   supportingMetrics: z.array(MetricSchema),
   completedAt: z.number(),
   isYou: z.boolean(),
+  /** A run behind this result was scripted by the fixture provider. The board
+   *  is public, so the label has to travel with the entry rather than depend
+   *  on who is looking. */
+  simulated: z.boolean(),
   /**
    * Null when the benchmark has no public curve, the run has none, or the
    * stored one failed a check. Absent from older responses, hence the
@@ -1490,6 +1499,12 @@ export const AdminTeamSummarySchema = z.object({
    * run anything for the team, and this is the count that answers it.
    */
   hostedRuns: z.number().int(),
+  /**
+   * How many of `hostedRuns` ended `failed`, on the same team-wide scope. When
+   * it equals `hostedRuns` the console says the runs failed, rather than only
+   * that no completion is recorded.
+   */
+  failedRuns: z.number().int(),
   /**
    * Official attempts this team has had given back because a run failed on the
    * platform's side, across every benchmark. A team that keeps hitting real

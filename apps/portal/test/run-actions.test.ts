@@ -3126,3 +3126,13 @@ test("a Retry whose starter leaves before its INSERT admits no successor and say
     { status: 403, code: "forbidden", message: LEFT_TEAM_ADMISSION });
   assert.deepEqual(await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID)), []);
 });
+
+test("the console's simulated flag follows the surface's hosted run, not the deployment", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  // A Modal run read while the deployment runs fixtures is still real.
+  assert.equal((await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID)).simulated, false);
+  // A scripted run keeps its mark after the deployment moves to Modal.
+  await db.update(runs).set({ provider: "fixture" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.equal((await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID)).simulated, true);
+});

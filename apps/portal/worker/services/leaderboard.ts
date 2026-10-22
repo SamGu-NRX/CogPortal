@@ -113,6 +113,8 @@ export async function getLeaderboardReadModel(
         .map((metric) => ({ ...serializeMetric(metric), primary: false })),
       completedAt: row.run.finishedAt,
       isYou: teamId === row.team.id,
+      // Archive runs store "archive" as their provider and were scored for real.
+      simulated: row.run.provider === "fixture",
       // Per entry and never throwing: a malformed stored curve costs this
       // run its curve and leaves every other entry as it was.
       publicSweep: projectPublicSweep(row.run, new Map(runMetricsForRow.map((metric) => [metric.key, metric.value]))),
@@ -287,6 +289,8 @@ export async function getFamilyLeaderboardReadModel(
       })),
       completedAt: Math.max(...selectedRows.map((value) => value.run.finishedAt ?? 0)),
       isYou: teamId === row.team.id,
+      // One scripted component makes the weighted sum scripted too.
+      simulated: selectedRows.some((value) => value.run.provider === "fixture"),
       // Overall is a weighted sum of three runs' numbers; no run measured a
       // curve for it, so none is drawn.
       publicSweep: null,
