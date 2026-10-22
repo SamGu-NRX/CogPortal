@@ -15,9 +15,9 @@ import { verifyDiscordRequest } from "./verify.ts";
 import { validateBotEnv } from "./env.ts";
 import type { Env } from "./env.ts";
 
-// Discord's interaction documentation does not publish a maximum request size.
-// Keep this endpoint at 1 MiB, which is far above the documented interaction
-// object fields and prevents an unsigned upload from consuming the Worker.
+// Sender maximum unverified: Discord documents no interaction request cap.
+// 1 MiB leaves room for command fields and resolved objects while bounding
+// unsigned uploads. This allowance has not been measured on real traffic.
 // https://discord.com/developers/docs/interactions/receiving-and-responding
 const MAX_INTERACTION_BODY_BYTES = 1 * 1024 * 1024;
 

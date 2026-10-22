@@ -11,18 +11,33 @@ const env = {
   PORTAL: undefined,
 };
 
-test("an oversized interaction body is refused before signature verification", async () => {
-  const response = await worker.fetch(
-    new Request("http://localhost", {
-      method: "POST",
-      headers: { "Content-Length": String(1024 * 1024 + 1) },
-      body: "x",
-    }),
-    env as never,
-    { waitUntil() {} } as unknown as ExecutionContext,
-  );
-  assert.equal(response.status, 413);
-});
+for (const framing of ["declared", "chunked", "understated"]) {
+  test(`an oversized ${framing} interaction is refused before signature verification`, async (t) => {
+    t.mock.method(globalThis, "fetch", async () => { throw new Error("network must not run"); });
+    const headers = new Headers();
+    if (framing === "declared") headers.set("Content-Length", String(1024 * 1024 + 1));
+    if (framing === "understated") headers.set("Content-Length", "1");
+    let remaining = framing === "declared" ? 1 : 1024 * 1024 + 1;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!remaining) { controller.close(); return; }
+        const size = Math.min(remaining, 64 * 1024);
+        controller.enqueue(new Uint8Array(size));
+        remaining -= size;
+      },
+    });
+    const request = new Request("http://localhost", { method: "POST", headers, body, duplex: "half" } as RequestInit);
+    const getHeader = request.headers.get.bind(request.headers);
+    let signatureReads = 0;
+    t.mock.method(request.headers, "get", (name: string) => {
+      if (name.toLowerCase().startsWith("x-signature-")) signatureReads += 1;
+      return getHeader(name);
+    });
+    const response = await worker.fetch(request, env as never, { waitUntil() {} } as unknown as ExecutionContext);
+    assert.equal(response.status, 413);
+    assert.equal(signatureReads, 0);
+  });
+}
 
 test("a normal signed ping still succeeds", async () => {
   const body = JSON.stringify({ type: 1 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
 import { Hono } from "hono";
+import { betterAuth } from "better-auth";
 import { z } from "zod";
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
@@ -82,4 +83,55 @@ test("Better Auth's bounded request rejects an oversized body before its parser"
   const normal = await app.fetch(new Request("http://localhost/auth", { method: "POST", body: "{}" }), portalEnv);
   assert.equal(normal.status, 200);
   assert.equal(await normal.text(), "{}");
+});
+
+function realAuthApp(observe: (request: Request) => Promise<void>): Hono<AppEnv> {
+  // No database option uses Better Auth's built-in memory adapter.
+  const auth = betterAuth({
+    baseURL: "http://localhost",
+    secret: "body-preservation-test-secret-at-least-32-characters",
+    emailAndPassword: { enabled: true },
+    rateLimit: { enabled: false },
+    plugins: [{
+      id: "observe-request-bytes",
+      async onRequest(request) {
+        await observe(request);
+      },
+    }],
+  });
+  const app = new Hono<AppEnv>();
+  app.all("/api/auth/*", async (c) => auth.handler(await boundedAuthRequest(c)));
+  app.onError(handleError);
+  return app;
+}
+
+test("real Better Auth accepts a body-less sign-out without adding Content-Type", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("network must not run"); });
+  let observed: Request | undefined;
+  const app = realAuthApp(async (request) => { observed = request; });
+  const response = await app.fetch(new Request("http://localhost/api/auth/sign-out", { method: "POST" }), portalEnv);
+  assert.equal(response.status, 200);
+  assert.ok(observed);
+  assert.equal(observed.body, null);
+  assert.equal(observed.headers.get("Content-Type"), null);
+});
+
+test("real Better Auth receives JSON sign-in bytes and headers unchanged, including a BOM", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("network must not run"); });
+  const bytes = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify({ email: "synthetic@example.test", password: "invalid-password" }))]);
+  const headers = new Headers({ "Content-Type": "application/json", "Content-Length": String(bytes.byteLength), "X-Test-Header": "unchanged" });
+  let observed: Uint8Array | undefined;
+  let observedHeaders: Headers | undefined;
+  const app = realAuthApp(async (request) => {
+    observed = new Uint8Array(await request.clone().arrayBuffer());
+    observedHeaders = request.headers;
+  });
+  const response = await app.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+    method: "POST", headers, body: bytes,
+  }), portalEnv);
+  assert.deepEqual(observed, new Uint8Array(bytes));
+  assert.ok(observedHeaders);
+  assert.deepEqual([...observedHeaders], [...headers]);
+  // The real parser accepts the JSON and the real handler rejects nonexistent credentials.
+  assert.equal(response.status, 401);
 });
