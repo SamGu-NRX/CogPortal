@@ -169,7 +169,11 @@ export async function requireUser(c: Context<AppEnv>): Promise<AuthState> {
 }
 
 export async function requireTeam(c: Context<AppEnv>): Promise<AuthState & { team: TeamRow }> {
-  const auth = await requireUser(c);
+  return withTeam(await requireUser(c));
+}
+
+/** requireTeam's check, for a route that records the refusal before raising it. */
+export function withTeam(auth: AuthState): AuthState & { team: TeamRow } {
   if (!auth.team) throw new ApiHttpError(403, "no_team", "Connect a repository to continue.");
   return { ...auth, team: auth.team };
 }

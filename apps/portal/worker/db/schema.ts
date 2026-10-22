@@ -472,6 +472,8 @@ export const deviceAuthorizations = sqliteTable("device_authorizations", {
   approvedAt: integer("approved_at"),
   consumedAt: integer("consumed_at"),
   createdAt: integer("created_at").notNull(),
+  /** Set when an approval was refused because the account had no team. */
+  teamRequiredAt: integer("team_required_at"),
 });
 
 export const cliDevices = sqliteTable("cli_devices", {

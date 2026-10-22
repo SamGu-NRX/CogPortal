@@ -5,7 +5,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 from . import __version__
@@ -77,7 +77,22 @@ def start_device_link(portal: str) -> Dict[str, Any]:
     return request_json(portal, "/api/v1/cli/device/start", {})
 
 
-def poll_device_link(portal: str, device_code: str, interval: int, expires_at: int) -> Dict[str, Any]:
+def poll_device_link(
+    portal: str,
+    device_code: str,
+    interval: int,
+    expires_at: int,
+    on_team_required: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
+    """Wait for the browser to approve the code.
+
+    `on_team_required` runs once, the first time the portal reports that an
+    approval was refused because the account has no team. The code stays
+    valid, so polling continues. A portal older than the `teamRequired` field
+    never sends it, and the wait is silent as before.
+    """
+
+    told_team_required = False
     while int(time.time() * 1000) < expires_at:
         result = request_json(
             portal,
@@ -86,6 +101,10 @@ def poll_device_link(portal: str, device_code: str, interval: int, expires_at: i
         )
         if result.get("status") == "authorized":
             return result
+        if result.get("teamRequired") is True and not told_team_required:
+            told_team_required = True
+            if on_team_required is not None:
+                on_team_required()
         time.sleep(max(interval, int(result.get("retryAfterSeconds", interval))))
     raise PortalError("The device link expired before it was approved.")
 

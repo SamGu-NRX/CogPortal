@@ -14,7 +14,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireDevice } from "../auth/device";
-import { accountLogin, requireTeam, requireUser } from "../auth/session";
+import { accountLogin, requireTeam, requireUser, withTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import {
   accountLinkTokens,
@@ -168,9 +168,26 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/v1/cli/device/approve", async (c) => {
-    const auth = await requireTeam(c);
+    const signedIn = await requireUser(c);
     const body = await parseBody(c, ApproveDeviceRequestSchema);
     const now = Date.now();
+    if (!signedIn.team) {
+      // Refused, but the code stays open: joining a team and reopening the
+      // link still completes it. Recording the refusal lets the waiting CLI
+      // say so instead of polling in silence until the code expires.
+      await getDb(c.env)
+        .update(deviceAuthorizations)
+        .set({ teamRequiredAt: now })
+        .where(
+          and(
+            eq(deviceAuthorizations.userCode, body.userCode),
+            gt(deviceAuthorizations.expiresAt, now),
+            isNull(deviceAuthorizations.approvedAt),
+            isNull(deviceAuthorizations.consumedAt),
+          ),
+        );
+    }
+    const auth = withTeam(signedIn);
     const result = await getDb(c.env)
       .update(deviceAuthorizations)
       .set({
@@ -234,6 +251,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
       return respond(c, DeviceTokenResponseSchema, {
         status: "pending",
         retryAfterSeconds: DEVICE_POLL_INTERVAL_SECONDS,
+        teamRequired: authorization.teamRequiredAt !== null,
       });
     }
 

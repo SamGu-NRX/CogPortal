@@ -1350,6 +1350,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 start["deviceCode"],
                 int(start["pollIntervalSeconds"]),
                 int(start["expiresAt"]),
+                on_team_required=lambda: print(
+                    "This account isn't on a team yet. Join a team in the browser, "
+                    "then reopen {} to approve this device. Still waiting.".format(
+                        start["verificationUri"]
+                    ),
+                    flush=True,
+                ),
             )
             save_token(portal, result["token"], int(result["expiresAt"]))
             print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
