@@ -1320,7 +1320,7 @@ def _load_benchmark(job: Dict[str, Any]) -> Any:
     for attribute, value in expected.items():
         if getattr(benchmark, attribute, None) != value:
             raise RunnerFailure(
-                "data_download",
+                "contract_invalid",
                 "contract_check",
                 "Trusted benchmark plugin version does not match the run job.",
                 True,
@@ -1603,6 +1603,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             ) from error
         sandbox.filesystem.write_text(PREPARE_SCRIPT, "/tmp/cog-prepare.py")
         reporter.status("installing")
+        started = time.time()
         with StatusHeartbeat(reporter, "installing"):
             process = sandbox.exec(
                 _student_python(job),
@@ -1619,6 +1620,22 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             process.wait()
         if process.returncode != 0:
             stderr_text = process.stderr.read().decode("utf-8", "replace")
+            if _timed_out(job, started):
+                raise RunnerFailure(
+                    "timeout",
+                    "preparing",
+                    "Preparation ran past its {} second budget and was stopped.".format(
+                        job["runtime"]["timeoutSeconds"]
+                    ),
+                    False,
+                )
+            if "memory" in stderr_text.lower() or "oom" in stderr_text.lower():
+                raise RunnerFailure(
+                    "memory_limit",
+                    "preparing",
+                    "Preparation exceeded memory.",
+                    False,
+                )
             # The exception message, not the tail of the traceback. Slicing the
             # last 240 characters produced details like "line 144, in <module>"
             # -- the traceback's own last frame, which names our sandbox script
