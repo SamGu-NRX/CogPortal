@@ -15,7 +15,7 @@ import {
 } from "../db/schema";
 import { hmacSignature } from "../execution/runner";
 import { ApiHttpError } from "../http/errors";
-import { respond } from "../http/respond";
+import { readBodyText, respond } from "../http/respond";
 import { constantTimeTextEqual } from "../util/crypto";
 import { appendRunStreamEvent, runnerFailureCode } from "../services/run-surfaces";
 import { preparedEnvironmentMatchesRun } from "../services/run-eligibility";
@@ -282,7 +282,9 @@ export function runnerSurfaceStatusCode(
 
 export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
   app.post("/internal/v1/runner/events", async (c) => {
-    const body = await c.req.text();
+    // Read before the signature check, which needs the bytes; counted, so an
+    // unsigned body is refused at its limit rather than buffered whole.
+    const body = await readBodyText(c, "report");
     await verifyRunnerSignature(c, body);
     let event: RunEventV1;
     try {

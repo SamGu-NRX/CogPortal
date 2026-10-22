@@ -30,7 +30,9 @@ import { LocalReportsTable } from "../src/components/LocalReportsTable.tsx";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(HERE, "..", "migrations");
-const LEGACY = JSON.parse(readFileSync(
+// As `cogworks sync` posts it: client.sync_report drops outputDigest, which
+// the strict request schema would refuse.
+const { outputDigest: _outputDigest, ...LEGACY } = JSON.parse(readFileSync(
   join(HERE, "..", "..", "..", "python", "cogbench", "tests", "fixtures", "audio_no_weight_report.json"),
   "utf8",
 )) as Record<string, unknown>;
