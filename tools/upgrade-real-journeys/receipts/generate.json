@@ -1,0 +1,102 @@
+{
+  "stage": "generate",
+  "generatedAt": "2026-10-18T01:49:32.794Z",
+  "beta": {
+    "commit": "17d26d9",
+    "checkout": "suite .cache/beta-worktree (git worktree, deps installed)"
+  },
+  "cli": {
+    "pin": "064400e9cf65874b87fe888fc6fd14a564095c5e",
+    "pinSource": "beta apps/portal/src/lib/benchmark-packages.ts (COGBENCH_SOURCE) — the pin staging students install from; runner images bake it",
+    "alphaPin": "ac8ddafa014ac72613bf8f291f945344a914cc63",
+    "alphaPinSource": "alpha apps/portal/src/lib/benchmark-packages.ts at this branch's head — a different pin, not used in stage 1",
+    "twoPinNote": "plan #108 correction: stage 1 uses beta's staging pin; stage 3 tests both pins in both directions",
+    "package": "python/cogbench",
+    "install": "pip install from a local git worktree at 064400e9cf65874b87fe888fc6fd14a564095c5e (commit present in this repo's history; no network install)",
+    "week": "week1",
+    "benchmarkIdSource": "the chosen week's pyproject cogworks.benchmarks.v1/v2 entry point (check/run take plugin ids, not directory names)"
+  },
+  "executionProvider": "fixture",
+  "measurement": {
+    "d1StatementsPerRequest": "x-upgrade-suite-queries response header via the countD1Proxy shim (kept)",
+    "workerCpu": {
+      "budgetMsPerRequest": 10,
+      "status": "UNMEASURED",
+      "reason": "no workerd CPU telemetry in this run (the vite-plugin dev server exposes no CPU accounting); performance.now wall time is not Worker CPU and is not reported"
+    }
+  },
+  "method": "All state created through beta's real paths: POST /api/dev/login with generated upg-* handles only; /api/cohorts/join (code VISION26); /api/github/connect with the fixture repo (creates the one fork-provenance team); /api/team/join for self-serve joins; /api/admin/staff for staff rostering (owner PLATFORM_OWNER_LOGINS in .dev.vars); TA assignment attempted via /api/admin/teams/:id/tas and recorded as unreachable (it matches users.github_login, which dev-auth accounts never hold; rostered staff still sign in so their user rows exist); /api/runs/practice, /api/runs/:id and /api/runs/:id/promote for hosted fixture runs and published official attempts; the pinned staging CLI (beta's benchmark-packages.ts COGBENCH_SOURCE pin) linked via /api/v1/cli/device/* and produced local reports with cogworks run --live, cogworks run + cogworks sync against real public week data (benchmarks/week* submodule, its benchmark package pip-installed and the plugin id taken from its pyproject entry points). No real student handles or submissions anywhere; no discord.com, no real GitHub OAuth, no Modal, no dev/prod Workers/D1/R2.",
+  "counts": {
+    "users": 13,
+    "students": 8,
+    "staff": 2,
+    "tas": 0,
+    "cohorts": 1,
+    "teams": 7,
+    "memberships": 7,
+    "forks": 1,
+    "deviceLinks": 3,
+    "deviceAuthorizations": 3,
+    "localReports": 2,
+    "localRunSessions": 1,
+    "hostedRuns": 8,
+    "hostedRunsSucceeded": 6,
+    "officialRuns": 10,
+    "officialAttempts": 1,
+    "refundedRuns": 0
+  },
+  "generated": {
+    "users": 13,
+    "students": 8,
+    "staff": 2,
+    "tas": 0,
+    "cohorts": 0,
+    "teams": 1,
+    "memberships": 7,
+    "forks": 1,
+    "deviceLinks": 3,
+    "deviceAuthorizations": 3,
+    "localReports": 2,
+    "localRunSessions": 1,
+    "hostedRuns": 5,
+    "hostedRunsSucceeded": 4,
+    "officialRuns": 4,
+    "officialAttempts": 0,
+    "refundedRuns": 0
+  },
+  "accounts": {
+    "owner": [
+      "upg-staff-01"
+    ],
+    "staff": [
+      "upg-staff-02",
+      "upg-staff-03"
+    ],
+    "tas": [
+      "upg-ta-01",
+      "upg-ta-02"
+    ],
+    "students": [
+      "upg-stu-01",
+      "upg-stu-02",
+      "upg-stu-03",
+      "upg-stu-04",
+      "upg-stu-05",
+      "upg-stu-06",
+      "upg-stu-07",
+      "upg-stu-08"
+    ],
+    "note": "generated test accounts only (login@dev.local, dev-auth)"
+  },
+  "quirks": [
+    "one team per (cohort, repository): the fixture repo supports exactly one connect-created team per cohort, and demo:true logins converge onto it",
+    "joining the seeded (non-fixture) teams requires a real GitHub token, so dev-auth users can only ever occupy the fixture-repo team",
+    "device approval requires an on-team session (requireTeam), so devices link after team joins",
+    "dev-auth accounts never hold users.github_login (nulled on every dev login; reserved for real GitHub identities), so member add/remove and TA assignment routes that match on it are unreachable in dev-auth mode",
+    "fixture runs advance on read by wall clock (~21s end to end); promotion requires the parent practice run to have succeeded",
+    "beta's worker never writes official_attempts in this flow (no runtime code touches the table; the seeded demo attempt stays consumed by the seed itself), and the designed practice-mode failure never promotes, so no refund fires - the bar pins zero new attempts and zero refunds and measures promotion via officialRuns deltas instead"
+  ],
+  "timings": {
+    "totalMs": 304038
+  }
+}
