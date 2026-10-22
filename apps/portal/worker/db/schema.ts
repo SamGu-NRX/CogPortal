@@ -248,6 +248,8 @@ export const setupVerifications = sqliteTable(
     /** "cli" when a linked device reported it, "self" when the student ran
      *  the check-off command from this page (migration 0039). */
     source: text("source").notNull().default("cli"),
+    /** Latest CLI failure code for this step, or NULL when the latest result passed. */
+    failureCode: text("failure_code"),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.teamId, table.step, table.benchmarkId] }),

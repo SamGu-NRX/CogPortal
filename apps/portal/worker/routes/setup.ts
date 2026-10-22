@@ -8,6 +8,7 @@ import {
   isSelfCheckableStep,
   SetupEvidenceRequestSchema,
   SetupEvidenceResponseSchema,
+  SetupFailureCodeSchema,
   SetupStateSchema,
   SetupStepSchema,
   type SetupStep,
@@ -80,6 +81,7 @@ async function recordSetupStep(
     benchmarkId: string;
     verifiedAt: number;
     source: "cli" | "self";
+    failureCode: string | null;
   },
 ): Promise<boolean> {
   const written = await db
@@ -95,6 +97,7 @@ async function recordSetupStep(
           benchmarkId: sql<string>`${row.benchmarkId}`.as("benchmarkId"),
           verifiedAt: sql<number>`${row.verifiedAt}`.as("verifiedAt"),
           source: sql<string>`${row.source}`.as("source"),
+          failureCode: sql<string | null>`${row.failureCode}`.as("failureCode"),
         })
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, row.userId), eq(teamMembers.teamId, row.teamId))),
@@ -108,8 +111,8 @@ async function recordSetupStep(
       ],
       set:
         row.source === "cli"
-          ? { verifiedAt: row.verifiedAt, source: "cli" }
-          : { verifiedAt: row.verifiedAt },
+          ? { verifiedAt: row.verifiedAt, source: "cli", failureCode: row.failureCode }
+          : { verifiedAt: row.verifiedAt, failureCode: row.failureCode },
     })
     .returning({ step: setupVerifications.step });
   return written.length > 0;
@@ -122,6 +125,7 @@ async function setupState(c: Parameters<typeof requireTeam>[0]) {
       step: setupVerifications.step,
       benchmarkId: setupVerifications.benchmarkId,
       source: setupVerifications.source,
+      failureCode: setupVerifications.failureCode,
     })
     .from(setupVerifications)
     .where(
@@ -141,18 +145,29 @@ async function setupState(c: Parameters<typeof requireTeam>[0]) {
   // able to tell them apart to avoid calling the second one verified.
   const unscoped = { cli: new Set<SetupStep>(), self: new Set<SetupStep>() };
   const scoped = { cli: new Map<string, Set<SetupStep>>(), self: new Map<string, Set<SetupStep>>() };
+  const unscopedFailures: Array<{ step: SetupStep; code: string }> = [];
+  const scopedFailures = new Map<string, Array<{ step: SetupStep; code: string }>>();
   for (const row of rows) {
     const parsed = SetupStepSchema.safeParse(row.step);
     if (!parsed.success) continue;
     const bucket = row.source === "self" ? "self" : "cli";
+    const isFailure = Boolean(row.failureCode);
     if (!row.benchmarkId) {
-      unscoped[bucket].add(parsed.data);
+      if (!isFailure) unscoped[bucket].add(parsed.data);
+      if (row.failureCode && SetupFailureCodeSchema.safeParse(row.failureCode).success) {
+        unscopedFailures.push({ step: parsed.data, code: row.failureCode });
+      }
       continue;
     }
     const byBenchmark = scoped[bucket];
     const set = byBenchmark.get(row.benchmarkId) ?? new Set<SetupStep>();
-    set.add(parsed.data);
+    if (!isFailure) set.add(parsed.data);
     byBenchmark.set(row.benchmarkId, set);
+    if (row.failureCode && SetupFailureCodeSchema.safeParse(row.failureCode).success) {
+      const failures = scopedFailures.get(row.benchmarkId) ?? [];
+      failures.push({ step: parsed.data, code: row.failureCode });
+      scopedFailures.set(row.benchmarkId, failures);
+    }
   }
 
   const listed = (steps: Set<SetupStep>) => SETUP_STEPS.filter((step) => steps.has(step));
@@ -165,6 +180,8 @@ async function setupState(c: Parameters<typeof requireTeam>[0]) {
     verifiedByBenchmark: listedByBenchmark(scoped.cli),
     checked: listed(unscoped.self),
     checkedByBenchmark: listedByBenchmark(scoped.self),
+    failures: unscopedFailures,
+    failuresByBenchmark: Object.fromEntries(scopedFailures),
   };
 }
 
@@ -190,6 +207,8 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
       verifiedByBenchmark: state.verifiedByBenchmark,
       checked: state.checked,
       checkedByBenchmark: state.checkedByBenchmark,
+      failures: state.failures,
+      failuresByBenchmark: state.failuresByBenchmark,
       tokens: benchmarkId
         ? await checkOffTokens(c.env, state.auth.user.id, state.auth.team.id, benchmarkId)
         : undefined,
@@ -216,6 +235,7 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
       benchmarkId: payload.b,
       verifiedAt: Date.now(),
       source: "self",
+      failureCode: null,
     });
     if (!recorded) return c.text(STALE_TOKEN_MESSAGE, 400);
 
@@ -273,8 +293,22 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
         benchmarkId,
         verifiedAt: now,
         source: "cli",
+        failureCode: null,
       });
       // A removal landed after the membership read above.
+      if (!recorded) throw noTeam();
+    }
+    for (const failure of body.failures ?? []) {
+      const benchmarkId = isBenchmarkScopedStep(failure.step) && scopeId ? scopeId : "";
+      const recorded = await recordSetupStep(db, {
+        userId: device.userId,
+        teamId: membership.team.id,
+        step: failure.step,
+        benchmarkId,
+        verifiedAt: now,
+        source: "cli",
+        failureCode: failure.code,
+      });
       if (!recorded) throw noTeam();
     }
     return respond(c, SetupEvidenceResponseSchema, { accepted });
