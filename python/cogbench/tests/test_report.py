@@ -281,6 +281,32 @@ class CheckTests(unittest.TestCase):
         self.assertIn("Could not read:", text)
         self.assertIn("Raised while trying:", text)
 
+    def test_wrapping_keeps_commands_and_urls_together(self):
+        command = (
+            "`python student_module.py --input data/raw/very-long-input-file-name.json "
+            "--output predictions/very-long-output-file-name.json`"
+        )
+        url = "https://example.com/" + "very-long-path-segment/" * 5
+        prose = "Please read this diagnostic sentence carefully " * 4
+        next_step = "{} {} {}".format(prose, command, url)
+        verdict = Verdict("not_wired", "The check needs another look.", next_step=next_step)
+        text = "\n".join(render_check(
+            benchmark="fixture",
+            python_version="3.11",
+            hosted_python=None,
+            benchmark_ready=True,
+            repository="team/repo",
+            submission=Submission(verdict).report(),
+        ))
+
+        self.assertIn(command, text)
+        self.assertIn(url, text)
+        self.assertTrue(any(len(line) < 78 for line in text.splitlines()))
+        command_line = next(line for line in text.splitlines() if command in line)
+        url_line = next(line for line in text.splitlines() if url in line)
+        self.assertIn("--output predictions/very-long-output-file-name.json`", command_line)
+        self.assertTrue(url_line.endswith(url))
+
     def test_a_refusal_ends_with_the_next_step_and_no_run_command(self):
         submission = Submission(
             not_wired(

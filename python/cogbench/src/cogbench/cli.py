@@ -1431,14 +1431,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not token:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             value = device_status(portal, token)
-            required = (
+            required_text = (
                 "githubLogin",
                 "teamName",
                 "repositoryFullName",
                 "deviceName",
-                "deviceExpiresAt",
             )
-            if any(key not in value for key in required):
+            valid = isinstance(value, dict)
+            if valid:
+                valid = all(
+                    isinstance(value.get(key), str) and bool(value[key].strip())
+                    for key in required_text
+                )
+                expires = value.get("deviceExpiresAt")
+                valid = valid and (
+                    isinstance(expires, int)
+                    and not isinstance(expires, bool)
+                    and expires >= 0
+                )
+            if not valid:
                 raise PortalError(
                     "CogPortal returned incomplete device status. "
                     "Run `cogworks link` again and retry."
