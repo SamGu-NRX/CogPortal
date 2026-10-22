@@ -216,7 +216,7 @@ test("linked students land on a warm, private team snapshot", async () => {
 
 test("Connect keeps the portal recovery link when the account is already linked", async () => {
   for (const hasTeam of [false, true]) {
-    for (const view of ["connect", "home"]) {
+    for (const view of ["connect", "home", "local"]) {
       let firstStatus = true;
       const portal = portalWith({
         async createDiscordLink() {
