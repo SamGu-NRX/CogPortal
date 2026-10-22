@@ -136,8 +136,5 @@ export async function plantCanaries(w, { staffWithFullView }) {
   return canaries;
 }
 
-/** Canaries in `text` that `identity` may not read: [name]. */
-export function leaks(text, identity, canaries) {
-  if (!text) return [];
-  return canaries.filter((c) => !c.allowed.includes(identity) && text.includes(c.value)).map((c) => c.name);
-}
+// leaks() lives in answer-scan.mjs, which apps/portal's unit tests can load.
+export { leaks } from "./answer-scan.mjs";

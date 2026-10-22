@@ -25,6 +25,7 @@ import { ACTIVITY, STACK, control, expectNoDispatch, failObserved, fresh, matrix
 import { REPO_ROOT } from "./cli.mjs";
 import { LOGINS, activitySession, buildWorld, call, devLogin, worldFacts } from "./world.mjs";
 import { TEAM_A, TEAM_B, leaks, plantCanaries } from "./canaries.mjs";
+import { leakedCells, runPositives } from "./answer-scan.mjs";
 import { CONTENT } from "./route-content.mjs";
 import { IDENTITIES, NO_POSITIVE, POLICY } from "./route-policy.mjs";
 
@@ -670,17 +671,10 @@ test("every Worker route answers every identity exactly as the policy says", asy
   }
   const changed = changedRows(before, await control.snapshot());
 
-  const positives = {};
-  for (const [key, status, caller, run] of POSITIVE) {
-    let result;
-    try {
-      result = await run(w);
-    } catch (error) {
-      result = { status: 0, text: String(error.message ?? error) };
-    }
-    positives[key] = { caller, want: status, got: result.status, answer: result.status === status ? undefined : (result.text ?? "").slice(0, 300) };
-    cells.push({ key, identity: caller, result, positive: true });
-  }
+  // Every answer a control receives is a cell, its setup steps' included
+  // (answer-scan.mjs runPositives), so the canary scan below reads them all.
+  const { positives, cells: positiveCells } = await runPositives(POSITIVE, w);
+  cells.push(...positiveCells);
   for (const [key, spec] of Object.entries(LAST)) {
     for (const identity of IDENTITIES) record(key, identity, await send(w, key, spec, world.who[identity]));
   }
@@ -688,15 +682,13 @@ test("every Worker route answers every identity exactly as the policy says", asy
   // What each 2xx answer is about, and private data in any answer.
   const facts = contentFacts(w, await control.snapshot());
   const wrongContent = [];
-  const leaked = [];
-  for (const { key, identity, result, variant, positive } of cells) {
-    if (!variant && (result.status === 200 || result.status === 201) && CONTENT[key]) {
+  for (const { key, identity, result, variant, positive, step } of cells) {
+    if (!variant && !step && (result.status === 200 || result.status === 201) && CONTENT[key]) {
       const problem = CONTENT[key](result.json, identity, facts);
       if (problem) wrongContent.push(positive ? { route: key, identity, problem, positive: true } : { route: key, identity, problem });
     }
-    const found = leaks(result.text, identity, canaries);
-    if (found.length) leaked.push({ route: positive ? `${key} [positive]` : key, identity, status: result.status, found });
   }
+  const leaked = leakedCells(cells, canaries);
   // The planted per-person work is there to be withheld: staff with the full
   // view do read it, so its absence elsewhere means something.
   const deskA = cells.find((c) => c.key === "GET /api/admin/desk/teams/:teamId" && c.identity === "taAssigned");
