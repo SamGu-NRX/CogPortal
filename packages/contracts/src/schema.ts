@@ -526,7 +526,14 @@ export const DeviceTokenRequestSchema = z.object({
 });
 
 export const DeviceTokenResponseSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("pending"), retryAfterSeconds: z.number().int() }),
+  z.object({
+    status: z.literal("pending"),
+    retryAfterSeconds: z.number().int(),
+    // True once the browser tried to approve this code from an account with
+    // no team. The code stays valid, so the CLI keeps polling and says to join
+    // a team and reopen the link.
+    teamRequired: z.boolean(),
+  }),
   z.object({
     status: z.literal("authorized"),
     token: z.string().min(32),

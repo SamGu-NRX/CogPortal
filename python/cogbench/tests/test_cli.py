@@ -256,6 +256,47 @@ class LinkConsentTests(unittest.TestCase):
         )
         self.assertNotIn("never source, paths, logs, predictions, scores", consent)
 
+    def test_link_says_once_that_a_team_is_needed_and_keeps_waiting(self):
+        # A student with no team who opens the link is sent to /join, and the
+        # portal refuses the approval without spending the code. The poll
+        # reports that refusal; the terminal names it once and keeps polling,
+        # so reopening the link after joining a team still completes it.
+        stdout = io.StringIO()
+        start = {
+            "verificationUri": "https://portal.example/connections?user_code=ABCD",
+            "userCode": "ABCD",
+            "deviceCode": "device-code",
+            "pollIntervalSeconds": 5,
+            "expiresAt": 10_000,
+        }
+        polls = [
+            {"status": "pending", "retryAfterSeconds": 5, "teamRequired": False},
+            {"status": "pending", "retryAfterSeconds": 5, "teamRequired": True},
+            {"status": "pending", "retryAfterSeconds": 5, "teamRequired": True},
+            {"status": "authorized", "token": "cog_test", "expiresAt": 1},
+        ]
+        with patch("cogbench.cli.start_device_link", return_value=start), \
+                patch("cogbench.client.request_json", side_effect=polls) as request, \
+                patch("cogbench.client.time.time", return_value=1.0), \
+                patch("cogbench.client.time.sleep"), \
+                patch("cogbench.cli.save_token") as save, \
+                patch("cogbench.cli.repository_state", return_value=SimpleNamespace(full_name=None)), \
+                patch("cogbench.cli._installed_benchmark_hint", return_value="vision-recognition"), \
+                redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                main(["link", "--portal", "https://portal.example", "--no-browser"]), 0
+            )
+        self.assertEqual(request.call_count, 4)
+        save.assert_called_once_with("https://portal.example", "cog_test", 1)
+        text = stdout.getvalue()
+        hint = (
+            "This account isn't on a team yet. Join a team in the browser, then reopen "
+            "https://portal.example/connections?user_code=ABCD to approve this device. "
+            "Still waiting."
+        )
+        self.assertEqual(text.count(hint), 1)
+        self.assertLess(text.index(hint), text.index("Linked "))
+
 
 class HelpTextTests(unittest.TestCase):
     def _subcommand_help(self, command):
