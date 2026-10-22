@@ -33,6 +33,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 WORKBENCH = Path(__file__).resolve().parents[1]
 REPO_ROOT = WORKBENCH.parents[1]
 FIXTURES = WORKBENCH / "fixtures"
@@ -372,6 +374,36 @@ def test_verify_rejects_a_tampered_provenance_cell(tmp_path):
 
     assert checked.returncode == 1, checked.stdout + checked.stderr
     assert "provenance 'Commit' cells" in checked.stderr
+
+
+@pytest.mark.parametrize(
+    "occurrence, table",
+    [(0, "metric table"), (1, "floor table"), (2, "provenance table")],
+)
+def test_verify_rejects_swapped_run_column_labels(tmp_path, occurrence, table):
+    # The verifier matched these tables by their first and last header
+    # cells only, so a view whose run columns name the wrong reports
+    # verified green. Swap the labels in one table at a time.
+    out, fixtures = _build_evidence(tmp_path)
+    original = (
+        'Run A (01-run-a.json)</th><th scope="col">Run B (02-run-b.json)'
+    )
+    swapped = 'Run A (02-run-b.json)</th><th scope="col">Run B (01-run-a.json)'
+
+    def mutate(html):
+        parts = html.split(original)
+        assert len(parts) == 4, "expected the metric, floor and provenance headers"
+        return "".join(
+            part + ((swapped if index == occurrence else original) if index < 3 else "")
+            for index, part in enumerate(parts)
+        )
+
+    _restamp(out, mutate_html=mutate)
+
+    checked = _run_verify(out, fixtures)
+
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "the {} header".format(table) in checked.stderr
 
 
 def test_floorless_pair_states_its_emptiness(tmp_path):

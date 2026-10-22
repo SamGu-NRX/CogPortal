@@ -788,6 +788,28 @@ def _table_by_header(
     return None
 
 
+def _check_header(
+    failures: List[str],
+    table: Optional[Dict[str, Any]],
+    name: str,
+    expected: List[str],
+) -> None:
+    """Bind a table's full ordered header to the derived pair.
+
+    Tables are located by their first and last header cells, which say
+    nothing about which run each value column belongs to; a view with the
+    run labels swapped would otherwise verify.
+    """
+
+    if table is not None and table["header"] != expected:
+        _fail(
+            failures,
+            "the {} header reads {!r} != derived {!r}".format(
+                name, table["header"], expected
+            ),
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1225,7 +1247,14 @@ def main() -> int:
                 ),
             )
 
+    run_columns = [
+        "Run A ({})".format(expected_compared[0]),
+        "Run B ({})".format(expected_compared[1]),
+    ]
     metric_table = _table_by_header(page.tables, "Metric", "Difference")
+    _check_header(
+        failures, metric_table, "metric table", ["Metric", *run_columns, "Difference"]
+    )
     if metric_table is None:
         _fail(failures, "the metric table (Metric..Difference) is not rendered")
         metric_table = {"rows": []}
@@ -1283,6 +1312,9 @@ def main() -> int:
             )
 
     floor_table = _table_by_header(page.tables, "Metric", "Reference for")
+    _check_header(
+        failures, floor_table, "floor table", ["Metric", *run_columns, "Reference for"]
+    )
     if floor_table is None:
         if derived["floors"]:
             _fail(failures, "the floor table (Metric..Reference for) is not rendered")
@@ -1375,6 +1407,9 @@ def main() -> int:
         ):
             provenance_table = table
             break
+    _check_header(
+        failures, provenance_table, "provenance table", ["Field", *run_columns]
+    )
     if provenance_table is None:
         _fail(failures, "the recorded-provenance table (Field..Run B) is not rendered")
         provenance_table = {"rows": []}
