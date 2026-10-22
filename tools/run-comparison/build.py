@@ -1215,6 +1215,25 @@ def build_sections(
     return lines
 
 
+WORKBENCH = Path(__file__).resolve().parent
+
+
+def fixtures_root_label(path: Path) -> str:
+    """The receipt's name for a --fixtures argument, the same from any cwd.
+
+    Relative to this workbench when the path is inside it (the committed
+    evidence records ``fixtures``), otherwise absolute. Recording the
+    argument as typed made the README's repo-root command disagree with
+    evidence built from inside the workbench.
+    """
+
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(WORKBENCH).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
 def tool_source_digests() -> Dict[str, str]:
     here = Path(__file__).resolve().parent
     return {
@@ -1480,7 +1499,7 @@ def _build(arguments) -> int:
     roots: List[str] = []
     for item in arguments.fixtures:
         path = Path(item)
-        roots.append(path.as_posix())
+        roots.append(fixtures_root_label(path))
         if path.is_dir():
             files.extend(sorted(path.glob("*.json")))
         else:
