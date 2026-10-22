@@ -73,7 +73,11 @@ test("Activity Retry still requires its signed session before parsing or mutatin
   for (const cookie of [undefined, "cog_activity_session=forged.9999999999999"]) {
     const response = await app.request("/activity/run-surfaces/surface_0123456789abcdef0123/actions/retry", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://activity-client.discordsays.com",
+        ...(cookie ? { Cookie: cookie } : {}),
+      },
       body: JSON.stringify({ runId: "run_0123456789" }),
     }, env);
     assert.equal(response.status, 401);

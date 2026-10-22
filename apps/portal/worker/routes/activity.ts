@@ -136,6 +136,30 @@ async function activityDiscordId(c: Context<AppEnv>): Promise<string> {
   return discordUserId;
 }
 
+/**
+ * The session cookie is SameSite=None so it survives Discord's iframe, which
+ * also means a browser attaches it to a POST that any other page framed under
+ * discord.com sends, another Activity included. Nothing else on the mutation
+ * route stops that: four actions read no body, Retry's body is parsed without
+ * a Content-Type check, and no custom header is required, so a form or a
+ * no-cors fetch reaches the handler without a preflight. The Origin header is
+ * the one thing that page cannot set, so a mutation must carry one we serve.
+ * A request without one is refused too, because every browser sends Origin on
+ * a POST.
+ */
+function requireActivityOrigin(c: Context<AppEnv>, clientId: string): void {
+  const allowed = new Set([
+    // Discord's proxy, which is where the embedded Activity runs and calls from.
+    `https://${clientId}.discordsays.com`,
+    // Our own hosts. A page on either is ours, so it is not a forged request.
+    ...[c.env.PUBLIC_ORIGIN, c.env.ACTIVITY_ORIGIN].flatMap((value) => (value ? [new URL(value).origin] : [])),
+  ]);
+  const origin = c.req.header("Origin");
+  if (!origin || !allowed.has(origin)) {
+    throw new ApiHttpError(403, "forbidden", "Run actions can only be started from the Cog Activity or Cog*Portal.");
+  }
+}
+
 async function activityIdentity(env: AppEnv["Bindings"], discordUserId: string) {
   const [row] = await getDb(env)
     .select({
@@ -253,6 +277,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/activity/run-surfaces/:id/actions/:action", async (c) => {
+    requireActivityOrigin(c, configured(c).clientId);
     const discordUserId = await activityDiscordId(c);
     const identity = await requireActivityTeam(c);
     const surfaceId = c.req.param("id");

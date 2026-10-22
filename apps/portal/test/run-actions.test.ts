@@ -2635,6 +2635,66 @@ test("a single console with no run still answers 404", async () => {
   assert.equal((await lists.one(emptyId)).status, 404);
 });
 
+/* ── Activity mutations sent by another site ───────────────────────────── */
+
+// The Activity's session cookie is SameSite=None so it survives Discord's
+// iframe, which also means a browser attaches it to a POST another page sends.
+// A text/plain body with no custom header is what a form or a no-cors fetch
+// sends, and neither is preflighted.
+
+const ACTIVITY_ACTOR_ID = "discord_actor";
+const ACTIVITY_PROXY_ORIGIN = "https://activity-client.discordsays.com";
+
+async function activityRetry(origin: string | null) {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.insert(discordAccounts).values({
+    discordUserId: ACTIVITY_ACTOR_ID, userId: "user_test", username: "ada", linkedAt: NOW,
+  });
+  await db.update(runs).set({
+    status: "failed", provider: "fixture", finishedAt: NOW + 2_000,
+    failureCategory: "student_runtime", failureDetail: "Original failure",
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const runtime: Env = {
+    ...env(binding, "fixture"),
+    ACTIVITY_ORIGIN: "https://cogactivity.example",
+    DISCORD_CLIENT_ID: "activity-client",
+    DISCORD_CLIENT_SECRET: "activity-secret",
+    ACTIVITY_SESSION_SECRET,
+  };
+  const cookie = (await generateSignedCookie(
+    "cog_activity_session",
+    `${ACTIVITY_ACTOR_ID}.${Date.now() + 60 * 60 * 1000}`,
+    ACTIVITY_SESSION_SECRET,
+  )).split(";")[0]!;
+  const app = new Hono<AppEnv>();
+  registerActivityRoutes(app);
+  app.onError(handleError);
+  const response = await app.fetch(new Request(`https://cogactivity.example/activity/run-surfaces/${SURFACE_ID}/actions/retry`, {
+    method: "POST",
+    headers: { cookie, "Content-Type": "text/plain;charset=UTF-8", ...(origin === null ? {} : { Origin: origin }) },
+    body: JSON.stringify({ runId: PRACTICE_RUN_ID }),
+  }), runtime);
+  const successors = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+  return { status: response.status, body: await response.json() as unknown, successors: successors.length };
+}
+
+test("an Activity mutation from a page on another origin is refused before it runs", async () => {
+  for (const origin of ["https://evil.example", "https://other-app.discordsays.com", "null", null]) {
+    const result = await activityRetry(origin);
+    assert.equal(result.status, 403, `${origin}: ${JSON.stringify(result.body)}`);
+    assert.equal(result.successors, 0, `${origin} started a Retry`);
+  }
+});
+
+test("an Activity mutation from the Activity's proxy or the portal's own hosts goes through", async () => {
+  for (const origin of [ACTIVITY_PROXY_ORIGIN, "https://portal.example", "https://cogactivity.example"]) {
+    const result = await activityRetry(origin);
+    assert.equal(result.status, 200, `${origin}: ${JSON.stringify(result.body)}`);
+    assert.equal(result.successors, 1, `${origin} did not start a Retry`);
+  }
+});
+
 /** Runs `before` with the console's id ahead of each hub request, so a test can
  *  change the database between the list's selection and one snapshot build. */
 function interceptHub(runtime: Env, before: (surfaceId: string) => Promise<Response | void>): Env {
