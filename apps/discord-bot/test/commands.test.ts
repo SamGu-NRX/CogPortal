@@ -531,7 +531,7 @@ test("Activity registration offers only contexts the signed launch handler accep
     interaction.guild_id = context === 0 ? guildId : undefined;
     interaction.data = { name: entryPointCommand.name, type: entryPointCommand.type };
     const body = JSON.stringify(interaction);
-    const timestamp = "1750000000";
+    const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = sign(null, Buffer.from(timestamp + body), privateKey).toString("hex");
     const response = await worker.fetch(new Request("https://bot.example/interactions", {
       method: "POST",
