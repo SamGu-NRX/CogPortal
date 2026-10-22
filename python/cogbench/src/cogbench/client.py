@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import platform
-import secrets
 import time
 import urllib.error
 import urllib.request
@@ -22,12 +20,6 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 class PortalError(RuntimeError):
     pass
-
-
-def default_device_name() -> str:
-    """Return a neutral local label without exposing the network hostname."""
-    system = platform.system().lower() or "device"
-    return "{}-{}".format(system, secrets.token_hex(3))
 
 
 def normalize_portal(value: str) -> str:
@@ -81,8 +73,8 @@ def request_json(
     raise PortalError("Could not reach CogPortal after {} attempts.".format(attempts))
 
 
-def start_device_link(portal: str, device_name: str) -> Dict[str, Any]:
-    return request_json(portal, "/api/v1/cli/device/start", {"deviceName": device_name})
+def start_device_link(portal: str) -> Dict[str, Any]:
+    return request_json(portal, "/api/v1/cli/device/start", {})
 
 
 def poll_device_link(portal: str, device_code: str, interval: int, expires_at: int) -> Dict[str, Any]:
@@ -94,8 +86,6 @@ def poll_device_link(portal: str, device_code: str, interval: int, expires_at: i
         )
         if result.get("status") == "authorized":
             return result
-        if result.get("status") == "needs_team":
-            raise PortalError("Join a team in CogPortal, then rerun `cogworks link`.")
         time.sleep(max(interval, int(result.get("retryAfterSeconds", interval))))
     raise PortalError("The device link expired before it was approved.")
 

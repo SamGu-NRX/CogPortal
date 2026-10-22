@@ -1289,22 +1289,6 @@ export const SETUP_STEPS = [
 export const SetupStepSchema = z.enum(SETUP_STEPS);
 export type SetupStep = z.infer<typeof SetupStepSchema>;
 
-export const SETUP_FAILURE_CODES = [
-  "python_not_38",
-  "benchmark_missing",
-  "benchmark_wont_load",
-  "not_a_git_repo",
-  "wrong_repository",
-  "submission_not_found",
-] as const;
-export const SetupFailureCodeSchema = z.enum(SETUP_FAILURE_CODES);
-export type SetupFailureCode = z.infer<typeof SetupFailureCodeSchema>;
-export const SetupFailureSchema = z.object({
-  step: SetupStepSchema,
-  code: SetupFailureCodeSchema,
-}).strict();
-export type SetupFailure = z.infer<typeof SetupFailureSchema>;
-
 /**
  * The steps whose evidence is about one environment rather than the machine.
  *
@@ -1364,7 +1348,6 @@ export const SetupEvidenceRequestSchema = z
      * credited to whichever track the page happens to be showing.
      */
     checkedBenchmarkId: z.string().min(1).max(100).optional(),
-    failures: z.array(SetupFailureSchema).max(SETUP_STEPS.length).optional(),
   })
   .strict();
 export type SetupEvidenceRequest = z.infer<typeof SetupEvidenceRequestSchema>;
@@ -1394,8 +1377,6 @@ export const SetupStateSchema = z
      *  it observed. Same split by scope as above. */
     checked: z.array(SetupStepSchema),
     checkedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
-    failures: z.array(SetupFailureSchema).optional(),
-    failuresByBenchmark: z.record(z.string(), z.array(SetupFailureSchema)).optional(),
     /** Signed check-off tokens, keyed by step, for the benchmark this state
      *  was read for. Absent when no deployment secret is configured, which is
      *  the one case where the page cannot offer the command. */

@@ -157,8 +157,7 @@ def _portal(value: Optional[str]) -> str:
 
 
 def _setup_payload(
-    checks: Sequence[str], project_root: Path, benchmark: Optional[str] = None,
-    failures: Sequence[dict] = (),
+    checks: Sequence[str], project_root: Path, benchmark: Optional[str] = None
 ) -> dict:
     repository = repository_state(project_root)
     if not repository.full_name:
@@ -188,8 +187,6 @@ def _setup_payload(
     # portal that predates the field still accepts the request.
     if benchmark:
         payload["checkedBenchmarkId"] = benchmark
-    if failures:
-        payload["failures"] = list(failures)
     return payload
 
 
@@ -198,7 +195,6 @@ def _update_setup(
     checks: Sequence[str],
     project_root: Path,
     benchmark: Optional[str] = None,
-    failures: Sequence[dict] = (),
 ) -> None:
     portal = _portal(portal_value)
     token = token_for(portal)
@@ -208,7 +204,7 @@ def _update_setup(
             "Run `cogworks link --portal {}` and retry.".format(portal)
         )
     result = update_setup_checks(
-        portal, token, _setup_payload(checks, project_root, benchmark, failures)
+        portal, token, _setup_payload(checks, project_root, benchmark)
     )
     accepted = result.get("accepted")
     if not isinstance(accepted, list):
@@ -746,7 +742,7 @@ def _read_repository(
     return view, outcome.status, outcome.detail
 
 
-def _check(benchmark: str, as_json: bool, project_root: Path, failure_sink: Optional[list] = None) -> int:
+def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     benchmark_group = (
         "cogworks.benchmarks.v2"
         if benchmark in plugin_names("cogworks.benchmarks.v2")
@@ -871,17 +867,6 @@ def _check(benchmark: str, as_json: bool, project_root: Path, failure_sink: Opti
         "benchmarkLoadable",
         "submissionLoadable",
     )
-    if failure_sink is not None:
-        if checks["python"] != checks["canonicalHostedPython"]:
-            failure_sink.append({"step": "environment", "code": "python_not_38"})
-        if not checks["benchmarkInstalled"]:
-            failure_sink.append({"step": "project", "code": "benchmark_missing"})
-        elif not checks["benchmarkLoadable"]:
-            failure_sink.append({"step": "project", "code": "benchmark_wont_load"})
-        if not checks["gitRepository"]:
-            failure_sink.append({"step": "clone", "code": "not_a_git_repo"})
-        if not checks["submissionLoadable"]:
-            failure_sink.append({"step": "wiring", "code": "submission_not_found"})
     return 0 if all(checks[key] for key in required) else 2
 
 
@@ -1241,8 +1226,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "cogworks: `doctor` is deprecated; use `cogworks check`.",
                     file=sys.stderr,
                 )
-            setup_failures = []
-            result = _check(args.benchmark, args.json, project_root, setup_failures)
+            result = _check(args.benchmark, args.json, project_root)
             if args.update_setup and result == 0:
                 _update_setup(
                     None,
@@ -1251,17 +1235,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     args.benchmark,
                 )
             elif args.update_setup:
-                try:
-                    _update_setup(
-                        None,
-                        (),
-                        project_root,
-                        args.benchmark,
-                        setup_failures,
-                    )
-                    print("setup: portal recorded which step failed.", file=sys.stderr)
-                except PortalError as error:
-                    print("setup: failed to record the check result: {}".format(error), file=sys.stderr)
+                # The setup page tells a student whose box stays grey that the
+                # reason is in the terminal, so the skipped update says so.
+                # stderr keeps `--json` output parseable; the flush keeps this
+                # line after the report it refers to when output is piped.
+                sys.stdout.flush()
+                print(
+                    "setup: not updated, because the check didn't pass. "
+                    "Fix what it reported and run this command again.",
+                    file=sys.stderr,
+                )
             return result
         if args.command in ("test", "run"):
             if args.command == "run" and args.live:
@@ -1358,8 +1341,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "`cogworks run --live`, and weights only with `cogworks sync`. Source, logs, "
                 "predictions, and environment variables stay on this machine."
             )
-            device_name = (args.name or "").strip() or default_device_name()
-            start = start_device_link(portal, device_name)
+            start = start_device_link(portal)
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
             if not args.no_browser:
                 webbrowser.open(start["verificationUri"])
@@ -1370,7 +1352,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 int(start["expiresAt"]),
             )
             save_token(portal, result["token"], int(result["expiresAt"]))
-            print("Linked {}. Local commands still work offline.".format(device_name))
+            print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
             repository = repository_state(project_root)
             if repository.full_name:
                 try:

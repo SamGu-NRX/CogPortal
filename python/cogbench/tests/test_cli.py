@@ -98,9 +98,15 @@ class CliContractTests(unittest.TestCase):
                     )
         self.assertEqual(result, 2)
         update.assert_not_called()
-        # stdout belongs to `--json`; the explanation goes to stderr.
+        # stdout belongs to `--json`; the explanation goes to stderr. The whole
+        # line, because setup step 5 sends the student here for the reason the
+        # box did not tick, and "not updated" alone doesn't give one.
         self.assertEqual(stdout.getvalue(), "")
-        self.assertTrue(stderr.getvalue().startswith("setup: not updated"))
+        self.assertEqual(
+            stderr.getvalue(),
+            "setup: not updated, because the check didn't pass. "
+            "Fix what it reported and run this command again.\n",
+        )
 
     def test_updated_setup_leaves_json_stdout_to_the_check(self):
         stdout, stderr = io.StringIO(), io.StringIO()
