@@ -8,7 +8,7 @@ import { accountLogin } from "../auth/session";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import { ApiHttpError } from "../http/errors";
-import { benchmarks, discordAccounts, runSurfaces, teamMembers, teams, users } from "../db/schema";
+import { benchmarks, discordAccounts, runs, teamMembers, teams, users } from "../db/schema";
 import { syncTeamRuns } from "../execution/sync";
 import { serializeRunSummary, serializeTeam } from "../http/serializers";
 import { getLeaderboardReadModel } from "./leaderboard";
@@ -172,13 +172,23 @@ export async function getDiscordLeaderboard(
   let board = benchmarkId;
   if (!board && membership) {
     const [latest] = await db
-      .select({ benchmarkId: runSurfaces.benchmarkId })
-      .from(runSurfaces)
-      .innerJoin(benchmarks, and(eq(benchmarks.id, runSurfaces.benchmarkId), eq(benchmarks.active, true)))
-      .where(eq(runSurfaces.teamId, membership.teamId))
-      .orderBy(desc(runSurfaces.updatedAt))
+      .select({ benchmarkId: runs.benchmarkId, benchmarkVersion: runs.benchmarkVersion })
+      .from(runs)
+      .where(eq(runs.teamId, membership.teamId))
+      .orderBy(desc(runs.createdAt))
       .limit(1);
-    board = latest?.benchmarkId;
+    if (latest) {
+      const [activeBenchmark] = await db
+        .select({ id: benchmarks.id })
+        .from(benchmarks)
+        .where(and(
+          eq(benchmarks.id, latest.benchmarkId),
+          eq(benchmarks.version, latest.benchmarkVersion),
+          eq(benchmarks.active, true),
+        ))
+        .limit(1);
+      board = activeBenchmark?.id;
+    }
   }
   return getLeaderboardReadModel(env, board, membership?.teamId);
 }

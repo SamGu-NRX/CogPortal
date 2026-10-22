@@ -463,7 +463,7 @@ test("no state of the console attributes its result to the person who started it
   assert.match(html, /0\.913/, "the score itself still shows");
 });
 
-test("the hosted-run confirmation says only a run that finishes scoring uses a practice run", async (t) => {
+test("the hosted-run confirmation states accepted and active practice-run rules", async (t) => {
   const window = new Window({ url: "https://portal.example" });
   const globals = { window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
@@ -489,8 +489,9 @@ test("the hosted-run confirmation says only a run that finishes scoring uses a p
   assert.ok(verify);
   await act(async () => verify.click());
   const text = container.querySelector("dialog")?.textContent ?? "";
-  // worker/services/run-accounting.ts acceptedRunPredicate: only a succeeded,
-  // unrefunded run counts against the practice limit.
+  // This matches acceptedRunPredicate and activeRunPredicate in
+  // worker/services/run-accounting.ts.
   assert.match(text, /only if it finishes scoring/);
-  assert.match(text, /a run that fails or is cancelled doesn.t count/);
+  assert.match(text, /While it's running it holds a slot/);
+  assert.match(text, /fails, is cancelled or is refunded, it doesn't count/);
 });

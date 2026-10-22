@@ -722,7 +722,7 @@ test("the leaderboard asks for the student's own board and marks their row only 
     rank, teamName, teamDescription: null, provenance: "live" as const, repoUrl: null,
     sha: "b".repeat(40), shortSha: "bbbbbbb",
     primaryMetric: { key: "accuracy", label: "Accuracy", value: 0.9 - rank / 100, unit: null, higherIsBetter: true, primary: true, precision: 3 },
-    supportingMetrics: [], completedAt: 1_750_000_000_000, isYou, publicSweep: null,
+    supportingMetrics: [], completedAt: 1_750_000_000_000, isYou, simulated: false, publicSweep: null,
   });
   const portal = portalWith({
     async getLeaderboard(...args: unknown[]) {
@@ -743,7 +743,7 @@ test("the leaderboard asks for the student's own board and marks their row only 
   assert.match(shared, /Analytical Engines/);
 });
 
-test("hosted practice confirmations say only a run that finishes scoring uses a practice run", async () => {
+test("hosted practice confirmations match the accepted and active run rules", async () => {
   const latest = surfaceSnapshot();
   const portal = portalWith({ async getRunSurface() { return latest; } });
   for (const action of ["verify_hosted", "rerun_hosted"]) {
@@ -751,7 +751,8 @@ test("hosted practice confirmations say only a run that finishes scoring uses a 
     // portal worker/services/run-accounting.ts acceptedRunPredicate: only a
     // succeeded, unrefunded run counts; failed and cancelled runs never do.
     assert.match(body, /only if it finishes scoring/, action);
-    assert.match(body, /a run that fails or is cancelled doesn't count/, action);
+    assert.match(body, /While it's running it holds a slot/, action);
+    assert.match(body, /fails, is cancelled or is refunded, it doesn't count/, action);
   }
 });
 

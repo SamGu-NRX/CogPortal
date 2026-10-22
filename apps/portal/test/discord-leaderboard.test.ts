@@ -128,7 +128,13 @@ async function seeded() {
     id: "surface_ada", teamId: "team_ada", createdByUserId: "user_ada",
     benchmarkId: target.id, benchmarkVersion: target.version, createdAt: 40, updatedAt: 40,
   });
-  return { rpc: new PortalRpc({} as never, env), target, fallback };
+  await db.insert(runs).values({
+    id: "team_ada_practice", teamId: "team_ada", benchmarkId: target.id, benchmarkVersion: target.version,
+    contractVersion: target.contractVersion, mode: "practice", status: "succeeded", branch: "main",
+    sha: "b".repeat(40), createdAt: 40, finishedAt: 50, provider: "fixture", scorerVersion: target.scorerVersion,
+    surfaceId: "surface_ada",
+  });
+  return { rpc: new PortalRpc({} as never, env), db, target, fallback };
 }
 
 test("a linked student sees their team's benchmark with their own row marked", async () => {
@@ -145,6 +151,59 @@ test("a benchmark the caller names wins over the team's latest one", async () =>
   const { rpc, fallback } = await seeded();
   const board = await rpc.getLeaderboard(GUILD, fallback.id, "discord_ada");
   assert.equal(board.benchmark.id, fallback.id);
+});
+
+test("the newest run on a retired benchmark falls back instead of choosing an older active run", async () => {
+  const { rpc, db, target, fallback } = await seeded();
+  const [retired] = await db.insert(benchmarks).values({
+    ...target,
+    id: "retired-for-discord-test",
+    version: target.version + 100,
+    active: false,
+  }).returning();
+  assert.ok(retired);
+  await db.insert(runSurfaces).values({
+    id: "surface_ada_new_retired", teamId: "team_ada", createdByUserId: "user_ada",
+    benchmarkId: retired.id, benchmarkVersion: retired.version, createdAt: 200, updatedAt: 200,
+  });
+  await db.insert(runSurfaces).values({
+    id: "surface_ada_old_active", teamId: "team_ada", createdByUserId: "user_ada",
+    benchmarkId: target.id, benchmarkVersion: target.version, createdAt: 100, updatedAt: 300,
+  });
+  await db.insert(runs).values([
+    {
+      id: "team_ada_new_retired", teamId: "team_ada", benchmarkId: retired.id, benchmarkVersion: retired.version,
+      contractVersion: retired.contractVersion, mode: "practice", status: "failed", branch: "main",
+      sha: "c".repeat(40), createdAt: 200, finishedAt: 210, provider: "fixture", scorerVersion: retired.scorerVersion,
+      surfaceId: "surface_ada_new_retired",
+    },
+    {
+      id: "team_ada_old_active", teamId: "team_ada", benchmarkId: target.id, benchmarkVersion: target.version,
+      contractVersion: target.contractVersion, mode: "practice", status: "succeeded", branch: "main",
+      sha: "d".repeat(40), createdAt: 100, finishedAt: 110, provider: "fixture", scorerVersion: target.scorerVersion,
+      surfaceId: "surface_ada_old_active",
+    },
+  ]);
+  await db.update(benchmarks).set({ active: false }).where(eq(benchmarks.id, retired.id));
+  const board = await rpc.getLeaderboard(GUILD, undefined, "discord_ada");
+  assert.equal(board.benchmark.id, fallback.id);
+});
+
+test("a late event on an older run does not replace the newest run's board", async () => {
+  const { rpc, db, target, fallback } = await seeded();
+  await db.insert(runs).values({
+    id: "team_ada_new_run", teamId: "team_ada", benchmarkId: target.id, benchmarkVersion: target.version,
+    contractVersion: target.contractVersion, mode: "practice", status: "succeeded", branch: "main",
+    sha: "e".repeat(40), createdAt: 200, finishedAt: 210, provider: "fixture", scorerVersion: target.scorerVersion,
+  });
+  await db.insert(runs).values({
+    id: "team_ada_old_run", teamId: "team_ada", benchmarkId: fallback.id, benchmarkVersion: fallback.version,
+    contractVersion: fallback.contractVersion, mode: "practice", status: "succeeded", branch: "main",
+    sha: "f".repeat(40), createdAt: 100, finishedAt: 110, provider: "fixture", scorerVersion: fallback.scorerVersion,
+  });
+  await db.update(runSurfaces).set({ updatedAt: 9_999 }).where(eq(runSurfaces.id, "surface_ada"));
+  const board = await rpc.getLeaderboard(GUILD, undefined, "discord_ada");
+  assert.equal(board.benchmark.id, target.id);
 });
 
 test("a Discord account that is not linked still gets the public board, with no row marked", async () => {

@@ -558,10 +558,9 @@ async function surfaceActionView(
   const action = request.action as SurfaceMutation;
   if (!request.confirmed) {
     const attempt = snapshot.nextOfficialAttempt;
-    // The portal counts a hosted practice run against the limit only once it
-    // has succeeded (portal worker/services/run-accounting.ts,
-    // acceptedRunPredicate); failed and cancelled runs never count.
-    const practiceCost = "a run that fails or is cancelled doesn't count.";
+    // This matches acceptedRunPredicate and activeRunPredicate in
+    // portal/worker/services/run-accounting.ts.
+    const practiceCost = "While it's running it holds a slot. If it fails, is cancelled or is refunded, it doesn't count.";
     const copy: Record<
       SurfaceMutation,
       { title: string; detail: string; label: string; style: 1 | 4; extra?: string[] }
@@ -574,7 +573,7 @@ async function surfaceActionView(
       },
       verify_hosted: {
         title: "Verify this exact commit?",
-        detail: `A hosted run scores this exact commit on the course machines and records what it sees. It's practice, and it uses one of this benchmark's hosted practice runs only if it finishes scoring; ${practiceCost}`,
+        detail: `A hosted run scores this exact commit on the course machines and records what it sees. It's practice. It uses one of this benchmark's hosted practice runs only if it finishes scoring. ${practiceCost}`,
         label: `Verify ${snapshot.shortSha} hosted`,
         style: 1,
       },
@@ -598,7 +597,7 @@ async function surfaceActionView(
       },
       rerun_hosted: {
         title: "Start a new hosted run?",
-        detail: `This starts a fresh hosted run on the same commit. It uses another of this benchmark's hosted practice runs only if it finishes scoring; ${practiceCost} The current run stays as history.`,
+        detail: `This starts a fresh hosted run on the same commit. It uses another of this benchmark's hosted practice runs only if it finishes scoring. ${practiceCost} The current run stays as history.`,
         label: "Start hosted run",
         style: 1,
       },
