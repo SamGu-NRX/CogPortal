@@ -10,10 +10,17 @@ catch the same tampering with a ``misrendered:`` line. ``--force`` is
 the one path past the gate, and it must hand back a green one.
 """
 
+import argparse
 import json
+import pathlib
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+import pytest
+
+import build
 
 WORKBENCH = Path(__file__).resolve().parents[1]
 FIXTURES = WORKBENCH / "fixtures"
@@ -90,6 +97,105 @@ def test_first_gated_build_writes_and_a_second_gate_is_byte_idempotent(tmp_path)
     assert second.returncode == 0, second.stdout + second.stderr
     assert "existing evidence validated against a fresh build" in second.stdout
     assert _snapshot(out) == before
+
+
+def _start_build(out, fixtures):
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(WORKBENCH / "build.py"),
+            "--fixtures",
+            str(fixtures),
+            "--out",
+            str(out),
+            "--replay",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+
+
+def _generated(out):
+    return sorted(
+        entry.name
+        for entry in out.iterdir()
+        if build.GENERATED_ARTIFACTS.match(entry.name)
+    )
+
+
+def test_replay_waits_for_the_output_directory_lock(tmp_path):
+    """A second builder cannot validate and publish over an active build."""
+
+    out = tmp_path / "evidence"
+    with build.output_lock(out):
+        process = _start_build(out, FIXTURES)
+        # An unlocked build finishes well inside this window; a locked one
+        # is still waiting and has written nothing.
+        time.sleep(1.5)
+        assert process.poll() is None
+        assert _generated(out) == []
+    stdout, stderr = process.communicate(timeout=60)
+
+    assert process.returncode == 0, stdout + stderr
+    assert _generated(out) == [REPLAY, VIEW, RECEIPT]
+
+
+def test_concurrent_builds_of_different_pairs_publish_one_evidence_set(tmp_path):
+    """Two builders racing on one directory: one publishes, the other refuses.
+
+    Both start while the lock is held, so they contend the moment it is
+    released. Whichever runs second must see the first one's completed
+    evidence and refuse it as a changed pair, not write a second set
+    beside it.
+    """
+
+    later = tmp_path / "later-fixtures"
+    later.mkdir()
+    for name in ("02-run-b.json", "03-run-dirty.json"):
+        (later / name).write_bytes((FIXTURES / name).read_bytes())
+    out = tmp_path / "evidence"
+    with build.output_lock(out):
+        first = _start_build(out, FIXTURES)
+        second = _start_build(out, later)
+        time.sleep(0.5)
+    results = [process.communicate(timeout=60) for process in (first, second)]
+    codes = sorted(process.returncode for process in (first, second))
+
+    assert codes == [0, 1], results
+    refused = results[[first.returncode, second.returncode].index(1)]
+    assert "the compared pair changed" in refused[1]
+    assert len(_generated(out)) == 3
+
+
+def test_a_failed_publication_leaves_no_partial_evidence(tmp_path, monkeypatch):
+    """Publication is staged: a write that fails part-way publishes nothing.
+
+    The replay receipt is the last artifact written. Making its write fail
+    used to leave the view and receipt published without it — a mixed
+    evidence set the next --replay refuses until someone forces it.
+    """
+
+    out = tmp_path / "evidence"
+    real_write = pathlib.Path.write_bytes
+
+    def failing_write(self, data):
+        if "replay-" in self.name:
+            raise OSError("simulated full disk")
+        return real_write(self, data)
+
+    monkeypatch.setattr(pathlib.Path, "write_bytes", failing_write)
+    arguments = argparse.Namespace(
+        fixtures=[str(FIXTURES)], out=str(out), replay=True, force=False
+    )
+    with pytest.raises(OSError, match="simulated full disk"):
+        build._build(arguments)
+    monkeypatch.undo()
+
+    leftovers = sorted(entry.name for entry in out.iterdir()) if out.exists() else []
+    assert [name for name in leftovers if build.GENERATED_ARTIFACTS.match(name)] == []
+    assert [name for name in leftovers if "staging" in name] == []
 
 
 def test_gated_replay_refuses_a_tampered_view_and_preserves_all_evidence(tmp_path):

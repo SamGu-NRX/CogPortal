@@ -1,0 +1,3 @@
+# build.py's per-output-directory lock and staged artifacts (see output_lock, publish)
+.build.lock
+.staging-*

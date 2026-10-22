@@ -626,6 +626,61 @@ def test_findings_derived_from_verdicts(monkeypatch):
     assert any("dataset conditions" in line for line in analysis["findings"])
 
 
+def test_receipt_digest_and_rendered_analysis_come_from_the_same_bytes(
+    tmp_path, monkeypatch
+):
+    # Each input used to be read twice: once for its receipt digest, once
+    # for the analysis. A file rewritten between the two reads was then
+    # attested by one version and rendered from another. Serve a changed
+    # file on every read after the first and require one read whose
+    # digest and rendered value agree.
+    import argparse
+    import hashlib
+    import pathlib
+
+    import build
+
+    first = (FIXTURES / "01-run-a.json").read_bytes()
+    payload = json.loads(first)
+    for entry in payload["metrics"]:
+        if entry["key"] == "identification_score":
+            entry["value"] = 0.9
+    later = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    versions = {
+        hashlib.sha256(first).hexdigest(): "0.5375",
+        hashlib.sha256(later).hexdigest(): "0.9000",
+    }
+
+    reads = []
+    real_read = pathlib.Path.read_bytes
+
+    def changing_read(self):
+        if self.name == "01-run-a.json" and self.parent == FIXTURES:
+            reads.append(self.name)
+            return first if len(reads) == 1 else later
+        return real_read(self)
+
+    monkeypatch.setattr(pathlib.Path, "read_bytes", changing_read)
+    out = tmp_path / "evidence"
+    arguments = argparse.Namespace(
+        fixtures=[str(FIXTURES)], out=str(out), replay=False, force=False
+    )
+    assert build._build(arguments) == 0
+    monkeypatch.undo()
+
+    receipt = json.loads(
+        (out / "view-receipts-{}.json".format(PAIR_STEM)).read_text(encoding="utf-8")
+    )
+    digest = {entry["file"]: entry["sha256"] for entry in receipt["inputs"]}[
+        "01-run-a.json"
+    ]
+    rendered = {row["key"]: row for row in receipt["metrics"]["shared"]}[
+        "identification_score"
+    ]["run_a"]
+    assert versions[digest] == rendered
+    assert len(reads) == 1
+
+
 def test_builder_excludes_refused_reports(tmp_path):
     # The reader refuses 07; the builder must exclude it from pairing
     # and record it with its reason - not just the reader rejecting the

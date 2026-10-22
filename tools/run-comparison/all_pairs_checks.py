@@ -46,23 +46,61 @@ def tool_source_digests() -> Dict[str, str]:
     return {name: _sha((here / name).read_bytes()) for name in sorted(names)}
 
 
+def input_identities(files: List[Path]) -> List[str]:
+    """One unique name per input file, independent of the working directory.
+
+    The file name alone when no other input shares it; otherwise the
+    shortest run of trailing path components that tells the colliding
+    files apart (``left/run.json`` vs ``right/run.json``). The same file
+    given twice has no distinguishing name and is refused.
+    """
+
+    resolved = [path.resolve().parts for path in files]
+    if len(set(resolved)) != len(resolved):
+        repeated = sorted(
+            {"/".join(parts[-1:]) for parts in resolved if resolved.count(parts) > 1}
+        )
+        raise ValueError(
+            "the same fixture file is given more than once: {}".format(
+                ", ".join(repeated)
+            )
+        )
+    names: List[str] = []
+    for index, parts in enumerate(resolved):
+        depth = 1
+        while depth < len(parts) and any(
+            other[-depth:] == parts[-depth:]
+            for other_index, other in enumerate(resolved)
+            if other_index != index
+        ):
+            depth += 1
+        names.append("/".join(parts[-depth:]))
+    return names
+
+
 def collect(fixtures_roots: List[Path]) -> Dict[str, Any]:
     files: List[Path] = []
     for root in fixtures_roots:
         files.extend(path for path in root.glob("*.json") if path.is_file())
-    files.sort(key=lambda path: path.name)
+    # Name first, full path only to break ties: the order the builder
+    # uses, and independent of the order the roots were given in.
+    files.sort(key=lambda path: (path.name, path.resolve().as_posix()))
     loaded: List[Any] = []
     accepted_files: List[str] = []
     refused: List[Dict[str, Any]] = []
-    for path in files:
+    inputs: Dict[str, str] = {}
+    for path, identity in zip(files, input_identities(files)):
+        # One read: the recorded digest and the analysed report are the
+        # same bytes.
         report = read_report(path)
+        inputs[identity] = report.file_sha256
         if report.accepted:
-            loaded.append((path.name, report))
-            accepted_files.append(path.name)
+            loaded.append((identity, report))
+            accepted_files.append(identity)
         else:
             refused.append(
                 {
-                    "file": path.name,
+                    "file": identity,
                     "reasons": [
                         "{}: {}".format(refusal.code, refusal.detail)
                         for refusal in report.refusals
@@ -103,7 +141,7 @@ def collect(fixtures_roots: List[Path]) -> Dict[str, Any]:
         "total_pairs": len(pairs),
         "comparable_pairs": comparable_count,
         "pairs": pairs,
-        "inputs": {path.name: _sha(path.read_bytes()) for path in files},
+        "inputs": inputs,
         "tool_source": {"files": tool_source_digests()},
     }
 

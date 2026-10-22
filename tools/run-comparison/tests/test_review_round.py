@@ -33,6 +33,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 WORKBENCH = Path(__file__).resolve().parents[1]
 REPO_ROOT = WORKBENCH.parents[1]
 FIXTURES = WORKBENCH / "fixtures"
@@ -78,14 +80,14 @@ def _build_evidence(tmp_path, fixtures=None, out=None):
     return out, fixtures
 
 
-def _restamp(out, mutate_html=None, mutate_receipt=None):
+def _restamp(out, mutate_html=None, mutate_receipt=None, stem=PAIR_STEM):
     """Rewrite the view and/or receipt, then re-stamp every digest so the
     tampered set is digest-consistent — reaching the verifier's wording
     checks, which would otherwise be answered by the digest checks."""
 
-    html_path = out / VIEW
-    receipt_path = out / RECEIPT
-    replay_path = out / REPLAY
+    html_path = out / "view-{}.html".format(stem)
+    receipt_path = out / "view-receipts-{}.json".format(stem)
+    replay_path = out / "replay-{}.json".format(stem)
 
     html = html_path.read_text(encoding="utf-8")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -195,6 +197,87 @@ def test_same_named_reports_from_two_roots_bind_in_path_order(tmp_path):
     checked = _run_verify(first, a_root, b_root)
     assert checked.returncode == 1, checked.stdout + checked.stderr
     assert "receipt inputs do not match the fixture bytes in order" in checked.stderr
+
+
+def _same_named_roots(tmp_path):
+    """Two roots that each hold an accepted run.json and a refused bad.json.
+
+    The two copies of each name differ in content, and the two bad.json
+    files are refused for different reasons.
+    """
+
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "run.json").write_bytes((FIXTURES / "01-run-a.json").read_bytes())
+    (right / "run.json").write_bytes((FIXTURES / "02-run-b.json").read_bytes())
+    (left / "bad.json").write_bytes(
+        (FIXTURES / "07-refused-future-contract.json").read_bytes()
+    )
+    (right / "bad.json").write_bytes(
+        (FIXTURES / "08-refused-unknown-command.json").read_bytes()
+    )
+    return left, right
+
+
+def test_all_pairs_keeps_same_named_inputs_apart(tmp_path):
+    # The record keyed inputs by file name, so left/run.json and
+    # right/run.json collapsed into one digest and the pair read
+    # ["run.json", "run.json"]. Each input needs its own identity, and
+    # the record must not depend on argument order.
+    from all_pairs_checks import collect
+
+    left, right = _same_named_roots(tmp_path)
+
+    record = collect([left, right])
+
+    assert sorted(record["inputs"]) == [
+        "left/bad.json",
+        "left/run.json",
+        "right/bad.json",
+        "right/run.json",
+    ]
+    assert record["inputs"]["left/run.json"] == _sha((left / "run.json").read_bytes())
+    assert record["inputs"]["right/run.json"] == _sha((right / "run.json").read_bytes())
+    assert record["accepted_files"] == ["left/run.json", "right/run.json"]
+    assert [entry["file"] for entry in record["refused_files"]] == [
+        "left/bad.json",
+        "right/bad.json",
+    ]
+    assert [pair["files"] for pair in record["pairs"]] == [
+        ["left/run.json", "right/run.json"]
+    ]
+    assert collect([right, left]) == record
+
+
+def test_verify_binds_each_same_named_refusal_to_its_own_reasons(tmp_path):
+    # The verifier mapped refusal reasons by file name, so two refused
+    # bad.json files from different roots collapsed into one entry and a
+    # correct receipt failed verification against the other file's
+    # reasons.
+    left, right = _same_named_roots(tmp_path)
+    out = tmp_path / "evidence"
+
+    built = _run_build(out, left, right, extra=("--replay",))
+    assert built.returncode == 0, built.stdout + built.stderr
+    receipt = json.loads(
+        (out / "view-receipts-run-vs-run.json").read_text(encoding="utf-8")
+    )
+    reasons = [entry["reasons"][0].split(":")[0] for entry in receipt["excluded"]]
+    assert reasons == ["unsupported_contract", "unknown_command"]
+
+    checked = _run_verify(out, left, right)
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+    def swap(receipt):
+        receipt["excluded"].reverse()
+
+    _restamp(out, mutate_receipt=swap, stem="run-vs-run")
+    swapped = _run_verify(out, left, right)
+    assert swapped.returncode == 1, swapped.stdout + swapped.stderr
+    assert "receipt refusal reasons" in swapped.stderr
 
 
 def test_replay_refuses_a_receipt_attesting_a_different_pair(tmp_path):
@@ -372,6 +455,131 @@ def test_verify_rejects_a_tampered_provenance_cell(tmp_path):
 
     assert checked.returncode == 1, checked.stdout + checked.stderr
     assert "provenance 'Commit' cells" in checked.stderr
+
+
+@pytest.mark.parametrize(
+    "occurrence, table",
+    [(0, "metric table"), (1, "floor table"), (2, "provenance table")],
+)
+def test_verify_rejects_swapped_run_column_labels(tmp_path, occurrence, table):
+    # The verifier matched these tables by their first and last header
+    # cells only, so a view whose run columns name the wrong reports
+    # verified green. Swap the labels in one table at a time.
+    out, fixtures = _build_evidence(tmp_path)
+    original = (
+        'Run A (01-run-a.json)</th><th scope="col">Run B (02-run-b.json)'
+    )
+    swapped = 'Run A (02-run-b.json)</th><th scope="col">Run B (01-run-a.json)'
+
+    def mutate(html):
+        parts = html.split(original)
+        assert len(parts) == 4, "expected the metric, floor and provenance headers"
+        return "".join(
+            part + ((swapped if index == occurrence else original) if index < 3 else "")
+            for index, part in enumerate(parts)
+        )
+
+    _restamp(out, mutate_html=mutate)
+
+    checked = _run_verify(out, fixtures)
+
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "the {} header".format(table) in checked.stderr
+
+
+def _rewrite_metric(fixtures, name, key, **fields):
+    payload = json.loads((fixtures / name).read_text(encoding="utf-8"))
+    for entry in payload["metrics"]:
+        if entry["key"] == key:
+            entry.update(fields)
+    (fixtures / name).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def test_a_shared_metric_keeps_each_runs_unit(tmp_path):
+    # The shared row carried run A's unit only, so 1.0 s against 1000.0 ms
+    # rendered both values under "s". Each side keeps its own unit and the
+    # row names the identity difference.
+    fixtures = _copy_fixtures(tmp_path)
+    _rewrite_metric(fixtures, "01-run-a.json", "ranking_failure_rate", unit="s", value=1.0)
+    _rewrite_metric(fixtures, "02-run-b.json", "ranking_failure_rate", unit="ms", value=1000.0)
+
+    out, _ = _build_evidence(tmp_path, fixtures=fixtures)
+
+    receipt = json.loads((out / RECEIPT).read_text(encoding="utf-8"))
+    row = {row["key"]: row for row in receipt["metrics"]["shared"]}["ranking_failure_rate"]
+    assert (row["unit_a"], row["unit_b"]) == ("s", "ms")
+    assert row["identity_differences"] == ["unit: s vs ms"]
+    html = (out / VIEW).read_text(encoding="utf-8")
+    assert "<td>1.000 s</td><td>1000.000 ms</td>" in html
+    assert "identity differs between the runs: unit: s vs ms" in html
+
+    _restamp(out, mutate_html=lambda text: text.replace("1000.000 ms", "1000.000 s"))
+    checked = _run_verify(out, fixtures)
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "metric row ranking_failure_rate run B cell" in checked.stderr
+
+
+def test_a_floor_missing_from_the_other_report_is_rendered(tmp_path):
+    # The floor table was built from metrics both reports record, so a
+    # floor present on run A only rendered "No floor metrics recorded."
+    # while the conditions said it was recorded on run A only.
+    fixtures = _copy_fixtures(tmp_path)
+    payload = json.loads((fixtures / "02-run-b.json").read_text(encoding="utf-8"))
+    payload["metrics"] = [m for m in payload["metrics"] if m["key"] != "chance_top1"]
+    (fixtures / "02-run-b.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    out, _ = _build_evidence(tmp_path, fixtures=fixtures)
+
+    receipt = json.loads((out / RECEIPT).read_text(encoding="utf-8"))
+    [floor] = receipt["metrics"]["floors"]
+    assert (floor["key"], floor["value_a"], floor["value_b"], floor["absent_on"]) == (
+        "chance_top1",
+        "0.033",
+        "not recorded",
+        "run B",
+    )
+    html = (out / VIEW).read_text(encoding="utf-8")
+    assert "No floor metrics recorded." not in html
+    assert '<tr data-floor-key="chance_top1">' in html
+    assert "not recorded on run B" in html
+
+    def drop_floors(receipt):
+        receipt["metrics"]["floors"] = []
+
+    _restamp(out, mutate_receipt=drop_floors)
+    checked = _run_verify(out, fixtures)
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "receipt floor rows (0) != derived floor rows (1)" in checked.stderr
+
+
+def test_a_refused_metrics_object_verifies_beside_accepted_reports(tmp_path):
+    # "metrics": {} is refused once by the reader. The verifier reported it
+    # twice — at the top-level type check and again before reading the
+    # metrics — so a correct receipt failed verification.
+    fixtures = _copy_fixtures(tmp_path)
+    payload = json.loads((fixtures / "01-run-a.json").read_text(encoding="utf-8"))
+    payload["metrics"] = {}
+    (fixtures / "12-refused-metrics-object.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    out = tmp_path / "evidence"
+
+    built = _run_build(out, fixtures, extra=("--replay",))
+    assert built.returncode == 0, built.stdout + built.stderr
+    receipt = json.loads((out / RECEIPT).read_text(encoding="utf-8"))
+    excluded = {entry["file"]: entry["reasons"] for entry in receipt["excluded"]}
+    assert excluded["12-refused-metrics-object.json"] == [
+        "bad_field_type: metrics must be a list, not {}"
+    ]
+    assert receipt["compared"] == ["01-run-a.json", "02-run-b.json"]
+
+    checked = _run_verify(out, fixtures)
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
 def test_floorless_pair_states_its_emptiness(tmp_path):

@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from build import fixtures_root_label
 from report_reader import read_report
 
 
@@ -44,7 +45,9 @@ def collect(fixtures: Path) -> Dict[str, Any]:
             }
         )
     return {
-        "fixtures_root": fixtures.as_posix(),
+        # The same cwd-independent label the builder records, so the
+        # README's repo-root command reproduces the committed record.
+        "fixtures_root": fixtures_root_label(fixtures),
         "total": len(files),
         "accepted": accepted,
         "refused": refused,

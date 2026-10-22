@@ -73,6 +73,12 @@ comparable through a guessed default.
 - **metric** — per metric: key, unit, direction, role, precision and
   floor reference. Labels and help prose are not identity.
 
+Each run's value is shown in that run's own unit, and a shared metric
+whose identity differs names each differing field with both values
+(`unit: s vs ms`). The floor table covers every floor either report
+records: a floor the other report does not record reads `not recorded`
+on that side.
+
 ## Replay gate
 
 `build.py --replay` is a validate-before-write gate. It derives the view,
@@ -93,6 +99,18 @@ a fresh directory writes the view and receipt but no replay receipt —
 only a `--replay` run attests a byte-identical rebuild, so bare
 evidence is incomplete by contract until a deliberate `--replay
 --force` pass completes it.
+
+Builds into one output directory run one at a time: `build.py` holds an
+exclusive lock on `<out>/.build.lock` from the first gate check to the
+last write, so a second build checks the first one's finished evidence
+instead of racing it. Artifacts are written to `.staging-*` files and
+renamed into place only once all of them are written, so a failed write
+publishes nothing.
+
+The receipts record each `--fixtures` root relative to this directory
+when it lies inside it (`fixtures`, `fixtures-stress`) and as an absolute
+path otherwise, so the commands under Running produce the same receipts
+whether they run from the repository root or from here.
 
 The compared pair is always the first two accepted reports in one
 deterministic order across every `--fixtures` root: keyed by the

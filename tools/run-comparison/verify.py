@@ -153,6 +153,7 @@ def _bool_field(value: Any) -> bool:
 def _parse_fixture(path: Path) -> Dict[str, Any]:
     record: Dict[str, Any] = {
         "file": path.name,
+        "sha256": None,
         "accepted": False,
         "reasons": [],
         "value": None,
@@ -167,6 +168,9 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
     except OSError as error:
         record["reasons"].append("unreadable: {}".format(error))
         return record
+    # The digest checked against the receipt comes from the same read as
+    # the parse, so the two cannot describe different versions of a file.
+    record["sha256"] = _sha_bytes(data)
     try:
         value = json.loads(data.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as error:
@@ -326,9 +330,8 @@ def _parse_fixture(path: Path) -> Dict[str, Any]:
     metrics: List[Dict[str, Any]] = []
     raw_metrics = value["metrics"]
     if not isinstance(raw_metrics, list):
-        record["reasons"].append(
-            "bad_field_type: metrics must be a list, not {!r}".format(raw_metrics)
-        )
+        # Already refused by the top-level type check above; the reader
+        # names it once, so this derivation must too.
         raw_metrics = []
     seen_keys = set()
     for index, entry in enumerate(raw_metrics):
@@ -592,6 +595,36 @@ def _identity(metric: Dict[str, Any]) -> Tuple[Any, ...]:
     )
 
 
+def _identity_differences(a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
+    """The builder's per-field identity wording, derived independently."""
+
+    def plain(value: Any) -> str:
+        if value is None:
+            return "unrecorded"
+        return "empty" if value == "" else str(value)
+
+    def direction(value: bool) -> str:
+        return "higher is better" if value else "lower is better"
+
+    differences = []
+    for label, field, text in (
+        ("unit", "unit", plain),
+        ("direction", "higher_is_better", direction),
+        ("role", "role", plain),
+        ("precision", "precision", plain),
+        ("floor reference", "relates_to", plain),
+    ):
+        if a[field] != b[field]:
+            differences.append(
+                "{}: {} vs {}".format(label, text(a[field]), text(b[field]))
+            )
+    return differences
+
+
+def _with_unit(value: str, unit: Optional[str]) -> str:
+    return "{} {}".format(value, unit) if unit else value
+
+
 def _derive_analysis(
     a: Dict[str, Any], b: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -612,7 +645,38 @@ def _derive_analysis(
     b_by_key = {metric["key"]: metric for metric in b["metrics"]}
     shared: List[Dict[str, Any]] = []
     floors: List[Dict[str, Any]] = []
-    for key in sorted(set(a_by_key) & set(b_by_key)):
+    # A floor recorded by one report only still gets a floor row, with the
+    # other side's value "not recorded".
+    a_only_floors = {
+        key for key, metric in a_by_key.items()
+        if metric["role"] == "floor" and key not in b_by_key
+    }
+    b_only_floors = {
+        key for key, metric in b_by_key.items()
+        if metric["role"] == "floor" and key not in a_by_key
+    }
+    for key in sorted((set(a_by_key) & set(b_by_key)) | a_only_floors | b_only_floors):
+        if key in a_only_floors or key in b_only_floors:
+            metric = a_by_key[key] if key in a_only_floors else b_by_key[key]
+            value = _fmt(metric["value"], metric["precision"])
+            side_a = key in a_only_floors
+            floors.append(
+                {
+                    "key": key,
+                    "label": metric["label"] or key,
+                    "value_a": value if side_a else "not recorded",
+                    "value_b": value if not side_a else "not recorded",
+                    "unit_a": (metric["unit"] or "") if side_a else "",
+                    "unit_b": (metric["unit"] or "") if not side_a else "",
+                    "relates_to_a": (metric["relates_to"] or "") if side_a else "",
+                    "relates_to_b": (metric["relates_to"] or "") if not side_a else "",
+                    "differs": True,
+                    "value_differs": False,
+                    "identity_differs": False,
+                    "absent_on": "run B" if side_a else "run A",
+                }
+            )
+            continue
         metric_a, metric_b = a_by_key[key], b_by_key[key]
         if (metric_a["role"] == "floor") != (metric_b["role"] == "floor"):
             value_differs = (metric_a["value"], metric_a["precision"]) != (
@@ -676,6 +740,9 @@ def _derive_analysis(
             "label": metric_a["label"] or key,
             "run_a": _fmt(metric_a["value"], metric_a["precision"]),
             "run_b": _fmt(metric_b["value"], metric_b["precision"]),
+            "unit_a": metric_a["unit"],
+            "unit_b": metric_b["unit"],
+            "identity_differences": _identity_differences(metric_a, metric_b),
             "direction": direction,
         }
         if not comparable:
@@ -784,6 +851,28 @@ def _table_by_header(
     return None
 
 
+def _check_header(
+    failures: List[str],
+    table: Optional[Dict[str, Any]],
+    name: str,
+    expected: List[str],
+) -> None:
+    """Bind a table's full ordered header to the derived pair.
+
+    Tables are located by their first and last header cells, which say
+    nothing about which run each value column belongs to; a view with the
+    run labels swapped would otherwise verify.
+    """
+
+    if table is not None and table["header"] != expected:
+        _fail(
+            failures,
+            "the {} header reads {!r} != derived {!r}".format(
+                name, table["header"], expected
+            ),
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -840,9 +929,7 @@ def main() -> int:
         print("misrendered: the receipt does not parse as JSON ({})".format(error), file=sys.stderr)
         return 1
 
-    expected_inputs = [
-        (path.name, _sha_bytes(path.read_bytes())) for path in files
-    ]
+    expected_inputs = [(record["file"], record["sha256"]) for record in parsed]
     receipt_inputs = _inputs_list(receipt.get("inputs"))
     if receipt_inputs is None:
         _fail(failures, "the receipt records no well-formed inputs list")
@@ -978,11 +1065,10 @@ def main() -> int:
     elif isinstance(excluded_entries, list):
         # The reasons the reader refused each file, word for word: a
         # receipt that paraphrases a refusal is evidence that the reader
-        # did not write it.
-        derived_refusal_reasons = {
-            record["file"]: record["reasons"] for record in refused
-        }
-        for entry in excluded_entries:
+        # did not write it. Matched by position, not by name: the file
+        # list above already matched in order, and two roots may each
+        # hold a refused file of the same name.
+        for position, (entry, record) in enumerate(zip(excluded_entries, refused)):
             if not isinstance(entry, dict) or "reasons" not in entry:
                 _fail(
                     failures,
@@ -997,15 +1083,14 @@ def main() -> int:
                         entry.get("file")
                     ),
                 )
-            elif recorded_reasons != derived_refusal_reasons.get(
-                entry.get("file")
-            ):
+            elif recorded_reasons != record["reasons"]:
                 _fail(
                     failures,
-                    "receipt refusal reasons for {!r}: receipt {!r} != independently derived {!r}".format(
+                    "receipt refusal reasons for {!r} (excluded[{}]): receipt {!r} != independently derived {!r}".format(
                         entry.get("file"),
+                        position,
                         recorded_reasons,
-                        derived_refusal_reasons.get(entry.get("file")),
+                        record["reasons"],
                     ),
                 )
 
@@ -1094,7 +1179,16 @@ def main() -> int:
             ),
         )
     for derived_row, receipt_row in zip(derived["shared"], receipt_shared):
-        for field in ("key", "label", "run_a", "run_b", "direction"):
+        for field in (
+            "key",
+            "label",
+            "run_a",
+            "run_b",
+            "unit_a",
+            "unit_b",
+            "identity_differences",
+            "direction",
+        ):
             if receipt_row.get(field) != derived_row[field]:
                 _fail(
                     failures,
@@ -1133,12 +1227,13 @@ def main() -> int:
             "unit_b",
             "relates_to_a",
             "relates_to_b",
+            "absent_on",
         ):
-            if receipt_row.get(field) != derived_row[field]:
+            if receipt_row.get(field) != derived_row.get(field):
                 _fail(
                     failures,
                     "receipt floors[{}].{} = {!r} != derived {!r}".format(
-                        derived_row["key"], field, receipt_row.get(field), derived_row[field]
+                        derived_row["key"], field, receipt_row.get(field), derived_row.get(field)
                     ),
                 )
 
@@ -1223,7 +1318,14 @@ def main() -> int:
                 ),
             )
 
+    run_columns = [
+        "Run A ({})".format(expected_compared[0]),
+        "Run B ({})".format(expected_compared[1]),
+    ]
     metric_table = _table_by_header(page.tables, "Metric", "Difference")
+    _check_header(
+        failures, metric_table, "metric table", ["Metric", *run_columns, "Difference"]
+    )
     if metric_table is None:
         _fail(failures, "the metric table (Metric..Difference) is not rendered")
         metric_table = {"rows": []}
@@ -1254,18 +1356,34 @@ def main() -> int:
                 "metric row {} has {} cells, expected 4".format(derived_row["key"], len(cells)),
             )
             continue
-        if cells[1] != derived_row["run_a"]:
+        # Each value cell carries its own run's unit.
+        expected_a = _with_unit(derived_row["run_a"], derived_row["unit_a"])
+        expected_b = _with_unit(derived_row["run_b"], derived_row["unit_b"])
+        if cells[1] != expected_a:
             _fail(
                 failures,
                 "metric row {} run A cell {!r} != derived {!r}".format(
-                    derived_row["key"], cells[1], derived_row["run_a"]
+                    derived_row["key"], cells[1], expected_a
                 ),
             )
-        if cells[2] != derived_row["run_b"]:
+        if cells[2] != expected_b:
             _fail(
                 failures,
                 "metric row {} run B cell {!r} != derived {!r}".format(
-                    derived_row["key"], cells[2], derived_row["run_b"]
+                    derived_row["key"], cells[2], expected_b
+                ),
+            )
+        expected_sub = derived_row["key"]
+        if derived_row["identity_differences"]:
+            expected_sub += " · identity differs between the runs: " + "; ".join(
+                derived_row["identity_differences"]
+            )
+        if not cells[0].endswith(expected_sub):
+            _fail(
+                failures,
+                "metric row {} heading {!r} does not end with the derived "
+                "key and identity line {!r}".format(
+                    derived_row["key"], cells[0], expected_sub
                 ),
             )
         if derived_row["delta"] is None:
@@ -1281,6 +1399,9 @@ def main() -> int:
             )
 
     floor_table = _table_by_header(page.tables, "Metric", "Reference for")
+    _check_header(
+        failures, floor_table, "floor table", ["Metric", *run_columns, "Reference for"]
+    )
     if floor_table is None:
         if derived["floors"]:
             _fail(failures, "the floor table (Metric..Reference for) is not rendered")
@@ -1343,6 +1464,20 @@ def main() -> int:
                     "differ" if derived_row["value_differs"] else "match",
                 ),
             )
+        absent_on = derived_row.get("absent_on")
+        for side in ("run A", "run B"):
+            has_absent_chip = "not recorded on {}".format(side) in cells[3]
+            if has_absent_chip is not (absent_on == side):
+                _fail(
+                    failures,
+                    "floor row {} 'not recorded on {}' chip is {} but the "
+                    "floor is {}".format(
+                        derived_row["key"],
+                        side,
+                        "shown" if has_absent_chip else "absent",
+                        "missing there" if absent_on == side else "recorded there",
+                    ),
+                )
         has_identity_chip = "floor identity differs between the runs" in cells[3]
         if has_identity_chip is not derived_row["identity_differs"]:
             _fail(
@@ -1373,6 +1508,9 @@ def main() -> int:
         ):
             provenance_table = table
             break
+    _check_header(
+        failures, provenance_table, "provenance table", ["Field", *run_columns]
+    )
     if provenance_table is None:
         _fail(failures, "the recorded-provenance table (Field..Run B) is not rendered")
         provenance_table = {"rows": []}
