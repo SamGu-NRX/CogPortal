@@ -134,6 +134,9 @@ export function buildRunSummary(row: RunRow, primary: RunMetricRow | null): RunS
             consumedAttempt: false,
           }
         : null,
+    // Strict equality: archive rows store "archive" here (seed-staging-archive.sql)
+    // and were scored for real.
+    simulated: row.provider === "fixture",
   };
 }
 

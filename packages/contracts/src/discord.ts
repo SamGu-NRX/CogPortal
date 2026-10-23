@@ -68,7 +68,16 @@ export function portalRefusal(error: unknown): PortalRefusal | null {
 
 export interface PortalRpcContract {
   getBenchmarks(guildId: string): Promise<z.infer<typeof BenchmarkSchema>[]>;
-  getLeaderboard(guildId: string, benchmarkId?: string): Promise<z.infer<typeof LeaderboardSchema>>;
+  /**
+   * With `discordUserId`, the caller's team row is marked `isYou`, and with no
+   * `benchmarkId` the board is the one the team last ran on. The user comes
+   * last so a bot on this signature still works against a portal on the old one.
+   */
+  getLeaderboard(
+    guildId: string,
+    benchmarkId?: string,
+    discordUserId?: string,
+  ): Promise<z.infer<typeof LeaderboardSchema>>;
   getTeamStatus(guildId: string, discordUserId: string): Promise<DiscordTeamStatus>;
   getLocalReports(
     guildId: string,

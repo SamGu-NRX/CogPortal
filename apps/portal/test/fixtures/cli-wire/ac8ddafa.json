@@ -1,0 +1,438 @@
+{
+  "generatedBy": "apps/portal/test/fixtures/cli-wire/generate.py",
+  "pin": "ac8ddafa014ac72613bf8f291f945344a914cc63",
+  "requests": [
+    {
+      "body": {
+        "deviceCode": "dddddddddddddddddddddddddddddddddddddddd"
+      },
+      "path": "/api/v1/cli/device/token"
+    },
+    {
+      "body": {
+        "benchmarkIds": [
+          "vision-recognition"
+        ],
+        "checkedBenchmarkId": "vision-recognition",
+        "checks": [
+          "clone",
+          "environment"
+        ],
+        "cliVersion": "0.2.0",
+        "pythonVersion": "3.14.7",
+        "repositoryFullName": "cogworks-demo/face-finder",
+        "schemaVersion": 1,
+        "submissionIds": []
+      },
+      "path": "/api/v1/cli/setup/checks"
+    },
+    {
+      "body": {
+        "benchmarkId": "vision-recognition",
+        "benchmarkVersion": 1,
+        "command": "run",
+        "contractVersion": "cogworks.submissions.v2",
+        "diagnostics": [
+          "Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%.",
+          "Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%."
+        ],
+        "dirty": false,
+        "finishedAt": 1790000060000,
+        "metrics": [
+          {
+            "help": "The mean of known identification and the unknown lifecycle.",
+            "higherIsBetter": true,
+            "key": "recognition_score",
+            "label": "Recognition score",
+            "precision": 4,
+            "primary": true,
+            "role": "scored",
+            "unit": null,
+            "value": 0.875
+          },
+          {
+            "higherIsBetter": true,
+            "key": "chance_floor",
+            "label": "Chance",
+            "precision": 3,
+            "primary": false,
+            "relatesTo": "recognition_score",
+            "role": "floor",
+            "unit": null,
+            "value": 0.1
+          }
+        ],
+        "pluginVersion": "1",
+        "reportId": "local_00000000000000000000000000000001",
+        "repositoryFullName": "cogworks-demo/face-finder",
+        "repositoryId": null,
+        "sdkVersion": "0.2.0",
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "startedAt": 1790000000000,
+        "weightsUploaded": [
+          {
+            "path": "models/W_embed.npy",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "size": 411000
+          }
+        ],
+        "weightsUsed": [
+          "models/W_embed.npy"
+        ]
+      },
+      "path": "/api/v1/local-reports"
+    },
+    {
+      "body": {
+        "benchmarkId": "vision-recognition",
+        "benchmarkVersion": 1,
+        "branch": "main",
+        "clientRunId": "localrun_00000000000000000000000000000002",
+        "dirty": false,
+        "repositoryFullName": "cogworks-demo/face-finder",
+        "repositoryId": null,
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "path": "/api/v1/local-runs"
+    },
+    {
+      "body": {
+        "benchmarkId": "vision-recognition",
+        "benchmarkVersion": 1,
+        "branch": "main",
+        "clientRunId": "localrun_0000000000000000000000000000000b",
+        "dirty": false,
+        "repositoryFullName": "cogworks-demo/face-finder",
+        "repositoryId": null,
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "path": "/api/v1/local-runs"
+    },
+    {
+      "body": {
+        "code": "repository.ready",
+        "elapsedMs": 500,
+        "eventId": "localevent_00000000000000000000000000000003",
+        "occurredAt": 1790000000250,
+        "phase": "preparing",
+        "sequence": 0,
+        "type": "progress"
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events"
+    },
+    {
+      "body": {
+        "code": "contract.checking",
+        "elapsedMs": 1000,
+        "eventId": "localevent_00000000000000000000000000000004",
+        "occurredAt": 1790000000750,
+        "phase": "contract_check",
+        "sequence": 1,
+        "type": "progress"
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events"
+    },
+    {
+      "body": {
+        "code": "contract.passed",
+        "elapsedMs": 1500,
+        "eventId": "localevent_00000000000000000000000000000005",
+        "occurredAt": 1790000001250,
+        "phase": "contract_check",
+        "sequence": 2,
+        "type": "progress"
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events"
+    },
+    {
+      "body": {
+        "code": "evaluation.started",
+        "elapsedMs": 2000,
+        "eventId": "localevent_00000000000000000000000000000006",
+        "occurredAt": 1790000001750,
+        "phase": "evaluating",
+        "progress": {
+          "current": 0,
+          "total": 4,
+          "unit": "cases"
+        },
+        "sequence": 3,
+        "type": "progress"
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events"
+    },
+    {
+      "body": {
+        "code": "evaluation.progress",
+        "elapsedMs": 2500,
+        "eventId": "localevent_00000000000000000000000000000007",
+        "occurredAt": 1790000002250,
+        "phase": "evaluating",
+        "progress": {
+          "current": 4,
+          "total": 4,
+          "unit": "cases"
+        },
+        "sequence": 4,
+        "type": "progress"
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events"
+    },
+    {
+      "body": {
+        "code": "scoring.started",
+        "elapsedMs": 3000,
+        "eventId": "localevent_00000000000000000000000000000008",
+        "occurredAt": 1790000002750,
+        "phase": "scoring",
+        "sequence": 5,
+        "type": "progress"
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events"
+    },
+    {
+      "body": {
+        "elapsedMs": 3500,
+        "eventId": "localevent_0000000000000000000000000000000a",
+        "occurredAt": 1790000003250,
+        "report": {
+          "benchmarkId": "vision-recognition",
+          "benchmarkVersion": 1,
+          "command": "run",
+          "contractVersion": "cogworks.submissions.v2",
+          "diagnostics": [
+            "Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%.",
+            "Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%."
+          ],
+          "dirty": false,
+          "finishedAt": 1790000060000,
+          "metrics": [
+            {
+              "help": "The mean of known identification and the unknown lifecycle.",
+              "higherIsBetter": true,
+              "key": "recognition_score",
+              "label": "Recognition score",
+              "precision": 4,
+              "primary": true,
+              "role": "scored",
+              "unit": null,
+              "value": 0.875
+            },
+            {
+              "higherIsBetter": true,
+              "key": "chance_floor",
+              "label": "Chance",
+              "precision": 3,
+              "primary": false,
+              "relatesTo": "recognition_score",
+              "role": "floor",
+              "unit": null,
+              "value": 0.1
+            }
+          ],
+          "pluginVersion": "1",
+          "reportId": "local_00000000000000000000000000000009",
+          "repositoryFullName": "cogworks-demo/face-finder",
+          "repositoryId": null,
+          "sdkVersion": "0.2.0",
+          "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "startedAt": 1790000000000,
+          "weightsUploaded": [
+            {
+              "path": "models/W_embed.npy",
+              "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "size": 411000
+            }
+          ],
+          "weightsUsed": [
+            "models/W_embed.npy"
+          ]
+        },
+        "sequence": 6,
+        "type": "completed"
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events"
+    },
+    {
+      "body": {
+        "events": [
+          {
+            "code": "repository.ready",
+            "elapsedMs": 500,
+            "eventId": "localevent_00000000000000000000000000000003",
+            "occurredAt": 1790000000250,
+            "phase": "preparing",
+            "sequence": 0,
+            "type": "progress"
+          },
+          {
+            "code": "contract.checking",
+            "elapsedMs": 1000,
+            "eventId": "localevent_00000000000000000000000000000004",
+            "occurredAt": 1790000000750,
+            "phase": "contract_check",
+            "sequence": 1,
+            "type": "progress"
+          },
+          {
+            "code": "contract.passed",
+            "elapsedMs": 1500,
+            "eventId": "localevent_00000000000000000000000000000005",
+            "occurredAt": 1790000001250,
+            "phase": "contract_check",
+            "sequence": 2,
+            "type": "progress"
+          },
+          {
+            "code": "evaluation.started",
+            "elapsedMs": 2000,
+            "eventId": "localevent_00000000000000000000000000000006",
+            "occurredAt": 1790000001750,
+            "phase": "evaluating",
+            "progress": {
+              "current": 0,
+              "total": 4,
+              "unit": "cases"
+            },
+            "sequence": 3,
+            "type": "progress"
+          },
+          {
+            "code": "evaluation.progress",
+            "elapsedMs": 2500,
+            "eventId": "localevent_00000000000000000000000000000007",
+            "occurredAt": 1790000002250,
+            "phase": "evaluating",
+            "progress": {
+              "current": 4,
+              "total": 4,
+              "unit": "cases"
+            },
+            "sequence": 4,
+            "type": "progress"
+          },
+          {
+            "code": "scoring.started",
+            "elapsedMs": 3000,
+            "eventId": "localevent_00000000000000000000000000000008",
+            "occurredAt": 1790000002750,
+            "phase": "scoring",
+            "sequence": 5,
+            "type": "progress"
+          },
+          {
+            "elapsedMs": 3500,
+            "eventId": "localevent_0000000000000000000000000000000a",
+            "occurredAt": 1790000003250,
+            "report": {
+              "benchmarkId": "vision-recognition",
+              "benchmarkVersion": 1,
+              "command": "run",
+              "contractVersion": "cogworks.submissions.v2",
+              "diagnostics": [
+                "Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%.",
+                "Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%. Known faces are identified at 92%."
+              ],
+              "dirty": false,
+              "finishedAt": 1790000060000,
+              "metrics": [
+                {
+                  "help": "The mean of known identification and the unknown lifecycle.",
+                  "higherIsBetter": true,
+                  "key": "recognition_score",
+                  "label": "Recognition score",
+                  "precision": 4,
+                  "primary": true,
+                  "role": "scored",
+                  "unit": null,
+                  "value": 0.875
+                },
+                {
+                  "higherIsBetter": true,
+                  "key": "chance_floor",
+                  "label": "Chance",
+                  "precision": 3,
+                  "primary": false,
+                  "relatesTo": "recognition_score",
+                  "role": "floor",
+                  "unit": null,
+                  "value": 0.1
+                }
+              ],
+              "pluginVersion": "1",
+              "reportId": "local_00000000000000000000000000000009",
+              "repositoryFullName": "cogworks-demo/face-finder",
+              "repositoryId": null,
+              "sdkVersion": "0.2.0",
+              "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "startedAt": 1790000000000,
+              "weightsUploaded": [
+                {
+                  "path": "models/W_embed.npy",
+                  "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "size": 411000
+                }
+              ],
+              "weightsUsed": [
+                "models/W_embed.npy"
+              ]
+            },
+            "sequence": 6,
+            "type": "completed"
+          }
+        ]
+      },
+      "path": "/api/v1/local-runs/localrun_00000000000000000000000000000002/events/batch"
+    },
+    {
+      "body": {
+        "code": "repository.ready",
+        "elapsedMs": 500,
+        "eventId": "localevent_0000000000000000000000000000000c",
+        "occurredAt": 1790000004000,
+        "phase": "preparing",
+        "sequence": 0,
+        "type": "progress"
+      },
+      "path": "/api/v1/local-runs/localrun_0000000000000000000000000000000b/events"
+    },
+    {
+      "body": {
+        "code": "run.failed.timeout",
+        "elapsedMs": 1000,
+        "eventId": "localevent_0000000000000000000000000000000d",
+        "occurredAt": 1790000004500,
+        "phase": "preparing",
+        "sequence": 1,
+        "type": "failed"
+      },
+      "path": "/api/v1/local-runs/localrun_0000000000000000000000000000000b/events"
+    },
+    {
+      "body": {
+        "events": [
+          {
+            "code": "repository.ready",
+            "elapsedMs": 500,
+            "eventId": "localevent_0000000000000000000000000000000c",
+            "occurredAt": 1790000004000,
+            "phase": "preparing",
+            "sequence": 0,
+            "type": "progress"
+          },
+          {
+            "code": "run.failed.timeout",
+            "elapsedMs": 1000,
+            "eventId": "localevent_0000000000000000000000000000000d",
+            "occurredAt": 1790000004500,
+            "phase": "preparing",
+            "sequence": 1,
+            "type": "failed"
+          }
+        ]
+      },
+      "path": "/api/v1/local-runs/localrun_0000000000000000000000000000000b/events/batch"
+    }
+  ],
+  "role": "alpha setup pin"
+}

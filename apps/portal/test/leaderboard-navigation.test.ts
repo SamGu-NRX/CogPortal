@@ -274,7 +274,7 @@ function boardEntry(teamName: string, completedAt: number, overall: number, extr
     rank: 0, teamName, teamDescription: null, provenance: "live", repoUrl: null,
     sha: "a".repeat(40), shortSha: "aaaaaaa",
     primaryMetric: boardMetric("overall", "Overall", overall, "scored", true),
-    supportingMetrics: [], completedAt, isYou: false, ...extra,
+    supportingMetrics: [], completedAt, isYou: false, simulated: false, ...extra,
   };
 }
 

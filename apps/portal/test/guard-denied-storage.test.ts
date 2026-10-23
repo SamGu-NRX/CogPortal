@@ -25,10 +25,14 @@ const STUDENT_WITHOUT_TEAM = {
 
 async function mountGuard(t: TestContext, entry: string) {
   const window = new Window({ url: `https://portal.example${entry}` });
+  const requests: string[] = [];
   const globals = {
     window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, Element: window.Element, React, IS_REACT_ACT_ENVIRONMENT: true,
-    fetch: async () => Response.json(STUDENT_WITHOUT_TEAM),
+    fetch: async (path: string) => {
+      requests.push(path);
+      return path.endsWith("/hold") ? new Response(null, { status: 204 }) : Response.json(STUDENT_WITHOUT_TEAM);
+    },
   };
   const previous = new Map(
     [...Object.keys(globals), "sessionStorage"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -74,12 +78,13 @@ async function mountGuard(t: TestContext, entry: string) {
       ),
     ),
   ));
-  return { container };
+  return { container, requests };
 }
 
 for (const entry of ["/connections?user_code=ABCD-EFGH-IJKL", "/connections#discord=state-token"]) {
   test(`denied storage still sends a student who owes a team from ${entry} to /connect`, async (t) => {
-    const { container } = await mountGuard(t, entry);
+    const { container, requests } = await mountGuard(t, entry);
     assert.equal(container.textContent, "connect page");
+    assert.deepEqual(requests, entry.includes("user_code=") ? ["/api/v1/cli/device/hold"] : []);
   });
 }

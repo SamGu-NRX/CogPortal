@@ -10,7 +10,8 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 from cogbench.models import LocalReport, RepositoryState  # noqa: E402
 from cogbench.report import render_check, render_survey  # noqa: E402
 from cogbench.resolve import Attempt, Submission  # noqa: E402
-from cogbench.verdict import Observation, not_wired, scored  # noqa: E402
+from cogbench.verdict import Coverage, Observation, Verdict, not_wired, scored  # noqa: E402
+from cogbench.raised import Raised  # noqa: E402
 
 SURVEY = {
     "root": "/tmp/team/Week1",
@@ -254,6 +255,59 @@ class CheckTests(unittest.TestCase):
             )
         )
         self.assertNotIn("hosted python", text)
+
+    def test_long_verdict_prose_and_problems_wrap_to_terminal_width(self):
+        long_text = "This is a long diagnostic sentence " * 5
+        verdict = Verdict(
+            status="not_read",
+            headline=long_text,
+            next_step=long_text,
+            notes=(long_text,),
+            coverage=Coverage(skipped=(("student_module.py", long_text, "theirs"),)),
+            errors=(Raised("student_module.py", 42, "build", long_text),),
+        )
+        text = "\n".join(render_check(
+            benchmark="fixture",
+            python_version="3.11",
+            hosted_python=None,
+            benchmark_ready=True,
+            repository="team/repo",
+            submission=Submission(verdict).report(),
+        ))
+
+        self.assertTrue(all(len(line) <= 78 for line in text.splitlines()))
+        flat = " ".join(text.split())
+        self.assertGreaterEqual(flat.count("This is a long diagnostic sentence"), 4)
+        self.assertIn("Could not read:", text)
+        self.assertIn("Raised while trying:", text)
+
+    def test_wrapping_keeps_commands_and_urls_together(self):
+        command = (
+            "`python student_module.py --input data/raw/very-long-input-file-name.json "
+            "--output predictions/very-long-output-file-name.json`"
+        )
+        url = "https://example.com/" + "very-long-path-segment/" * 5
+        prose = "Please read this diagnostic sentence carefully " * 4
+        next_step = "{} {} {}".format(prose, command, url)
+        verdict = Verdict("not_wired", "The check needs another look.", next_step=next_step)
+        text = "\n".join(render_check(
+            benchmark="fixture",
+            python_version="3.11",
+            hosted_python=None,
+            benchmark_ready=True,
+            repository="team/repo",
+            submission=Submission(verdict).report(),
+        ))
+
+        self.assertIn(command, text)
+        self.assertIn(url, text)
+        lines = text.splitlines()
+        self.assertTrue(any(len(line) < 78 for line in lines))
+        command_line = next(line for line in lines if command in line)
+        url_line = next(line for line in lines if url in line)
+        self.assertIn("--output predictions/very-long-output-file-name.json`", command_line)
+        self.assertEqual(url_line, url)
+        self.assertTrue(all(len(line) <= 78 or line in (command, url) for line in lines))
 
     def test_a_refusal_ends_with_the_next_step_and_no_run_command(self):
         submission = Submission(
