@@ -998,7 +998,10 @@ try:
                 # submission against the restored course loader, which downloads
                 # and cannot reach the network here, and sent its output past the
                 # capture buffer.
-                predictions = list(benchmark.run(factory, model, cases))
+                predictions = []
+                for index, prediction in enumerate(benchmark.run(factory, model, cases), 1):
+                    predictions.append(prediction)
+                    print("COG_PROGRESS: {}".format(index), file=sys.__stdout__, flush=True)
         if len(predictions) != len(cases):
             raise RuntimeError("Submission returned the wrong number of scenario outputs.")
     else:
@@ -1766,8 +1769,47 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
             _terminate_sandbox(sandbox, "evaluating")
 
 
+def _read_v2_progress(
+    process: Any,
+    reporter: Any,
+    total: int,
+    clock: Any = time.monotonic,
+    throttle_seconds: float = 0.25,
+) -> None:
+    """Forward trusted progress syntax while the sandbox is still running.
+
+    The sandbox owns only the number in a progress event. Invalid lines and
+    values outside this run's case count do not affect evaluation or failure
+    handling. The controller also refuses to move backwards and limits callback
+    traffic using the controller's monotonic clock.
+    """
+    last = 0
+    last_sent_at = None
+    stream = process.stdout
+    for raw_line in stream:
+        if isinstance(raw_line, bytes):
+            line = raw_line.decode("utf-8", "replace")
+        else:
+            line = raw_line
+        if not line.startswith("COG_PROGRESS: "):
+            continue
+        try:
+            current = int(line[len("COG_PROGRESS: "):].strip())
+        except (TypeError, ValueError):
+            continue
+        current = max(0, min(total, current))
+        if current <= last:
+            continue
+        now = clock()
+        if last_sent_at is not None and current != total and now - last_sent_at < throttle_seconds:
+            continue
+        reporter.status("evaluating", current, total)
+        last = current
+        last_sent_at = now
+
+
 def _evaluate_v2(
-    job: Dict[str, Any], snapshot_id: str, cases: List[Any]
+    job: Dict[str, Any], snapshot_id: str, cases: List[Any], reporter: Any = None
 ) -> Tuple[List[Any], str]:
     from cogworks_runner.week2_payload import encode_cases
 
@@ -1798,6 +1840,8 @@ def _evaluate_v2(
             # Strict UTF-8 text mode turns one invalid byte into a provider failure.
             text=False,
         )
+        if reporter is not None:
+            _read_v2_progress(process, reporter, len(cases))
         process.wait()
         if process.returncode != 0:
             raise _evaluation_failure(job, process, started)
@@ -2429,7 +2473,7 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
             elif week3:
                 predictions, student_log = _evaluate_week3(job, snapshot_id, cases)
             elif benchmark.contract_version == "cogworks.submissions.v2":
-                predictions, student_log = _evaluate_v2(job, snapshot_id, cases)
+                predictions, student_log = _evaluate_v2(job, snapshot_id, cases, reporter)
             else:
                 predictions, student_log = _evaluate(job, snapshot_id, inputs)
         reporter.status("evaluating", case_count, case_count)
