@@ -40,9 +40,11 @@ import { sha256Hex } from "../util/crypto";
 const DEVICE_AUTH_TTL_MS = 10 * 60 * 1000;
 const DEVICE_TOKEN_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
-// This limit is a defensive choice, not a measurement of normal CLI usage.
+// Five requests per user per minute is a defensive choice, not a measurement
+// of normal CLI usage.
 const CLI_DEVICE_RATE_LIMIT = 5;
-// This global cap is a defensive choice, not a measurement of normal usage.
+// One hundred approval requests per minute globally is a defensive choice, not
+// a measurement of normal usage.
 const CLI_DEVICE_APPROVE_GLOBAL_LIMIT = 100;
 const CLI_DEVICE_RATE_WINDOW_MS = 60_000;
 
