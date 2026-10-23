@@ -203,6 +203,29 @@ class RunnerProgressTests(unittest.TestCase):
             self.assertEqual([event["type"] for event in events], ["failed"])
             self.assertEqual(live.sequence, 1)
 
+    def test_v2_progress_advances_as_cases_finish(self):
+        class ManyCases(_V2Benchmark):
+            def load_cases(self, tier):
+                return list(range(25))
+
+            def run(self, factory, model, cases):
+                for case in cases:
+                    yield {"known": [case]}
+
+            def score(self, outputs, cases):
+                raise RuntimeError("stop after progress")
+
+        counts = []
+        with self.assertRaisesRegex(RuntimeError, "stop after progress"):
+            _execute_v2(
+                ManyCases(), object(), Path(tempfile.gettempdir()), smoke=True,
+                progress=lambda phase, current=None, total=None: counts.append(current)
+                if phase == "evaluating" else None,
+                model_factory=lambda: object(),
+            )
+        self.assertEqual(counts, [0, 10, 20, 25])
+        self.assertLessEqual(len(counts), 4)
+
     def test_v2_runner_uses_raw_factory_and_benchmark_driver(self):
         benchmark = _V2Benchmark()
         factory = object()
