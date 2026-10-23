@@ -804,30 +804,59 @@ class BoundedBuffer(io.TextIOBase):
                     self.dropped += excess
         return written
     def value(self):
+        head = "".join(self.head)
+        tail = "".join(self.tail)
+        if not self.dropped:
+            return head + tail
+
+        # Keep the complete retained ends here. wire_value() applies the
+        # receiver cap only when this text crosses the process boundary.
+        marker = "\n[{} characters omitted]\n".format(self.dropped)
+        return head + marker + tail
+
+    def wire_value(self):
+        value = self.value()
         units = lambda text: sum(2 if ord(character) > 0xFFFF else 1 for character in text)
-        def take(text, budget):
+        if units(value) <= self.limit:
+            return value
+
+        marker_start = value.find("\n[")
+        marker_end = value.find("]\n", marker_start)
+        if marker_start < 0 or marker_end < 0:
+            return value[:self.limit]
+        marker_end += 2
+        marker = value[marker_start:marker_end]
+        budget = max(0, self.limit - units(marker))
+
+        def take_start(text, available):
             kept = []
             used = 0
             for character in text:
                 width = 2 if ord(character) > 0xFFFF else 1
-                if used + width > budget:
+                if used + width > available:
                     break
                 kept.append(character)
                 used += width
             return "".join(kept)
 
-        head = "".join(self.head)
-        tail = "".join(self.tail)
-        if not self.dropped:
-            return take(head + tail, self.limit)
+        def take_end(text, available):
+            kept = []
+            used = 0
+            for character in reversed(text):
+                width = 2 if ord(character) > 0xFFFF else 1
+                if used + width > available:
+                    break
+                kept.append(character)
+                used += width
+            return "".join(reversed(kept))
 
-        # The portal caps sanitizedLog in UTF-16 code units, while this buffer
-        # caps Python characters. Reserve room for the omission marker first,
-        # then split the remaining budget between the head and tail.
-        marker = "\n[{} characters omitted]\n".format(self.dropped)
-        budget = max(0, self.limit - units(marker))
-        head_budget = min(units(head), budget // 2)
-        return take(head, head_budget) + marker + take(tail, budget - head_budget)
+        tail_budget = min(units(value[marker_end:]), budget)
+        head_budget = max(0, budget - tail_budget)
+        return (
+            take_start(value[:marker_start], head_budget)
+            + marker
+            + take_end(value[marker_end:], tail_budget)
+        )
 
 benchmark_id = sys.argv[1]
 limit = int(sys.argv[2])
@@ -1070,7 +1099,7 @@ except Exception as error:
     # stderr file descriptor. Student code can write arbitrary bytes to that
     # descriptor, so the controller treats only this trailing marker as a log.
     sys.stderr.flush()
-    os.write(2, "COG_LOG: {}\n".format(json.dumps(buffer.value())).encode("utf-8"))
+    os.write(2, "COG_LOG: {}\n".format(json.dumps(buffer.wire_value())).encode("utf-8"))
     raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
 # 8 MiB was sized when the Week 3 sandbox ran six cases with one retrieval
