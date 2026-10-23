@@ -97,12 +97,13 @@ class TheSandboxSaysWhatRaisedAndWhere(unittest.TestCase):
     def test_a_failed_harness_log_stays_within_the_receiver_cap(self):
         stderr = _run_team("""
             def predict(inputs):
-                print("x" * 8192)
+                print("x" * 20000)
                 raise ValueError("bad")
         """)
         log_line = next(line for line in stderr.splitlines() if line.startswith("COG_LOG: "))
         log = json.loads(log_line[len("COG_LOG: "):])
         self.assertLessEqual(_units(log), 8 * 1024)
+        self.assertIn("characters omitted", log)
 
     def test_an_exception_in_benchmark_code_names_it_and_the_team_line_that_called_it(self):
         """B-44's shape: the line that raised was not the team's."""
