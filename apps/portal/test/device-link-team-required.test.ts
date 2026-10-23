@@ -136,6 +136,7 @@ test("device hold and failed approval limits are per signed-in user", async (t) 
     assert.equal((await h.post("/v1/cli/device/hold", { userCode }, true)).status, 204);
   }
   const before = h.authorization(userCode);
+  assert.equal((await h.post("/v1/cli/device/hold", { userCode }, true)).status, 429);
   for (let index = 0; index < 5; index += 1) {
     assert.equal((await h.post("/v1/cli/device/approve", { userCode: "UNKNOWN", deviceName: "Laptop" }, true)).status, 410);
   }
@@ -175,6 +176,10 @@ test("a legitimate approval works while another user is failed-approval limited"
     "rate_user", `cli-device-failed-approve:${h.userId}`, 5, Date.now(),
   );
   const start = await h.post("/v1/cli/device/start", {});
+  const limited = await h.post("/v1/cli/device/approve", {
+    userCode: "UNKNOWN", deviceName: "Laptop",
+  }, true);
+  assert.equal(limited.status, 429);
   const approved = await h.post("/v1/cli/device/approve", {
     userCode: start.body.userCode, deviceName: "Laptop",
   }, h.secondCookie);
