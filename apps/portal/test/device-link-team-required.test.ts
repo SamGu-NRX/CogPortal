@@ -89,6 +89,7 @@ async function harness(t: TestContext) {
     body: { email: "grace@users.noreply.github.com", password: "cogportal-local-dev-password", name: "Grace" },
     returnHeaders: true,
   });
+  const secondUserId = secondSignedIn.response.user.id;
   const secondCookie = secondSignedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
 
   const send = (path: string, init: RequestInit = {}, sessionCookie: string | boolean = "") => app.fetch(
@@ -120,38 +121,64 @@ async function harness(t: TestContext) {
       repoId: FIXTURE_REPO.repositoryId, discordChannelId: "channel_a",
     });
     await db.insert(teamMembers).values({ teamId: "team_a", userId, role: "write" });
+    await db.update(users).set({ cohortId: "cohort_test" }).where(eq(users.id, secondUserId));
+    await db.insert(teamMembers).values({ teamId: "team_a", userId: secondUserId, role: "write" });
   };
   const authorization = (code: string) => sqlite.prepare("SELECT * FROM device_authorizations WHERE user_code = ?").get(code);
-  return { post, send, joinTeam, sqlite, authorization, secondCookie };
+  return { post, send, joinTeam, sqlite, authorization, secondCookie, userId, secondUserId };
 }
 
-test("device approval and hold calls rate-limit per signed-in user without changing a held code", async (t) => {
+test("device hold and failed approval limits are per signed-in user", async (t) => {
   const h = await harness(t);
   const start = await h.post("/v1/cli/device/start", {});
   const userCode = start.body.userCode as string;
-
   for (let index = 0; index < 5; index += 1) {
     assert.equal((await h.post("/v1/cli/device/hold", { userCode }, true)).status, 204);
   }
   const before = h.authorization(userCode);
+  for (let index = 0; index < 5; index += 1) {
+    assert.equal((await h.post("/v1/cli/device/approve", { userCode: "UNKNOWN", deviceName: "Laptop" }, true)).status, 410);
+  }
   const limited = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
   assert.equal(limited.status, 429);
   assert.deepEqual(h.authorization(userCode), before, "the rejected request must not approve or alter the code");
-
   assert.equal((await h.post("/v1/cli/device/hold", { userCode }, h.secondCookie)).status, 204);
 });
 
-test("the global approval cap rejects a request before it can bind a code", async (t) => {
+test("N+1 failed approvals burn a pending code", async (t) => {
   const h = await harness(t);
   const start = await h.post("/v1/cli/device/start", {});
   const userCode = start.body.userCode as string;
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal((await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true)).status, 403);
+  }
+  const burned = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
+  assert.equal(burned.status, 410);
+  assert.notEqual(h.authorization(userCode).consumed_at, null);
+});
+
+test("a successful approval does not consume the failed-approval budget", async (t) => {
+  const h = await harness(t);
+  await h.joinTeam();
+  const start = await h.post("/v1/cli/device/start", {});
+  const userCode = start.body.userCode as string;
+  const approved = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
+  assert.equal(approved.status, 200);
+  const retry = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
+  assert.equal(retry.status, 200);
+});
+
+test("a legitimate approval works while another user is failed-approval limited", async (t) => {
+  const h = await harness(t);
+  await h.joinTeam();
   h.sqlite.prepare("INSERT INTO rate_limits (id, key, count, last_request) VALUES (?, ?, ?, ?)").run(
-    "rate_global", "cli-device-approve:global", 100, Date.now(),
+    "rate_user", `cli-device-failed-approve:${h.userId}`, 5, Date.now(),
   );
-  const before = h.authorization(userCode);
-  const response = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
-  assert.equal(response.status, 429);
-  assert.deepEqual(h.authorization(userCode), before);
+  const start = await h.post("/v1/cli/device/start", {});
+  const approved = await h.post("/v1/cli/device/approve", {
+    userCode: start.body.userCode, deviceName: "Laptop",
+  }, h.secondCookie);
+  assert.equal(approved.status, 200);
 });
 
 test("an approval refused for no team is reported to the polling CLI and the code still links", async (t) => {

@@ -40,27 +40,30 @@ import { sha256Hex } from "../util/crypto";
 const DEVICE_AUTH_TTL_MS = 10 * 60 * 1000;
 const DEVICE_TOKEN_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
-// Five requests per user per minute is a defensive choice, not a measurement
-// of normal CLI usage.
-const CLI_DEVICE_RATE_LIMIT = 5;
-// One hundred approval requests per minute globally is a defensive choice, not
-// a measurement of normal usage.
-const CLI_DEVICE_APPROVE_GLOBAL_LIMIT = 100;
+// Five hold requests per user per minute is a defensive choice, not a
+// measurement of normal CLI usage.
+const CLI_DEVICE_HOLD_RATE_LIMIT = 5;
+// Five failed approvals per user per minute is a defensive choice, not a
+// measurement of normal CLI usage.
+const CLI_DEVICE_FAILED_APPROVE_RATE_LIMIT = 5;
+// Four failed approvals against one code burn it. This is a defensive choice,
+// not a measurement of normal CLI usage.
+const CLI_DEVICE_CODE_FAILURE_LIMIT = 3;
 const CLI_DEVICE_RATE_WINDOW_MS = 60_000;
 
-async function enforceCliDeviceRateLimit(
+async function incrementRateLimit(
   db: ReturnType<typeof getDb>,
   key: string,
-  limit: number,
+  windowMs: number,
   now: number,
-): Promise<void> {
+): Promise<number> {
   await db
     .insert(rateLimits)
     .values({ id: newId("rate_", 8), key, count: 1, lastRequest: now })
     .onConflictDoUpdate({
       target: rateLimits.key,
       set: {
-        count: sql`CASE WHEN ${rateLimits.lastRequest} <= ${now - CLI_DEVICE_RATE_WINDOW_MS} THEN 1 ELSE ${rateLimits.count} + 1 END`,
+        count: sql`CASE WHEN ${rateLimits.lastRequest} <= ${now - windowMs} THEN 1 ELSE ${rateLimits.count} + 1 END`,
         lastRequest: now,
       },
     });
@@ -69,10 +72,54 @@ async function enforceCliDeviceRateLimit(
     .from(rateLimits)
     .where(eq(rateLimits.key, key))
     .limit(1);
-  const count = entry?.count ?? 0;
-  if (count > limit) {
+  return entry?.count ?? 0;
+}
+
+async function enforceCliDeviceHoldRateLimit(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  now: number,
+): Promise<void> {
+  if ((await incrementRateLimit(db, `cli-device-hold:${userId}`, CLI_DEVICE_RATE_WINDOW_MS, now)) > CLI_DEVICE_HOLD_RATE_LIMIT) {
     throw new ApiHttpError(429, "invalid_request", "Too many device link requests. Try again shortly.");
   }
+}
+
+async function recordFailedApprove(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  userCode: string,
+  now: number,
+): Promise<boolean> {
+  const codeFailures = await incrementRateLimit(
+    db,
+    `cli-device-failed-code:${userCode}`,
+    DEVICE_AUTH_TTL_MS,
+    now,
+  );
+  if (codeFailures > CLI_DEVICE_CODE_FAILURE_LIMIT) {
+    await db
+      .update(deviceAuthorizations)
+      .set({ consumedAt: now })
+      .where(
+        and(
+          eq(deviceAuthorizations.userCode, userCode),
+          gt(deviceAuthorizations.expiresAt, now),
+          isNull(deviceAuthorizations.approvedAt),
+          isNull(deviceAuthorizations.consumedAt),
+        ),
+      );
+  }
+  const userFailures = await incrementRateLimit(
+    db,
+    `cli-device-failed-approve:${userId}`,
+    CLI_DEVICE_RATE_WINDOW_MS,
+    now,
+  );
+  if (userFailures > CLI_DEVICE_FAILED_APPROVE_RATE_LIMIT) {
+    throw new ApiHttpError(429, "invalid_request", "Too many failed device approvals. Try again shortly.");
+  }
+  return codeFailures > CLI_DEVICE_CODE_FAILURE_LIMIT;
 }
 
 function portalOrigin(url: string, configured?: string): string {
@@ -206,12 +253,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/cli/device/hold", async (c) => {
     const auth = await requireUser(c);
     const body = await parseBody(c, HoldDeviceRequestSchema);
-    await enforceCliDeviceRateLimit(
-      getDb(c.env),
-      `cli-device:${auth.user.id}`,
-      CLI_DEVICE_RATE_LIMIT,
-      Date.now(),
-    );
+    await enforceCliDeviceHoldRateLimit(getDb(c.env), auth.user.id, Date.now());
     if (!auth.team) {
       // The stage guard redirects before approval can render. Tell the CLI
       // why it is waiting, without approving or reserving the code for anyone.
@@ -235,20 +277,32 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
     const signedIn = await requireUser(c);
     const body = await parseBody(c, ApproveDeviceRequestSchema);
     const db = getDb(c.env);
-    await enforceCliDeviceRateLimit(
-      db,
-      `cli-device:${signedIn.user.id}`,
-      CLI_DEVICE_RATE_LIMIT,
-      Date.now(),
-    );
-    await enforceCliDeviceRateLimit(
-      db,
-      "cli-device-approve:global",
-      CLI_DEVICE_APPROVE_GLOBAL_LIMIT,
-      Date.now(),
-    );
     const now = Date.now();
+    const [pending] = await db
+      .select({
+        expiresAt: deviceAuthorizations.expiresAt,
+        approvedAt: deviceAuthorizations.approvedAt,
+        consumedAt: deviceAuthorizations.consumedAt,
+        userId: deviceAuthorizations.userId,
+      })
+      .from(deviceAuthorizations)
+      .where(eq(deviceAuthorizations.userCode, body.userCode))
+      .limit(1);
+    const isPending = Boolean(
+      pending && pending.expiresAt > now && pending.approvedAt === null && pending.consumedAt === null,
+    );
+    if (pending?.approvedAt && pending.userId === signedIn.user.id) {
+      return c.json({ ok: true }, 200);
+    }
+    if (!isPending) {
+      await recordFailedApprove(db, signedIn.user.id, body.userCode, now);
+      throw new ApiHttpError(410, "link_expired", "The device code is invalid, expired, or already used.");
+    }
     if (!signedIn.team) {
+      const burned = await recordFailedApprove(db, signedIn.user.id, body.userCode, now);
+      if (burned) {
+        throw new ApiHttpError(410, "link_expired", "The device code is invalid, expired, or already used.");
+      }
       // Refused, but the code stays open: joining a team and reopening the
       // link still completes it. Recording the refusal lets the waiting CLI
       // say so instead of polling in silence until the code expires.
