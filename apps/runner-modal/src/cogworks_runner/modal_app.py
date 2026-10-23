@@ -1304,13 +1304,23 @@ class LiveReporter:
                 self.sequence += 1
             _post_event(self.job, _event(self.job, sequence, event_type, **fields))
 
-    def build(self, event_type: str, **fields: Any) -> Dict[str, Any]:
+    def flush(self) -> None:
+        """Wait until the callback currently being sent has finished."""
+
+        with self.sending:
+            return
+
+    def build(self, event_type: str, flush: bool = False, **fields: Any) -> Dict[str, Any]:
         """Claim this event's place in the sequence without sending it.
 
         For a terminal event, which is stored before it is sent so that a
-        delivery which never lands can be replayed instead of lost.
+        delivery which never lands can be replayed instead of lost. Normal
+        failures flush a live status callback first; interruption skips that
+        wait because Modal may stop the input before the callback returns.
         """
 
+        if flush:
+            self.flush()
         with self.lock:
             self.finished = True
             sequence = self.sequence
@@ -1590,6 +1600,8 @@ def _terminate_sandbox(sandbox: modal.Sandbox, phase: str) -> None:
 
 def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str, Any]]:
     sandbox = None
+    phase = "preparing"
+    started = time.time()
     try:
         callback = urlsplit(job["callback"]["url"])
         portal_origin = "{}://{}".format(callback.scheme, callback.netloc)
@@ -1645,6 +1657,14 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
         )
         pristine.wait()
         if pristine.returncode != 0:
+            if _timed_out(job, started):
+                raise RunnerFailure(
+                    "timeout", "preparing",
+                    "Preparation ran past its {} second budget and was stopped.".format(
+                        job["runtime"]["timeoutSeconds"]
+                    ),
+                    False,
+                )
             raise RunnerFailure(
                 "provider", "preparing",
                 "The published environment cannot establish its execution contract.", True,
@@ -1658,7 +1678,8 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
                 "The published environment does not satisfy the current execution contract.", True,
             ) from error
         sandbox.filesystem.write_text(PREPARE_SCRIPT, "/tmp/cog-prepare.py")
-        reporter.status("installing")
+        phase = "installing"
+        reporter.status(phase)
         with StatusHeartbeat(reporter, "installing"):
             process = sandbox.exec(
                 _student_python(job),
@@ -1678,7 +1699,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             if _timed_out(job, started):
                 raise RunnerFailure(
                     "timeout",
-                    "preparing",
+                    "installing",
                     "Preparation ran past its {} second budget and was stopped.".format(
                         job["runtime"]["timeoutSeconds"]
                     ),
@@ -1718,9 +1739,18 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
     except RunnerFailure:
         raise
     except Exception as error:
+        if _timed_out(job, started):
+            raise RunnerFailure(
+                "timeout",
+                phase,
+                "Preparation ran past its {} second budget and was stopped.".format(
+                    job["runtime"]["timeoutSeconds"]
+                ),
+                False,
+            ) from error
         raise RunnerFailure(
             "provider",
-            "preparing",
+            phase,
             "Preparation provider failed: {}".format(str(error)[:180]),
             True,
         ) from error
@@ -2578,6 +2608,7 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
             infrastructure = True
         failed = reporter.build(
             "failed",
+            flush=True,
             failure={
                 "category": category,
                 "phase": failure_phase,
