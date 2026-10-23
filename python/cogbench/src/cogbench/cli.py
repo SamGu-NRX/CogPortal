@@ -942,16 +942,17 @@ class _LiveRun:
         try:
             self._events.put_nowait((event, done))
         except queue.Full:
-            if terminal:
-                # Progress may be dropped; reserve a queue slot for the final
-                # event without blocking while holding the state lock.
-                try:
-                    self._events.get_nowait()
-                except queue.Empty:
-                    pass  # The sender already made room.
-                else:
-                    self._events.task_done()
-                self._events.put_nowait((event, done))
+            if not terminal:
+                return None
+            # Progress may be dropped; reserve a queue slot for the final
+            # event without blocking while holding the state lock.
+            try:
+                self._events.get_nowait()
+            except queue.Empty:
+                pass  # The sender already made room.
+            else:
+                self._events.task_done()
+            self._events.put_nowait((event, done))
         return done
 
     def _send_loop(self) -> None:
