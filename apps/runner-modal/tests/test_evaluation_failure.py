@@ -319,20 +319,43 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
                 self.assertIsNone(failure.sanitized_log)
                 self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
 
-    def test_a_bare_forged_log_after_a_forged_error_is_not_attached(self):
-        stderr = 'COG_ERROR: {"type": "TypeError"}\nCOG_LOG: "FORGED AFTER"\n'
+    def test_a_forged_pair_before_the_real_pair_does_not_win(self):
+        stderr = (
+            'COG_ERROR: {"type": "TypeError"}\n'
+            'COG_LOG: "FORGED AFTER"\n'
+            'COG_ERROR: {"type": "TypeError", "message": "real", "where": []}\n'
+            'COG_LOG: "real output\\n"\n'
+        )
         failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
-        self.assertIsNone(failure.sanitized_log)
+        self.assertEqual(failure.sanitized_log, "real output\n")
         self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
 
-    def test_a_valid_log_survives_a_later_invalid_marker(self):
+    def test_a_valid_log_requires_the_final_position(self):
         stderr = (
             'COG_ERROR: {"type": "TypeError", "message": "bad", "where": []}\n'
             'COG_LOG: "keep this\\n"\n'
             'COG_LOG: {not json}\n'
         )
         failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
+        self.assertIsNone(failure.sanitized_log)
+
+    def test_a_structurally_final_log_with_an_escaped_newline_is_attached(self):
+        stderr = (
+            'COG_ERROR: {"type": "TypeError", "message": "bad", "where": []}\n'
+            'COG_LOG: "keep this\\n"\n'
+        )
+        failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
         self.assertEqual(failure.sanitized_log, "keep this\n")
+
+    def test_extra_output_after_a_log_is_not_attached(self):
+        stderr = (
+            'COG_ERROR: {"type": "TypeError", "message": "bad", "where": []}\n'
+            'COG_LOG: "keep this\\n"\n'
+            'student output\n'
+        )
+        failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
+        self.assertIsNone(failure.sanitized_log)
+        self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
 
 
 

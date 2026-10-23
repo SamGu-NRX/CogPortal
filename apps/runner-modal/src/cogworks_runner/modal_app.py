@@ -2020,24 +2020,23 @@ def _evaluation_failure(
         index for index, line in enumerate(lines) if line.strip().startswith("COG_ERROR:")
     ]
     sanitized_log = None
-    if error_positions:
-        # Student output can forge a COG_LOG line before the harness writes its
-        # COG_ERROR record. Only markers after the last error record belong to
-        # the harness. A malformed final marker is rejected rather than changing
-        # the failure object or replacing an earlier failure classification.
-        for line in lines[error_positions[-1] + 1:]:
-            if not line.startswith("COG_LOG:"):
-                continue
-            try:
-                candidate = json.loads(line[len("COG_LOG:"):].strip())
-            except (ValueError, RecursionError):
-                candidate = None
-            if isinstance(candidate, str) and _receiver_units(candidate) <= LOG_LIMIT:
-                # The harness writes the buffer's final newline. A bare marker
-                # is the exact forged shape a student can emit after a forged
-                # COG_ERROR line, so do not attach it.
-                if candidate.endswith("\n"):
-                    sanitized_log = candidate
+    nonempty_positions = [index for index, line in enumerate(lines) if line.strip()]
+    if error_positions and nonempty_positions:
+        # The harness writes exactly one COG_LOG line immediately after its last
+        # COG_ERROR line, then exits. Student output cannot occupy that final
+        # position without changing the ordering the controller expects.
+        log_index = error_positions[-1] + 1
+        if log_index != nonempty_positions[-1]:
+            return RunnerFailure("student_runtime", "evaluating", detail, False)
+        line = lines[log_index]
+        if not line.startswith("COG_LOG:"):
+            return RunnerFailure("student_runtime", "evaluating", detail, False)
+        try:
+            candidate = json.loads(line[len("COG_LOG:"):].strip())
+        except (ValueError, RecursionError):
+            candidate = None
+        if isinstance(candidate, str) and _receiver_units(candidate) <= LOG_LIMIT:
+            sanitized_log = candidate
     return RunnerFailure(
         "student_runtime", "evaluating", detail, False,
         sanitized_log=sanitized_log,
