@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from build import analyze_pair
+from input_naming import input_identities
 from report_reader import read_report
 
 
@@ -42,40 +43,8 @@ def _sha(data: bytes) -> str:
 
 def tool_source_digests() -> Dict[str, str]:
     here = Path(__file__).resolve().parent
-    names = ("all_pairs_checks.py", "build.py", "report_reader.py")
+    names = ("all_pairs_checks.py", "build.py", "input_naming.py", "report_reader.py")
     return {name: _sha((here / name).read_bytes()) for name in sorted(names)}
-
-
-def input_identities(files: List[Path]) -> List[str]:
-    """One unique name per input file, independent of the working directory.
-
-    The file name alone when no other input shares it; otherwise the
-    shortest run of trailing path components that tells the colliding
-    files apart (``left/run.json`` vs ``right/run.json``). The same file
-    given twice has no distinguishing name and is refused.
-    """
-
-    resolved = [path.resolve().parts for path in files]
-    if len(set(resolved)) != len(resolved):
-        repeated = sorted(
-            {"/".join(parts[-1:]) for parts in resolved if resolved.count(parts) > 1}
-        )
-        raise ValueError(
-            "the same fixture file is given more than once: {}".format(
-                ", ".join(repeated)
-            )
-        )
-    names: List[str] = []
-    for index, parts in enumerate(resolved):
-        depth = 1
-        while depth < len(parts) and any(
-            other[-depth:] == parts[-depth:]
-            for other_index, other in enumerate(resolved)
-            if other_index != index
-        ):
-            depth += 1
-        names.append("/".join(parts[-depth:]))
-    return names
 
 
 def collect(fixtures_roots: List[Path]) -> Dict[str, Any]:
