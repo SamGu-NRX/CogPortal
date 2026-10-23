@@ -238,15 +238,19 @@ class LinkConsentTests(unittest.TestCase):
             "pollIntervalSeconds": 5,
             "expiresAt": 10_000,
         }
-        with patch("cogbench.cli.start_device_link", return_value=start), \
+        with patch("cogbench.cli.install_id_for", return_value="a" * 32) as install_id, \
+                patch("cogbench.cli.start_device_link", return_value=start) as start_link, \
                 patch("cogbench.cli.poll_device_link", return_value={"token": "t", "expiresAt": 1}), \
-                patch("cogbench.cli.save_token"), \
+                patch("cogbench.cli.save_token") as save_token, \
                 patch("cogbench.cli.repository_state", return_value=SimpleNamespace(full_name=None)), \
                 patch("cogbench.cli._installed_benchmark_hint", return_value="vision-recognition"), \
                 redirect_stdout(stdout), redirect_stderr(io.StringIO()):
             self.assertEqual(
                 main(["link", "--portal", "https://portal.example", "--no-browser"]), 0
             )
+        install_id.assert_called_once_with("https://portal.example")
+        start_link.assert_called_once_with("https://portal.example", "a" * 32)
+        save_token.assert_called_once_with("https://portal.example", "t", 1, "a" * 32)
         text = stdout.getvalue()
         consent = text[: text.index("Open https://portal.example")]
         self.assertIn(
@@ -292,6 +296,54 @@ class StatusFormattingTests(unittest.TestCase):
         )
         now = datetime(2026, 9, 5, 1, 0, tzinfo=timezone.utc)
         self.assertEqual(_format_expiry(expires, now), "Sep 22 (in 17 days)")
+
+    def test_status_reports_malformed_server_responses_without_traceback(self):
+        base = {
+            "githubLogin": "student",
+            "teamName": "Team",
+            "repositoryFullName": "course/team",
+            "deviceName": "Laptop",
+            "deviceExpiresAt": 1,
+        }
+        missing = dict(base)
+        del missing["githubLogin"]
+        cases = (
+            None,
+            [],
+            missing,
+            dict(base, githubLogin=None),
+            dict(base, deviceExpiresAt=None),
+            dict(base, deviceExpiresAt="tomorrow"),
+            dict(base, deviceExpiresAt=10 ** 100),
+            dict(base, discordChannelId=7),
+        )
+        expected = (
+            "cogworks: CogPortal returned incomplete device status. "
+            "Run `cogworks link` again and retry.\n"
+        )
+        for value in cases:
+            with self.subTest(value=value):
+                stderr = io.StringIO()
+                with patch("cogbench.cli._portal", return_value="https://portal.example"), \
+                        patch("cogbench.cli.token_for", return_value="token"), \
+                        patch("cogbench.cli.device_status", return_value=value), \
+                        redirect_stderr(stderr):
+                    result = main(["status"])
+
+                self.assertEqual(result, 2)
+                self.assertEqual(stderr.getvalue(), expected)
+
+    def test_run_failure_sentence_has_one_full_stop(self):
+        from cogbench.isolate import CRASHED, Outcome
+
+        stdout = io.StringIO()
+        with patch("cogbench.cli._local_operation", return_value=Outcome(CRASHED, detail="worker stopped.")), \
+                redirect_stdout(stdout):
+            result = main(["run", "--benchmark", "fixture"])
+
+        self.assertEqual(result, 2)
+        self.assertIn("The run did not finish: worker stopped.\n", stdout.getvalue())
+        self.assertNotIn("worker stopped..", stdout.getvalue())
 
     def test_status_hides_the_discord_id_and_states_both_channel_states(self):
         base = {

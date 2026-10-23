@@ -684,6 +684,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: true,
+            simulated: false,
             publicSweep: null,
           },
           {
@@ -698,6 +699,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: false,
+            simulated: true,
             publicSweep: null,
           },
         ],
@@ -709,6 +711,49 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
   assert.match(body, /\*\*Analytical Engines\*\*/);
   assert.match(body, /0\.913/);
   assert.doesNotMatch(body, /bbbbbbb|ccccccc/);
+  // Only the fixture-provider row says it was simulated.
+  assert.equal(body.split("simulated").length - 1, 1);
+  assert.match(body, /Face Finder.*simulated/);
+});
+
+test("the leaderboard asks for the student's own board and marks their row only in private", async () => {
+  const calls: unknown[][] = [];
+  const row = (rank: number, teamName: string, isYou: boolean) => ({
+    rank, teamName, teamDescription: null, provenance: "live" as const, repoUrl: null,
+    sha: "b".repeat(40), shortSha: "bbbbbbb",
+    primaryMetric: { key: "accuracy", label: "Accuracy", value: 0.9 - rank / 100, unit: null, higherIsBetter: true, primary: true, precision: 3 },
+    supportingMetrics: [], completedAt: 1_750_000_000_000, isYou, simulated: false, publicSweep: null,
+  });
+  const portal = portalWith({
+    async getLeaderboard(...args: unknown[]) {
+      calls.push(args);
+      return { benchmark, entries: [row(1, "Difference Engines", false), row(2, "Analytical Engines", true)] };
+    },
+  });
+
+  const own = responseText(await executeCommand(component("cog:leaderboard"), portal, guildId, portalOrigin));
+  const shared = responseText(await executeCommand(component("cog:share:leaderboard"), portal, guildId, portalOrigin));
+  // No benchmark named, so the portal picks the team's; the Discord user is
+  // how it finds the team, which is what makes isYou true for anyone.
+  assert.deepEqual(calls, [[guildId, undefined, "discord-1"], [guildId, undefined, "discord-1"]]);
+  assert.match(own, /\*\*Analytical Engines\*\*/);
+  assert.doesNotMatch(own, /\*\*Difference Engines\*\*/);
+  // The shared post is public and names no one, so it marks no team either.
+  assert.doesNotMatch(shared, /\*\*Analytical Engines\*\*/);
+  assert.match(shared, /Analytical Engines/);
+});
+
+test("hosted practice confirmations match the accepted and active run rules", async () => {
+  const latest = surfaceSnapshot();
+  const portal = portalWith({ async getRunSurface() { return latest; } });
+  for (const action of ["verify_hosted", "rerun_hosted"]) {
+    const body = responseText(await executeCommand(component(`cog:surface:${latest.id}:${action}`), portal, guildId, portalOrigin));
+    // portal worker/services/run-accounting.ts acceptedRunPredicate: only a
+    // succeeded, unrefunded run counts; failed and cancelled runs never do.
+    assert.match(body, /only if it finishes scoring/, action);
+    assert.match(body, /While it's running it holds a slot/, action);
+    assert.match(body, /fails, is cancelled or is refunded, it doesn't count/, action);
+  }
 });
 
 test("the hub is one Go to… menu that routes by selected value", async () => {

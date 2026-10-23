@@ -131,6 +131,9 @@ function RunRow({
               // eligibility is decided on the id, not this.
               <> · {run.repo ? run.repo.fullName : "source not recorded"}</>
             )}
+            {/* In the record line rather than as a chip: a fixture deployment
+                marks every row, and a chip on each would outweigh the titles. */}
+            {run.simulated && <> · simulated</>}
             {published && <span className="text-verify-deep"> · on the leaderboard</span>}
           </span>
         </span>

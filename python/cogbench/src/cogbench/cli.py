@@ -54,7 +54,7 @@ from .project import repository_state
 from .report import render_check
 from .runner import ContractError, execute, model_cache_status
 from . import storage
-from .storage import active_portal, latest_report, save_report, save_token, token_for
+from .storage import active_portal, install_id_for, latest_report, save_report, save_token, token_for
 
 PROGRAM = "cogworks"
 
@@ -1287,7 +1287,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     }, indent=2))
                 else:
                     print("{} · LOCAL · NO RESULT".format(args.benchmark))
-                    print("The run did not finish: {}.".format(outcome.detail))
+                    print("The run did not finish: {}".format(outcome.detail))
                     print("No score was produced.")
                 return 2
             # `_run_view` returns the report as JSON text. A completed
@@ -1331,6 +1331,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         if args.command == "link":
             portal = _portal(args.portal)
+            install_id = install_id_for(portal)
             print("Connecting to {}".format(portal))
             # Linking sends setup facts on its own. A report goes up from
             # `sync` and from the end of `run --live` (`_LiveRun.completed`);
@@ -1341,7 +1342,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "`cogworks run --live`, and weights only with `cogworks sync`. Source, logs, "
                 "predictions, and environment variables stay on this machine."
             )
-            start = start_device_link(portal)
+            start = start_device_link(portal, install_id)
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
             if not args.no_browser:
                 webbrowser.open(start["verificationUri"])
@@ -1351,7 +1352,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 int(start["pollIntervalSeconds"]),
                 int(start["expiresAt"]),
             )
-            save_token(portal, result["token"], int(result["expiresAt"]))
+            save_token(portal, result["token"], int(result["expiresAt"]), install_id)
             print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
             repository = repository_state(project_root)
             if repository.full_name:
@@ -1431,6 +1432,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not token:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             value = device_status(portal, token)
+            required_text = (
+                "githubLogin",
+                "teamName",
+                "repositoryFullName",
+                "deviceName",
+            )
+            valid = isinstance(value, dict)
+            if valid:
+                valid = all(
+                    isinstance(value.get(key), str) and bool(value[key].strip())
+                    for key in required_text
+                )
+                expires = value.get("deviceExpiresAt")
+                discord_id = value.get("discordChannelId")
+                valid = valid and (
+                    isinstance(expires, int)
+                    and not isinstance(expires, bool)
+                    and expires >= 0
+                    and (isinstance(discord_id, str) or discord_id is None)
+                )
+            if valid:
+                try:
+                    expiry = _format_expiry(expires)
+                except (OverflowError, ValueError, OSError):
+                    valid = False
+            if not valid:
+                raise PortalError(
+                    "CogPortal returned incomplete device status. "
+                    "Run `cogworks link` again and retry."
+                )
             print("GitHub   @{}".format(value["githubLogin"]))
             print("Team     {}".format(value["teamName"]))
             print("Repo     {}".format(value["repositoryFullName"]))
@@ -1440,7 +1471,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             )
             print("Device   {}".format(value["deviceName"]))
-            print("Expires  {}".format(_format_expiry(int(value["deviceExpiresAt"]))))
+            print("Expires  {}".format(expiry))
             print("Portal   {}".format(portal))
             return 0
     except KeyboardInterrupt:

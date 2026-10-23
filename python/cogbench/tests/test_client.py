@@ -70,11 +70,11 @@ class PortalClientTests(unittest.TestCase):
     def test_device_authorization_posts_are_never_generically_retried(self):
         with patch("cogbench.client.request_json") as request:
             request.return_value = {"deviceCode": "device-code"}
-            start_device_link("https://portal.example")
+            start_device_link("https://portal.example", "a" * 32)
             request.assert_called_once_with(
                 "https://portal.example",
                 "/api/v1/cli/device/start",
-                {},
+                {"installId": "a" * 32},
             )
 
     @patch("cogbench.client.time.sleep")

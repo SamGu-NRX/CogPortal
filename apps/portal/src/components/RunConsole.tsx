@@ -305,8 +305,10 @@ export function RunConsole({
       setPendingAction(action as Mutation);
     }
   };
-  const confirmation = pendingAction === "verify_hosted"
-    ? `Run ${snapshot.shortSha} on the hosted benchmark? This uses one of the team's shared practice runs.`
+  // This matches acceptedRunPredicate and activeRunPredicate in
+  // worker/services/run-accounting.ts.
+  const confirmation = pendingAction === "verify_hosted" || pendingAction === "rerun_hosted"
+    ? `${pendingAction === "verify_hosted" ? "Run" : "Start a new hosted run at"} ${snapshot.shortSha} on the hosted benchmark? A run uses one of the team's shared practice runs only if it finishes scoring. While it's running it holds a slot. If it fails, is cancelled or is refunded, it doesn't count.`
     : pendingAction === "promote_official"
     ? `Use ${snapshot.nextOfficialAttempt === null ? "an official attempt" : `official attempt ${snapshot.nextOfficialAttempt} of ${OFFICIAL_LIMIT}`} for ${snapshot.benchmark.title} at ${snapshot.shortSha}?`
     : pendingAction === "publish_result"

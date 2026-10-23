@@ -20,7 +20,7 @@ import { parseWeightDigest, uploadWeight, weightPathFromRoute } from "../service
 export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/local-reports", async (c) => {
     const device = await requireDevice(c);
-    const body = await parseBody(c, LocalReportInputSchema);
+    const body = await parseBody(c, LocalReportInputSchema, "report");
     const result = await upsertLocalReport(c.env, device.userId, body);
     return respond(c, LocalReportSchema, result.report, result.created ? 201 : 200);
   });

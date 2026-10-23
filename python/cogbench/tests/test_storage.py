@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench.storage import (  # noqa: E402
-    RetentionError, check_weight_path, latest_report, retain_input,
-    retained_input, save_report, weights_dir, workspace_dir,
+    RetentionError, check_weight_path, latest_report, load_config, retain_input,
+    retained_input, save_report, save_token, weights_dir, workspace_dir,
 )
 
 
@@ -49,6 +49,17 @@ class CheckoutStorageTests(unittest.TestCase):
             save_report(self.report(), self.root)
         self.assertIsNone(latest_report(self.root))
         self.assertEqual(list(self.outside.iterdir()), [])
+
+    def test_a_portal_install_id_is_saved_with_the_token(self):
+        config = self.root / "config.json"
+        with mock.patch.dict(os.environ, {"COGBENCH_CONFIG": str(config)}):
+            save_token("https://portal.example", "cog_token", 1000, "a" * 32)
+
+        with mock.patch.dict(os.environ, {"COGBENCH_CONFIG": str(config)}):
+            self.assertEqual(
+                load_config()["portals"]["https://portal.example"],
+                {"expiresAt": 1000, "installId": "a" * 32, "token": "cog_token"},
+            )
 
     def test_a_linked_ignore_file_is_refused(self):
         workspace = self.root / ".cogbench"

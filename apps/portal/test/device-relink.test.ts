@@ -127,13 +127,17 @@ async function setup() {
     app.fetch(new Request(`http://localhost${path}`, init), env);
 
   /** Starts a device link, approves it for `userId` as `name`, and returns the poll's answer. */
-  const poll = async (userId: string, name: string) => {
-    const started = await call("/v1/cli/device/start", { method: "POST" });
+  const poll = async (userId: string, name: string, installId?: string) => {
+    const started = await call("/v1/cli/device/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(installId ? { installId } : {}),
+    });
     assert.equal(started.status, 200);
     const { deviceCode, userCode } = (await started.json()) as { deviceCode: string; userCode: string };
     sqlite
-      .prepare("UPDATE device_authorizations SET user_id = ?, device_name = ?, approved_at = ? WHERE user_code = ?")
-      .run(userId, name, Date.now(), userCode);
+      .prepare("UPDATE device_authorizations SET user_id = ?, device_name = ?, install_id = ?, approved_at = ? WHERE user_code = ?")
+      .run(userId, name, installId ?? null, Date.now(), userCode);
     const poll = () => call("/v1/cli/device/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -141,8 +145,8 @@ async function setup() {
     });
     return { response: await poll(), again: poll };
   };
-  const link = async (userId: string, name: string) => {
-    const { response } = await poll(userId, name);
+  const link = async (userId: string, name: string, installId?: string) => {
+    const { response } = await poll(userId, name, installId);
     assert.equal(response.status, 200);
     const body = (await response.json()) as { status: string; token: string };
     assert.equal(body.status, "authorized");
@@ -158,35 +162,53 @@ async function setup() {
   return { faults, link, poll, status, live };
 }
 
-test("linking twice under one name refuses the first token and accepts the second", async () => {
+test("linking twice from one install refuses the first token and accepts the second", async () => {
   const portal = await setup();
-  const first = await portal.link("user_1", "Lab laptop");
+  const first = await portal.link("user_1", "Lab laptop", "a".repeat(32));
   assert.equal((await portal.status(first)).status, 200, "the first link works before the second");
 
-  const second = await portal.link("user_1", "Lab laptop");
+  const second = await portal.link("user_1", "Lab laptop", "a".repeat(32));
   assert.equal((await portal.status(first)).status, 401, "the replaced token is refused");
   assert.equal((await portal.status(second)).status, 200, "the new token works");
   assert.deepEqual(portal.live("user_1"), ["Lab laptop"], "one live device per name");
 });
 
-test("a re-link leaves other names and other accounts' devices live", async () => {
+test("a second install using the default name leaves the first machine live", async () => {
   const portal = await setup();
-  const desk = await portal.link("user_1", "Desk tower");
-  const theirs = await portal.link("user_2", "Lab laptop");
-  await portal.link("user_1", "Lab laptop");
-  await portal.link("user_1", "Lab laptop");
+  const first = await portal.link("user_1", "CogWorks CLI", "b".repeat(32));
+  const second = await portal.link("user_1", "CogWorks CLI", "c".repeat(32));
 
-  assert.equal((await portal.status(desk)).status, 200, "a different name stays linked");
-  assert.equal((await portal.status(theirs)).status, 200, "another account's same-named device stays linked");
-  assert.deepEqual(portal.live("user_1"), ["Desk tower", "Lab laptop"]);
+  assert.equal((await portal.status(first)).status, 200, "the first install stays linked");
+  assert.equal((await portal.status(second)).status, 200, "the second install works");
+  assert.deepEqual(portal.live("user_1"), ["CogWorks CLI", "CogWorks CLI"]);
+});
+
+test("a request without an install id revokes nothing", async () => {
+  const portal = await setup();
+  const first = await portal.link("user_1", "CogWorks CLI");
+  const second = await portal.link("user_1", "CogWorks CLI");
+
+  assert.equal((await portal.status(first)).status, 200, "the legacy token stays linked");
+  assert.equal((await portal.status(second)).status, 200, "the new legacy token works");
+});
+
+test("another account's device with the same install id stays live", async () => {
+  const portal = await setup();
+  const theirs = await portal.link("user_2", "CogWorks CLI", "d".repeat(32));
+  const first = await portal.link("user_1", "CogWorks CLI", "d".repeat(32));
+  const second = await portal.link("user_1", "CogWorks CLI", "d".repeat(32));
+
+  assert.equal((await portal.status(theirs)).status, 200, "the other account's device stays linked");
+  assert.equal((await portal.status(first)).status, 401, "only this account's old token is revoked");
+  assert.equal((await portal.status(second)).status, 200, "this account's new token works");
 });
 
 test("a re-link whose device insert fails keeps the old token and lets the next poll finish", async () => {
   const portal = await setup();
-  const first = await portal.link("user_1", "Lab laptop");
+  const first = await portal.link("user_1", "Lab laptop", "e".repeat(32));
 
   portal.faults.failDeviceInsert = true;
-  const { response, again } = await portal.poll("user_1", "Lab laptop");
+  const { response, again } = await portal.poll("user_1", "Lab laptop", "e".repeat(32));
   assert.equal(response.status, 500);
   assert.equal((await portal.status(first)).status, 200, "the revoke rolled back with the failed insert");
 

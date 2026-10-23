@@ -76,7 +76,7 @@ const BOARD_METRIC = (key: string, label: string, value: number, role: Metric["r
   metric({ key, label, value, role, primary: false, precision: key === "median_rank" ? 0 : 3, help: null });
 const BOARD_ENTRIES: LeaderboardEntry[] = [
   {
-    rank: 1, teamName: "Lantern Lab", provenance: "live", isYou: false,
+    rank: 1, teamName: "Lantern Lab", provenance: "live", isYou: false, simulated: false,
     teamDescription: "Caption embeddings averaged over GloVe, with stopwords dropped before weighting.",
     repoUrl: "https://github.com/cogworks-fixture/lantern-lab", sha: "a1".repeat(20), shortSha: "a1a1a1a",
     primaryMetric: metric({ key: "overall", label: "Overall", value: 0.512, precision: 4, role: "scored", help: null }),
@@ -93,7 +93,7 @@ const BOARD_ENTRIES: LeaderboardEntry[] = [
     publicSweep: boardCurve(0.6412, 0.5733, 0.4021, 0.5104),
   },
   {
-    rank: 2, teamName: "Team Heron", provenance: "archive", isYou: false,
+    rank: 2, teamName: "Team Heron", provenance: "archive", isYou: false, simulated: false,
     teamDescription: "Learned a linear map from captions to image features.",
     repoUrl: null, sha: "", shortSha: "",
     primaryMetric: metric({ key: "overall", label: "Overall", value: 0.48, precision: 4, role: "scored", help: null }),
@@ -104,6 +104,7 @@ const BOARD_ENTRIES: LeaderboardEntry[] = [
   },
   {
     rank: 3, teamName: "The Extremely Thorough Retrieval Reading Group of Section B", provenance: "live", isYou: false,
+    simulated: false,
     teamDescription:
       "We tried three ways of pooling word vectors and kept the plainest one, because it was the only one whose failures we could explain to each other on Thursday.",
     repoUrl: null, sha: "c3".repeat(20), shortSha: "c3c3c3c",
@@ -117,7 +118,8 @@ const BOARD_ENTRIES: LeaderboardEntry[] = [
     publicSweep: boardCurve(0.55, 0.52, 0.47, null),
   },
   {
-    rank: 4, teamName: "Quiet Hours", provenance: "live", isYou: false, teamDescription: null,
+    // A fixture-provider result, so the board shows its Simulated chip.
+    rank: 4, teamName: "Quiet Hours", provenance: "live", isYou: false, simulated: true, teamDescription: null,
     repoUrl: "https://github.com/cogworks-fixture/quiet-hours", sha: "e5".repeat(20), shortSha: "e5e5e5e",
     primaryMetric: metric({ key: "overall", label: "Overall", value: 0.402, precision: 4, role: "scored", help: null }),
     supportingMetrics: [],
@@ -503,6 +505,7 @@ const MIXED_HISTORY = [
   status: "succeeded", benchmarkId: "language-search", benchmarkVersion: 1, branch: "main",
   sha: String(index).repeat(40), shortSha: String(index).repeat(7),
   createdAt: GALLERY_NOW - (index + 1) * 3_600_000, finishedAt: GALLERY_NOW - index * 3_600_000,
+  simulated: false,
 }));
 
 const UNRANKED_OFFICIAL = RunSurfaceSnapshotSchema.parse({

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import tempfile
 import time
 from dataclasses import dataclass
@@ -126,7 +127,19 @@ def load_config() -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def save_token(portal: str, token: str, expires_at: int) -> None:
+def install_id_for(portal: str) -> str:
+    entry = load_config().get("portals", {}).get(portal)
+    install_id = entry.get("installId") if isinstance(entry, dict) else None
+    if (
+        isinstance(install_id, str)
+        and len(install_id) == 32
+        and all(c in "0123456789abcdef" for c in install_id)
+    ):
+        return install_id
+    return secrets.token_hex(16)
+
+
+def save_token(portal: str, token: str, expires_at: int, install_id: str) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -134,7 +147,11 @@ def save_token(portal: str, token: str, expires_at: int) -> None:
     except OSError:
         pass
     config = load_config()
-    config.setdefault("portals", {})[portal] = {"token": token, "expiresAt": expires_at}
+    config.setdefault("portals", {})[portal] = {
+        "token": token,
+        "expiresAt": expires_at,
+        "installId": install_id,
+    }
     config["activePortal"] = portal
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(

@@ -104,6 +104,11 @@ export const MetricSchema = z.object({
   relatesTo: z.string().nullish(),
 });
 export type Metric = z.infer<typeof MetricSchema>;
+/** A metric as a client sends it. Refuses a key MetricSchema does not
+ *  declare, where MetricSchema itself (which also reads stored rows and
+ *  answers) keeps stripping one. Every key cogbench's Metric.to_wire()
+ *  writes at both pinned CLIs is declared above. */
+const MetricInputSchema = MetricSchema.strict();
 export type MetricRole = (typeof METRIC_ROLES)[number];
 
 /* ── Runs ─────────────────────────────────────────────────────────────── */
@@ -197,6 +202,10 @@ export const RunSummarySchema = z.object({
   attemptNumber: z.number().int().nullable(),
   primaryMetric: MetricSchema.nullable(),
   failure: RunFailureSchema.nullable(),
+  /** The fixture provider scripted this run's result (`runs.provider`). Read
+   *  from the run, not the deployment's current provider, so the label stays
+   *  with the result after the provider changes. */
+  simulated: z.boolean(),
 });
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
@@ -434,7 +443,8 @@ export const AuthConfigSchema = z.object({
   appSlug: z.string().nullable(),
   /** Course template repository (owner/name); submissions must fork it. */
   templateRepo: z.string().nullable(),
-  /** Active execution provider — "fixture" runs are simulated (pre-M0). */
+  /** Active execution provider for new runs. Whether an existing result was
+   *  simulated is the run's own `simulated` flag, not this. */
   executionProvider: z.enum(["fixture", "modal"]),
 });
 export type AuthConfig = z.infer<typeof AuthConfigSchema>;
@@ -492,7 +502,7 @@ export type ConnectionSummary = z.infer<typeof ConnectionSummarySchema>;
 
 export const ConfirmDiscordLinkRequestSchema = z.object({
   token: z.string().min(32).max(256),
-});
+}).strict();
 
 export const DiscordLinkPreviewSchema = z.object({
   username: z.string(),
@@ -512,18 +522,22 @@ export type DeviceAuthorizationStartResponse = z.infer<
   typeof DeviceAuthorizationStartResponseSchema
 >;
 
+export const DeviceAuthorizationStartRequestSchema = z.object({
+  installId: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+}).strict();
+
 export const ApproveDeviceRequestSchema = z.object({
   userCode: z.string().trim().toUpperCase(),
   deviceName: z.string().trim().min(1).max(80),
-});
+}).strict();
 
 export const RevokeDeviceRequestSchema = z.object({
   deviceId: z.string().min(1).max(128),
-});
+}).strict();
 
 export const DeviceTokenRequestSchema = z.object({
   deviceCode: z.string().min(32).max(256),
-});
+}).strict();
 
 export const DeviceTokenResponseSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending"), retryAfterSeconds: z.number().int() }),
@@ -535,46 +549,95 @@ export const DeviceTokenResponseSchema = z.discriminatedUnion("status", [
 ]);
 export type DeviceTokenResponse = z.infer<typeof DeviceTokenResponseSchema>;
 
-export const LocalReportInputSchema = z.object({
-  reportId: z.string().min(8).max(128),
-  benchmarkId: z.string().min(1).max(120),
-  benchmarkVersion: z.number().int().positive(),
-  contractVersion: z.string().min(1).max(120),
-  sdkVersion: z.string().min(1).max(80),
-  pluginVersion: z.string().min(1).max(80),
-  repositoryId: z.number().int().positive().nullable(),
-  repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/).nullable(),
-  sha: z.string().regex(/^[a-f0-9]{40}$/).nullable(),
-  dirty: z.boolean(),
-  startedAt: z.number().int(),
-  finishedAt: z.number().int(),
-  metrics: z.array(MetricSchema).max(32),
-  /**
-   * Left at 240 on purpose. The local report never cut a note in half:
-   * `_diagnostic_lines` in cogbench/models.py splits at sentence and word
-   * boundaries before it fills this field, so the defect the hosted path
-   * had does not exist here and raising it would only churn a shipped
-   * client's contract.
-   */
-  diagnostics: z.array(z.string().max(240)).max(32),
-  weightsUsed: z.array(z.string().min(1).max(500)).max(32),
-  // Required uploads, not completed uploads. Missing provenance stays unknown for old reports.
-  weightsUploaded: z.array(z.object({
-    path: z.string().min(1).max(500),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  })).max(32).nullish(),
-  /**
-   * The CLI command that wrote the report (cogbench `REPORT_COMMANDS`): a
-   * `test` scores the small smoke-test cases, a `run` the practice set.
-   * Absent on reports from before the CLI recorded it; any other value is
-   * refused rather than stored as a label nobody can read. Self-reported,
-   * and read by nothing that decides eligibility.
-   */
-  command: z.enum(["test", "run"]).optional(),
+/** A weight a report scored that the CLI must upload, as stored and answered. */
+const WeightUploadSchema = z.object({
+  path: z.string().min(1).max(500),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
+
+/**
+ * The same weight as the CLI sends it. `size` is the length the CLI measured
+ * when it captured the file. Both pinned CLIs (064400e9, ac8ddafa) write it
+ * here (cogbench models.py `LocalReport.to_wire`) and send it again as the
+ * upload's Content-Length. The upload route measures the stream itself
+ * (services/weights.ts), so `size` is checked here and then dropped, and
+ * the stored entry stays path and digest, as it was when zod stripped
+ * `size` unread.
+ *
+ * `size` has no upper bound. The 100 MiB cap applies to the upload PUT that
+ * carries the bytes. A report only describes the file, and refusing it here
+ * would lose the whole report over a number the portal throws away.
+ */
+const WeightUploadInputSchema = z.object({
+  path: z.string().min(1).max(500),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  size: z.number().int().nonnegative().optional(),
+}).strict().transform(({ path, sha256 }) => ({ path, sha256 }));
+
+/** A report's fields, in one order for the synced report and the stored one.
+ *  They differ only in how strictly a metric and a weight entry are read. */
+function localReportShape<Metric extends z.ZodType, Weight extends z.ZodType>(
+  metric: Metric,
+  weight: Weight,
+) {
+  return {
+    reportId: z.string().min(8).max(128),
+    benchmarkId: z.string().min(1).max(120),
+    benchmarkVersion: z.number().int().positive(),
+    contractVersion: z.string().min(1).max(120),
+    sdkVersion: z.string().min(1).max(80),
+    pluginVersion: z.string().min(1).max(80),
+    repositoryId: z.number().int().positive().nullable(),
+    repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/).nullable(),
+    sha: z.string().regex(/^[a-f0-9]{40}$/).nullable(),
+    dirty: z.boolean(),
+    startedAt: z.number().int(),
+    finishedAt: z.number().int(),
+    metrics: z.array(metric).max(32),
+    /**
+     * Left at 240 on purpose. The local report never cut a note in half:
+     * `_diagnostic_lines` in cogbench/models.py splits at sentence and word
+     * boundaries before it fills this field, so the defect the hosted path
+     * had does not exist here and raising it would only churn a shipped
+     * client's contract.
+     */
+    diagnostics: z.array(z.string().max(240)).max(32),
+    weightsUsed: z.array(z.string().min(1).max(500)).max(32),
+    // Required uploads, not completed uploads. Missing provenance stays unknown for old reports.
+    weightsUploaded: z.array(weight).max(32).nullish(),
+    /**
+     * The CLI command that wrote the report (cogbench `REPORT_COMMANDS`): a
+     * `test` scores the small smoke-test cases, a `run` the practice set.
+     * Absent on reports from before the CLI recorded it; any other value is
+     * refused rather than stored as a label nobody can read. Self-reported,
+     * and read by nothing that decides eligibility.
+     */
+    command: z.enum(["test", "run"]).optional(),
+  };
+}
+
+/** POST /api/v1/local-reports, and the report in a completed live-run event.
+ *  Strict: a key no pinned CLI sends is refused with its name rather than
+ *  dropped, so a client and the portal can't drift apart in silence. */
+export const LocalReportInputSchema = z
+  .object(localReportShape(MetricInputSchema, WeightUploadInputSchema))
+  .strict();
 export type LocalReportInput = z.infer<typeof LocalReportInputSchema>;
 
-export const LocalReportWeightsSchema = LocalReportInputSchema.pick({
+export const LocalReportSchema = z.object({
+  ...localReportShape(MetricSchema, WeightUploadSchema),
+  author: z.object({
+    login: z.string(),
+    name: z.string().nullable(),
+  }),
+  syncedAt: z.number().int(),
+  trust: z.literal("local_self_reported"),
+});
+export type LocalReport = z.infer<typeof LocalReportSchema>;
+
+// From the stored report's schema, not the strict input: this also checks a
+// whole parsed report and a stored row, which carry more keys than these two.
+export const LocalReportWeightsSchema = LocalReportSchema.pick({
   weightsUsed: true,
   weightsUploaded: true,
 }).refine(
@@ -584,16 +647,6 @@ export const LocalReportWeightsSchema = LocalReportInputSchema.pick({
   ),
   { path: ["weightsUploaded"], message: "weightsUploaded must name each required path in weightsUsed once." },
 );
-
-export const LocalReportSchema = LocalReportInputSchema.extend({
-  author: z.object({
-    login: z.string(),
-    name: z.string().nullable(),
-  }),
-  syncedAt: z.number().int(),
-  trust: z.literal("local_self_reported"),
-});
-export type LocalReport = z.infer<typeof LocalReportSchema>;
 
 export const LocalReportListSchema = z.array(LocalReportSchema);
 
@@ -641,14 +694,17 @@ export const RUN_STREAM_EVENT_CODES = [
 export const RunStreamEventCodeSchema = z.enum(RUN_STREAM_EVENT_CODES);
 export type RunStreamEventCode = z.infer<typeof RunStreamEventCodeSchema>;
 
-export const RunProgressSchema = z.object({
+const RunProgressShape = z.object({
   current: z.number().int().nonnegative(),
   total: z.number().int().positive(),
   unit: z.enum(["cases", "items"]),
-}).refine((value) => value.current <= value.total, {
-  message: "Progress cannot exceed its total.",
 });
+const withinTotal = (value: z.infer<typeof RunProgressShape>) => value.current <= value.total;
+const OVER_TOTAL = { message: "Progress cannot exceed its total." };
+export const RunProgressSchema = RunProgressShape.refine(withinTotal, OVER_TOTAL);
 export type RunProgress = z.infer<typeof RunProgressSchema>;
+/** Progress as a live-run client sends it; refuses an undeclared key. */
+const RunProgressInputSchema = RunProgressShape.strict().refine(withinTotal, OVER_TOTAL);
 
 export const RunStreamEventSchema = z.object({
   eventId: z.string().min(8).max(128),
@@ -853,7 +909,7 @@ export const StartLocalRunRequestSchema = z.object({
   sha: z.string().regex(/^[a-f0-9]{40}$/),
   branch: z.string().trim().min(1).max(255).nullable().optional(),
   dirty: z.boolean(),
-});
+}).strict();
 export type StartLocalRunRequest = z.infer<typeof StartLocalRunRequestSchema>;
 
 export const StartLocalRunResponseSchema = z.object({
@@ -870,30 +926,33 @@ const LocalRunEventBaseSchema = z.object({
   elapsedMs: z.number().int().nonnegative().optional(),
 });
 
+/** Every key cogbench's `_LiveRun` writes at both pinned CLIs (cli.py
+ *  `_payload`, `_live_progress_payload`, `completed`, `failed`) is declared,
+ *  so each event type refuses any other. */
 export const LocalRunEventSchema = z.discriminatedUnion("type", [
   LocalRunEventBaseSchema.extend({
     type: z.literal("progress"),
     phase: LocalRunPhaseSchema,
     code: RunStreamEventCodeSchema.optional(),
-    progress: RunProgressSchema.optional(),
-  }),
+    progress: RunProgressInputSchema.optional(),
+  }).strict(),
   LocalRunEventBaseSchema.extend({
     type: z.literal("completed"),
     report: LocalReportInputSchema,
-  }),
+  }).strict(),
   LocalRunEventBaseSchema.extend({
     type: z.literal("failed"),
     phase: LocalRunPhaseSchema,
     code: RunStreamEventCodeSchema.optional(),
     /** Accepted for older CLIs, but never copied into a shared run surface. */
     detail: z.string().trim().min(1).max(240).optional(),
-  }),
+  }).strict(),
 ]);
 export type LocalRunEvent = z.infer<typeof LocalRunEventSchema>;
 
 export const LocalRunEventBatchSchema = z.object({
   events: z.array(LocalRunEventSchema).min(1).max(32),
-}).superRefine((value, context) => {
+}).strict().superRefine((value, context) => {
   for (let index = 1; index < value.events.length; index += 1) {
     if (value.events[index]!.sequence <= value.events[index - 1]!.sequence) {
       context.addIssue({
@@ -1026,6 +1085,10 @@ export const LeaderboardEntrySchema = z.object({
   supportingMetrics: z.array(MetricSchema),
   completedAt: z.number(),
   isYou: z.boolean(),
+  /** A run behind this result was scripted by the fixture provider. The board
+   *  is public, so the label has to travel with the entry rather than depend
+   *  on who is looking. */
+  simulated: z.boolean(),
   /**
    * Null when the benchmark has no public curve, the run has none, or the
    * stored one failed a check. Absent from older responses, hence the
@@ -1123,6 +1186,7 @@ export const UpdateTeamRequestSchema = z
       .optional()
       .transform((value) => (value === undefined ? undefined : value || null)),
   })
+  .strict()
   .refine((body) => body.name !== undefined || body.description !== undefined, {
     message: "Provide a name or description to update.",
   });
@@ -1134,7 +1198,7 @@ export const ChangeTeamRepoRequestSchema = z.object({
    *  refuses a change without it (requireAdminOfShownTeam). */
   teamId: z.string().min(1).optional(),
   fullName: z.string().trim().regex(/^[^/\s]+\/[^/\s]+$/, "owner/name"),
-});
+}).strict();
 
 /* ── Process signals ───────────────────────────────────────────────────
  * See docs/design/the-instrument-not-the-judge.md, "The process layer."
@@ -1254,7 +1318,7 @@ export const CohortTeamListSchema = z.array(CohortTeamSchema);
  *  the joined TeamDetail. */
 export const JoinTeamRequestSchema = z.object({
   teamId: z.string().min(1),
-});
+}).strict();
 
 /**
  * Leaving names the team the page showed, so a tab left open after the
@@ -1264,7 +1328,7 @@ export const JoinTeamRequestSchema = z.object({
  */
 export const LeaveTeamRequestSchema = z.object({
   teamId: z.string().min(1),
-});
+}).strict();
 
 /** `alreadyLeft` when this person was not on that team (a repeated request,
  *  or a leave from another tab that landed first). Nothing was removed. */
@@ -1412,7 +1476,7 @@ export const AddTeamMemberRequestSchema = z.object({
     .min(1)
     .max(39)
     .regex(/^[a-zA-Z0-9-]+$/),
-});
+}).strict();
 
 /** DELETE /api/team/members/:login?teamId={shown team}: remove a member
  *  (never an admin). The teamId query is the team the page showed, refused
@@ -1428,18 +1492,18 @@ export const StartPracticeRequestSchema = z.object({
   teamId: z.string().min(1).optional(),
   benchmarkId: z.string(),
   branch: z.string().optional(),
-});
+}).strict();
 export const JoinCohortRequestSchema = z.object({
   code: z.string().min(4).max(32),
-});
+}).strict();
 export const ConnectRepoRequestSchema = z.object({
   fullName: z.string(),
   /** Required when the repository has no team yet — the caller creates it. */
   teamName: z.string().trim().min(1).max(60).optional(),
-});
+}).strict();
 export const SelectResultRequestSchema = z.object({
   runId: z.string(),
-});
+}).strict();
 export const DevLoginRequestSchema = z.object({
   login: z
     .string()
@@ -1448,7 +1512,7 @@ export const DevLoginRequestSchema = z.object({
     .regex(/^[a-zA-Z0-9-]+$/),
   /** Dev only: provision user → cohort → fixture team in one step. */
   demo: z.boolean().optional(),
-});
+}).strict();
 
 export const StartRunResponseSchema = z.object({ runId: z.string() });
 
@@ -1490,6 +1554,12 @@ export const AdminTeamSummarySchema = z.object({
    * run anything for the team, and this is the count that answers it.
    */
   hostedRuns: z.number().int(),
+  /**
+   * How many of `hostedRuns` ended `failed`, on the same team-wide scope. When
+   * it equals `hostedRuns` the console says the runs failed, rather than only
+   * that no completion is recorded.
+   */
+  failedRuns: z.number().int(),
   /**
    * Official attempts this team has had given back because a run failed on the
    * platform's side, across every benchmark. A team that keeps hitting real
@@ -1590,6 +1660,7 @@ export const AdminCohortPatchSchema = z
     rotateJoinCode: z.boolean().optional(),
     active: z.boolean().optional(),
   })
+  .strict()
   .refine((b) => b.rotateJoinCode !== undefined || b.active !== undefined, {
     message: "Nothing to update.",
   });
@@ -1601,7 +1672,7 @@ export const AdminAddMemberRequestSchema = z.object({
     .min(1)
     .max(39)
     .regex(/^[a-zA-Z0-9-]+$/),
-});
+}).strict();
 
 /** POST /api/admin/teams/:teamId/tas */
 export const AdminAssignTaRequestSchema = AdminAddMemberRequestSchema;
