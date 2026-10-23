@@ -5,11 +5,11 @@ import { listBenchmarks } from "./services/catalog";
 import {
   assertCourseGuild,
   bindDiscordTeamChannel,
+  getDiscordLeaderboard,
   getDiscordLocalReports,
   getDiscordTeamStatus,
 } from "./services/discord";
 import { createDiscordLink, unlinkDiscordByDiscordId } from "./services/identity";
-import { getLeaderboardReadModel } from "./services/leaderboard";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { runSurfaces } from "./db/schema";
@@ -54,10 +54,10 @@ export class PortalRpc extends WorkerEntrypoint<Env> implements PortalRpcContrac
     });
   }
 
-  async getLeaderboard(guildId: string, benchmarkId?: string) {
+  async getLeaderboard(guildId: string, benchmarkId?: string, discordUserId?: string) {
     return this.answer("getLeaderboard", async () => {
       assertCourseGuild(this.env, guildId);
-      return getLeaderboardReadModel(this.env, benchmarkId);
+      return getDiscordLeaderboard(this.env, discordUserId, benchmarkId);
     });
   }
 

@@ -15,7 +15,6 @@ import { ConnectGate } from "@/components/ConnectGate";
 import { RunConsole } from "@/components/RunConsole";
 import { useRunSurfaceStream } from "@/lib/run-surface-stream";
 import {
-  ActivityRequestError,
   ActivitySessionSchema,
   gateOutcome,
   isExpiredActivitySession,
@@ -27,6 +26,7 @@ import {
   type GateVariant,
 } from "@/lib/activity-gate";
 import { clientEnv } from "./env.client";
+import { activityJsonRequest } from "./lib/activity-request";
 
 const CLIENT_ID = clientEnv.VITE_DISCORD_CLIENT_ID;
 const PORTAL_ORIGIN = clientEnv.VITE_PORTAL_ORIGIN;
@@ -39,29 +39,8 @@ const sdk = embedded ? new DiscordSDK(CLIENT_ID) : null;
 
 type ActivityLayoutMode = -1 | 0 | 1 | 2;
 
-async function jsonRequest<T>(
-  path: string,
-  schema: z.ZodType<T>,
-  init?: { method?: string; body?: unknown },
-): Promise<T> {
-  const response = await fetch(`${API_PREFIX}${path}`, {
-    method: init?.method ?? "GET",
-    credentials: "same-origin",
-    headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-  });
-  if (!response.ok) {
-    let message = "The live bench could not be reached.";
-    try {
-      const body = z.object({ error: z.object({ message: z.string() }) }).parse(await response.json());
-      message = body.error.message;
-    } catch {
-      // Use the calm fallback above.
-    }
-    throw new ActivityRequestError(response.status, message);
-  }
-  return schema.parse(await response.json());
-}
+const jsonRequest = <T,>(path: string, schema: z.ZodType<T>, init?: { method?: string; body?: unknown }) =>
+  activityJsonRequest(API_PREFIX, path, schema, init);
 
 const loadSession = () => jsonRequest("/activity/session", ActivitySessionSchema);
 const loadSurfaces = () =>

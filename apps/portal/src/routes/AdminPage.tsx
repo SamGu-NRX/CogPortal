@@ -436,6 +436,9 @@ function TeamRow({
   const assignTa = useAdminAssignTa();
   const removeTa = useAdminRemoveTa();
   const idle = team.hostedRuns === 0;
+  // "No completion recorded" is true here too, but it leaves a TA to guess
+  // whether the runs are still going; this says what happened to them.
+  const allFailed = !idle && team.failedRuns === team.hostedRuns;
   const counted = team.practiceUsed + team.officialUsed;
   const detailsId = `team-${team.id}`;
   // A removed row takes its focused control with it; the row's own toggle is
@@ -502,7 +505,11 @@ function TeamRow({
             <AttentionLine>No hosted runs yet</AttentionLine>
           ) : (
             <>
-              {team.firstLight === null ? (
+              {allFailed ? (
+                <span className="block">
+                  <AttentionLine>{team.hostedRuns === 1 ? "Hosted run failed" : "Every hosted run failed"}</AttentionLine>
+                </span>
+              ) : team.firstLight === null ? (
                 <span className="block">
                   <AttentionLine>No completion recorded</AttentionLine>
                 </span>
