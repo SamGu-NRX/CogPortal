@@ -83,17 +83,31 @@ async function harness(t: TestContext) {
     returnHeaders: true,
   });
   const userId = signedIn.response.user.id;
-  const cookie = signedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  const firstCookie = signedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
   await db.update(users).set({ githubLogin: "ada" }).where(eq(users.id, userId));
+  const secondSignedIn = await createAuth(env).api.signUpEmail({
+    body: { email: "grace@users.noreply.github.com", password: "cogportal-local-dev-password", name: "Grace" },
+    returnHeaders: true,
+  });
+  const secondCookie = secondSignedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
 
-  const send = (path: string, init: RequestInit = {}, withCookie = false) => app.fetch(
+  const send = (path: string, init: RequestInit = {}, sessionCookie: string | boolean = "") => app.fetch(
     new Request(`http://localhost:5173${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(withCookie ? { cookie } : {}), ...init.headers },
+      headers: {
+        "Content-Type": "application/json",
+        ...((typeof sessionCookie === "string" ? sessionCookie : sessionCookie ? firstCookie : "")
+          ? { cookie: typeof sessionCookie === "string" ? sessionCookie : firstCookie } : {}),
+        ...init.headers,
+      },
     }), env,
   );
-  const post = async (path: string, body: Record<string, unknown>, withCookie = false) => {
-    const response = await send(`/api${path}`, { method: "POST", body: JSON.stringify(body) }, withCookie);
+  const post = async (
+    path: string,
+    body: Record<string, unknown>,
+    sessionCookie: string | boolean = false,
+  ) => {
+    const response = await send(`/api${path}`, { method: "POST", body: JSON.stringify(body) }, sessionCookie);
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) as Record<string, unknown> : null };
   };
@@ -108,8 +122,37 @@ async function harness(t: TestContext) {
     await db.insert(teamMembers).values({ teamId: "team_a", userId, role: "write" });
   };
   const authorization = (code: string) => sqlite.prepare("SELECT * FROM device_authorizations WHERE user_code = ?").get(code);
-  return { post, send, joinTeam, sqlite, authorization };
+  return { post, send, joinTeam, sqlite, authorization, secondCookie };
 }
+
+test("device approval and hold calls rate-limit per signed-in user without changing a held code", async (t) => {
+  const h = await harness(t);
+  const start = await h.post("/v1/cli/device/start", {});
+  const userCode = start.body.userCode as string;
+
+  for (let index = 0; index < 5; index += 1) {
+    assert.equal((await h.post("/v1/cli/device/hold", { userCode }, true)).status, 204);
+  }
+  const before = h.authorization(userCode);
+  const limited = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
+  assert.equal(limited.status, 429);
+  assert.deepEqual(h.authorization(userCode), before, "the rejected request must not approve or alter the code");
+
+  assert.equal((await h.post("/v1/cli/device/hold", { userCode }, h.secondCookie)).status, 204);
+});
+
+test("the global approval cap rejects a request before it can bind a code", async (t) => {
+  const h = await harness(t);
+  const start = await h.post("/v1/cli/device/start", {});
+  const userCode = start.body.userCode as string;
+  h.sqlite.prepare("INSERT INTO rate_limits (id, key, count, last_request) VALUES (?, ?, ?, ?)").run(
+    "rate_global", "cli-device-approve:global", 100, Date.now(),
+  );
+  const before = h.authorization(userCode);
+  const response = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
+  assert.equal(response.status, 429);
+  assert.deepEqual(h.authorization(userCode), before);
+});
 
 test("an approval refused for no team is reported to the polling CLI and the code still links", async (t) => {
   const h = await harness(t);

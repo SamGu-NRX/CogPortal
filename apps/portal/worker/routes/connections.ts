@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   ApproveDeviceRequestSchema,
@@ -22,6 +22,7 @@ import {
   cliDevices,
   deviceAuthorizations,
   discordAccounts,
+  rateLimits,
   teamMembers,
   teams,
   users,
@@ -39,6 +40,38 @@ import { sha256Hex } from "../util/crypto";
 const DEVICE_AUTH_TTL_MS = 10 * 60 * 1000;
 const DEVICE_TOKEN_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
+// This limit is a defensive choice, not a measurement of normal CLI usage.
+const CLI_DEVICE_RATE_LIMIT = 5;
+// This global cap is a defensive choice, not a measurement of normal usage.
+const CLI_DEVICE_APPROVE_GLOBAL_LIMIT = 100;
+const CLI_DEVICE_RATE_WINDOW_MS = 60_000;
+
+async function enforceCliDeviceRateLimit(
+  db: ReturnType<typeof getDb>,
+  key: string,
+  limit: number,
+  now: number,
+): Promise<void> {
+  await db
+    .insert(rateLimits)
+    .values({ id: newId("rate_", 8), key, count: 1, lastRequest: now })
+    .onConflictDoUpdate({
+      target: rateLimits.key,
+      set: {
+        count: sql`CASE WHEN ${rateLimits.lastRequest} <= ${now - CLI_DEVICE_RATE_WINDOW_MS} THEN 1 ELSE ${rateLimits.count} + 1 END`,
+        lastRequest: now,
+      },
+    });
+  const [entry] = await db
+    .select({ count: rateLimits.count })
+    .from(rateLimits)
+    .where(eq(rateLimits.key, key))
+    .limit(1);
+  const count = entry?.count ?? 0;
+  if (count > limit) {
+    throw new ApiHttpError(429, "invalid_request", "Too many device link requests. Try again shortly.");
+  }
+}
 
 function portalOrigin(url: string, configured?: string): string {
   return (configured ?? new URL(url).origin).replace(/\/$/, "");
@@ -171,6 +204,12 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/cli/device/hold", async (c) => {
     const auth = await requireUser(c);
     const body = await parseBody(c, HoldDeviceRequestSchema);
+    await enforceCliDeviceRateLimit(
+      getDb(c.env),
+      `cli-device:${auth.user.id}`,
+      CLI_DEVICE_RATE_LIMIT,
+      Date.now(),
+    );
     if (!auth.team) {
       // The stage guard redirects before approval can render. Tell the CLI
       // why it is waiting, without approving or reserving the code for anyone.
@@ -193,6 +232,19 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/cli/device/approve", async (c) => {
     const signedIn = await requireUser(c);
     const body = await parseBody(c, ApproveDeviceRequestSchema);
+    const db = getDb(c.env);
+    await enforceCliDeviceRateLimit(
+      db,
+      `cli-device:${signedIn.user.id}`,
+      CLI_DEVICE_RATE_LIMIT,
+      Date.now(),
+    );
+    await enforceCliDeviceRateLimit(
+      db,
+      "cli-device-approve:global",
+      CLI_DEVICE_APPROVE_GLOBAL_LIMIT,
+      Date.now(),
+    );
     const now = Date.now();
     if (!signedIn.team) {
       // Refused, but the code stays open: joining a team and reopening the
