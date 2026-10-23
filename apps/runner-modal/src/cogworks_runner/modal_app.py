@@ -805,9 +805,27 @@ class BoundedBuffer(io.TextIOBase):
         return written
     def value(self):
         if not self.dropped:
-            return "".join(self.head) + "".join(self.tail)
-        marker = "\n[{} characters omitted]\n".format(self.dropped)
-        return "".join(self.head) + marker + "".join(self.tail)
+            value = "".join(self.head) + "".join(self.tail)
+        else:
+            marker = "\n[{} characters omitted]\n".format(self.dropped)
+            value = "".join(self.head) + marker + "".join(self.tail)
+
+        # The portal caps sanitizedLog in UTF-16 code units, while this buffer
+        # caps Python characters. Keep the omission marker and trim only the
+        # final text when astral characters or the marker push the wire value
+        # over the receiver's cap.
+        units = lambda text: sum(2 if ord(character) > 0xFFFF else 1 for character in text)
+        if units(value) <= self.limit:
+            return value
+        kept = []
+        used = 0
+        for character in value:
+            width = 2 if ord(character) > 0xFFFF else 1
+            if used + width > self.limit:
+                break
+            kept.append(character)
+            used += width
+        return "".join(kept)
 
 benchmark_id = sys.argv[1]
 limit = int(sys.argv[2])
@@ -2012,11 +2030,8 @@ def _evaluation_failure(
                 candidate = json.loads(line[len("COG_LOG:"):].strip())
             except (ValueError, RecursionError):
                 candidate = None
-            sanitized_log = (
-                candidate
-                if isinstance(candidate, str) and _receiver_units(candidate) <= LOG_LIMIT
-                else None
-            )
+            if isinstance(candidate, str) and _receiver_units(candidate) <= LOG_LIMIT:
+                sanitized_log = candidate
     return RunnerFailure(
         "student_runtime", "evaluating", detail, False,
         sanitized_log=sanitized_log,

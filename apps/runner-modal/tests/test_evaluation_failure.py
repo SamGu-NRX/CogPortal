@@ -94,6 +94,16 @@ class TheSandboxSaysWhatRaisedAndWhere(unittest.TestCase):
         self.assertIn("not subscriptable", record["message"])
         self.assertEqual(record["where"], ["team_code.py:7, in lookup"])
 
+    def test_a_failed_harness_log_stays_within_the_receiver_cap(self):
+        stderr = _run_team("""
+            def predict(inputs):
+                print("x" * 8192)
+                raise ValueError("bad")
+        """)
+        log_line = next(line for line in stderr.splitlines() if line.startswith("COG_LOG: "))
+        log = json.loads(log_line[len("COG_LOG: "):])
+        self.assertLessEqual(_units(log), 8 * 1024)
+
     def test_an_exception_in_benchmark_code_names_it_and_the_team_line_that_called_it(self):
         """B-44's shape: the line that raised was not the team's."""
 
@@ -307,6 +317,16 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
                 failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
                 self.assertIsNone(failure.sanitized_log)
                 self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+
+    def test_a_valid_log_survives_a_later_invalid_marker(self):
+        stderr = (
+            'COG_ERROR: {"type": "TypeError", "message": "bad", "where": []}\n'
+            'COG_LOG: "keep this"\n'
+            'COG_LOG: {not json}\n'
+        )
+        failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
+        self.assertEqual(failure.sanitized_log, "keep this")
+
 
 
 class NoLogIsDownloadedForAFailure(unittest.TestCase):
