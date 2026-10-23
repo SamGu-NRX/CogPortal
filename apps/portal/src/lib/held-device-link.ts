@@ -16,14 +16,8 @@
 
 const KEY = "cogportal.heldDeviceLink";
 
-/**
- * The approval path the CLI prints, relative and nothing else (worker/routes/connections.ts, verificationUri).
- * `device_name` is the CLI's suggested name as encodeURIComponent writes it:
- * that alphabet only, and no longer than 80 characters can encode to (12 per
- * character is the most any takes).
- */
-const APPROVAL_PATH =
-  /^\/connections\?user_code=([A-Za-z0-9-]{1,64})(?:&return_to=setup)?(?:&device_name=[A-Za-z0-9%._~!*'()-]{1,960})?$/;
+/** The approval path the CLI prints, relative and nothing else (worker/routes/connections.ts, verificationUri). */
+const APPROVAL_PATH = /^\/connections\?user_code=([A-Za-z0-9-]{1,64})(?:&return_to=setup)?$/;
 
 export type HeldDeviceLink = {
   /** Relative path of the approval page, as the guard saw it. */

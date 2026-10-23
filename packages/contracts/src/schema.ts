@@ -509,20 +509,6 @@ export const DiscordLinkPreviewSchema = z.object({
   expiresAt: z.number().int(),
 });
 
-/** The approval form's limit on a device name, shared by the CLI's suggestion and the approval. */
-export const DEVICE_NAME_MAX_LENGTH = 80;
-const DeviceNameSchema = z.string().trim().min(1).max(DEVICE_NAME_MAX_LENGTH);
-
-/**
- * `cogworks link` suggests a name for the approval form (the machine's short
- * hostname). Optional: CLIs before it send `{}`, and the form then falls back
- * to its generic default.
- */
-export const DeviceAuthorizationStartRequestSchema = z.object({
-  deviceName: DeviceNameSchema.optional(),
-});
-export type DeviceAuthorizationStartRequest = z.infer<typeof DeviceAuthorizationStartRequestSchema>;
-
 export const DeviceAuthorizationStartResponseSchema = z.object({
   deviceCode: z.string().min(32),
   // Three groups since the 48-bit entropy hardening (6 bytes → 12 hex chars);
@@ -538,7 +524,7 @@ export type DeviceAuthorizationStartResponse = z.infer<
 
 export const ApproveDeviceRequestSchema = z.object({
   userCode: z.string().trim().toUpperCase(),
-  deviceName: DeviceNameSchema,
+  deviceName: z.string().trim().min(1).max(80),
 }).strict();
 
 export const RevokeDeviceRequestSchema = z.object({

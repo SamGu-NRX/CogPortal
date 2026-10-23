@@ -675,7 +675,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `low`. **Decision needed:** `fix`.
 - **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`terminal/status.md`](terminal/status.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Same on beta.
-- **Status, 2026-10-22:** fixed in source; not yet in the setup page's pinned CLI (`ac8ddaf`), which still prints the hostname. `cogworks link` sends the short hostname, the approval link carries it as `device_name`, the form starts from it, and the terminal prints the name the token answer returns. The default is the hostname rather than `CogWorks CLI` because a re-link that replaces the live device of the same name needs one machine to keep one name and two machines to differ. Evidence: `apps/portal/test/device-link-name.test.ts`, `connections-device-name.test.ts`, `held-device-link.test.ts`, and `LinkDeviceNameTests` in `python/cogbench/tests/test_cli.py`.
+- **Status, 2026-10-23:** fixed in source by printing the approved name from the token answer. The CLI sends no hostname, the approval URL carries no name, and the form starts at `CogWorks CLI`. Hostnames can contain a person's name, so this cosmetic fix must not collect them. The setup page's pinned CLI (`ac8ddaf`) still prints its hostname. Evidence: `LinkDeviceNameTests` in `python/cogbench/tests/test_cli.py`, `apps/portal/test/device-link-name.test.ts`, `connections-device-name.test.ts`, and `held-device-link.test.ts`.
 
 ### B-33: `--json` output is followed by a plain-text line
 

@@ -73,14 +73,8 @@ def request_json(
     raise PortalError("Could not reach CogPortal after {} attempts.".format(attempts))
 
 
-def start_device_link(portal: str, device_name: Optional[str] = None) -> Dict[str, Any]:
-    """Start a link; `device_name` becomes the approval form's default name.
-
-    Without one the body stays `{}`, which every portal accepts.
-    """
-
-    body = {"deviceName": device_name} if device_name else {}
-    return request_json(portal, "/api/v1/cli/device/start", body)
+def start_device_link(portal: str) -> Dict[str, Any]:
+    return request_json(portal, "/api/v1/cli/device/start", {})
 
 
 def poll_device_link(portal: str, device_code: str, interval: int, expires_at: int) -> Dict[str, Any]:

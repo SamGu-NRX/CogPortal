@@ -12,18 +12,6 @@ import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerConnectionRoutes } from "../worker/routes/connections.ts";
 
-/**
- * `cogworks link` used to print the hostname while Connections and
- * `cogworks status` showed the name typed on the approval form. The start
- * request now carries the CLI's suggestion into the approval link, and the
- * token answer returns the name that was approved, which is the one the CLI
- * prints.
- *
- * Approval is a signed-in browser request; these tests write it directly, the
- * way /v1/cli/device/approve does, and drive start and token through the
- * routes.
- */
-
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 
 function freshDb() {
@@ -84,7 +72,7 @@ function freshDb() {
 async function setup() {
   const { db, binding, sqlite } = freshDb();
   await db.insert(cohorts).values({ id: "cohort_1", slug: "c", name: "Cohort", joinCode: "JOINCODE1", active: true });
-  await db.insert(users).values({ id: "user_1", name: "Ada", email: "ada@example.test", githubLogin: "ada", cohortId: "cohort_1" });
+  await db.insert(users).values({ id: "user_1", name: "Fixture device", email: "fixture-device@example.test", githubLogin: "fixture-device", cohortId: "cohort_1" });
   // SAFETY: the connection routes touch only DB and PUBLIC_ORIGIN here.
   const env = {
     DB: binding, ENVIRONMENT: "development", DEV_AUTH: "disabled",
@@ -103,38 +91,42 @@ async function setup() {
   return { sqlite, call, start };
 }
 
-test("the CLI's suggested name rides in the approval link, after the parts it already had", async () => {
+test("the approval URL never carries a hostname supplied by an older candidate CLI", async (t) => {
   const portal = await setup();
-  const response = await portal.start({ deviceName: "  Ada’s laptop (2) " });
+  t.after(() => portal.sqlite.close());
+  const hostname = "PRIVATE-HOSTNAME-SENTINEL";
+  const response = await portal.start({ deviceName: hostname });
   assert.equal(response.status, 200);
-  const { verificationUri, userCode } = (await response.json()) as { verificationUri: string; userCode: string };
-  assert.equal(
-    verificationUri,
-    `https://portal.example/connections?user_code=${userCode}&return_to=setup&device_name=${encodeURIComponent("Ada’s laptop (2)")}`,
-  );
+  const body = await response.json();
+  assert.equal(body.verificationUri, `https://portal.example/connections?user_code=${body.userCode}&return_to=setup`);
+  assert.ok(!JSON.stringify(body).includes(hostname));
 });
 
-test("a start without a name, as every earlier CLI sends it, keeps the old link", async () => {
+test("an older CLI request without name fields still completes linking", async (t) => {
   const portal = await setup();
+  t.after(() => portal.sqlite.close());
   for (const body of [{}, undefined]) {
-    const response = await portal.start(body);
-    assert.equal(response.status, 200, `body ${JSON.stringify(body)}`);
-    const { verificationUri, userCode } = (await response.json()) as { verificationUri: string; userCode: string };
+    const started = await portal.start(body);
+    assert.equal(started.status, 200);
+    const { verificationUri, userCode, deviceCode } = await started.json();
     assert.equal(verificationUri, `https://portal.example/connections?user_code=${userCode}&return_to=setup`);
+    portal.sqlite.prepare("UPDATE device_authorizations SET user_id = ?, device_name = ?, approved_at = ? WHERE user_code = ?")
+      .run("user_1", "CogWorks CLI", Date.now(), userCode);
+    const response = await portal.call("/v1/cli/device/token", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceCode }),
+    });
+    assert.equal(response.status, 200);
+    const token = await response.json();
+    assert.equal(token.status, "authorized");
+    assert.equal(token.deviceName, "CogWorks CLI");
+    assert.ok(token.token.length >= 32);
   }
 });
 
-test("a name the approval form could not hold is refused rather than shortened", async () => {
+test("the token answer names the device as it was approved, which is what Connections lists", async (t) => {
   const portal = await setup();
-  for (const deviceName of ["", "   ", "x".repeat(81), 7]) {
-    const response = await portal.start({ deviceName });
-    assert.equal(response.status, 400, JSON.stringify(deviceName));
-  }
-});
-
-test("the token answer names the device as it was approved, which is what Connections lists", async () => {
-  const portal = await setup();
-  const started = await portal.start({ deviceName: "lab-03" });
+  t.after(() => portal.sqlite.close());
+  const started = await portal.start({});
   const { deviceCode, userCode } = (await started.json()) as { deviceCode: string; userCode: string };
   // The student renamed it on the form before approving.
   portal.sqlite

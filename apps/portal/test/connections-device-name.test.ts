@@ -8,16 +8,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import type { Session } from "@cogworks/contracts/schema";
 
-/**
- * The approval form's "Device name" is what Connections and `cogworks status`
- * show, and what the terminal prints once the link completes. It starts from
- * the name `cogworks link` suggested in the approval link (the machine's short
- * hostname), so two machines don't both arrive as "CogWorks CLI" and one
- * machine linked twice keeps one name.
- */
-
 const session: Session = {
-  user: { login: "ada", name: "ada", avatarUrl: null, platformRole: "student", isOwner: false, isTa: false },
+  user: { login: "fixture-device", name: "Fixture device", avatarUrl: null, platformRole: "student", isOwner: false, isTa: false },
   cohort: { slug: "bwsi", name: "BWSI" },
   team: { id: "team_1", name: "Team One", description: null, repo: null },
   auth: {
@@ -87,27 +79,16 @@ async function mount(t: TestContext, entry: string) {
   return { field, approve, approvals };
 }
 
-test("the device name starts as the name the CLI suggested, and that name is what gets approved", async (t) => {
+test("the approval form ignores a hostname in the URL and approves the generic default", async (t) => {
   const { field, approve, approvals } = await mount(
-    t, "/connections?user_code=ABCD-EFGH-IJKL&return_to=setup&device_name=lab-03",
+    t, "/connections?user_code=ABCD-EFGH-IJKL&return_to=setup&device_name=PRIVATE-HOSTNAME-SENTINEL",
   );
-  assert.equal(field()?.value, "lab-03");
+  assert.equal(field()?.value, "CogWorks CLI");
   await approve();
-  assert.deepEqual(approvals, [{ userCode: "ABCD-EFGH-IJKL", deviceName: "lab-03" }]);
+  assert.deepEqual(approvals, [{ userCode: "ABCD-EFGH-IJKL", deviceName: "CogWorks CLI" }]);
 });
 
-test("a suggestion longer than the form allows is cut to the form's limit", async (t) => {
-  const { field } = await mount(
-    t, `/connections?user_code=ABCD-EFGH-IJKL&device_name=${"a".repeat(90)}`,
-  );
-  assert.equal(field()?.value, "a".repeat(80));
-});
-
-test("a link without a suggestion, from an older CLI, keeps the generic default", async (t) => {
-  for (const entry of ["/connections?user_code=ABCD-EFGH-IJKL&return_to=setup", "/connections?user_code=ABCD-EFGH-IJKL&device_name=%20%20"]) {
-    await t.test(entry, async (t) => {
-      const { field } = await mount(t, entry);
-      assert.equal(field()?.value, "CogWorks CLI");
-    });
-  }
+test("an older CLI link starts the approval form with the generic default", async (t) => {
+  const { field } = await mount(t, "/connections?user_code=ABCD-EFGH-IJKL&return_to=setup");
+  assert.equal(field()?.value, "CogWorks CLI");
 });
