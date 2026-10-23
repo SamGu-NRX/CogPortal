@@ -19,11 +19,13 @@ class RunnerFailure(RuntimeError):
         detail: str,
         infrastructure: bool,
         refusal: Optional[Dict[str, Any]] = None,
+        sanitized_log: Optional[str] = None,
     ):
         super().__init__(detail)
         self.category = category
         self.phase = phase
         self.infrastructure = infrastructure
+        self.sanitized_log = sanitized_log
         #: Why nothing could be found to score, when that is what failed.
         #: `detail` is one capped line, which is right for a log and too short
         #: for the thing a student acts on: a refusal names the step that

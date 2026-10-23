@@ -755,6 +755,7 @@ import collections
 import contextlib
 import io
 import json
+import os
 import traceback
 import pathlib
 import sys
@@ -803,10 +804,59 @@ class BoundedBuffer(io.TextIOBase):
                     self.dropped += excess
         return written
     def value(self):
+        head = "".join(self.head)
+        tail = "".join(self.tail)
         if not self.dropped:
-            return "".join(self.head) + "".join(self.tail)
+            return head + tail
+
+        # Keep the complete retained ends here. wire_value() applies the
+        # receiver cap only when this text crosses the process boundary.
         marker = "\n[{} characters omitted]\n".format(self.dropped)
-        return "".join(self.head) + marker + "".join(self.tail)
+        return head + marker + tail
+
+    def wire_value(self):
+        value = self.value()
+        units = lambda text: sum(2 if ord(character) > 0xFFFF else 1 for character in text)
+        if units(value) <= self.limit:
+            return value
+
+        marker_start = value.find("\n[")
+        marker_end = value.find("]\n", marker_start)
+        if marker_start < 0 or marker_end < 0:
+            return value[:self.limit]
+        marker_end += 2
+        marker = value[marker_start:marker_end]
+        budget = max(0, self.limit - units(marker))
+
+        def take_start(text, available):
+            kept = []
+            used = 0
+            for character in text:
+                width = 2 if ord(character) > 0xFFFF else 1
+                if used + width > available:
+                    break
+                kept.append(character)
+                used += width
+            return "".join(kept)
+
+        def take_end(text, available):
+            kept = []
+            used = 0
+            for character in reversed(text):
+                width = 2 if ord(character) > 0xFFFF else 1
+                if used + width > available:
+                    break
+                kept.append(character)
+                used += width
+            return "".join(reversed(kept))
+
+        tail_budget = min(units(value[marker_end:]), budget)
+        head_budget = max(0, budget - tail_budget)
+        return (
+            take_start(value[:marker_start], head_budget)
+            + marker
+            + take_end(value[marker_end:], tail_budget)
+        )
 
 benchmark_id = sys.argv[1]
 limit = int(sys.argv[2])
@@ -1045,6 +1095,11 @@ except Exception as error:
         "message": str(error)[:500],
         "where": where,
     })))
+    # Emit the captured output only after the error record, through the real
+    # stderr file descriptor. Student code can write arbitrary bytes to that
+    # descriptor, so the controller treats only this trailing marker as a log.
+    sys.stderr.flush()
+    os.write(2, "COG_LOG: {}\n".format(json.dumps(buffer.wire_value())).encode("utf-8"))
     raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
 # 8 MiB was sized when the Week 3 sandbox ran six cases with one retrieval
@@ -1984,11 +2039,37 @@ def _evaluation_failure(
             ).strip(),
             False,
         )
-    # The detail comes from the record the sandbox writes to stderr. No log
-    # file is read: the submission can replace it, and Modal's supported
-    # filesystem API only transfers whole files.
-    detail = _last_error_line(process.stderr.read().decode("utf-8", "replace"))
-    return RunnerFailure("student_runtime", "evaluating", detail, False)
+    # The detail and the optional log come from the stderr the sandbox already
+    # exposes. No log file is read: the submission can replace it, and Modal's
+    # supported filesystem API only transfers whole files.
+    stderr_text = process.stderr.read().decode("utf-8", "replace")
+    detail = _last_error_line(stderr_text)
+    lines = stderr_text.splitlines()
+    error_positions = [
+        index for index, line in enumerate(lines) if line.strip().startswith("COG_ERROR:")
+    ]
+    sanitized_log = None
+    nonempty_positions = [index for index, line in enumerate(lines) if line.strip()]
+    if error_positions and nonempty_positions:
+        # The harness writes exactly one COG_LOG line immediately after its last
+        # COG_ERROR line, then exits. Student output cannot occupy that final
+        # position without changing the ordering the controller expects.
+        log_index = error_positions[-1] + 1
+        if log_index != nonempty_positions[-1]:
+            return RunnerFailure("student_runtime", "evaluating", detail, False)
+        line = lines[log_index]
+        if not line.startswith("COG_LOG:"):
+            return RunnerFailure("student_runtime", "evaluating", detail, False)
+        try:
+            candidate = json.loads(line[len("COG_LOG:"):].strip())
+        except (ValueError, RecursionError):
+            candidate = None
+        if isinstance(candidate, str) and _receiver_units(candidate) <= LOG_LIMIT:
+            sanitized_log = candidate
+    return RunnerFailure(
+        "student_runtime", "evaluating", detail, False,
+        sanitized_log=sanitized_log,
+    )
 
 
 def _platform_owned_evaluation_failure() -> None:
@@ -2077,7 +2158,10 @@ def _last_error_line(value: str) -> str:
     exists to avoid.
     """
 
-    lines = [line for line in value.splitlines() if line.strip()]
+    lines = [
+        line for line in value.splitlines()
+        if line.strip() and not line.strip().startswith("COG_LOG:")
+    ]
     if not lines:
         return "The run failed before producing a result."
 
@@ -2501,6 +2585,11 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
                 "infrastructure": infrastructure,
                 **({"refusal": refusal} if refusal else {}),
             },
+            **(
+                {"sanitizedLog": _wire_log(job, error.sanitized_log)}
+                if getattr(error, "sanitized_log", None) is not None
+                else {}
+            ),
         )
         print("run failed: {}".format(detail), file=sys.stderr)
         _finish(job, {"status": "failed", "event": failed, "delivered": False}, "failed")
