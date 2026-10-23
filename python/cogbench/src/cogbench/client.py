@@ -73,8 +73,8 @@ def request_json(
     raise PortalError("Could not reach CogPortal after {} attempts.".format(attempts))
 
 
-def start_device_link(portal: str) -> Dict[str, Any]:
-    return request_json(portal, "/api/v1/cli/device/start", {})
+def start_device_link(portal: str, install_id: str) -> Dict[str, Any]:
+    return request_json(portal, "/api/v1/cli/device/start", {"installId": install_id})
 
 
 def poll_device_link(portal: str, device_code: str, interval: int, expires_at: int) -> Dict[str, Any]:

@@ -522,6 +522,10 @@ export type DeviceAuthorizationStartResponse = z.infer<
   typeof DeviceAuthorizationStartResponseSchema
 >;
 
+export const DeviceAuthorizationStartRequestSchema = z.object({
+  installId: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+}).strict();
+
 export const ApproveDeviceRequestSchema = z.object({
   userCode: z.string().trim().toUpperCase(),
   deviceName: z.string().trim().min(1).max(80),

@@ -238,15 +238,19 @@ class LinkConsentTests(unittest.TestCase):
             "pollIntervalSeconds": 5,
             "expiresAt": 10_000,
         }
-        with patch("cogbench.cli.start_device_link", return_value=start), \
+        with patch("cogbench.cli.install_id_for", return_value="a" * 32) as install_id, \
+                patch("cogbench.cli.start_device_link", return_value=start) as start_link, \
                 patch("cogbench.cli.poll_device_link", return_value={"token": "t", "expiresAt": 1}), \
-                patch("cogbench.cli.save_token"), \
+                patch("cogbench.cli.save_token") as save_token, \
                 patch("cogbench.cli.repository_state", return_value=SimpleNamespace(full_name=None)), \
                 patch("cogbench.cli._installed_benchmark_hint", return_value="vision-recognition"), \
                 redirect_stdout(stdout), redirect_stderr(io.StringIO()):
             self.assertEqual(
                 main(["link", "--portal", "https://portal.example", "--no-browser"]), 0
             )
+        install_id.assert_called_once_with("https://portal.example")
+        start_link.assert_called_once_with("https://portal.example", "a" * 32)
+        save_token.assert_called_once_with("https://portal.example", "t", 1, "a" * 32)
         text = stdout.getvalue()
         consent = text[: text.index("Open https://portal.example")]
         self.assertIn(

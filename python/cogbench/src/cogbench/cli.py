@@ -54,7 +54,7 @@ from .project import repository_state
 from .report import render_check
 from .runner import ContractError, execute, model_cache_status
 from . import storage
-from .storage import active_portal, latest_report, save_report, save_token, token_for
+from .storage import active_portal, install_id_for, latest_report, save_report, save_token, token_for
 
 PROGRAM = "cogworks"
 
@@ -1331,6 +1331,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         if args.command == "link":
             portal = _portal(args.portal)
+            install_id = install_id_for(portal)
             print("Connecting to {}".format(portal))
             # Linking sends setup facts on its own. A report goes up from
             # `sync` and from the end of `run --live` (`_LiveRun.completed`);
@@ -1341,7 +1342,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "`cogworks run --live`, and weights only with `cogworks sync`. Source, logs, "
                 "predictions, and environment variables stay on this machine."
             )
-            start = start_device_link(portal)
+            start = start_device_link(portal, install_id)
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
             if not args.no_browser:
                 webbrowser.open(start["verificationUri"])
@@ -1351,7 +1352,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 int(start["pollIntervalSeconds"]),
                 int(start["expiresAt"]),
             )
-            save_token(portal, result["token"], int(result["expiresAt"]))
+            save_token(portal, result["token"], int(result["expiresAt"]), install_id)
             print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
             repository = repository_state(project_root)
             if repository.full_name:

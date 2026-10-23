@@ -5,6 +5,7 @@ import {
   ApproveDeviceRequestSchema,
   ConfirmDiscordLinkRequestSchema,
   ConnectionSummarySchema,
+  DeviceAuthorizationStartRequestSchema,
   DeviceAuthorizationStartResponseSchema,
   DeviceTokenRequestSchema,
   DeviceTokenResponseSchema,
@@ -144,6 +145,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/v1/cli/device/start", async (c) => {
+    const body = await parseBody(c, DeviceAuthorizationStartRequestSchema);
     const rawDeviceCode = randomHex(32);
     const code = userCode();
     const now = Date.now();
@@ -155,6 +157,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
       createdAt: now,
       userId: null,
       deviceName: null,
+      installId: body.installId ?? null,
       approvedAt: null,
       consumedAt: null,
     });
@@ -255,34 +258,37 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
     const expiresAt = now + DEVICE_TOKEN_TTL_MS;
     const db = getDb(c.env);
     try {
-      // A link replaces this account's live device of the same name. Without
-      // the revoke, each re-link left the previous token valid for its full
-      // 60 days, though the CLI had overwritten it on disk. The name is what
-      // the approver typed (default "CogWorks CLI"), not a machine id, so two
-      // machines linked under one name share a slot. One batch, so a failed
-      // insert also leaves the old device working.
-      await db.batch([
-        db
-          .update(cliDevices)
-          .set({ revokedAt: now })
-          .where(
-            and(
-              eq(cliDevices.userId, authorization.userId),
-              eq(cliDevices.name, authorization.deviceName),
-              isNull(cliDevices.revokedAt),
+      // An install id identifies one CLI installation without exposing a
+      // hostname or a student-chosen name. Older CLIs omit it, so their
+      // links never revoke an existing device.
+      const insert = db.insert(cliDevices).values({
+        id: newId("cli_"),
+        userId: authorization.userId,
+        name: authorization.deviceName,
+        installId: authorization.installId,
+        tokenHash: await sha256Hex(rawToken),
+        createdAt: now,
+        lastUsedAt: null,
+        expiresAt,
+        revokedAt: null,
+      });
+      if (authorization.installId) {
+        await db.batch([
+          db
+            .update(cliDevices)
+            .set({ revokedAt: now })
+            .where(
+              and(
+                eq(cliDevices.userId, authorization.userId),
+                eq(cliDevices.installId, authorization.installId),
+                isNull(cliDevices.revokedAt),
+              ),
             ),
-          ),
-        db.insert(cliDevices).values({
-          id: newId("cli_"),
-          userId: authorization.userId,
-          name: authorization.deviceName,
-          tokenHash: await sha256Hex(rawToken),
-          createdAt: now,
-          lastUsedAt: null,
-          expiresAt,
-          revokedAt: null,
-        }),
-      ]);
+          insert,
+        ]);
+      } else {
+        await db.batch([insert]);
+      }
     } catch (error) {
       // The claim above and this batch are two writes. If the second fails
       // the code is marked consumed with no device behind it: the CLI gets an

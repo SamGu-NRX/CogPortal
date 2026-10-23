@@ -95,7 +95,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-03 | Two gates disagree about which team members Discord serves | low | latent | same | as candidate | discord | fix |
 | B-09b | Hosted practice confirmations say every run uses quota; only completed runs do | low | narrowed | same | as candidate | discord, portal | fix |
 | B-12 | `/cog view:connect` for an already-linked student is a dead end | low | open | same | as candidate | discord | fix |
-| B-15 | Re-linking a device accumulates live tokens that nothing revokes | low | narrowed | same | as candidate | terminal, portal | fix |
+| B-15 | Re-linking a device accumulates live tokens that nothing revokes | low | fixed for re-links from the same install | same | as candidate | terminal, portal | fix |
 | B-17 | The longest paragraphs in `cogworks check` are not wrapped | low | narrowed | same | as candidate | terminal | fix |
 | B-18 | The most ordinary failure verdict has no next step | low | open | same | as candidate | terminal | product call |
 | B-30 | Churn events record one author while the rest of the process panel credits co-authors | low | narrowed | same | as candidate | portal | fix |
@@ -629,11 +629,11 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 
 ### B-15: Re-linking a device accumulates live tokens that nothing revokes
 
-- Every completed handshake inserts a device row, and nothing revokes the previous one; each lives sixty days. The list now shows "Last used {date}" or "Linked {date}, not used yet", so the device a terminal holds can be told apart, and revoking asks first.
+- A completed handshake now revokes the account's previous live device from the same CLI install before inserting the new row. A second install can keep the default name and both tokens remain live. Requests from older CLIs without an install id revoke nothing.
 - **Why:** `apps/portal/worker/routes/connections.ts:257`; `apps/portal/worker/auth/device.ts:41`; `apps/portal/src/routes/ConnectionsPage.tsx:317-326`.
 - **Severity:** `low`, down from medium. **Decision needed:** `fix`.
 - **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification)
-- **Status:** narrowed; code read at `2ff32fa`. Same on beta.
+- **Status:** fixed for re-links from the same install; legacy requests without an install id keep their existing behavior. Tests: `apps/portal/test/device-relink.test.ts`.
 
 ### B-17: The longest paragraphs in `cogworks check` are not wrapped
 

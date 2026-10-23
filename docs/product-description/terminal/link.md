@@ -67,7 +67,7 @@ No portal selected, or an origin that is not a valid HTTPS origin. Each is one `
 
 Two moments, on two machines.
 
-**On the portal**, when `/api/v1/cli/device/start` returns. A row now holds the hash of the device code, the user code, and an expiry ten minutes out (`apps/portal/worker/routes/connections.ts:38`, `:146`). The code is 48 bits, shown as three groups of four, which the comment says keeps a ten-minute code impractical to enumerate (`connections.ts:47`). Abandoning here leaves a dead code.
+**On the portal**, when `/api/v1/cli/device/start` returns. A row now holds the hash of the device code, the user code, an optional opaque install id, and an expiry ten minutes out (`apps/portal/worker/routes/connections.ts:38`, `:146`). The install id identifies this CLI installation and never appears in a response or in the Connections page. The code is 48 bits, shown as three groups of four, which the comment says keeps a ten-minute code impractical to enumerate (`connections.ts:47`). Abandoning here leaves a dead code.
 
 **On this machine**, when the token is written. `save_token` creates the config directory, sets it to `0700`, writes a temporary file, sets it to `0600`, and replaces the config (`python/cogbench/src/cogbench/storage.py:129`). The same write sets `activePortal`, so from here every later command uses this portal by default.
 
@@ -81,7 +81,7 @@ The browser holds the state. The approval form shows while the URL has a `user_c
 
 ### How it ends
 
-On approval the token and its sixty-day expiry are saved (`connections.ts:39`), and stdout gets "Linked {hostname}. Local commands still work offline." (`cli.py:1271`).
+On approval the token, its sixty-day expiry, and the installation's opaque id are saved (`connections.ts:39`, `storage.py:129`). The id is generated once per portal and reused on later links. Stdout gets "Linked {hostname}. Local commands still work offline." (`cli.py:1271`).
 
 Then the command looks at the directory it started in. In a GitHub worktree it reports the `clone` setup step and prints "setup: updated clone". If that request fails, stderr gets "setup: clone was not updated: {error}" and the command still exits 0 (`cli.py:1276`), because the link succeeded. The likeliest error is the portal's "This directory is {yours}, but CogPortal expects {team's}." (`apps/portal/worker/routes/setup.ts:207`). Outside a worktree the note above prints instead. Its benchmark is the one installed benchmark when exactly one is installed, and the literal `<benchmark>` otherwise (`cli.py:293`), because `link` takes no `--benchmark` and naming a track would be a guess.
 
@@ -123,13 +123,13 @@ Then the command looks at the directory it started in. In a GitHub worktree it r
 
 **Discord.** The CLI says nothing about Discord. The page it opens has a Discord section, the one place both connections appear together.
 
-**Configuration.** The config file stores one entry per origin with a token and an expiry, plus `activePortal`. Nothing removes an entry.
+**Configuration.** The config file stores one entry per origin with a token, an expiry, and an opaque install id, plus `activePortal`. Nothing removes an entry.
 
 ## Edge cases
 
 - **The device has two names.** The terminal prints the hostname (`cli.py:1271`); the portal stores what was typed, default `CogWorks CLI` (`ConnectionsPage.tsx:46`), and that is what Connections and `cogworks status` show.
 - **Every link returns to the setup guide.** `return_to=setup` is in every verification URL (`connections.ts:164`), so re-linking months later still lands on Setup.
-- **A link replaces the account's device of the same name.** The handshake revokes this account's live device with the approved name and inserts the new one in one batch (`connections.ts:264`). The name is the typed one, not the hostname, so a second machine approved under the default `CogWorks CLI` disconnects the first; giving each machine its own name keeps both. Devices with other names stay live, and the list shows "Last used" for each, updated on every authenticated request (`apps/portal/worker/auth/device.ts:41`). Revoke asks first: "Confirm, it stops reporting" (`ConnectionsPage.tsx:325`).
+- **A link replaces the account's device from the same install.** The handshake revokes this account's live device with the same opaque install id and inserts the new one in one batch (`connections.ts:264`). The id is independent of the typed name, so a second machine approved under the default `CogWorks CLI` leaves the first machine live. A request from an older CLI without an install id revokes nothing. Devices with other ids stay live, and the list shows "Last used" for each, updated on every authenticated request (`apps/portal/worker/auth/device.ts:41`). Revoke asks first: "Confirm, it stops reporting" (`ConnectionsPage.tsx:325`).
 - **A revoked device fails at its next command.** The CLI checks only the stored expiry (`storage.py:151`); the portal then answers "This CogWorks connection expired or was revoked. Run `cogworks link` to connect this machine again." (`device.ts:38`).
 - **A failed claim is recoverable.** Issuing a token is two writes, the claim and then the revoke-and-insert batch; if the batch fails, the old device stays live and the claim is released so the next poll can try again (`connections.ts:286`).
 - **Expiry is judged against this machine's clock.** A clock far ahead gives up early with the CLI's sentence; one far behind keeps polling and gets the portal's.
