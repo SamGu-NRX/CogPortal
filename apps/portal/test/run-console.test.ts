@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as React from "react";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Window } from "happy-dom";
 import type { RunSurfaceSnapshot } from "@cogworks/contracts/schema";
 
 import { RunConsole } from "../src/components/RunConsole";
@@ -459,3 +462,38 @@ test("no state of the console attributes its result to the person who started it
   const html = renderToStaticMarkup(React.createElement(RunConsole, { snapshot: scored, streamState: "closed" }));
   assert.match(html, /0\.913/, "the score itself still shows");
 });
+
+for (const [action, label] of [["verify_hosted", "Verify hosted"], ["rerun_hosted", "Rerun hosted"]] as const) {
+  test(`${label} confirmation states accepted and active practice-run rules`, async (t) => {
+  const window = new Window({ url: "https://portal.example" });
+  const globals = { window, document: window.document, navigator: window.navigator,
+    HTMLElement: window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(globals)) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
+  const container = window.document.createElement("div");
+  window.document.body.append(container);
+  // SAFETY: Happy DOM implements the Element operations React uses, with separate TS interfaces.
+  const root = createRoot(container as unknown as Element);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    await window.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  });
+  const ready = { ...snapshot("succeeded"), actions: ["open_console", "open_portal", action] as RunSurfaceSnapshot["actions"] };
+  await act(async () => root.render(React.createElement(RunConsole, { snapshot: ready, streamState: "closed" })));
+  const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes(label));
+  assert.ok(trigger);
+  await act(async () => trigger.click());
+  const text = container.querySelector("dialog")?.textContent ?? "";
+  // This matches acceptedRunPredicate and activeRunPredicate in
+  // worker/services/run-accounting.ts.
+  assert.match(text, /only if it finishes scoring/);
+  assert.match(text, /While it's running it holds a slot/);
+  assert.match(text, /fails, is cancelled or is refunded, it doesn't count/);
+  });
+}

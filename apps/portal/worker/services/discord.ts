@@ -1,16 +1,17 @@
-import { and, eq, exists, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, ne } from "drizzle-orm";
 import type {
   DiscordLocalReports,
   DiscordTeamStatus,
 } from "@cogworks/contracts/discord";
-import { isTerminal } from "@cogworks/contracts/schema";
+import { isTerminal, type Leaderboard } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import { ApiHttpError } from "../http/errors";
-import { discordAccounts, teamMembers, teams, users } from "../db/schema";
+import { benchmarks, discordAccounts, runs, teamMembers, teams, users } from "../db/schema";
 import { syncTeamRuns } from "../execution/sync";
 import { serializeRunSummary, serializeTeam } from "../http/serializers";
+import { getLeaderboardReadModel } from "./leaderboard";
 import { listTeamLocalReports } from "./local-reports";
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -144,6 +145,52 @@ async function discordIdentity(env: Env, discordUserId: string) {
     .where(eq(discordAccounts.discordUserId, discordUserId))
     .limit(1);
   return identity ?? null;
+}
+
+/**
+ * The board /cog shows a student. Their team's row is marked, and when no
+ * benchmark is named the board is that of the team's newest run surface (the
+ * run the team bench shows), as long as a version of it is still active. The
+ * team is found the way getDiscordTeamStatus finds it. An account that is not
+ * linked, or a team with no current run, gets the default board, which is
+ * whichever active benchmark has the newest version.
+ */
+export async function getDiscordLeaderboard(
+  env: Env,
+  discordUserId: string | undefined,
+  benchmarkId?: string,
+): Promise<Leaderboard> {
+  const identity = discordUserId ? await discordIdentity(env, discordUserId) : null;
+  const db = getDb(env);
+  const [membership] = identity
+    ? await db
+        .select({ teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .where(eq(teamMembers.userId, identity.userId))
+        .limit(1)
+    : [];
+  let board = benchmarkId;
+  if (!board && membership) {
+    const [latest] = await db
+      .select({ benchmarkId: runs.benchmarkId, benchmarkVersion: runs.benchmarkVersion })
+      .from(runs)
+      .where(eq(runs.teamId, membership.teamId))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(1);
+    if (latest) {
+      const [activeBenchmark] = await db
+        .select({ id: benchmarks.id })
+        .from(benchmarks)
+        .where(and(
+          eq(benchmarks.id, latest.benchmarkId),
+          eq(benchmarks.version, latest.benchmarkVersion),
+          eq(benchmarks.active, true),
+        ))
+        .limit(1);
+      board = activeBenchmark?.id;
+    }
+  }
+  return getLeaderboardReadModel(env, board, membership?.teamId);
 }
 
 export async function getDiscordTeamStatus(

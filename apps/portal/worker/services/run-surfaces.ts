@@ -485,7 +485,9 @@ export async function readRunSurfaceSnapshot(
     retryRefusal,
     events,
     actions,
-    simulated: env.EXECUTION_PROVIDER === "fixture",
+    // The hosted run whose result the console shows, not the deployment's
+    // current provider. A local-only surface ran on the student's machine.
+    simulated: sourceRun?.provider === "fixture",
   });
 }
 

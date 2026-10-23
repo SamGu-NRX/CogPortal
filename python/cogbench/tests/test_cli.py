@@ -350,6 +350,54 @@ class StatusFormattingTests(unittest.TestCase):
         now = datetime(2026, 9, 5, 1, 0, tzinfo=timezone.utc)
         self.assertEqual(_format_expiry(expires, now), "Sep 22 (in 17 days)")
 
+    def test_status_reports_malformed_server_responses_without_traceback(self):
+        base = {
+            "githubLogin": "student",
+            "teamName": "Team",
+            "repositoryFullName": "course/team",
+            "deviceName": "Laptop",
+            "deviceExpiresAt": 1,
+        }
+        missing = dict(base)
+        del missing["githubLogin"]
+        cases = (
+            None,
+            [],
+            missing,
+            dict(base, githubLogin=None),
+            dict(base, deviceExpiresAt=None),
+            dict(base, deviceExpiresAt="tomorrow"),
+            dict(base, deviceExpiresAt=10 ** 100),
+            dict(base, discordChannelId=7),
+        )
+        expected = (
+            "cogworks: CogPortal returned incomplete device status. "
+            "Run `cogworks link` again and retry.\n"
+        )
+        for value in cases:
+            with self.subTest(value=value):
+                stderr = io.StringIO()
+                with patch("cogbench.cli._portal", return_value="https://portal.example"), \
+                        patch("cogbench.cli.token_for", return_value="token"), \
+                        patch("cogbench.cli.device_status", return_value=value), \
+                        redirect_stderr(stderr):
+                    result = main(["status"])
+
+                self.assertEqual(result, 2)
+                self.assertEqual(stderr.getvalue(), expected)
+
+    def test_run_failure_sentence_has_one_full_stop(self):
+        from cogbench.isolate import CRASHED, Outcome
+
+        stdout = io.StringIO()
+        with patch("cogbench.cli._local_operation", return_value=Outcome(CRASHED, detail="worker stopped.")), \
+                redirect_stdout(stdout):
+            result = main(["run", "--benchmark", "fixture"])
+
+        self.assertEqual(result, 2)
+        self.assertIn("The run did not finish: worker stopped.\n", stdout.getvalue())
+        self.assertNotIn("worker stopped..", stdout.getvalue())
+
     def test_status_hides_the_discord_id_and_states_both_channel_states(self):
         base = {
             "githubLogin": "student",

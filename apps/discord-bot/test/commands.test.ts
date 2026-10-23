@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { test } from "node:test";
 import type { PortalRpcContract } from "@cogworks/contracts/discord";
 import type { RunSurfaceSnapshot } from "@cogworks/contracts/schema";
-import { entryPointCommand } from "../scripts/command-payloads.mjs";
+import { cogCommand, entryPointCommand } from "../scripts/command-payloads.mjs";
 import { executeCommand } from "../src/commands.ts";
 import type { DiscordButton } from "@cogworks/discord-kit/components";
 import {
@@ -17,6 +18,7 @@ import {
   type InteractionResponse,
 } from "../src/interaction.ts";
 import { verifyDiscordRequest } from "../src/verify.ts";
+import worker from "../src/index.ts";
 
 const guildId = "course-guild";
 const portalOrigin = "https://portal.example";
@@ -231,6 +233,50 @@ test("linked students land on a warm, private team snapshot", async () => {
   assert.doesNotMatch(responseText(response), / · /);
   assert.ok(buttons(response).some((item) => item.custom_id === "cog:bind-channel"));
   assert.ok(buttons(response).some((item) => item.label === "Open Cog*Portal"));
+});
+
+test("Connect keeps the portal recovery link when the account is already linked", async () => {
+  for (const hasTeam of [false, true]) {
+    for (const view of ["connect", "home", "local"]) {
+      let firstStatus = true;
+      const portal = portalWith({
+        async createDiscordLink() {
+          return { alreadyLinked: true, url: null, expiresAt: null };
+        },
+        async getTeamStatus() {
+          // The account can become linked between Home's read and link creation.
+          if (view === "home" && firstStatus) {
+            firstStatus = false;
+            return { linked: false };
+          }
+          return {
+            linked: true,
+            githubLogin: "ada-lovelace",
+            team: hasTeam ? {
+              id: "team-1",
+              name: "Analytical Engines",
+              description: null,
+              provenance: "live",
+              repo: null,
+            } : null,
+            discordChannelId: null,
+            canManageDiscordChannel: false,
+            activeRun: null,
+            latestHosted: null,
+            latestOfficial: null,
+          };
+        },
+      });
+
+      const response = await executeCommand(command(view), portal, guildId, portalOrigin);
+      const links = buttons(response).filter((item) => item.style === 5);
+      assert.deepEqual(links.map(({ label, url }) => ({ label, url })), [{
+        label: hasTeam ? "Open Cog*Portal" : "Choose your repository",
+        url: `${portalOrigin}/${hasTeam ? "dashboard" : "connect"}`,
+      }], `${view}, team=${hasTeam}`);
+      assert.match(responseText(response), /Analytical Engines|One small step left/);
+    }
+  }
 });
 
 test("/cog shows the one useful next run action instead of a bulky menu", async () => {
@@ -463,6 +509,59 @@ test("the Activity Entry Point is app-handled to avoid an extra channel message"
   assert.equal(entryPointCommand.handler, 1);
 });
 
+test("Activity registration offers only contexts the signed launch handler accepts", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicJwk = publicKey.export({ format: "jwk" });
+  assert.ok(publicJwk.x);
+  const env = {
+    DISCORD_PUBLIC_KEY: Buffer.from(publicJwk.x, "base64url").toString("hex"),
+    COURSE_GUILD_ID: guildId,
+    PORTAL_ORIGIN: portalOrigin,
+    PORTAL: basePortal,
+  };
+  const executionContext = {
+    waitUntil() { throw new Error("Activity launches must answer immediately"); },
+    passThroughOnException() { throw new Error("Unexpected exception passthrough"); },
+    get exports(): never { throw new Error("Unexpected Worker exports access"); },
+    get props(): never { throw new Error("Unexpected Worker props access"); },
+    get tracing(): never { throw new Error("Unexpected tracing access"); },
+  } satisfies ExecutionContext;
+
+  for (const context of [0, 1, 2]) {
+    const interaction = command();
+    interaction.guild_id = context === 0 ? guildId : undefined;
+    interaction.data = { name: entryPointCommand.name, type: entryPointCommand.type };
+    const body = JSON.stringify(interaction);
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = sign(null, Buffer.from(timestamp + body), privateKey).toString("hex");
+    const response = await worker.fetch(new Request("https://bot.example/interactions", {
+      method: "POST",
+      headers: {
+        "X-Signature-Ed25519": signature,
+        "X-Signature-Timestamp": timestamp,
+      },
+      body,
+    }), env, executionContext);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.ok(result !== null && typeof result === "object" && "type" in result);
+    assert.equal(result.type === RESPONSE_LAUNCH_ACTIVITY,
+      entryPointCommand.contexts?.includes(context),
+      `registered interaction context ${context} must match launch availability`);
+    if (context === 0) {
+      assert.equal(result.type, RESPONSE_LAUNCH_ACTIVITY);
+    } else {
+      assert.match(JSON.stringify(result), /only enabled inside the CogWorks course server/);
+    }
+  }
+});
+
+test("every registered command installs to the course guild only, never as a user app", () => {
+  for (const payload of [cogCommand, entryPointCommand]) {
+    assert.deepEqual(payload.integration_types, [0], payload.name);
+  }
+});
+
 test("team channel setup is explicit and binds only after confirmation", async () => {
   let bound: string | null = null;
   const linkedStatus = {
@@ -585,6 +684,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: true,
+            simulated: false,
             publicSweep: null,
           },
           {
@@ -599,6 +699,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             supportingMetrics: [],
             completedAt: 1_750_000_000_000,
             isYou: false,
+            simulated: true,
             publicSweep: null,
           },
         ],
@@ -610,6 +711,49 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
   assert.match(body, /\*\*Analytical Engines\*\*/);
   assert.match(body, /0\.913/);
   assert.doesNotMatch(body, /bbbbbbb|ccccccc/);
+  // Only the fixture-provider row says it was simulated.
+  assert.equal(body.split("simulated").length - 1, 1);
+  assert.match(body, /Face Finder.*simulated/);
+});
+
+test("the leaderboard asks for the student's own board and marks their row only in private", async () => {
+  const calls: unknown[][] = [];
+  const row = (rank: number, teamName: string, isYou: boolean) => ({
+    rank, teamName, teamDescription: null, provenance: "live" as const, repoUrl: null,
+    sha: "b".repeat(40), shortSha: "bbbbbbb",
+    primaryMetric: { key: "accuracy", label: "Accuracy", value: 0.9 - rank / 100, unit: null, higherIsBetter: true, primary: true, precision: 3 },
+    supportingMetrics: [], completedAt: 1_750_000_000_000, isYou, simulated: false, publicSweep: null,
+  });
+  const portal = portalWith({
+    async getLeaderboard(...args: unknown[]) {
+      calls.push(args);
+      return { benchmark, entries: [row(1, "Difference Engines", false), row(2, "Analytical Engines", true)] };
+    },
+  });
+
+  const own = responseText(await executeCommand(component("cog:leaderboard"), portal, guildId, portalOrigin));
+  const shared = responseText(await executeCommand(component("cog:share:leaderboard"), portal, guildId, portalOrigin));
+  // No benchmark named, so the portal picks the team's; the Discord user is
+  // how it finds the team, which is what makes isYou true for anyone.
+  assert.deepEqual(calls, [[guildId, undefined, "discord-1"], [guildId, undefined, "discord-1"]]);
+  assert.match(own, /\*\*Analytical Engines\*\*/);
+  assert.doesNotMatch(own, /\*\*Difference Engines\*\*/);
+  // The shared post is public and names no one, so it marks no team either.
+  assert.doesNotMatch(shared, /\*\*Analytical Engines\*\*/);
+  assert.match(shared, /Analytical Engines/);
+});
+
+test("hosted practice confirmations match the accepted and active run rules", async () => {
+  const latest = surfaceSnapshot();
+  const portal = portalWith({ async getRunSurface() { return latest; } });
+  for (const action of ["verify_hosted", "rerun_hosted"]) {
+    const body = responseText(await executeCommand(component(`cog:surface:${latest.id}:${action}`), portal, guildId, portalOrigin));
+    // portal worker/services/run-accounting.ts acceptedRunPredicate: only a
+    // succeeded, unrefunded run counts; failed and cancelled runs never do.
+    assert.match(body, /only if it finishes scoring/, action);
+    assert.match(body, /While it's running it holds a slot/, action);
+    assert.match(body, /fails, is cancelled or is refunded, it doesn't count/, action);
+  }
 });
 
 test("the hub is one Go to… menu that routes by selected value", async () => {

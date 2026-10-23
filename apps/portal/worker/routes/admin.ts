@@ -213,9 +213,14 @@ async function readAdminTeamSummaries(
     readUsedRunsByTeam(db, teamWhere),
     // Every hosted execution in any state, so a team whose runs all failed
     // is not mistaken for one that never ran. Teams as a subquery, for the
-    // reason readUsedRunsByTeam gives (runs has no team_id index).
+    // reason readUsedRunsByTeam gives (runs has no team_id index). `failed`
+    // lets the console say the runs failed when every one of them did.
     db
-      .select({ teamId: runs.teamId, count: sql<number>`count(*)`.mapWith(Number) })
+      .select({
+        teamId: runs.teamId,
+        count: sql<number>`count(*)`.mapWith(Number),
+        failed: sql<number>`sum(case when ${runs.status} = 'failed' then 1 else 0 end)`.mapWith(Number),
+      })
       .from(runs)
       .where(inArray(runs.teamId, scopedTeamIds))
       .groupBy(runs.teamId),
@@ -264,7 +269,7 @@ async function readAdminTeamSummaries(
     readFirstLights(db, scopedTeamIds),
     readLastHostedRuns(db, scopedTeamIds),
   ]);
-  const executions = new Map(executed.map((row) => [row.teamId, row.count]));
+  const executions = new Map(executed.map((row) => [row.teamId, row]));
   const firstLightByTeam = new Map(firstLights.map((row) => [row.teamId, row]));
   const lastRunByTeam = new Map(lastRuns.map((row) => [row.teamId, row]));
   const roleOrder: Record<TeamMember["role"], number> = {
@@ -303,7 +308,8 @@ async function readAdminTeamSummaries(
         })),
       practiceUsed: usage?.practiceUsed ?? 0,
       officialUsed: usage?.officialUsed ?? 0,
-      hostedRuns: executions.get(team.id) ?? 0,
+      hostedRuns: executions.get(team.id)?.count ?? 0,
+      failedRuns: executions.get(team.id)?.failed ?? 0,
       // Retained for older clients. Failures no longer require a refund decision.
       refundsGiven: 0,
       firstLight: first
