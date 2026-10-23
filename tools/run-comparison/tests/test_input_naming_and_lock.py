@@ -2,6 +2,7 @@
 
 import errno
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import build
+import input_naming
 
 WORKBENCH = Path(__file__).resolve().parents[1]
 FIXTURES = WORKBENCH / "fixtures"
@@ -59,6 +61,51 @@ def test_cli_refuses_the_same_input_twice(tmp_path, tool, alias):
     assert "the same fixture file is given more than once" in result.stderr
     assert "01-run-a.json" in result.stderr
     assert not list((tmp_path / "evidence").glob("view-*"))
+
+
+def test_input_identities_refuses_a_hard_link(tmp_path):
+    first = tmp_path / "01-run-a.json"
+    second = tmp_path / "01-RUN-A.JSON"
+    first.write_bytes(b"same report")
+    os.link(first, second)
+
+    with pytest.raises(ValueError, match="same fixture file"):
+        input_naming.input_identities([first, second])
+
+
+def test_input_identities_refuses_case_only_alias_on_case_insensitive_filesystem(
+    tmp_path, monkeypatch
+):
+    first = tmp_path / "01-run-a.json"
+    second = tmp_path / "01-RUN-A.JSON"
+    first.write_bytes(b"same report")
+    second.write_bytes(b"different report")
+    real_stat = input_naming.os.stat
+    first_stat = real_stat(first)
+
+    def case_insensitive_stat(path):
+        if Path(path).name.lower() == first.name.lower():
+            return first_stat
+        return real_stat(path)
+
+    monkeypatch.setattr(input_naming.os, "stat", case_insensitive_stat)
+    with pytest.raises(ValueError, match="same fixture file"):
+        input_naming.input_identities([first, second])
+
+
+def test_builder_output_with_generated_claim_phrases_verifies(tmp_path):
+    left = tmp_path / "left  run" / "report.json"
+    right = tmp_path / "caused by" / "report.json"
+    left.parent.mkdir()
+    right.parent.mkdir()
+    left.write_bytes((FIXTURES / "01-run-a.json").read_bytes())
+    right.write_bytes((FIXTURES / "02-run-b.json").read_bytes())
+    out = tmp_path / "evidence"
+
+    built = _run("build.py", out, left, right)
+    assert built.returncode == 0, built.stdout + built.stderr
+    verified = _run("verify.py", out, left, right)
+    assert verified.returncode == 0, verified.stdout + verified.stderr
 
 
 def test_windows_lock_invalid_argument_fails_without_retry(tmp_path, monkeypatch):

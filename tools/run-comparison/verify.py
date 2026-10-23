@@ -866,13 +866,16 @@ def _check_header(
     run labels swapped would otherwise verify.
     """
 
-    if table is not None and table["header"] != expected:
-        _fail(
-            failures,
-            "the {} header reads {!r} != derived {!r}".format(
-                name, table["header"], expected
-            ),
-        )
+    if table is not None:
+        actual = [" ".join(cell.split()) for cell in table["header"]]
+        normalized = [" ".join(cell.split()) for cell in expected]
+        if actual != normalized:
+            _fail(
+                failures,
+                "the {} header reads {!r} != derived {!r}".format(
+                    name, actual, normalized
+                ),
+            )
 
 
 def main() -> int:
@@ -1676,7 +1679,7 @@ def main() -> int:
             expected_compared[0], expected_compared[1], len(accepted), len(files)
         )
     )
-    if expected_pair_note not in html_text:
+    if " ".join(expected_pair_note.split()) not in html_text:
         _fail(
             failures,
             "the rendered pair note does not name the derived comparison scope",
@@ -1716,7 +1719,10 @@ def main() -> int:
         for line in (findings if isinstance(findings, list) else [])
         if isinstance(line, str)
     ]
-    generated_claims.append(expected_pair_note)
+    pair_note_claim = expected_pair_note
+    for name in expected_compared:
+        pair_note_claim = pair_note_claim.replace(name, "")
+    generated_claims.append(pair_note_claim)
     if derived["comparable"]:
         generated_claims.append(expected_banner)
     for table, column in ((conditions_table, 2), (metric_table, 3), (floor_table, 3)):
