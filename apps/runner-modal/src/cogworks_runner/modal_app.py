@@ -755,6 +755,7 @@ import collections
 import contextlib
 import io
 import json
+import os
 import traceback
 import pathlib
 import sys
@@ -1045,6 +1046,11 @@ except Exception as error:
         "message": str(error)[:500],
         "where": where,
     })))
+    # Emit the captured output only after the error record, through the real
+    # stderr file descriptor. Student code can write arbitrary bytes to that
+    # descriptor, so the controller treats only this trailing marker as a log.
+    sys.stderr.flush()
+    os.write(2, "COG_LOG: {}\n".format(json.dumps(buffer.value())).encode("utf-8"))
     raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
 # 8 MiB was sized when the Week 3 sandbox ran six cases with one retrieval
@@ -1984,11 +1990,37 @@ def _evaluation_failure(
             ).strip(),
             False,
         )
-    # The detail comes from the record the sandbox writes to stderr. No log
-    # file is read: the submission can replace it, and Modal's supported
-    # filesystem API only transfers whole files.
-    detail = _last_error_line(process.stderr.read().decode("utf-8", "replace"))
-    return RunnerFailure("student_runtime", "evaluating", detail, False)
+    # The detail and the optional log come from the stderr the sandbox already
+    # exposes. No log file is read: the submission can replace it, and Modal's
+    # supported filesystem API only transfers whole files.
+    stderr_text = process.stderr.read().decode("utf-8", "replace")
+    detail = _last_error_line(stderr_text)
+    lines = stderr_text.splitlines()
+    error_positions = [
+        index for index, line in enumerate(lines) if line.strip().startswith("COG_ERROR:")
+    ]
+    sanitized_log = None
+    if error_positions:
+        # Student output can forge a COG_LOG line before the harness writes its
+        # COG_ERROR record. Only markers after the last error record belong to
+        # the harness. A malformed final marker is rejected rather than changing
+        # the failure object or replacing an earlier failure classification.
+        for line in lines[error_positions[-1] + 1:]:
+            if not line.startswith("COG_LOG:"):
+                continue
+            try:
+                candidate = json.loads(line[len("COG_LOG:"):].strip())
+            except (ValueError, RecursionError):
+                candidate = None
+            sanitized_log = (
+                candidate
+                if isinstance(candidate, str) and _receiver_units(candidate) <= LOG_LIMIT
+                else None
+            )
+    return RunnerFailure(
+        "student_runtime", "evaluating", detail, False,
+        sanitized_log=sanitized_log,
+    )
 
 
 def _platform_owned_evaluation_failure() -> None:
@@ -2077,7 +2109,10 @@ def _last_error_line(value: str) -> str:
     exists to avoid.
     """
 
-    lines = [line for line in value.splitlines() if line.strip()]
+    lines = [
+        line for line in value.splitlines()
+        if line.strip() and not line.strip().startswith("COG_LOG:")
+    ]
     if not lines:
         return "The run failed before producing a result."
 
@@ -2501,6 +2536,11 @@ def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
                 "infrastructure": infrastructure,
                 **({"refusal": refusal} if refusal else {}),
             },
+            **(
+                {"sanitizedLog": _wire_log(job, error.sanitized_log)}
+                if getattr(error, "sanitized_log", None) is not None
+                else {}
+            ),
         )
         print("run failed: {}".format(detail), file=sys.stderr)
         _finish(job, {"status": "failed", "event": failed, "delivered": False}, "failed")

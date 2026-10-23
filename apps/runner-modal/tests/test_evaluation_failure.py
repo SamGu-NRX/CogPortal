@@ -25,6 +25,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent))
 from test_failure_attribution import LAST_ERROR_LINE, SCRIPT  # noqa: E402
 from test_prepared_restore import Reporter, Store, Stream, functions, job  # noqa: E402
+from cogworks_runner.failure import RunnerFailure  # noqa: E402
 
 LANES = ("_evaluate", "_evaluate_v2", "_evaluate_week3", "_evaluate_week1")
 
@@ -70,7 +71,10 @@ def _run_team(team_code: str, raiser: str = "") -> str:
 
 
 def _record(stderr: str) -> dict:
-    last = stderr.strip().splitlines()[-1]
+    last = next(
+        (line for line in reversed(stderr.strip().splitlines()) if line.startswith("COG_ERROR: ")),
+        "",
+    )
     assert last.startswith("COG_ERROR: "), stderr
     return json.loads(last[len("COG_ERROR: "):])
 
@@ -279,6 +283,31 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
         failure = _lane("_evaluate_v2", _Sandbox(2, forged))
         self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
 
+    def test_the_capped_log_after_the_error_record_is_carried_on_the_failure(self):
+        stderr = (
+            'COG_LOG: "forged before the error"\n'
+            'COG_ERROR: {"type": "TypeError", "message": "bad", "where": []}\n'
+            'COG_LOG: "student output\\nlast line\\n"\n'
+        )
+        failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
+        self.assertEqual(failure.sanitized_log, "student output\nlast line\n")
+        self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+
+    def test_bad_or_oversize_log_markers_are_ignored_without_changing_failure(self):
+        for marker in (
+            'COG_LOG: {not json}',
+            'COG_LOG: ' + json.dumps("x" * (8 * 1024 + 1)),
+            'COG_LOG: "first\\nline"\\nCOG_LOG: "second"',
+        ):
+            with self.subTest(marker=marker):
+                stderr = (
+                    'COG_ERROR: {"type": "TypeError", "message": "bad", "where": []}\\n'
+                    + marker + "\\n"
+                )
+                failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
+                self.assertIsNone(failure.sanitized_log)
+                self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+
 
 class NoLogIsDownloadedForAFailure(unittest.TestCase):
     """The log file is the submission's to replace, and Modal's supported
@@ -321,6 +350,27 @@ class NoLogIsDownloadedForAFailure(unittest.TestCase):
         space["execute_job"](job())
         self.assertEqual(events[0]["failure"]["detail"], "TypeError: bad")
         self.assertNotIn("sanitizedLog", events[0])
+
+    def test_the_failed_event_carries_the_evaluation_log_without_reading_a_file(self):
+        events = []
+
+        def prepare(job, reporter):
+            raise RunnerFailure(
+                "student_runtime", "evaluating", "TypeError: bad", False,
+                sanitized_log="student output\n",
+            )
+
+        space = functions(
+            "execute_job", "_run_claimed", "_failure_detail", "_fit", "_take_units", "_receiver_units", "_wire_log",
+            job_store=Store(), validate_job=lambda value: value,
+            _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
+            _prepare=prepare,
+            _finish=lambda job, outcome, status: events.append(outcome["event"]),
+            _WIRING=[],
+        )
+        space["execute_job"](job())
+        self.assertEqual(events[0]["sanitizedLog"], "student output\n")
+        self.assertEqual(events[0]["failure"]["category"], "student_runtime")
 
 
 class TheCompletedLogFitsTheWire(unittest.TestCase):
