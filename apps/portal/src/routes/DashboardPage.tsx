@@ -120,12 +120,7 @@ export function DashboardPage() {
       >
         {shown && (
           <PageHeader
-            eyebrow={
-              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {teamName}
-                {session?.auth.executionProvider === "fixture" && <SimulatedChip />}
-              </span>
-            }
+            eyebrow={teamName}
             title={
               <>
                 {shown.title}{" "}
@@ -367,7 +362,10 @@ function LeadRun({
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className="u-label">{live ? "Running now" : "Latest run"}</p>
-        <StatusChip status={run.status} />
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <StatusChip status={run.status} />
+          {run.simulated && <SimulatedChip />}
+        </span>
       </div>
       <h2 id={headingId} className="mt-2 text-[clamp(1.375rem,1.2rem+0.8vw,1.75rem)]">
         <Link

@@ -23,6 +23,7 @@ import { registerAdminRoutes } from "./routes/admin";
 import { registerActivityRoutes } from "./routes/activity";
 import { registerSetupRoutes } from "./routes/setup";
 import { createAuth, requestCf } from "./auth/better-auth";
+import { boundedAuthRequest } from "./http/auth-request";
 
 const api = new Hono<AppEnv>();
 registerSessionRoutes(api);
@@ -50,9 +51,10 @@ app.use("/api/*", async (c, next) => {
   validateServerEnv(c.env);
   await next();
 });
-app.all("/api/auth/*", (c) =>
-  createAuth(c.env, requestCf(c.req.raw), new URL(c.req.url).origin).handler(c.req.raw),
-);
+app.all("/api/auth/*", async (c) => {
+  const request = await boundedAuthRequest(c);
+  return createAuth(c.env, requestCf(c.req.raw), new URL(c.req.url).origin).handler(request);
+});
 app.route("/api", api);
 app.onError(handleError);
 app.notFound((c) => {
