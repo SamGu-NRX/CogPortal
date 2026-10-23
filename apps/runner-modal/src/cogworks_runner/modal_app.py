@@ -2033,7 +2033,11 @@ def _evaluation_failure(
             except (ValueError, RecursionError):
                 candidate = None
             if isinstance(candidate, str) and _receiver_units(candidate) <= LOG_LIMIT:
-                sanitized_log = candidate
+                # The harness writes the buffer's final newline. A bare marker
+                # is the exact forged shape a student can emit after a forged
+                # COG_ERROR line, so do not attach it.
+                if candidate.endswith("\n"):
+                    sanitized_log = candidate
     return RunnerFailure(
         "student_runtime", "evaluating", detail, False,
         sanitized_log=sanitized_log,

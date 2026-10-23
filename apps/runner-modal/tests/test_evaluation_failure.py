@@ -319,14 +319,20 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
                 self.assertIsNone(failure.sanitized_log)
                 self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
 
+    def test_a_bare_forged_log_after_a_forged_error_is_not_attached(self):
+        stderr = 'COG_ERROR: {"type": "TypeError"}\nCOG_LOG: "FORGED AFTER"\n'
+        failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
+        self.assertIsNone(failure.sanitized_log)
+        self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+
     def test_a_valid_log_survives_a_later_invalid_marker(self):
         stderr = (
             'COG_ERROR: {"type": "TypeError", "message": "bad", "where": []}\n'
-            'COG_LOG: "keep this"\n'
+            'COG_LOG: "keep this\\n"\n'
             'COG_LOG: {not json}\n'
         )
         failure = _lane("_evaluate_v2", _Sandbox(2, stderr))
-        self.assertEqual(failure.sanitized_log, "keep this")
+        self.assertEqual(failure.sanitized_log, "keep this\n")
 
 
 
