@@ -39,7 +39,6 @@ import {
   useRun,
   useRunSurface,
   useSelectResult,
-  useSession,
 } from "@/lib/queries";
 import { QUEUED_WAIT_NOTE, STATUS_LABELS } from "@/lib/run-meta";
 
@@ -62,7 +61,6 @@ import { QUEUED_WAIT_NOTE, STATUS_LABELS } from "@/lib/run-meta";
 export function RunDetailPage() {
   const { runId = "" } = useParams();
   const runQuery = useRun(runId);
-  const { data: sessionData } = useSession();
   // Quota and failure copy belong to *this run's* benchmark, not
   // to whichever track the dashboard happens to default to. The fallback only
   // covers the first render, before the run record arrives.
@@ -143,7 +141,7 @@ export function RunDetailPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <span className="u-eyebrow">{runBenchmark?.title ?? run.benchmarkId}</span>
           <StatusChip status={run.status} />
-          {sessionData?.auth.executionProvider === "fixture" && <SimulatedChip />}
+          {run.simulated && <SimulatedChip />}
         </div>
         {/* Smaller than the finding on purpose: the title names the run, and
             the finding is what the page is for, so it gets the largest type.

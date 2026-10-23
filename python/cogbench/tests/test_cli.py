@@ -264,13 +264,9 @@ class LinkConsentTests(unittest.TestCase):
 
 
 class LinkDeviceNameTests(unittest.TestCase):
-    """The terminal names the device the way Connections and `status` do.
+    """Linking uses the approved name and sends no machine name."""
 
-    The approval form is where the name is decided, so the terminal prints the
-    name the portal stored, and offers this machine's name as the form's
-    default.
-    """
-
+    HOSTNAME = "PRIVATE-HOSTNAME-SENTINEL.example.test"
     START = {
         "verificationUri": "https://portal.example/connections?user_code=ABCD",
         "userCode": "ABCD",
@@ -279,10 +275,12 @@ class LinkDeviceNameTests(unittest.TestCase):
         "expiresAt": 10_000,
     }
 
-    def _link(self, approved, hostname="lab-03.cs.example.edu"):
+    def _link(self, approved):
         stdout = io.StringIO()
-        with patch("cogbench.cli.platform.node", return_value=hostname), \
-                patch("cogbench.cli.start_device_link", return_value=self.START) as start, \
+        response = io.BytesIO(json.dumps(self.START).encode("utf-8"))
+        with patch("platform.node", return_value=self.HOSTNAME), \
+                patch("socket.gethostname", return_value=self.HOSTNAME), \
+                patch("cogbench.client.urllib.request.urlopen", return_value=response) as request, \
                 patch("cogbench.cli.poll_device_link", return_value=approved), \
                 patch("cogbench.cli.save_token"), \
                 patch("cogbench.cli.repository_state", return_value=SimpleNamespace(full_name=None)), \
@@ -291,27 +289,27 @@ class LinkDeviceNameTests(unittest.TestCase):
             self.assertEqual(
                 main(["link", "--portal", "https://portal.example", "--no-browser"]), 0
             )
-        return start, stdout.getvalue()
+        request.assert_called_once()
+        return request.call_args.args[0], stdout.getvalue()
 
     def test_link_prints_the_name_the_portal_stored_not_the_hostname(self):
         _, text = self._link({"token": "t", "expiresAt": 1, "deviceName": "Desk tower"})
         self.assertIn("Linked Desk tower. Local commands still work offline.", text)
-        self.assertNotIn("lab-03", text)
+        self.assertNotIn(self.HOSTNAME, text)
 
-    def test_link_offers_the_short_hostname_as_the_default_name(self):
-        start, _ = self._link({"token": "t", "expiresAt": 1, "deviceName": "lab-03"})
-        start.assert_called_once_with("https://portal.example", "lab-03")
-
-    def test_link_without_a_hostname_sends_no_name(self):
-        start, _ = self._link({"token": "t", "expiresAt": 1, "deviceName": "CogWorks CLI"}, hostname="")
-        start.assert_called_once_with("https://portal.example", None)
+    def test_link_sends_no_hostname_in_the_request_or_approval_url(self):
+        request, text = self._link({"token": "t", "expiresAt": 1, "deviceName": "Desk tower"})
+        self.assertEqual(json.loads(request.data), {})
+        self.assertNotIn(self.HOSTNAME.split(".")[0], request.data.decode("utf-8"))
+        self.assertNotIn(self.HOSTNAME.split(".")[0], request.full_url)
+        self.assertNotIn(self.HOSTNAME.split(".")[0], text)
+        self.assertNotIn("device_name", text)
+        self.assertNotIn("CogPortal receives this machine's name", text)
 
     def test_a_portal_that_returns_no_name_gets_no_guessed_name(self):
-        # A portal from before the field: printing the hostname here would be
-        # the old mismatch again.
         _, text = self._link({"token": "t", "expiresAt": 1})
         self.assertIn("Linked this device. Local commands still work offline.", text)
-        self.assertNotIn("lab-03", text)
+        self.assertNotIn(self.HOSTNAME, text)
 
 
 class HelpTextTests(unittest.TestCase):
@@ -349,6 +347,54 @@ class StatusFormattingTests(unittest.TestCase):
         )
         now = datetime(2026, 9, 5, 1, 0, tzinfo=timezone.utc)
         self.assertEqual(_format_expiry(expires, now), "Sep 22 (in 17 days)")
+
+    def test_status_reports_malformed_server_responses_without_traceback(self):
+        base = {
+            "githubLogin": "student",
+            "teamName": "Team",
+            "repositoryFullName": "course/team",
+            "deviceName": "Laptop",
+            "deviceExpiresAt": 1,
+        }
+        missing = dict(base)
+        del missing["githubLogin"]
+        cases = (
+            None,
+            [],
+            missing,
+            dict(base, githubLogin=None),
+            dict(base, deviceExpiresAt=None),
+            dict(base, deviceExpiresAt="tomorrow"),
+            dict(base, deviceExpiresAt=10 ** 100),
+            dict(base, discordChannelId=7),
+        )
+        expected = (
+            "cogworks: CogPortal returned incomplete device status. "
+            "Run `cogworks link` again and retry.\n"
+        )
+        for value in cases:
+            with self.subTest(value=value):
+                stderr = io.StringIO()
+                with patch("cogbench.cli._portal", return_value="https://portal.example"), \
+                        patch("cogbench.cli.token_for", return_value="token"), \
+                        patch("cogbench.cli.device_status", return_value=value), \
+                        redirect_stderr(stderr):
+                    result = main(["status"])
+
+                self.assertEqual(result, 2)
+                self.assertEqual(stderr.getvalue(), expected)
+
+    def test_run_failure_sentence_has_one_full_stop(self):
+        from cogbench.isolate import CRASHED, Outcome
+
+        stdout = io.StringIO()
+        with patch("cogbench.cli._local_operation", return_value=Outcome(CRASHED, detail="worker stopped.")), \
+                redirect_stdout(stdout):
+            result = main(["run", "--benchmark", "fixture"])
+
+        self.assertEqual(result, 2)
+        self.assertIn("The run did not finish: worker stopped.\n", stdout.getvalue())
+        self.assertNotIn("worker stopped..", stdout.getvalue())
 
     def test_status_hides_the_discord_id_and_states_both_channel_states(self):
         base = {

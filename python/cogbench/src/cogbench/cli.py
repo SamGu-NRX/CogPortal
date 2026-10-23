@@ -156,24 +156,6 @@ def _portal(value: Optional[str]) -> str:
     return portal
 
 
-#: The approval form's limit on a device name (contracts DEVICE_NAME_MAX_LENGTH).
-_DEVICE_NAME_MAX_LENGTH = 80
-
-
-def _suggested_device_name() -> Optional[str]:
-    """This machine's short hostname, offered as the approval form's name.
-
-    The name is how Connections tells devices apart, and a completed link can
-    replace the account's live device of the same name, so the default has to
-    be the same on one machine every time and different on two. The domain is
-    dropped (`lab-03.cs.example.edu` is offered as `lab-03`). None when there
-    is no hostname; the form then uses its generic default.
-    """
-
-    name = platform.node().strip().split(".")[0].strip()
-    return name[:_DEVICE_NAME_MAX_LENGTH].strip() or None
-
-
 def _setup_payload(
     checks: Sequence[str], project_root: Path, benchmark: Optional[str] = None
 ) -> dict:
@@ -1305,7 +1287,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     }, indent=2))
                 else:
                     print("{} · LOCAL · NO RESULT".format(args.benchmark))
-                    print("The run did not finish: {}.".format(outcome.detail))
+                    print("The run did not finish: {}".format(outcome.detail))
                     print("No score was produced.")
                 return 2
             # `_run_view` returns the report as JSON text. A completed
@@ -1353,16 +1335,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             # Linking sends setup facts on its own. A report goes up from
             # `sync` and from the end of `run --live` (`_LiveRun.completed`);
             # weight files only from `sync`.
-            print(
-                "CogPortal receives this machine's name, setup check names, package versions, "
-                "and your GitHub repository."
-            )
+            print("CogPortal receives setup check names, package versions, and your GitHub repository.")
             print(
                 "A report's scores and notes go up when you run `cogworks sync` or "
                 "`cogworks run --live`, and weights only with `cogworks sync`. Source, logs, "
                 "predictions, and environment variables stay on this machine."
             )
-            start = start_device_link(portal, _suggested_device_name())
+            start = start_device_link(portal)
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
             if not args.no_browser:
                 webbrowser.open(start["verificationUri"])
@@ -1458,6 +1437,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not token:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             value = device_status(portal, token)
+            required_text = (
+                "githubLogin",
+                "teamName",
+                "repositoryFullName",
+                "deviceName",
+            )
+            valid = isinstance(value, dict)
+            if valid:
+                valid = all(
+                    isinstance(value.get(key), str) and bool(value[key].strip())
+                    for key in required_text
+                )
+                expires = value.get("deviceExpiresAt")
+                discord_id = value.get("discordChannelId")
+                valid = valid and (
+                    isinstance(expires, int)
+                    and not isinstance(expires, bool)
+                    and expires >= 0
+                    and (isinstance(discord_id, str) or discord_id is None)
+                )
+            if valid:
+                try:
+                    expiry = _format_expiry(expires)
+                except (OverflowError, ValueError, OSError):
+                    valid = False
+            if not valid:
+                raise PortalError(
+                    "CogPortal returned incomplete device status. "
+                    "Run `cogworks link` again and retry."
+                )
             print("GitHub   @{}".format(value["githubLogin"]))
             print("Team     {}".format(value["teamName"]))
             print("Repo     {}".format(value["repositoryFullName"]))
@@ -1467,7 +1476,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             )
             print("Device   {}".format(value["deviceName"]))
-            print("Expires  {}".format(_format_expiry(int(value["deviceExpiresAt"]))))
+            print("Expires  {}".format(expiry))
             print("Portal   {}".format(portal))
             return 0
     except KeyboardInterrupt:

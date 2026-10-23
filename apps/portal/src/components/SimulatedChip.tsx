@@ -1,6 +1,8 @@
 /**
- * Honesty marker: while EXECUTION_PROVIDER is "fixture", run results are
- * scripted, and nothing on the page may let them read as a real evaluation.
+ * Honesty marker: a result the fixture provider scripted must not read as a
+ * real evaluation. Callers show it from the result's own `simulated` flag,
+ * never from the deployment's current provider, so the mark stays with the
+ * result after the provider changes and reaches signed-out readers too.
  *
  * The dashed rule is the tell: a pencil outline rather than an inked one, the
  * same way a notebook marks a value it did not measure. The reason is spoken,
@@ -10,7 +12,7 @@
 export function SimulatedChip() {
   return (
     <span
-      title="Execution provider is in fixture mode. Results are scripted, not real evaluation."
+      title="Run by the fixture provider. Results are scripted, not real evaluation."
       className="inline-flex items-center rounded-control border border-dashed border-rule-strong px-2 py-0.5 text-[12.5px] font-semibold text-ink-secondary"
     >
       Simulated

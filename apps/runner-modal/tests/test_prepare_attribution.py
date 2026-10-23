@@ -78,7 +78,8 @@ class PrepareAttribution(unittest.TestCase):
             env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
         )
 
-    def controller_failure(self, result=None, record=None, pristine=None):
+    def controller_failure(self, result=None, record=None, pristine=None,
+                          create_failure=None, clock=None, timed_out=None):
         events = []
 
         class Files:
@@ -112,16 +113,24 @@ class PrepareAttribution(unittest.TestCase):
 
         def create(**kwargs):
             kwargs["image"].resolve()
+            if create_failure is not None:
+                raise create_failure
+            if clock is not None:
+                clock.current = 900
             return Sandbox()
 
         space = functions(
-            "_prepare", "_last_error_line", "_refusal_from",
+            "_prepare", "_timed_out", "_last_error_line", "_refusal_from",
             "_fit", "_take_units", "_receiver_units",
             modal=types.SimpleNamespace(Sandbox=types.SimpleNamespace(create=create)),
             app=object(), _sandbox_image=lambda job: LazyImage(events),
             _student_python=lambda job: sys.executable, PREPARE_SCRIPT=prepare_script(),
             StatusHeartbeat=lambda *args: contextlib.nullcontext(), LiveReporter=Reporter,
+            time=clock or __import__("time"),
+            **({"_timed_out": timed_out} if timed_out is not None else {}),
         )
+        if timed_out is not None:
+            space["_timed_out"] = timed_out
         with self.assertRaises(space["RunnerFailure"]) as raised:
             space["_prepare"](job(), Reporter(job()))
         return raised.exception, events
@@ -261,6 +270,40 @@ class PrepareAttribution(unittest.TestCase):
                 self.assertIsNone(failure.refusal)
                 self.assertEqual(events, ["resolve-image", "probe", "write-prepare",
                                           "student-install", "terminate"])
+
+    def test_student_install_output_cannot_claim_memory_failure(self):
+        result = types.SimpleNamespace(returncode=1, stdout="",
+            stderr="No room left on device while installing dependencies.")
+        failure, _ = self.controller_failure(result, {})
+        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                         ("dependency_install", "installing", False))
+
+    def test_provider_limit_words_remain_infrastructure_failures(self):
+        for message in ("sandbox memory limit exceeded", "HTTP read timeout"):
+            with self.subTest(message=message):
+                failure, _ = self.controller_failure(
+                    create_failure=RuntimeError(message)
+                )
+                self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                                 ("provider", "preparing", True))
+
+    def test_prepare_timeout_uses_timed_out_helper(self):
+        result = types.SimpleNamespace(returncode=137, stdout="", stderr="")
+        failure, _ = self.controller_failure(result, {}, timed_out=lambda job, started: True)
+        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                         ("timeout", "preparing", False))
+
+    def test_timeout_after_slow_creation_is_not_a_prepare_timeout(self):
+        class Clock:
+            current = 0
+
+            def time(self):
+                return self.current
+
+        result = types.SimpleNamespace(returncode=137, stdout="", stderr="")
+        failure, _ = self.controller_failure(result, {}, clock=Clock())
+        self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                         ("dependency_install", "installing", False))
 
     def test_adapter_markers_in_final_detail_keep_classification(self):
         for detail in ("RuntimeError: No adapter found.",

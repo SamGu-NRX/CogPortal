@@ -144,7 +144,7 @@ function context(waitUntil: (promise: Promise<unknown>) => void): ExecutionConte
 /** Sends one signed interaction and returns what the bot PATCHed to Discord. */
 async function deferredAnswer(interaction: DiscordInteraction, rpc: PortalRpcContract): Promise<InteractionResponse["data"]> {
   const body = JSON.stringify(interaction);
-  const timestamp = "1750000000";
+  const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = Buffer.from(
     await crypto.subtle.sign("Ed25519", keys.privateKey, new TextEncoder().encode(timestamp + body)),
   ).toString("hex");
@@ -323,7 +323,7 @@ test("a read that could not reach the portal says to try again and nothing more"
  *  edit, so its failure goes through index.ts's second catch. */
 async function inlineAnswer(interaction: DiscordInteraction, rpc: PortalRpcContract): Promise<InteractionResponse> {
   const body = JSON.stringify(interaction);
-  const timestamp = "1750000000";
+  const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = Buffer.from(
     await crypto.subtle.sign("Ed25519", keys.privateKey, new TextEncoder().encode(timestamp + body)),
   ).toString("hex");

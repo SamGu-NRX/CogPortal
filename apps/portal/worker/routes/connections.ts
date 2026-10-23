@@ -1,12 +1,10 @@
-import type { Context, Hono } from "hono";
+import type { Hono } from "hono";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   ApproveDeviceRequestSchema,
   ConfirmDiscordLinkRequestSchema,
   ConnectionSummarySchema,
-  DeviceAuthorizationStartRequestSchema,
-  type DeviceAuthorizationStartRequest,
   DeviceAuthorizationStartResponseSchema,
   DeviceTokenRequestSchema,
   DeviceTokenResponseSchema,
@@ -49,22 +47,6 @@ function userCode(): string {
   // 48 bits keeps the ten-minute approval code impractical to enumerate.
   const raw = randomHex(6).toUpperCase();
   return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8)}`;
-}
-
-/**
- * The start request's body. A bare POST is accepted as before: every CLI up to
- * the name suggestion sends `{}`, and the start route never read the body. A
- * body that is sent has to parse, so a bad suggestion fails here rather than
- * reaching the form.
- */
-async function deviceStartRequest(c: Context<AppEnv>): Promise<DeviceAuthorizationStartRequest> {
-  const raw = await c.req.text();
-  if (!raw.trim()) return {};
-  try {
-    return DeviceAuthorizationStartRequestSchema.parse(JSON.parse(raw));
-  } catch {
-    throw new ApiHttpError(400, "invalid_request", "The request body is invalid.");
-  }
 }
 
 export function registerConnectionRoutes(app: Hono<AppEnv>): void {
@@ -162,7 +144,6 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/v1/cli/device/start", async (c) => {
-    const { deviceName } = await deviceStartRequest(c);
     const rawDeviceCode = randomHex(32);
     const code = userCode();
     const now = Date.now();
@@ -177,13 +158,10 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
       approvedAt: null,
       consumedAt: null,
     });
-    // The suggestion goes to the form through the link, last, so the path
-    // held for a teamless student (src/lib/held-device-link.ts) keeps it.
-    const suggested = deviceName ? `&device_name=${encodeURIComponent(deviceName)}` : "";
     return respond(c, DeviceAuthorizationStartResponseSchema, {
       deviceCode: rawDeviceCode,
       userCode: code,
-      verificationUri: `${portalOrigin(c.req.url, c.env.PUBLIC_ORIGIN)}/connections?user_code=${encodeURIComponent(code)}&return_to=setup${suggested}`,
+      verificationUri: `${portalOrigin(c.req.url, c.env.PUBLIC_ORIGIN)}/connections?user_code=${encodeURIComponent(code)}&return_to=setup`,
       expiresAt,
       pollIntervalSeconds: DEVICE_POLL_INTERVAL_SECONDS,
     });

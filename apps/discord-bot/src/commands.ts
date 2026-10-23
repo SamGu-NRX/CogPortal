@@ -97,10 +97,10 @@ async function homeView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
-  portalOrigin?: string,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const status = await portal.getTeamStatus(guildId, user.id);
-  if (!status.linked) return connectView(interaction, portal, guildId, user);
+  if (!status.linked) return connectView(interaction, portal, guildId, user, portalOrigin);
 
   if (!status.team) {
     const portalUrl = safePortalUrl(portalOrigin, "/connect");
@@ -237,9 +237,10 @@ async function connectView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const start = await portal.createDiscordLink(guildId, user.id, discordIdentity(user));
-  if (start.alreadyLinked) return homeView(interaction, portal, guildId, user);
+  if (start.alreadyLinked) return homeView(interaction, portal, guildId, user, portalOrigin);
   if (!start.url) return message("I couldn't make a connection link just now. Nothing changed. Try again in a moment.");
 
   return componentMessage(
@@ -321,14 +322,25 @@ async function leaderboardView(
   interaction: DiscordInteraction,
   portal: PortalRpcContract,
   guildId: string,
+  user: DiscordUser,
   portalOrigin?: string,
   shared = false,
 ): Promise<InteractionResponse> {
-  const leaderboard = await portal.getLeaderboard(guildId);
+  // The user lets the portal find the team: its row is marked, and the board
+  // is the benchmark the team last ran. Sharing sends the user too, so the
+  // channel gets the board the student was looking at.
+  const leaderboard = await portal.getLeaderboard(guildId, undefined, user.id);
   const fmt = emojiFormatter(interaction.application_id);
   const lines = leaderboard.entries.slice(0, 10).map((entry) => {
-    const name = entry.isYou ? `**${entry.teamName}**` : entry.teamName;
-    return metaLine([`${rankMark(entry.rank, fmt)} ${name}`, `**${metricValue(entry.primaryMetric)}**`]);
+    // A shared post is public, and marking a team there would tell the
+    // channel which team the person who shared it is on.
+    const name = entry.isYou && !shared ? `**${entry.teamName}**` : entry.teamName;
+    return metaLine([
+      `${rankMark(entry.rank, fmt)} ${name}`,
+      `**${metricValue(entry.primaryMetric)}**`,
+      // The same word the run status message uses (discord-messages.ts).
+      entry.simulated && "simulated",
+    ]);
   });
   const body = lines.length
     ? lines.join("\n")
@@ -357,10 +369,10 @@ async function localView(
   portal: PortalRpcContract,
   guildId: string,
   user: DiscordUser,
-  portalOrigin?: string,
+  portalOrigin: string | undefined,
 ): Promise<InteractionResponse> {
   const result = await portal.getLocalReports(guildId, user.id);
-  if (!result.linked) return connectView(interaction, portal, guildId, user);
+  if (!result.linked) return connectView(interaction, portal, guildId, user, portalOrigin);
   const fmt = emojiFormatter(interaction.application_id);
   const shown = result.reports.slice(0, 8);
   const lines = shown.map((report) => {
@@ -546,6 +558,9 @@ async function surfaceActionView(
   const action = request.action as SurfaceMutation;
   if (!request.confirmed) {
     const attempt = snapshot.nextOfficialAttempt;
+    // This matches acceptedRunPredicate and activeRunPredicate in
+    // portal/worker/services/run-accounting.ts.
+    const practiceCost = "While it's running it holds a slot. If it fails, is cancelled or is refunded, it doesn't count.";
     const copy: Record<
       SurfaceMutation,
       { title: string; detail: string; label: string; style: 1 | 4; extra?: string[] }
@@ -558,7 +573,7 @@ async function surfaceActionView(
       },
       verify_hosted: {
         title: "Verify this exact commit?",
-        detail: "A hosted run scores this exact commit on the course machines and records what it sees. It's practice, and it uses one of this benchmark's hosted practice runs.",
+        detail: `A hosted run scores this exact commit on the course machines and records what it sees. It's practice. It uses one of this benchmark's hosted practice runs only if it finishes scoring. ${practiceCost}`,
         label: `Verify ${snapshot.shortSha} hosted`,
         style: 1,
       },
@@ -582,7 +597,7 @@ async function surfaceActionView(
       },
       rerun_hosted: {
         title: "Start a new hosted run?",
-        detail: "This starts a fresh hosted run on the same commit, which uses another of this benchmark's hosted practice runs. The current run stays as history.",
+        detail: `This starts a fresh hosted run on the same commit. It uses another of this benchmark's hosted practice runs only if it finishes scoring. ${practiceCost} The current run stays as history.`,
         label: "Start hosted run",
         style: 1,
       },
@@ -658,13 +673,13 @@ export async function executeCommand(
     case "home":
       return homeView(interaction, portal, guildId, user, portalOrigin);
     case "connect":
-      return connectView(interaction, portal, guildId, user);
+      return connectView(interaction, portal, guildId, user, portalOrigin);
     case "benchmarks":
       return benchmarksView(interaction, portal, guildId, portalOrigin);
     case "leaderboard":
-      return leaderboardView(interaction, portal, guildId, portalOrigin);
+      return leaderboardView(interaction, portal, guildId, user, portalOrigin);
     case "share:leaderboard":
-      return leaderboardView(interaction, portal, guildId, portalOrigin, true);
+      return leaderboardView(interaction, portal, guildId, user, portalOrigin, true);
     case "bind-channel":
       return bindChannelView(interaction);
     case "bind-channel:confirm":
