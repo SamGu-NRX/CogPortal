@@ -44,6 +44,16 @@ def _progress(callback: Callable[..., None], phase: str, current: Optional[int] 
         callback(phase)
 
 
+def _run_cases(benchmark: Any, factory: Any, model: Any, cases: List[Any], progress: Optional[Callable[..., None]]) -> List[Any]:
+    outputs = []
+    for index, output in enumerate(benchmark.run(factory, model, cases), 1):
+        outputs.append(output)
+        if progress and _accepts_progress_counts(progress) and index < len(cases) and index % 10 == 0:
+            # Ten cases keeps long evaluations visible without sending one event per case.
+            _progress(progress, "evaluating", index, len(cases))
+    return outputs
+
+
 def _predict(adapter: Any, inputs: List[Any]) -> List[Any]:
     predictor = getattr(adapter, "predict", adapter if callable(adapter) else None)
     if not callable(predictor):
@@ -230,7 +240,7 @@ def _execute_v2(
     if progress:
         _progress(progress, "evaluating", 0, len(cases))
     try:
-        outputs = list(benchmark.run(factory, model_factory(), cases))
+        outputs = _run_cases(benchmark, factory, model_factory(), cases, progress)
     except ContractError:
         raise
     except Exception as error:
