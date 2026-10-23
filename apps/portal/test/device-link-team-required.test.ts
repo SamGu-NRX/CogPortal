@@ -17,7 +17,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import { createAuth } from "../worker/auth/better-auth.ts";
-import { cohorts, teamMembers, teams, users } from "../worker/db/schema.ts";
+import { cohorts, rateLimits, teamMembers, teams, users } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerConnectionRoutes } from "../worker/routes/connections.ts";
@@ -138,8 +138,10 @@ test("device hold and failed approval limits are per signed-in user", async (t) 
   const before = h.authorization(userCode);
   assert.equal((await h.post("/v1/cli/device/hold", { userCode }, true)).status, 429);
   for (let index = 0; index < 5; index += 1) {
-    assert.equal((await h.post("/v1/cli/device/approve", { userCode: "UNKNOWN", deviceName: "Laptop" }, true)).status, 410);
+    assert.equal((await h.post("/v1/cli/device/approve", { userCode: `UNKNOWN-${index}`, deviceName: "Laptop" }, true)).status, 410);
   }
+  const unknownBuckets = await h.sqlite.prepare("SELECT COUNT(*) AS count FROM rate_limits WHERE key LIKE 'cli-device-failed-code:%'").get() as { count: number };
+  assert.equal(unknownBuckets.count, 0, "unknown guesses must not create per-code rows");
   const limited = await h.post("/v1/cli/device/approve", { userCode, deviceName: "Laptop" }, true);
   assert.equal(limited.status, 429);
   assert.deepEqual(h.authorization(userCode), before, "the rejected request must not approve or alter the code");

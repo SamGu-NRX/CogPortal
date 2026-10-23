@@ -88,27 +88,30 @@ async function enforceCliDeviceHoldRateLimit(
 async function recordFailedApprove(
   db: ReturnType<typeof getDb>,
   userId: string,
-  userCode: string,
+  userCode: string | undefined,
   now: number,
 ): Promise<boolean> {
-  const codeFailures = await incrementRateLimit(
-    db,
-    `cli-device-failed-code:${userCode}`,
-    DEVICE_AUTH_TTL_MS,
-    now,
-  );
-  if (codeFailures > CLI_DEVICE_CODE_FAILURE_LIMIT) {
-    await db
-      .update(deviceAuthorizations)
-      .set({ consumedAt: now })
-      .where(
-        and(
-          eq(deviceAuthorizations.userCode, userCode),
-          gt(deviceAuthorizations.expiresAt, now),
-          isNull(deviceAuthorizations.approvedAt),
-          isNull(deviceAuthorizations.consumedAt),
-        ),
-      );
+  let codeFailures = 0;
+  if (userCode !== undefined) {
+    codeFailures = await incrementRateLimit(
+      db,
+      `cli-device-failed-code:${userCode}`,
+      DEVICE_AUTH_TTL_MS,
+      now,
+    );
+    if (codeFailures > CLI_DEVICE_CODE_FAILURE_LIMIT) {
+      await db
+        .update(deviceAuthorizations)
+        .set({ consumedAt: now })
+        .where(
+          and(
+            eq(deviceAuthorizations.userCode, userCode),
+            gt(deviceAuthorizations.expiresAt, now),
+            isNull(deviceAuthorizations.approvedAt),
+            isNull(deviceAuthorizations.consumedAt),
+          ),
+        );
+    }
   }
   const userFailures = await incrementRateLimit(
     db,
@@ -295,7 +298,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
       return c.json({ ok: true }, 200);
     }
     if (!isPending) {
-      await recordFailedApprove(db, signedIn.user.id, body.userCode, now);
+      await recordFailedApprove(db, signedIn.user.id, undefined, now);
       throw new ApiHttpError(410, "link_expired", "The device code is invalid, expired, or already used.");
     }
     if (!signedIn.team) {
