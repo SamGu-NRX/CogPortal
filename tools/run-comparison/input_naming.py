@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List
 
@@ -15,9 +16,17 @@ def input_identities(files: List[Path]) -> List[str]:
     """
 
     resolved = [path.resolve() for path in files]
-    if len(set(resolved)) != len(resolved):
+    physical = [os.stat(path) for path in files]
+    if len({(stat.st_dev, stat.st_ino) for stat in physical}) != len(physical):
         repeated = sorted(
-            {path.name for path in resolved if resolved.count(path) > 1}
+            {
+                path.name
+                for path, stat in zip(resolved, physical)
+                if sum(
+                    other.st_dev == stat.st_dev and other.st_ino == stat.st_ino
+                    for other in physical
+                ) > 1
+            }
         )
         raise ValueError(
             "the same fixture file is given more than once: {}".format(
