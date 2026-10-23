@@ -804,28 +804,30 @@ class BoundedBuffer(io.TextIOBase):
                     self.dropped += excess
         return written
     def value(self):
+        units = lambda text: sum(2 if ord(character) > 0xFFFF else 1 for character in text)
+        def take(text, budget):
+            kept = []
+            used = 0
+            for character in text:
+                width = 2 if ord(character) > 0xFFFF else 1
+                if used + width > budget:
+                    break
+                kept.append(character)
+                used += width
+            return "".join(kept)
+
+        head = "".join(self.head)
+        tail = "".join(self.tail)
         if not self.dropped:
-            value = "".join(self.head) + "".join(self.tail)
-        else:
-            marker = "\n[{} characters omitted]\n".format(self.dropped)
-            value = "".join(self.head) + marker + "".join(self.tail)
+            return take(head + tail, self.limit)
 
         # The portal caps sanitizedLog in UTF-16 code units, while this buffer
-        # caps Python characters. Keep the omission marker and trim only the
-        # final text when astral characters or the marker push the wire value
-        # over the receiver's cap.
-        units = lambda text: sum(2 if ord(character) > 0xFFFF else 1 for character in text)
-        if units(value) <= self.limit:
-            return value
-        kept = []
-        used = 0
-        for character in value:
-            width = 2 if ord(character) > 0xFFFF else 1
-            if used + width > self.limit:
-                break
-            kept.append(character)
-            used += width
-        return "".join(kept)
+        # caps Python characters. Reserve room for the omission marker first,
+        # then split the remaining budget between the head and tail.
+        marker = "\n[{} characters omitted]\n".format(self.dropped)
+        budget = max(0, self.limit - units(marker))
+        head_budget = min(units(head), budget // 2)
+        return take(head, head_budget) + marker + take(tail, budget - head_budget)
 
 benchmark_id = sys.argv[1]
 limit = int(sys.argv[2])
