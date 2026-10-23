@@ -3,6 +3,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   ApproveDeviceRequestSchema,
+  HoldDeviceRequestSchema,
   ConfirmDiscordLinkRequestSchema,
   ConnectionSummarySchema,
   DeviceAuthorizationStartResponseSchema,
@@ -165,6 +166,28 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
       expiresAt,
       pollIntervalSeconds: DEVICE_POLL_INTERVAL_SECONDS,
     });
+  });
+
+  app.post("/v1/cli/device/hold", async (c) => {
+    const auth = await requireUser(c);
+    const body = await parseBody(c, HoldDeviceRequestSchema);
+    if (!auth.team) {
+      // The stage guard redirects before approval can render. Tell the CLI
+      // why it is waiting, without approving or reserving the code for anyone.
+      const now = Date.now();
+      await getDb(c.env)
+        .update(deviceAuthorizations)
+        .set({ teamRequiredAt: now })
+        .where(and(
+          eq(deviceAuthorizations.userCode, body.userCode),
+          gt(deviceAuthorizations.expiresAt, now),
+          isNull(deviceAuthorizations.approvedAt),
+          isNull(deviceAuthorizations.consumedAt),
+          isNull(deviceAuthorizations.teamRequiredAt),
+        ));
+    }
+    // Identical for unknown, expired, closed, already held and ignored codes.
+    return c.body(null, 204);
   });
 
   app.post("/v1/cli/device/approve", async (c) => {

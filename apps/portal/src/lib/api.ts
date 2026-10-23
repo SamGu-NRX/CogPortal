@@ -90,7 +90,7 @@ async function request<T>(
     throw new ApiRequestError(code, message, res.status);
   }
 
-  return schema.parse(await res.json());
+  return schema.parse(res.status === 204 ? undefined : await res.json());
 }
 
 export const api = {
@@ -138,6 +138,11 @@ export const api = {
       z.object({ valid: z.boolean(), approved: z.boolean(), expiresAt: z.number().nullable() }),
       { signal },
     ),
+  holdDevice: (userCode: string) =>
+    request("/api/v1/cli/device/hold", z.void(), {
+      method: "POST",
+      body: { userCode },
+    }),
   approveDevice: (userCode: string, deviceName: string) =>
     request("/api/v1/cli/device/approve", z.object({ ok: z.boolean() }), {
       method: "POST",

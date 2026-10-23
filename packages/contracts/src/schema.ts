@@ -522,6 +522,11 @@ export type DeviceAuthorizationStartResponse = z.infer<
   typeof DeviceAuthorizationStartResponseSchema
 >;
 
+export const HoldDeviceRequestSchema = z.object({
+  // Match the held approval path's 64-character bound; holding never supplies an identity.
+  userCode: z.string().trim().toUpperCase().min(1).max(64),
+}).strict();
+
 export const ApproveDeviceRequestSchema = z.object({
   userCode: z.string().trim().toUpperCase(),
   deviceName: z.string().trim().min(1).max(80),

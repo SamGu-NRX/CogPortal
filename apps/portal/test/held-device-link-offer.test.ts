@@ -115,7 +115,8 @@ const card = (container: HTMLElement) => container.querySelector('section[aria-l
 const offerShown = (container: HTMLElement) => card(container) !== null;
 
 test("the guard holds the printed approval for the account it bounces, and still sends it to /connect", async (t) => {
-  const { window, container, render, settle, location, requests } = await mount(t, PRINTED, () => undefined);
+  const { window, container, render, settle, location, requests } = await mount(t, PRINTED, (url) =>
+    url.pathname === "/api/v1/cli/device/hold" ? new Promise<Response>(() => {}) : undefined);
   const { RequireStage } = await import("../src/App.tsx");
   await render(React.createElement(Routes, null,
     React.createElement(Route, {
@@ -131,28 +132,48 @@ test("the guard holds the printed approval for the account it bounces, and still
   assert.deepEqual(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null"), {
     path: PRINTED, userCode: "ABCD-EFGH", login: "octocat",
   });
-  assert.deepEqual(requests, [], "holding the link asks the server nothing");
+  assert.deepEqual(requests, ["POST /api/v1/cli/device/hold"], "the redirect must not wait for the hold response");
+});
+
+test("a failed hold request does not prevent the guard's redirect or lose the held link", async (t) => {
+  const { window, render, location, requests } = await mount(t, PRINTED, () => Promise.reject(new Error("offline")));
+  const { RequireStage } = await import("../src/App.tsx");
+  await render(React.createElement(Routes, null,
+    React.createElement(Route, {
+      path: "/connections",
+      element: React.createElement(RequireStage, { stage: "team" }, React.createElement("p", null, "approval form")),
+    }),
+    React.createElement(Route, { path: "*", element: null }),
+  ));
+  assert.equal(location(), "/connect");
+  assert.deepEqual(requests, ["POST /api/v1/cli/device/hold"]);
+  assert.equal(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null")?.path, PRINTED);
 });
 
 test("the guard holds nothing for a Discord link, a signed-out visitor, or a student with a team", async (t) => {
   const cases: Array<{ entry: string; session: unknown }> = [
     { entry: "/connections#discord=state-token", session: SESSION },
+    { entry: "/connections", session: SESSION },
+    { entry: "/connections?user_code=", session: SESSION },
+    { entry: "/connections?user_code=ABCD&unexpected=yes", session: SESSION },
+    { entry: "/runs/run_1", session: SESSION },
     { entry: PRINTED, session: { ...SESSION, user: null, cohort: null } },
     { entry: PRINTED, session: { ...SESSION, team: { id: "team_1", name: "Team One", description: null, repo: null } } },
   ];
   for (const { entry, session } of cases) {
     await t.test(entry, async (t) => {
-      const { window, render, settle } = await mount(t, entry, () => undefined, session);
+      const { window, render, settle, requests } = await mount(t, entry, () => undefined, session);
       const { RequireStage } = await import("../src/App.tsx");
       await render(React.createElement(Routes, null,
         React.createElement(Route, {
-          path: "/connections",
+          path: entry.split(/[?#]/)[0],
           element: React.createElement(RequireStage, { stage: "team" }, React.createElement("p", null, "approval form")),
         }),
         React.createElement(Route, { path: "*", element: null }),
       ));
       await settle();
       assert.equal(window.sessionStorage.getItem(KEY), null);
+      assert.deepEqual(requests, [], "non-device paths and accounts that pass the guard must not hold");
     });
   }
 });

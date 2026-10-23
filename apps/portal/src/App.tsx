@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import type { Session } from "@cogworks/contracts/schema";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Concealed, RestoreGate } from "@/components/RestoreGate";
 import { Shell } from "@/components/Shell";
 import { useSession } from "@/lib/queries";
+import { api } from "@/lib/api";
 import { AdminPage } from "@/routes/AdminPage";
 import { ConnectPage } from "@/routes/ConnectPage";
 import { ConnectionsPage } from "@/routes/ConnectionsPage";
@@ -54,6 +55,17 @@ export function RequireStage({
 }) {
   const { data: session, isPending, isError, error, refetch } = useSession();
   const location = useLocation();
+  const here = `${location.pathname}${location.search}${location.hash}`;
+  const owed = Boolean(session && ((stage !== "user" && !session.cohort) || (stage === "team" && !session.team)));
+  const login = session?.user?.login;
+  const hasTeam = Boolean(session?.team);
+  useEffect(() => {
+    if (!owed || !login) return;
+    const held = holdDeviceLink(here, login);
+    // The guard prevents approval from rendering. Notify the waiting CLI,
+    // but never await this request or cancel it when the redirect unmounts us.
+    if (held && !hasTeam) void api.holdDevice(held.userCode).catch(() => {});
+  }, [here, owed, login, hasTeam]);
   if (isPending) return <LoadingMark />;
   if (!session) {
     // A failed session read with nothing cached would otherwise be an
@@ -71,22 +83,17 @@ export function RequireStage({
     return <LoadingMark />;
   }
 
-  const here = `${location.pathname}${location.search}${location.hash}`;
   if (!session.user) {
     rememberReturn(here);
     return <Navigate to="/signin" replace />;
   }
   // Signed in, so sign-in has already used the saved link or never will.
   clearPendingReturn();
-  const owed = (stage !== "user" && !session.cohort) || (stage === "team" && !session.team);
   if (owed) {
     // A dropped device or Discord link is named on the next page
     // (DroppedLinkNotice). A dropped run link is not: a run belongs to a
     // team, and whoever has none yet has no run of their own to see.
     rememberDroppedDeviceLink(here);
-    // A device approval is also held, for this account, so Setup can offer it
-    // once they have a team (HeldDeviceLinkOffer). Never navigated to.
-    holdDeviceLink(here, session.user.login);
     // A team page sends whoever lacks a team to their own next stage: the
     // onboarding step a student owes, or the console for staff. /connect is
     // itself onboarding, asked for by name, so it only ever owes a cohort.

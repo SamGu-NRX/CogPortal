@@ -15,6 +15,7 @@ import {
   AdminAssignTaRequestSchema,
   AdminCohortPatchSchema,
   ApproveDeviceRequestSchema,
+  HoldDeviceRequestSchema,
   ChangeTeamRepoRequestSchema,
   ConfirmDiscordLinkRequestSchema,
   ConnectRepoRequestSchema,
@@ -523,6 +524,7 @@ const SPA_ROUTES: Record<string, z.ZodType> = {
   "POST /api/github/connect": ConnectRepoRequestSchema,
   "POST /api/v1/connections/discord/preview": ConfirmDiscordLinkRequestSchema,
   "POST /api/v1/connections/discord/confirm": ConfirmDiscordLinkRequestSchema,
+  "POST /api/v1/cli/device/hold": HoldDeviceRequestSchema,
   "POST /api/v1/cli/device/approve": ApproveDeviceRequestSchema,
   "DELETE /api/v1/cli/devices": RevokeDeviceRequestSchema,
   "PATCH /api/team": UpdateTeamRequestSchema,
@@ -555,6 +557,7 @@ test("every body the SPA's API client sends passes its route's strict schema", a
     () => api.connectRepo({ fullName: "cogworks-demo/face-finder", teamName: undefined }),
     () => api.previewDiscordLink("t".repeat(32)),
     () => api.confirmDiscordLink("t".repeat(32)),
+    () => api.holdDevice("ABCD-EFGH-JKLM"),
     () => api.approveDevice("ABCD-EFGH-JKLM", "laptop"),
     () => api.revokeDevice("device_1"),
     () => api.updateTeam("team_1", { name: "Engines" }),
@@ -583,4 +586,15 @@ test("every body the SPA's API client sends passes its route's strict schema", a
     const parsed = schema.safeParse(JSON.parse(body));
     assert.ok(parsed.success, `${route} ${body}: ${parsed.error?.message}`);
   }
+});
+
+test("the hold client accepts an empty 204 response", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    assert.equal(input, "/api/v1/cli/device/hold");
+    assert.equal(init?.method, "POST");
+    assert.equal(init?.credentials, "same-origin");
+    assert.deepEqual(JSON.parse(init?.body as string), { userCode: "ABCD-1234-EF56" });
+    return new Response(null, { status: 204 });
+  });
+  assert.equal(await api.holdDevice("ABCD-1234-EF56"), undefined);
 });

@@ -49,10 +49,11 @@ function parse(path: string, login: string): HeldDeviceLink | null {
 }
 
 /** Called by the stage guard as it sends a teamless account away from an approval page. Anything else is ignored. */
-export function holdDeviceLink(path: string, login: string): void {
+export function holdDeviceLink(path: string, login: string): HeldDeviceLink | null {
   const held = parse(path, login);
-  if (!held) return;
+  if (!held) return null;
   attempt((store) => store.setItem(KEY, JSON.stringify(held)), undefined);
+  return held;
 }
 
 /** The stored value, checked again as if the guard had just seen it; the stored code is not trusted. */
