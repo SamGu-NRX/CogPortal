@@ -29,6 +29,8 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
+
+from input_naming import input_identities
 from typing import Any, Dict, List, Optional, Tuple
 
 SUPPORTED_CONTRACTS = ("cogworks.submissions.v2",)
@@ -73,7 +75,7 @@ _RESOURCE_TAGS = (
     "base",
 )
 
-_TOOL_SOURCE_FILES = ("build.py", "report_reader.py")
+_TOOL_SOURCE_FILES = ("build.py", "input_naming.py", "report_reader.py")
 
 _REPLAY_GENERATOR = "tools/run-comparison/build.py --replay"
 
@@ -896,12 +898,19 @@ def main() -> int:
     # builder applies, keyed by report name with the full path only
     # breaking same-name ties: the compared pair must not depend on
     # argument order or root layout.
-    files.sort(key=lambda path: (path.name, path.as_posix()))
+    files.sort(key=lambda path: (path.name, path.resolve().as_posix()))
     if not files:
         print("no fixture files found", file=sys.stderr)
         return 2
 
+    try:
+        identities = input_identities(files)
+    except ValueError as error:
+        print("verify.py: refusing inputs: {}".format(error), file=sys.stderr)
+        return 2
     parsed = [_parse_fixture(path) for path in files]
+    for record, identity in zip(parsed, identities):
+        record["file"] = identity
     accepted = [record for record in parsed if record["accepted"]]
     refused = [record for record in parsed if not record["accepted"]]
     if len(accepted) < 2:

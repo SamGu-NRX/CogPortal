@@ -25,10 +25,15 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 try:
     import fcntl
 except ImportError:  # pragma: no cover - exercised on Windows CI
     fcntl = None
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - Windows only
+    msvcrt = None
 import hashlib
 import html
 import json
@@ -38,6 +43,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from input_naming import input_identities
 from report_reader import ReadReport as Report, read_payload
 
 # --------------------------------------------------------------------------
@@ -1238,7 +1244,7 @@ def tool_source_digests() -> Dict[str, str]:
     here = Path(__file__).resolve().parent
     return {
         name: _sha((here / name).read_bytes())
-        for name in sorted(("build.py", "report_reader.py"))
+        for name in sorted(("build.py", "input_naming.py", "report_reader.py"))
     }
 
 
@@ -1424,7 +1430,10 @@ def output_lock(out: Path):
         if fcntl is not None:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         else:  # pragma: no cover - Windows
-            import msvcrt
+            if msvcrt is None:
+                raise OSError(
+                    "could not lock {}: msvcrt is unavailable".format(lock_file.name)
+                )
 
             lock_file.seek(0)
             while True:
@@ -1432,16 +1441,18 @@ def output_lock(out: Path):
                     # LK_LOCK gives up after ten one-second retries.
                     msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
                     break
-                except OSError:
-                    continue
+                except OSError as error:
+                    if error.errno not in (errno.EACCES, errno.EDEADLK):
+                        raise OSError(
+                            error.errno,
+                            "could not lock {}: {}".format(lock_file.name, error),
+                        ) from error
         try:
             yield
         finally:
             if fcntl is not None:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
             else:  # pragma: no cover - Windows
-                import msvcrt
-
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
 
@@ -1509,7 +1520,7 @@ def _build(arguments) -> int:
     # roots each holding a same-named file must resolve by path, not by
     # argument order, while ordinary names keep their documented order
     # whatever roots they arrive from.
-    files.sort(key=lambda path: (path.name, path.as_posix()))
+    files.sort(key=lambda path: (path.name, path.resolve().as_posix()))
     if not files:
         print("no fixture files found", file=sys.stderr)
         return 2
@@ -1517,18 +1528,24 @@ def _build(arguments) -> int:
     loaded: List[Tuple[str, Report]] = []
     excluded: List[Dict[str, Any]] = []
     inputs: List[Dict[str, str]] = []
-    for path in files:
+    try:
+        identities = input_identities(files)
+    except ValueError as error:
+        print("build.py: refusing inputs: {}".format(error), file=sys.stderr)
+        return 2
+
+    for path, identity in zip(files, identities):
         # One read per input: the receipt's digest and the rendered
         # analysis must describe the same bytes, even if the file is
         # rewritten while the build runs.
         report = read_payload(path.read_bytes(), file=path.name)
-        inputs.append({"file": path.name, "sha256": report.file_sha256})
+        inputs.append({"file": identity, "sha256": report.file_sha256})
         if report.accepted:
-            loaded.append((path.name, report))
+            loaded.append((identity, report))
         else:
             excluded.append(
                 {
-                    "file": path.name,
+                    "file": identity,
                     "reasons": [
                         "{}: {}".format(refusal.code, refusal.detail)
                         for refusal in report.refusals

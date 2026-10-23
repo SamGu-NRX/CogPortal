@@ -173,12 +173,9 @@ def test_same_named_reports_from_two_roots_bind_in_path_order(tmp_path):
 
     # Both same-named copies are attested, in path order — the argument
     # order must not decide which copy the receipt stands behind.
-    entries = [
-        entry for entry in receipt["inputs"] if entry["file"] == "01-run-a.json"
-    ]
-    assert [(entry["file"], entry["sha256"]) for entry in entries] == [
-        ("01-run-a.json", _sha(a_bytes)),
-        ("01-run-a.json", _sha(b_bytes)),
+    assert [(entry["file"], entry["sha256"]) for entry in receipt["inputs"]] == [
+        ("a-root/01-run-a.json", _sha(a_bytes)),
+        ("b-root/01-run-a.json", _sha(b_bytes)),
     ]
 
     flipped = tmp_path / "flipped"
@@ -272,7 +269,8 @@ def test_verify_binds_each_same_named_refusal_to_its_own_reasons(tmp_path):
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
     def swap(receipt):
-        receipt["excluded"].reverse()
+        first, second = receipt["excluded"]
+        first["reasons"], second["reasons"] = second["reasons"], first["reasons"]
 
     _restamp(out, mutate_receipt=swap, stem="run-vs-run")
     swapped = _run_verify(out, left, right)
