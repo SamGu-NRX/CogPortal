@@ -62,6 +62,9 @@ export type FailureCategory = z.infer<typeof FailureCategorySchema>;
 export const ModuleSchema = z.enum(["vision", "audio", "language"]);
 export type Module = z.infer<typeof ModuleSchema>;
 
+export const TeamProvenanceSchema = z.enum(["live", "archive"]);
+export type TeamProvenance = z.infer<typeof TeamProvenanceSchema>;
+
 /* ── Metrics (data-driven, §6) ────────────────────────────────────────── */
 
 export const MetricSchema = z.object({
@@ -308,6 +311,7 @@ export const TeamSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repo: RepoRefSchema.nullable(),
 });
 export type Team = z.infer<typeof TeamSchema>;
@@ -754,6 +758,7 @@ export const LeaderboardEntrySchema = z.object({
   rank: z.number().int(),
   teamName: z.string(),
   teamDescription: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repoUrl: z.string().nullable(),
   sha: z.string(),
   shortSha: z.string(),
@@ -815,6 +820,7 @@ export const TeamDetailSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repo: RepoRefSchema,
   members: z.array(TeamMemberSchema),
   tas: z.array(
@@ -924,6 +930,7 @@ export const CohortTeamSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repo: z.object({
     fullName: z.string(),
     url: z.string(),
@@ -1061,6 +1068,7 @@ export const StartRunResponseSchema = z.object({ runId: z.string() });
 export const AdminTeamSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  provenance: TeamProvenanceSchema,
   repoFullName: z.string(),
   members: z.array(
     z.object({

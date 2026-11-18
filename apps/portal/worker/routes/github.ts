@@ -21,7 +21,7 @@ import {
 } from "../auth/session";
 import { getDb } from "../db/client";
 import { teams } from "../db/schema";
-import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
+import { FixtureGitHubClient, RealGitHubClient, isGitHubUnauthorized } from "../github/client";
 import type { GitHubRepositoryListing } from "../github/client";
 import { teamRole } from "../github/permissions";
 import type { TeamRole } from "../github/permissions";
@@ -114,7 +114,14 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
     if (githubToken) {
       try {
         repositories.push(...(await new RealGitHubClient().listRepositories(githubToken)));
-      } catch {
+      } catch (error) {
+        if (isGitHubUnauthorized(error)) {
+          throw new ApiHttpError(
+            401,
+            "unauthorized",
+            "GitHub no longer accepts this portal's sign-in for you. Sign out, sign in with GitHub again, and reopen this page.",
+          );
+        }
         console.warn(JSON.stringify({ evt: "github_api_failure", operation: "list_repositories" }));
         // Swallowing this returned an empty success, and ConnectPage then
         // told the student their fork was missing during a GitHub outage.

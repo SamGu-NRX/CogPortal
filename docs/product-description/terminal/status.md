@@ -2,7 +2,7 @@
 
 ## Summary
 
-`cogworks status` answers one question: what does the portal think this machine is? It prints seven lines naming the GitHub account behind the link, the team, the repository, the team's Discord channel, this device's name, when the link expires, and which portal origin all of that came from. It is the only command that shows the device expiry, and the only place a student can see the team's Discord channel from a terminal.
+`cogworks status` answers one question: what does the portal think this machine is? It prints seven lines naming the GitHub account behind the link, the team, the repository, whether the team has chosen a Discord channel, this device's name, when the link expires, and which portal origin all of that came from. It is the only command that shows the device expiry, and the only place a student can learn from a terminal whether their team has a Discord channel at all.
 
 It is reached by typing `cogworks status` in any directory. Unlike `check`, `run`, and `test`, it does not take `--benchmark`, does not read the repository it is standing in, and does not care whether that directory is a git worktree at all. It takes one option, `--portal`, and has no `--json` mode. Nothing is written to disk and nothing is sent except one authenticated GET.
 
@@ -14,17 +14,17 @@ A student who has already run `cogworks link` types `cogworks status` and gets s
 GitHub   @octocat
 Team     Team Bagel
 Repo     CogWorksBWSI/team-bagel-2026
-Discord  #1234567890123456789
+Discord  team channel chosen
 Device   MacBook Pro
-Expires  2026-10-01T14:22:05Z
+Expires  Sep 18 (in 14 days)
 Portal   https://cogportal.example
 ```
 
 The command exits 0. Nothing changed anywhere; running it twice prints the same thing twice.
 
-The `Discord` line shows a raw channel snowflake, not a channel name. A student reading it cannot tell which channel that is without pasting the number into Discord. When no channel has been chosen, the line reads `Discord  team channel not chosen` instead, which is the only cell on this screen written in words rather than in an identifier (`python/cogbench/src/cogbench/cli.py:687`).
+The `Discord` line is a yes or a no. It reads `Discord  team channel chosen` when the team has bound a channel and `Discord  team channel not chosen` when it has not, and it never names the channel (`python/cogbench/src/cogbench/cli.py:832`). It used to print the raw channel snowflake, which a student could not read without pasting the number into Discord. The identifier is gone and nothing took its place, so the line now answers whether rather than which.
 
-The `Expires` line is an ISO 8601 UTC timestamp ending in `Z`, converted from the millisecond value the portal stores. Every other timestamp a student sees is rendered in their own locale; this one is not.
+The `Expires` line is a short date followed by a phrase saying how far off it is, built from the millisecond value the portal stores. The phrase is one of `(today)`, `(in 1 day)`, `(in N days)`, `(1 day ago)`, or `(N days ago)` (`python/cogbench/src/cogbench/cli.py:216`). It replaced an ISO 8601 timestamp ending in `Z`. Both the date and the day count are worked out in UTC, so a student far enough west, late enough in the evening, reads a date one day ahead of their own.
 
 ## The ask, event by event
 
@@ -82,10 +82,10 @@ Nothing is cached. The next `cogworks status` asks again.
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
 | Who you are | The device token carries the account. A device linked to an account with no team gets the 403 above rather than a partial answer; there is no signed-out state for a linked device. An instructor sees the same seven lines as a student, for their own team. | No effect. The token is read once, and a role change made in the browser mid-request does not reach the answer already in flight. |
-| Where your team and repository stand | The whole point of the command. A team always has a repository, because a team is created by connecting one, so `Repo` is never blank. `Discord` is the only line that can be absent, and it says so in words. | No effect within one invocation. |
+| Where your team and repository stand | The whole point of the command. A team always has a repository, because a team is created by connecting one, so `Repo` is never blank. `Discord` is the only line that reports a state rather than a name, and it says so in words whichever state it is in. | No effect within one invocation. |
 | Which week's benchmark | No effect. `status` takes no `--benchmark` and reports nothing per benchmark: not the week, not the quota, not the last run. A student who wants to know whether they have practice runs left cannot learn it here. | No effect. |
 | Practice or leaderboard | No effect. Neither runs nor leaderboard entries appear. | No effect. |
-| Flags, options, and where you are typing | `--portal` overrides both the environment variable and the saved active portal for this one invocation, and does not change which portal is active afterwards. There is no `--json`, so a script must parse fixed-width text. Output goes to stdout whether or not it is a terminal, with no colour and no width detection, so a pipe and a terminal get identical bytes. | No effect. |
+| Flags, options, and where you are typing | `--portal` ("use this CogPortal address instead of the saved one", `cli.py:117`) overrides both the environment variable and the saved active portal for this one invocation, and does not change which portal is active afterwards. There is no `--json`, so a script must parse fixed-width text. Output goes to stdout whether or not it is a terminal, with no colour and no width detection, so a pipe and a terminal get identical bytes. | No effect. |
 
 Nothing here can change mid-ask. Every variant is read at the start, and the command is over in one request.
 
@@ -117,25 +117,24 @@ After any interrupt the machine is unchanged: no report, no token rewrite, no ca
 
 **Live updates and reconnection.** None. This is a single request with no stream, no polling, and no reconnection.
 
-**Discord.** The Discord line is the only place the terminal mentions Discord. It reports whether a channel is bound and, when one is, its snowflake. It does not say whether the bot can post there, whether anyone is in it, or how to change it. The sentence for the unbound case does not name the command that binds it either, though `cogworks run --live` does say "a team maintainer can choose the Discord channel with /cog" in the same situation (`python/cogbench/src/cogbench/cli.py:562`).
+**Discord.** The Discord line is the only place the terminal mentions Discord. It reports whether a channel is bound and stops there. It does not name the channel, and it does not say whether the bot can post there, whether anyone is in it, or how to change it. The sentence for the unbound case does not name the command that binds it either, though `cogworks run --live` does say "a team maintainer can choose the Discord channel with /cog" in the same situation (`python/cogbench/src/cogbench/cli.py:617`).
 
 **Configuration.** `--portal`, then `COGPORTAL_URL`, then the active portal in `~/.cogbench/config.json`, or wherever `COGBENCH_CONFIG` points. `status` reads that file and never writes it.
 
 ## Edge cases
 
 - **A student linked to two portals.** The config file holds a token per origin plus one active portal. `cogworks status` with no `--portal` reports the active one only. There is no way to list every linked portal; a student who linked a staging portal last has no indication that the answer is about staging beyond the `Portal` line at the bottom.
-- **A response missing a field.** The seven values are read by subscript. A response without `githubLogin`, `teamName`, `repositoryFullName`, `deviceName`, or `deviceExpiresAt` raises `KeyError`, which is not in the command's caught exception list, so the student gets a Python traceback rather than a sentence (`python/cogbench/src/cogbench/cli.py:683`). The wire schema requires all five, so this needs a portal that is misbehaving or a version skew, but the failure mode is a stack trace either way.
-- **A non-numeric expiry.** `deviceExpiresAt` is converted with `int()`. A value that will not convert raises `ValueError`, which *is* caught, so the student gets `cogworks: invalid literal for int() with base 10: ...` and exit 2. That is a Python message, not a sentence written for a reader.
+- **A response missing a field.** The seven values are read by subscript. A response without `githubLogin`, `teamName`, `repositoryFullName`, `deviceName`, or `deviceExpiresAt` raises `KeyError`, which is not in the command's caught exception list, so the student gets a Python traceback rather than a sentence (`python/cogbench/src/cogbench/cli.py:829`). The wire schema requires all five, so this needs a portal that is misbehaving or a version skew, but the failure mode is a stack trace either way.
+- **A non-numeric expiry.** `deviceExpiresAt` is converted with `int()` before the date is formatted (`python/cogbench/src/cogbench/cli.py:838`). A value that will not convert raises `ValueError`, which *is* caught, so the student gets `cogworks: invalid literal for int() with base 10: ...` and exit 2. That is a Python message, not a sentence written for a reader.
 - **The membership query takes the first row it finds.** The portal selects the membership with `limit(1)` and no ordering (`apps/portal/worker/routes/connections.ts:309`). In practice this is safe: `team_members` carries a unique index on `userId` (`apps/portal/worker/db/schema.ts:192`), so a student is on exactly one team at a time. The unordered `limit(1)` is therefore harmless today and would become an arbitrary choice the day that index is relaxed.
 - **Fixed-width labels and long values.** The labels are padded to eight characters and the values are printed as-is. A long repository name or team name simply runs past the terminal width and wraps; nothing is truncated, which is the right choice for a value a student may need to copy.
 - **The first line names GitHub, not the portal account.** For a development sign-in that carries no GitHub identity, the portal falls back to the account's login (`accountLogin`). A student who signed in through the dev path sees something under a `GitHub` label that did not come from GitHub.
 
 ## Open questions and verification
 
-- The `Discord` line prints a raw channel snowflake. Showing `#1234567890123456789` to a student is close to showing nothing; the portal knows the channel name in other contexts. May be worth treating as a bug rather than documenting. **Unverified**: not observed against a running portal.
-- A missing field in the response produces a traceback rather than a handled error, because `KeyError` is not in the caught tuple at `cli.py:707`. Worth treating as a bug. The same tuple protects every other command, so this is one line's worth of exposure, not a pattern.
+- A missing field in the response produces a traceback rather than a handled error, because `KeyError` is not in the caught tuple at `cli.py:846`. Worth treating as a bug. The same tuple protects every other command, so this is one line's worth of exposure, not a pattern.
 - The retry window is silent. Three attempts at a 15 second timeout with backoff can keep the command quiet for roughly 45 seconds with no output. Whether that is long enough to look hung was not measured. **Unverified.**
 - Whether the portal's `no_team` 403 is reachable in practice was not confirmed: a device is linked from a browser session that has already passed the team gate, so an account with a device but no team may be an unreachable state. If it is unreachable, the sentence is dead copy; if it is reachable, it should name the page to visit.
 - No `--json` mode. Whether anything scripts against this output was not established.
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `5a74e74`.

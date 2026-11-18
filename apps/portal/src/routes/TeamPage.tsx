@@ -97,6 +97,9 @@ export function TeamPage() {
       ) : (
         <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <h1 className="text-3xl">{t.name}</h1>
+          {t.provenance === "archive" && (
+            <span className="u-kicker">2026 cohort, anonymized</span>
+          )}
           {t.isAdmin && (
             <button
               type="button"

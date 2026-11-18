@@ -188,6 +188,7 @@ test("linked students land on a warm, private team snapshot", async () => {
           id: "team-1",
           name: "Analytical Engines",
           description: null,
+          provenance: "live",
           repo: {
             owner: "cogworks",
             name: "engines",
@@ -226,6 +227,7 @@ test("/cog shows the one useful next run action instead of a bulky menu", async 
           id: "team-1",
           name: "Analytical Engines",
           description: null,
+          provenance: "live",
           repo: {
             owner: "cogworks",
             name: "engines",
@@ -348,6 +350,7 @@ test("team channel setup is explicit and binds only after confirmation", async (
       id: "team-1",
       name: "Analytical Engines",
       description: null,
+      provenance: "live" as const,
       repo: {
         owner: "cogworks",
         name: "engines",
@@ -437,6 +440,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             rank: 1,
             teamName: "Analytical Engines",
             teamDescription: null,
+            provenance: "live",
             repoUrl: null,
             sha: "b".repeat(40),
             shortSha: "bbbbbbb",
@@ -449,6 +453,7 @@ test("leaderboard rows carry rank marks and scores without commit noise", async 
             rank: 2,
             teamName: "Face Finder",
             teamDescription: null,
+            provenance: "live",
             repoUrl: null,
             sha: "c".repeat(40),
             shortSha: "ccccccc",

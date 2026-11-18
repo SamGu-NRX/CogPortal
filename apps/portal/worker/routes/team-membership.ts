@@ -108,6 +108,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         id: team.id,
         name: team.name,
         description: team.description,
+        provenance: team.provenance,
         repo: { fullName: team.repoFullName, url: team.repoUrl },
         members,
         adminLogin: members.find((member) => member.role === "admin")?.login ?? null,

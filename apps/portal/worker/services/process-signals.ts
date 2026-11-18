@@ -125,8 +125,16 @@ function unavailableReason(commits: CommitRecord[], quality: CommitHistoryQualit
   return null;
 }
 
-/** The reason paired with `HISTORY_FETCH_FAILED`. TS-only; see module docstring. */
+/** The reasons paired with `HISTORY_FETCH_FAILED`. TS-only; see module docstring. */
 const FETCH_FAILED_REASON = "the commit history could not be read from GitHub just now";
+export const UNAUTHORIZED_HISTORY_REASON =
+  "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page.";
+
+type HistoryFetchFailureReason = Extract<FetchCommitsResult, { ok: false }>["reason"];
+
+function historyUnavailableReason(reason: HistoryFetchFailureReason): string {
+  return reason === "unauthorized" ? UNAUTHORIZED_HISTORY_REASON : FETCH_FAILED_REASON;
+}
 
 // ---------------------------------------------------------------------------
 // Path matching shared by stageFootprint, ownershipBreadth, and boundaryChurn
@@ -475,6 +483,8 @@ export type WeekLabel = "week1" | "week2" | "week3";
 /** The four signals bundled together, for handing to `findingSentences`. */
 export interface ProcessSignals {
   historyQuality: HistoryQuality;
+  /** Internal fetch detail. The contracts schema keeps `historyQuality` at `fetch_failed`. */
+  historyFetchFailureReason: HistoryFetchFailureReason | null;
   stageFootprint: Record<string, StageActivity>;
   firstLight: FirstLightSignal;
   boundaryChurn: ChurnEvent[];
@@ -530,7 +540,9 @@ function pipelineSentences(signals: ProcessSignals): string[] {
     );
   } else if (signals.historyQuality === HISTORY_FETCH_FAILED) {
     sentences.push(
-      "The commit history could not be read from GitHub just now, so the stages below are blank; the runs are the portal's own record and still hold.",
+      signals.historyFetchFailureReason === "unauthorized"
+        ? UNAUTHORIZED_HISTORY_REASON
+        : "The commit history could not be read from GitHub just now, so the stages below are blank; the runs are the portal's own record and still hold.",
     );
   }
 
@@ -718,7 +730,10 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
   if (!input.commitsResult.ok) {
     return {
       historyQuality: HISTORY_FETCH_FAILED,
-      stageFootprint: stageMap ? degradedStageMap(stageMap, FETCH_FAILED_REASON) : {},
+      historyFetchFailureReason: input.commitsResult.reason,
+      stageFootprint: stageMap
+        ? degradedStageMap(stageMap, historyUnavailableReason(input.commitsResult.reason))
+        : {},
       firstLight: light,
       boundaryChurn: [],
       ownershipBreadth: {},
@@ -729,6 +744,7 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
   const commits = input.commitsResult.commits;
   return {
     historyQuality: classifyHistoryQuality(commits),
+    historyFetchFailureReason: null,
     stageFootprint: stageMap ? stageFootprint(commits, stageMap, input.roster) : {},
     firstLight: light,
     boundaryChurn: boundaryChurn(commits, BOUNDARY_FILES, light.firstScoredAt),

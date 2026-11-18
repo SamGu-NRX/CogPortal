@@ -175,7 +175,7 @@ function Standings({ benchmarkId }: { benchmarkId: string }) {
   return (
     <StandingsTable
       entries={entries}
-      footer={`${benchmark.id} / v${benchmark.version}. Each team publishes one selected official result.`}
+      footer={`${benchmark.id} / v${benchmark.version}. One selected official result per team.`}
     />
   );
 }
@@ -202,6 +202,7 @@ function StandingsTable({
   footer: string;
 }) {
   const primaryLabel = entries[0]?.primaryMetric.label ?? "Score";
+  const hasArchiveRows = entries.some((entry) => entry.provenance === "archive");
 
   if (entries.length === 0) {
     return (
@@ -223,11 +224,24 @@ function StandingsTable({
 
       <ol aria-label="Standings">
         {entries.map((entry, index) => (
-          <EntryRow key={entry.rank} entry={entry} index={index} />
+          <EntryRow
+            key={`${entry.teamName}:${entry.sha}:${entry.completedAt}`}
+            entry={entry}
+            index={index}
+          />
         ))}
       </ol>
 
-      <p className="mt-6 px-4 font-mono text-[11px] text-ink-faint">
+      {hasArchiveRows && (
+        <p className="mt-5 px-4 text-[12.5px] leading-relaxed text-ink-secondary">
+          Archive rows are 2026 teams scored after the course from their repositories as
+          they left them, with names replaced.
+        </p>
+      )}
+
+      <p
+        className={`${hasArchiveRows ? "mt-3" : "mt-6"} px-4 font-mono text-[11px] text-ink-faint`}
+      >
         {footer}
       </p>
     </>
@@ -263,10 +277,13 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
         >
           {String(entry.rank).padStart(2, "0")}
         </span>
-        <span className="flex min-w-0 items-baseline gap-2">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className="truncate text-[14.5px] font-medium text-ink" title={entry.teamName}>
             {entry.teamName}
           </span>
+          {entry.provenance === "archive" && (
+            <span className="u-kicker leading-tight">2026 cohort, anonymized</span>
+          )}
           {entry.isYou && (
             <span className="shrink-0 bg-detect px-1 py-px font-mono text-[9.5px] font-medium tracking-[0.09em] text-paper-raised">
               YOU
@@ -312,7 +329,9 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
               {entry.supportingMetrics.map((m) => (
                 <DetailRow key={m.key} label={m.label} value={formatMetricValue(m)} />
               ))}
-              <DetailRow label="Commit" value={entry.shortSha} title={entry.sha} />
+              {entry.sha && (
+                <DetailRow label="Commit" value={entry.shortSha} title={entry.sha} />
+              )}
               <DetailRow label="Completed" value={formatDateTime(entry.completedAt)} />
               {entry.repoUrl && (
                 <div className="flex items-baseline justify-between gap-3 sm:col-span-2 sm:justify-start sm:gap-8">

@@ -140,6 +140,10 @@ export const teams = sqliteTable(
     repoId: integer("repo_id"),
     templateSourceRepoId: integer("template_source_repo_id"),
     discordChannelId: text("discord_channel_id"),
+    /** The leaderboard must label rows the pipeline did not produce for a living team. */
+    provenance: text("provenance", { enum: ["live", "archive"] })
+      .notNull()
+      .default("live"),
   },
   (table) => [
     uniqueIndex("teams_cohort_repo_unique").on(table.cohortId, table.repoFullName),

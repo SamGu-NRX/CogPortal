@@ -5,6 +5,7 @@ import {
   HISTORY_EMPTY,
   HISTORY_FETCH_FAILED,
   HISTORY_USABLE,
+  UNAUTHORIZED_HISTORY_REASON,
   WEEK1_STAGE_MAP,
   boundaryChurn,
   buildProcessSignals,
@@ -19,8 +20,9 @@ import type {
   RosterMember,
   RunRecord,
 } from "../worker/services/process-signals.ts";
-import { parseCoAuthorTrailers } from "../worker/github/commits.ts";
+import { fetchCommitHistory, parseCoAuthorTrailers } from "../worker/github/commits.ts";
 import type { CommitRecord, FetchCommitsResult } from "../worker/github/commits.ts";
+import { cacheProcessSignals } from "../worker/routes/team.ts";
 
 const DAY = 24 * 60 * 60 * 1_000;
 const T0 = Date.parse("2026-06-01T00:00:00Z");
@@ -112,6 +114,35 @@ test("first light ignores commit history entirely, including a fetch failure", (
   assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
   assert.equal(signals.firstLight.firstScoredAt, T0);
   assert.equal(signals.firstLight.scoredRunCount, 1);
+});
+
+test("a GitHub 401 threads through the signals and is not cacheable", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 401 });
+  try {
+    const commitsResult = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.deepEqual(commitsResult, { ok: false, reason: "unauthorized" });
+
+    const signals = buildProcessSignals({
+      commitsResult,
+      runs: [],
+      weekLabel: "week1",
+      roster: NO_ROSTER,
+    });
+    assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
+    assert.equal(signals.historyFetchFailureReason, "unauthorized");
+    assert.equal(findingSentences(signals)[0], UNAUTHORIZED_HISTORY_REASON);
+    for (const activity of Object.values(signals.stageFootprint)) {
+      assert.equal(activity.unavailableReason, UNAUTHORIZED_HISTORY_REASON);
+    }
+    let cacheWrites = 0;
+    await cacheProcessSignals(commitsResult, async () => {
+      cacheWrites += 1;
+    });
+    assert.equal(cacheWrites, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ---------------------------------------------------------------------------

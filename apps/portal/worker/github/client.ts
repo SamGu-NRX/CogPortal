@@ -6,6 +6,17 @@ const GITHUB_ACCEPT = "application/vnd.github+json";
 
 export type GitHubRepositoryListing = Omit<GithubRepo, "claimedByTeam">;
 
+export class GitHubApiError extends Error {
+  constructor(public readonly status: number) {
+    super(`GitHub API request failed with status ${status}.`);
+    this.name = "GitHubApiError";
+  }
+}
+
+export function isGitHubUnauthorized(error: unknown): boolean {
+  return error instanceof GitHubApiError && error.status === 401;
+}
+
 export interface GitHubClient {
   resolveRef(owner: string, name: string, ref: string, token: string): Promise<string>;
   listRepositories(token: string): Promise<GitHubRepositoryListing[]>;
@@ -123,7 +134,7 @@ export async function githubApiRequest(
 
 async function githubJson(path: string, token: string): Promise<unknown> {
   const response = await githubApiRequest(path, token);
-  if (!response.ok) throw new Error(`GitHub API request failed with status ${response.status}.`);
+  if (!response.ok) throw new GitHubApiError(response.status);
   return response.json();
 }
 
@@ -300,7 +311,7 @@ export class RealGitHubClient implements GitHubClient {
       "application/vnd.github.raw+json",
     );
     if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`GitHub API request failed with status ${response.status}.`);
+    if (!response.ok) throw new GitHubApiError(response.status);
     return response.text();
   }
 }

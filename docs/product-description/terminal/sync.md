@@ -1,10 +1,10 @@
 # `cogworks sync`
 
-> **In flight.** The weight-carrying half of this command landed while this document was being drafted, as uncommitted work on top of `f74e087`, and it changed twice during the pass. The files are `python/cogbench/src/cogbench/cli.py` (the `sync` branch), `python/cogbench/src/cogbench/client.py` (`upload_weight`), `apps/portal/worker/routes/local-reports.ts`, `apps/portal/worker/services/weights.ts` and `local-reports.ts`, `apps/portal/worker/routes/runs.ts`, `apps/portal/migrations/0033_weight_artifacts.sql`, `packages/contracts/src/schema.ts` and `protocol.ts`, `apps/portal/worker/execution/runner.ts`, and the prepare script in `apps/runner-modal/src/cogworks_runner/modal_app.py`. What is written below is what the source said at the end of the pass. A verifier must re-read those files rather than trust this prose.
+> **In flight.** The weight-carrying half of this command landed while this document was being drafted, as work that was uncommitted at the time and has since been committed as `d88a8cf`. It changed twice during the drafting pass, so the prose below was written against revisions that no longer exist anywhere. The files are `python/cogbench/src/cogbench/cli.py` (the `sync` branch), `python/cogbench/src/cogbench/client.py` (`upload_weight`), `apps/portal/worker/routes/local-reports.ts`, `apps/portal/worker/services/weights.ts` and `local-reports.ts`, `apps/portal/worker/routes/runs.ts`, `apps/portal/migrations/0033_weight_artifacts.sql`, `packages/contracts/src/schema.ts` and `protocol.ts`, `apps/portal/worker/execution/runner.ts`, and the prepare script in `apps/runner-modal/src/cogworks_runner/modal_app.py`. What is written below is what the source said at the end of the pass. A verifier must re-read those files rather than trust this prose.
 
 ## Summary
 
-`cogworks sync` takes one report a student's own machine produced and hands it to the portal, where it appears for the team marked `LOCAL · SELF-REPORTED`. It is the only way a local result reaches the portal at all: nothing is uploaded in the background, which is why the dashboard's empty state says "No team member has explicitly synced a CogBench report for this benchmark."
+`cogworks sync`, which `cogworks --help` describes as "explicitly sync one local report" (`python/cogbench/src/cogbench/cli.py:105`), takes one report a student's own machine produced and hands it to the portal, where it appears for the team marked `LOCAL · SELF-REPORTED`. It is the only way a local result reaches the portal at all: nothing is uploaded in the background, which is why the dashboard's empty state says "No team member has explicitly synced a CogBench report for this benchmark."
 
 It also carries the trained weights that run used, when those weights are not committed to the repository. That is the second half of a three-part path: `cogworks run` records which weight files it read, `cogworks sync` uploads the ones git does not carry, and a hosted run on the same commit downloads them before scoring. It exists because a Week 3 image side cannot be measured without weights, and committing a large checkpoint to a course repository is a worse answer than uploading it once.
 
@@ -75,7 +75,7 @@ The report has to land before any weight can, because the upload route looks the
 
 ### While it works
 
-Nothing is printed during the report upload. A report is small, at most 32 metrics and 32 diagnostics of 240 characters each, so it is one quick request.
+Nothing is printed during the report upload. A report is small, at most 32 metrics and 32 diagnostic lines of 240 characters each, so it is one quick request. A note longer than that was split at sentence boundaries when the report was made and counts as several of the 32 lines (`python/cogbench/src/cogbench/models.py:12`, `:168`), so a benchmark that writes long prose sends more lines and fewer notes.
 
 Each weight file is then handled in turn. The command first refuses any path that is absolute or contains `..`, with "Weight path must stay inside the repository: {path}". Then it asks git whether the file is tracked, using `git ls-files --error-unmatch`. A tracked file is left alone and reported. An untracked file that does not exist raises "Weight file does not exist: {path}". Everything else is uploaded.
 
@@ -111,7 +111,7 @@ The linkage is the commit. Weights are stored under `weights/{repository}/{commi
 | Where your team and repository stand | The portal scopes a listed report to the team's members and the team's repository, so a report made in a different repository is accepted but will not appear in the team's list. A report made outside a git worktree can be synced but cannot carry weights, because there is no commit to file them under. | No effect. |
 | Which week's benchmark | Week 3 is the reason this path exists; its absent-weights diagnostic now tells teams to keep the file out of git and let `cogworks sync` carry it. Nothing stops another week's report from carrying weights, and nothing else asks for them. | No effect. |
 | Practice or leaderboard | A synced report can never be promoted or published. It is self-reported and stays that way. What the weights change is the next hosted run, which can be promoted. | No effect. |
-| Flags, options, and where you are typing | `--portal` redirects this one invocation. There is no `--json`, no `--dry-run`, and no flag to skip the weight phase, so a student who does not want to upload a checkpoint has to commit it, delete it from the report, or not sync. Output is identical in a terminal and in a pipe. | No effect. |
+| Flags, options, and where you are typing | `--portal` ("use this CogPortal address instead of the saved one", `cli.py:112`) redirects this one invocation. The optional path is described as "saved report file to sync (uses the latest report when omitted)" (`cli.py:109`). There is no `--json`, no `--dry-run`, and no flag to skip the weight phase, so a student who does not want to upload a checkpoint has to commit it, delete it from the report, or not sync. Output is identical in a terminal and in a pipe. | No effect. |
 
 Nothing here can change mid-ask.
 
@@ -165,4 +165,4 @@ After an interrupt the local report file is exactly as it was. `sync` is the onl
 - Whether a hosted run discloses that it used uploaded weights, on any screen, was not confirmed. The run record has a column for it (`runs.weights_supplied_json`) and the runner event carries it; no view was traced. **Unverified.**
 - This document was rewritten twice during the drafting pass as the feature landed, and the source moved again between the last read and the last edit. Treat every line number here as a hint rather than a citation.
 
-Verified against Cog\*Portal commit `f74e087`, plus uncommitted work in the files named at the top.
+Verified against Cog\*Portal commit `5a74e74`.

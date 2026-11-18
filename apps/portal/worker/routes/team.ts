@@ -98,6 +98,7 @@ export async function getTeamDetail(
     id: team.id,
     name: team.name,
     description: team.description,
+    provenance: team.provenance,
     repo: {
       owner: team.repoOwner,
       name: team.repoName,
@@ -197,6 +198,18 @@ const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
 
 /** How long a cached `team_process_signals` row is served before recomputing. */
 const PROCESS_SIGNALS_CACHE_MS = 30 * 60 * 1000;
+
+export async function cacheProcessSignals(
+  commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>,
+  write: () => Promise<void>,
+): Promise<void> {
+  if (!commitsResult.ok && commitsResult.reason === "unauthorized") {
+    // A GitHub 401 tells the student to sign in again. Caching that result
+    // would keep showing the instruction after the new sign-in succeeds.
+    return;
+  }
+  await write();
+}
 
 /**
  * A team's week is inferred from the benchmark module of its single most
@@ -302,18 +315,25 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
 
     const signals = buildProcessSignals({ commitsResult, runs: runRecords, weekLabel, roster });
     const payload: Omit<TeamProcessSignals, "computedAt"> = {
-      ...signals,
+      historyQuality: signals.historyQuality,
+      weekLabel: signals.weekLabel,
+      stageFootprint: signals.stageFootprint,
+      firstLight: signals.firstLight,
+      boundaryChurn: signals.boundaryChurn,
+      ownershipBreadth: signals.ownershipBreadth,
       findingSentences: findingSentences(signals),
     };
-    const signalsJson = JSON.stringify(payload);
 
-    await db
-      .insert(teamProcessSignals)
-      .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
-      .onConflictDoUpdate({
-        target: teamProcessSignals.teamId,
-        set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
-      });
+    await cacheProcessSignals(commitsResult, async () => {
+      const signalsJson = JSON.stringify(payload);
+      await db
+        .insert(teamProcessSignals)
+        .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
+        .onConflictDoUpdate({
+          target: teamProcessSignals.teamId,
+          set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
+        });
+    });
 
     return respond(c, TeamProcessSignalsSchema, { ...payload, computedAt: now });
   });

@@ -2,7 +2,9 @@
 
 ## Summary
 
-The admin console is where an instructor manages a cohort: the join code students enroll with, whether enrollment is open, who counts as teaching staff, which teams exist, who is on them, which TA is assigned to each, and which students have no team yet. It is deliberately small, and a comment at the top says so: "Staff console, deliberately small (plan): join code, enrollment toggle, teams with members and quota, unassigned students. Nothing else." (`apps/portal/src/routes/AdminPage.tsx:32`).
+The admin console is where an instructor manages a cohort: which teams exist, whether the platform has run anything for each of them, who is on them, which TA is assigned to each, which students have no team yet, the join code students enroll with, whether enrollment is open, and who counts as teaching staff.
+
+It is arranged as a triage list, and the comment at the top says both what it is for and why the panels sit in the order they do: "Ten TAs cannot read forty repositories, so this page answers one question per row: has the platform run anything for this team yet, and how much. TEAMS comes first because that is the question; the join code, the roster, and the unassigned list are the owner's housekeeping and sit below it." (`apps/portal/src/routes/AdminPage.tsx:36-42`).
 
 It lives at `/admin` behind `RequireStaff`, which sends a signed-out visitor to `/signin` and anyone who is neither staff nor a TA to the front page, both with `replace` (`apps/portal/src/App.tsx:81`, `:82`). Every endpoint behind it re-checks authorization server side, so the gate is a convenience rather than the enforcement.
 
