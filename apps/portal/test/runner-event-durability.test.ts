@@ -446,6 +446,45 @@ test("racing late completions cannot replace the first saved provisioning observ
   assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), provisioningEvidence());
 });
 
+test("provenance audit: losing late completion cannot mix its metrics or weights into the winner", async () => {
+  const harness = freshHarness();
+  await seedRun(harness.db);
+  const app = route();
+  await post(app, harness.binding, infrastructureFailureEvent());
+  const barrier = harness.pauseAfterRead(/^select "id", "team_id", .* from "runs"/i);
+  const winner = {
+    ...completedEvent(), eventId: "evt_audit_winner", sequence: 6,
+    preparedEnvironment: provisioningEvidence(), environmentDigest: "a".repeat(64),
+    result: { ...completedEvent().result, diagnostics: ["winner"], weightsSupplied: ["winner.pkl"],
+      metrics: completedEvent().result.metrics.map((metric) => ({ ...metric, value: 0.25 })) },
+  };
+  const alternate = { ...provisioningEvidence(), artifactId: "im-audit-loser" };
+  const loser = {
+    ...completedEvent(), eventId: "evt_audit_loser", sequence: 7,
+    preparedArtifactId: alternate.artifactId, preparedEnvironment: alternate,
+    environmentDigest: "b".repeat(64),
+    result: { ...completedEvent().result, diagnostics: ["loser"], weightsSupplied: ["loser.pkl"],
+      metrics: completedEvent().result.metrics.map((metric) => ({ ...metric, value: 0.75 })) },
+  };
+  const delayed = post(app, harness.binding, loser);
+  await barrier.reached;
+  try {
+    assert.equal((await post(app, harness.binding, winner)).status, 200);
+  } finally { barrier.release(); }
+  assert.equal((await delayed).status, 200);
+  const [run] = await harness.db.select().from(runs);
+  assert.equal(run.status, "failed");
+  assert.equal(run.lastEventSequence, winner.sequence);
+  assert.equal(run.preparedArtifactId, winner.preparedArtifactId);
+  assert.equal(run.environmentDigest, winner.environmentDigest);
+  assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), winner.preparedEnvironment);
+  assert.deepEqual(JSON.parse(run.weightsSuppliedJson), winner.result.weightsSupplied);
+  assert.deepEqual(JSON.parse(run.diagnosticsJson!), winner.result.diagnostics);
+  const metrics = await harness.db.select().from(runMetrics);
+  assert.equal(metrics.length, winner.result.metrics.length);
+  assert.ok(metrics.every((metric) => metric.value === 0.25));
+});
+
 test("contract-check provider failure settles only its execution and a late completion stays history", async () => {
   const { db, binding } = freshHarness();
   await seedRun(db);
